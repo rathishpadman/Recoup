@@ -1,0 +1,58 @@
+OpenAI Hackathon Enablement Instructions
+posted on June 3rd 2026 | By Event Admin
+To build your agent/solution using the OpenAI API Platform or ChatGPT Enterprise, the following enablement steps must be completed.
+
+
+
+Step 0 - Pre-Requisites
+
+To build your solution, below are the mandatory prerequisites that are to be requested for access via OneConnect
+
+- ChatGPT Enterprise or OpenAI API License 
+
+      - Request for required ChatGPT License through OneConnect : ChatGPT / OpenAI - Employee Center
+
+      - Local Admin rights 
+
+Request for Local Admin right through OneConnect :  Admin Access - Local Machine - Employee Center
+
+
+
+Step 1 – Basic Software installations from Web
+
+- Mandatory
+
+      - Codex - Download Codex Desktop App from Codex Download and install the app. Log in with your ChatGPT Enterprise / API login credentials
+
+      - VS Code and Extensions - Download VS Code from VS Code Download and install. After logging in with ChatGPT credentials, the required extensions can be downloaded
+
+- Optional
+
+      - GitHub CLI (Only for Windows) - Download Github CLI if required, from Github CLI Download and install.
+
+
+
+Step 2 - Support Software Installation
+
+All support software necessary can be downloaded from the HCLTech Download Portal @ OpenAI Hackathon Software Download Portal. For Mac, choose the Software based on the Mac processor type – Intel or Silicon Apple
+
+- Mandatory
+
+      - Gitbash (Only for Windows)
+
+      - Node.JS
+
+- Optional
+
+      - Dot Net SDK
+
+      - Go Lang
+
+      - JDK
+
+      - Jenkins
+
+      - Python
+
+      - Terraform
+

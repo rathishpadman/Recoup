@@ -1,0 +1,113 @@
+/* O2C Collections Design System v3.1 — "Editorial Enterprise"
+ * Design tokens as CSS custom properties.
+ * Light-first; dark scope is monitoring dashboards only.
+ * Apply [data-theme="dark"] on the monitoring root, NOT <html>. */
+
+:root {
+  /* ---- Brand: petrol ---- */
+  --color-primary:        #0C6E6B;
+  --color-primary-hover:  #0A5755;
+  --color-primary-active: #084746;
+  --color-primary-deep:   #053B3B;
+  --color-primary-subtle: #DCEEED;
+  --color-primary-tint:   #EAF5F4;
+  --color-accent:         #C2410C; /* high-priority/risk emphasis only */
+
+  /* ---- Neutrals: warm-cool low-chroma ramp ---- */
+  --neutral-900: #131A19;
+  --neutral-800: #1E2A28;
+  --neutral-700: #324341;
+  --neutral-600: #4B5C5A;
+  --neutral-500: #6B7A78;
+  --neutral-400: #93A09E;
+  --neutral-300: #C7CFCE;
+  --neutral-200: #E0E5E4;
+  --neutral-100: #EEF1F1;
+  --neutral-50:  #F7F8F8;
+  --white:       #FFFFFF;
+
+  /* ---- Semantic surface/text/border ---- */
+  --bg-canvas:    #F7F8F8;
+  --bg-surface:   #FFFFFF;
+  --bg-subtle:    #EEF1F1;
+  --text-primary:   #131A19;
+  --text-secondary: #4B5C5A;
+  --text-muted:     #6B7A78;
+  --border-default: #D6DCDB;
+  --border-subtle:  #E6EAEA;
+  --focus-ring:     #0C6E6B;
+
+  /* ---- Status (text / bg / border) ---- */
+  --status-success-text: #166534; --status-success-bg: #DCFCE7; --status-success-border: #86EFAC;
+  --status-info-text:    #075985; --status-info-bg:    #E0F2FE; --status-info-border:    #7DD3FC;
+  --status-warning-text: #92400E; --status-warning-bg: #FEF3C7; --status-warning-border: #FBBF24;
+  --status-danger-text:  #991B1B; --status-danger-bg:  #FEE2E2; --status-danger-border:  #FCA5A5;
+  --status-dispute-text: #5B21B6; --status-dispute-bg: #EDE9FE; --status-dispute-border: #C4B5FD;
+  --status-escalated-text: #9A3412; --status-escalated-bg: #FFEDD5; --status-escalated-border: #FDBA74;
+  --status-neutral-text: #334155; --status-neutral-bg: #F1F5F9; --status-neutral-border: #CBD5E1;
+
+  /* ---- Aging buckets (chart-safe; pair with label/pattern) ---- */
+  --aging-current: #16A34A;
+  --aging-1-30:    #0284C7;
+  --aging-31-60:   #D97706;
+  --aging-61-90:   #EA580C;
+  --aging-90plus:  #DC2626;
+  --aging-disputed:#7C3AED;
+
+  /* ---- Atmosphere (signature decoration only — edges, never UI fills) ---- */
+  --atmos-mint: #BFE3DE;
+  --atmos-sand: #F2E4D0;
+  --atmos-sky:  #CFE0EC;
+
+  /* ---- Type ---- */
+  --font-editorial: 'Newsreader', Georgia, serif;       /* hero, exec, empty states, micro-labels (italic) */
+  --font-ui:        'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:      'IBM Plex Mono', ui-monospace, monospace; /* numbers/IDs/hex only */
+  --tracking-ui:    -0.01em;
+
+  /* ---- Spacing (8px base) ---- */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+
+  /* ---- Radius ---- */
+  --radius-xs: 2px; --radius-sm: 4px; --radius-md: 6px;  /* buttons */
+  --radius-lg: 8px;  /* inputs/cards */ --radius-panel: 12px; --radius-editorial: 16px;
+
+  /* ---- Elevation (two tiers only) ---- */
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 8px 16px rgba(15,23,42,0.10);
+
+  /* ---- Shell / density ---- */
+  --sidebar-expanded: 252px; --sidebar-collapsed: 72px;
+  --header-height: 56px;
+  --row-default: 44px; --row-compact: 36px;
+  --drawer-standard: 420px; --drawer-detailed: 560px;
+
+  /* ---- Motion ---- */
+  --motion-fast: 150ms; --motion-base: 200ms; --motion-slow: 250ms;
+  --easing: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Z-index ---- */
+  --z-sticky: 10; --z-dropdown: 40; --z-drawer: 80; --z-modal: 100; --z-toast: 120;
+}
+
+/* Dark command-center — apply on the monitoring dashboard root only */
+[data-theme="dark"] {
+  --bg-canvas:    #081312;
+  --bg-surface:   #0E1F1D;
+  --bg-subtle:    #15302D;
+  --text-primary:   #ECF4F2;
+  --text-secondary: #9FB2AF;
+  --text-muted:     #6F8581;
+  --border-default: #24433F;
+  --border-subtle:  #1B3935;
+  --color-primary:  #2EC4BB;
+  --focus-ring:     #2EC4BB;
+  --status-success-text: #4ADE80;
+  --status-danger-text:  #F87171;
+  --status-warning-text: #FBBF24;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-fast: 0ms; --motion-base: 0ms; --motion-slow: 0ms; }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "recoup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <26"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --pool=threads",
+    "depcruise": "depcruise src --config dependency-cruiser.config.cjs",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run depcruise",
+    "dev:api": "tsx watch src/services/cockpitApi.ts",
+    "dev:cockpit": "next dev cockpit"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.1.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "ai": "^5.0.0",
+    "decimal.js": "^10.6.0",
+    "express": "^5.1.0",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.3.0",
+    "zod": "^3.25.40"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "dependency-cruiser": "^17.3.1",
+    "eslint": "^9.39.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^4.0.14"
+  }
+}

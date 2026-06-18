@@ -1,0 +1,12 @@
+{
+  "markdown_replacement_misses": [],
+  "docx_paragraphs_changed": {
+    "persona": 35,
+    "brd": 15
+  },
+  "remaining_flags": {
+    "RECONCILIATION_LEDGER.md": [
+      "v3.0"
+    ]
+  }
+}
