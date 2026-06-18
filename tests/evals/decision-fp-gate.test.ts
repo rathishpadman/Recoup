@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSyntheticDataset } from "../../datagen/generate.js";
+import { runForensicsInvestigation } from "../../src/agents/forensics.js";
 import {
   evaluateFalsePositiveGate,
   findValidDeductionsPursued,
@@ -62,6 +63,30 @@ describe("decision false-positive gate", () => {
 
   it("passes the false-positive gate with no violations", () => {
     expect(evaluateFalsePositiveGate([])).toEqual({
+      status: "pass",
+      falsePositiveCount: 0,
+      violations: []
+    });
+  });
+
+  it("passes with the actual S4 Forensics recovery decisions", () => {
+    const lines = buildSyntheticDataset({ seed: 42 }).deductionLines;
+    const run = runForensicsInvestigation();
+    const cases = run.decisions.map((decision) => {
+      const actualLine = lines.find((line) => line.lineId === decision.lineId);
+      if (actualLine === undefined) {
+        throw new Error(`Missing actual label for ${decision.lineId}`);
+      }
+
+      return {
+        predicted: decision.verdict,
+        actual: actualLine.verdict
+      };
+    });
+
+    expect(cases.every((metricCase) => metricCase.predicted === metricCase.actual)).toBe(true);
+    expect(findValidDeductionsPursued(lines, run.recoveryDecisions)).toEqual([]);
+    expect(evaluateFalsePositiveGate(findValidDeductionsPursued(lines, run.recoveryDecisions))).toEqual({
       status: "pass",
       falsePositiveCount: 0,
       violations: []
