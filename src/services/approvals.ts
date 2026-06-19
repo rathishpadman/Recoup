@@ -22,7 +22,7 @@ export function decideApproval(action: ProposedExternalAction, input: ApprovalIn
     throw new Error("Proposer cannot approve its own action.");
   }
 
-  if (input.approverId.startsWith("agent:")) {
+  if (!input.approverId.startsWith("human:")) {
     throw new Error("Approval requires a human approver.");
   }
 

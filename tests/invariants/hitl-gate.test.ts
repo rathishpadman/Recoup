@@ -27,6 +27,20 @@ describe("I-7 and I-20 HITL gate", () => {
     ).toThrow("Approval requires a human approver.");
   });
 
+  it("rejects approval decisions without a human identity prefix", () => {
+    const [firstAction] = runForensicsInvestigation().actions;
+    if (firstAction === undefined) {
+      throw new Error("Expected at least one proposed action");
+    }
+
+    expect(() =>
+      decideApproval(firstAction, {
+        decision: "approve",
+        approverId: "system:auto"
+      })
+    ).toThrow("Approval requires a human approver.");
+  });
+
   it("halts drafted outreach at the same HITL approval gate", () => {
     const run = runForensicsInvestigation();
     const decision = run.decisions.find((candidate) => candidate.lineId === "S5-L1");
