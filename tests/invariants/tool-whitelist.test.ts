@@ -6,8 +6,11 @@ describe("I-15 whitelisted typed tools", () => {
     expect(Object.keys(serviceTools).sort()).toEqual([
       "actions.draftOutreach",
       "actions.draftRebill",
+      "actions.proposeHold",
+      "actions.proposeTerms",
       "actions.routeBilling",
       "core.evaluateRule",
+      "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
       "retrieval.docs",
       "retrieval.sap",
@@ -42,6 +45,15 @@ describe("I-15 whitelisted typed tools", () => {
         lineId: "S5-L1",
         recordIds: ["S5-L1", "POD-TIMESTAMP-1"],
         basis: "3PL POD timestamp shows delivery was on time."
+      })
+    ).toThrow();
+  });
+
+  it("rejects proposed hold payloads that bypass the deterministic closed-loop case", () => {
+    expect(() =>
+      invokeServiceTool("actions.proposeHold", {
+        customerId: "CUST-HARBOR",
+        releaseAmount: "352000.00"
       })
     ).toThrow();
   });

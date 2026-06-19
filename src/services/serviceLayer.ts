@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { draftOutreach } from "../tools/actions/draftOutreach.js";
 import { draftRebill } from "../tools/actions/draftRebill.js";
+import { proposeHold } from "../tools/actions/proposeHold.js";
+import { proposeTerms } from "../tools/actions/proposeTerms.js";
 import { routeBilling } from "../tools/actions/routeBilling.js";
 import { retrieveDocs } from "../tools/retrieval/docs.js";
 import { retrieveSap } from "../tools/retrieval/sap.js";
@@ -13,6 +15,7 @@ import {
 } from "./decisionTools.js";
 import { getDecisionOrThrow } from "./decisionStore.js";
 import { DeductionLineSchema } from "../types/entities.js";
+import { runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 
 interface ServiceTool {
   schema: z.ZodTypeAny;
@@ -22,6 +25,9 @@ interface ServiceTool {
 const decisionIdToolSchema = z.object({
   decisionId: z.string().min(1),
   proposedBy: z.string().min(1).optional()
+});
+const riskMeshCaseSchema = z.object({
+  caseId: z.literal("ARB-HARBOR-ORDER-640K")
 });
 
 export const serviceTools = {
@@ -51,6 +57,34 @@ export const serviceTools = {
       });
     }
   },
+  "actions.proposeHold": {
+    schema: riskMeshCaseSchema,
+    handler: (input) => {
+      riskMeshCaseSchema.parse(input);
+      const run = runRiskMeshClosedLoop();
+      return proposeHold({
+        basis: run.holdAction.basis,
+        customerId: run.holdAction.customerId,
+        orderAmount: run.holdAction.orderAmount,
+        orderId: run.holdAction.orderId,
+        partialHold: run.partialHold,
+        recordIds: run.holdAction.recordIds
+      });
+    }
+  },
+  "actions.proposeTerms": {
+    schema: riskMeshCaseSchema,
+    handler: (input) => {
+      riskMeshCaseSchema.parse(input);
+      const run = runRiskMeshClosedLoop();
+      return proposeTerms({
+        basis: run.termsAction.basis,
+        customerId: run.termsAction.customerId,
+        recordIds: run.termsAction.recordIds,
+        terms: run.termsAction.terms
+      });
+    }
+  },
   "actions.routeBilling": {
     schema: decisionIdToolSchema,
     handler: (input) => {
@@ -67,6 +101,13 @@ export const serviceTools = {
   "core.evaluateRule": {
     schema: CoreRuleInputSchema,
     handler: (input) => evaluateCoreRule(input)
+  },
+  "core.riskMeshClosedLoop": {
+    schema: riskMeshCaseSchema,
+    handler: (input) => {
+      riskMeshCaseSchema.parse(input);
+      return runRiskMeshClosedLoop();
+    }
   },
   "decisions.deductionVerdict": {
     schema: DeductionDecisionToolInputSchema,

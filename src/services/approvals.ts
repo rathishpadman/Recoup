@@ -1,8 +1,15 @@
 import type { DraftRebillAction } from "../tools/actions/draftRebill.js";
 import type { DraftOutreachAction } from "../tools/actions/draftOutreach.js";
+import type { ProposedHoldAction } from "../tools/actions/proposeHold.js";
+import type { ProposedTermsAction } from "../tools/actions/proposeTerms.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
 
-export type ProposedExternalAction = DraftOutreachAction | DraftRebillAction | RouteBillingAction;
+export type ProposedExternalAction =
+  | DraftOutreachAction
+  | DraftRebillAction
+  | ProposedHoldAction
+  | ProposedTermsAction
+  | RouteBillingAction;
 export type ApprovalDecision = "approve" | "modify" | "reject";
 
 export interface ApprovalInput {
