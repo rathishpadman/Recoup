@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
+function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
 describe("S5 cockpit business-logic boundary", () => {
   it("keeps the Next cockpit surface free of core rule and Decimal imports", () => {
     const page = readFileSync("cockpit/app/page.tsx", "utf8");
@@ -110,7 +114,7 @@ describe("S5 cockpit business-logic boundary", () => {
   });
 
   it("protects tablet and low-desktop layouts from fixed-column overflow", () => {
-    const styles = readFileSync("cockpit/app/styles.css", "utf8");
+    const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
 
     expect(styles).toContain("@media (max-width: 1372px)");
     expect(styles).toContain(".governance-surface");
@@ -141,7 +145,7 @@ describe("S5 cockpit business-logic boundary", () => {
   });
 
   it("keeps operational surfaces restrained instead of over-framed demo cards", () => {
-    const styles = readFileSync("cockpit/app/styles.css", "utf8");
+    const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
 
     expect(styles).toContain(".metric,\n.worklist,\n.detail,\n.stream,\n.surface-panel {\n  background: var(--bg-surface);");
     expect(styles).toContain("border-radius: var(--radius-lg);");

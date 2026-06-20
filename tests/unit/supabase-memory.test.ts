@@ -8,6 +8,10 @@ import {
 } from "../../src/memory/supabaseStore.js";
 import type { MemoryRecord } from "../../src/memory/schema.js";
 
+function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
 const record: MemoryRecord = {
   id: "session:demo:active-case",
   category: "session_state",
@@ -49,8 +53,8 @@ describe("supabase memory repository", () => {
   });
 
   it("keeps the reviewable SQL artifact aligned with the generated schema", () => {
-    expect(readFileSync("docs/supabase-memory-schema.sql", "utf8").trim()).toBe(
-      buildSupabaseMemorySchemaSql("recoup_memory_records")
+    expect(normalizeNewlines(readFileSync("docs/supabase-memory-schema.sql", "utf8")).trim()).toBe(
+      normalizeNewlines(buildSupabaseMemorySchemaSql("recoup_memory_records"))
     );
   });
 
