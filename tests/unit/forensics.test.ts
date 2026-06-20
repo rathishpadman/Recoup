@@ -3,6 +3,8 @@ import { decisionEvalBars } from "../../config/thresholds.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
 import { calculateAccuracy } from "../../evals/harness.js";
 import { buildSyntheticDataset } from "../../datagen/generate.js";
+import { createInMemoryStore } from "../../src/memory/store.js";
+import { readAgentHandoffPacket, readTransactionState } from "../../src/memory/session.js";
 
 describe("Forensics Investigator hero run", () => {
   it("classifies the canonical settlement run with release-bar validity accuracy", () => {
@@ -56,5 +58,41 @@ describe("Forensics Investigator hero run", () => {
       "run-control-step-budget",
       "run-control-retry-cap"
     ]);
+  });
+
+  it("persists cited transaction and handoff memory when a memory store is supplied", () => {
+    const store = createInMemoryStore();
+    const run = runForensicsInvestigation({ memoryStore: store, sessionId: "unit-run" });
+
+    const decision = run.decisions.find((candidate) => candidate.lineId === "S1-L1");
+    expect(decision).toBeDefined();
+    expect(readTransactionState(store, "S1-L1", "deduction-decision")).toMatchObject({
+      category: "transaction_state",
+      payload: {
+        key: "deduction-decision",
+        value: {
+          confidence: "blocked: decision-confidence-threshold unset",
+          decisionId: "deduction-decision:S1-L1",
+          producedBy: "agent:forensics-investigator",
+          routing: "billing",
+          ruleId: "damage-evidence-valid",
+          verdict: "valid"
+        }
+      },
+      recordIds: decision?.recordIds
+    });
+    expect(readAgentHandoffPacket(store, "forensics-recovery:unit-run")).toMatchObject({
+      category: "agent_handoff_packets",
+      payload: {
+        capability: "B",
+        caseId: "unit-run",
+        deterministicBasis: "runForensicsInvestigation trace + recoupHandoffGraph",
+        fromAgent: "Forensics Investigator",
+        intent: "stage-recovery-and-billing-drafts",
+        status: "created",
+        summary: "Forensics completed cited decisions and staged human-review recovery or Billing drafts.",
+        toAgent: "Recovery Drafter"
+      }
+    });
   });
 });

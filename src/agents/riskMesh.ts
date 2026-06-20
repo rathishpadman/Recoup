@@ -1,7 +1,7 @@
 import { arbitrationPnlWeights, partialHoldWeights } from "../../config/weights.js";
 import { createAuditTrail, type AuditEntry } from "../audit/trail.js";
 import { arbitrateRiskMesh, type ArbitrationPosition, type BlockedArbitrationResult } from "../core/arbitration.js";
-import { computePartialHold, type PartialHoldResult } from "../core/partialHold.js";
+import { computePartialHold, computePartialHoldAmountSplit, type PartialHoldResult } from "../core/partialHold.js";
 import { buildAutonomyGauge, type AutonomyGauge } from "../services/autonomyGauge.js";
 import { proposeHold, type ProposedHoldAction } from "../tools/actions/proposeHold.js";
 import { proposeTerms, type ProposedTermsAction } from "../tools/actions/proposeTerms.js";
@@ -46,10 +46,16 @@ export function runRiskMeshClosedLoop(): RiskMeshClosedLoopRun {
       paymentPattern: 50
     }
   });
+  const orderAmount = money("640000.00");
+  const amountSplit = computePartialHoldAmountSplit({
+    orderAmount,
+    releaseRatioPercent: partialHold.releaseRatioPercent
+  });
   const holdAction = proposeHold({
     basis: "Harbor worked example computes a 55% controlled release from the deterministic partial-hold core.",
     customerId: "CUST-HARBOR",
-    orderAmount: money("640000.00"),
+    orderAmount,
+    amountSplit,
     orderId: harborOrderId,
     partialHold,
     recordIds: harborRecordIds

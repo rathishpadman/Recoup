@@ -11,20 +11,28 @@ export type ProposedExternalAction =
   | ProposedTermsAction
   | RouteBillingAction;
 export type ApprovalDecision = "approve" | "modify" | "reject";
+const decidedApprovalActionIds = new Set<string>();
+
+export interface ApprovableActionReference {
+  actionId: string;
+  proposedBy: string;
+}
 
 export interface ApprovalInput {
   decision: ApprovalDecision;
   approverId: string;
+  reason?: string;
 }
 
 export interface ApprovalResult {
   actionId: string;
   decision: ApprovalDecision;
   approverId: string;
+  reason?: string;
   status: "human_decided";
 }
 
-export function decideApproval(action: ProposedExternalAction, input: ApprovalInput): ApprovalResult {
+export function decideApproval(action: ApprovableActionReference, input: ApprovalInput): ApprovalResult {
   if (input.approverId === action.proposedBy) {
     throw new Error("Proposer cannot approve its own action.");
   }
@@ -33,10 +41,46 @@ export function decideApproval(action: ProposedExternalAction, input: ApprovalIn
     throw new Error("Approval requires a human approver.");
   }
 
-  return {
+  const reason = input.reason?.trim();
+  if (input.decision !== "approve" && (reason === undefined || reason === "")) {
+    throw new Error("Modify and reject decisions require a human reason.");
+  }
+
+  const result: ApprovalResult = {
     actionId: action.actionId,
     decision: input.decision,
     approverId: input.approverId,
     status: "human_decided"
   };
+
+  if (reason !== undefined && reason !== "") {
+    return { ...result, reason };
+  }
+
+  return result;
+}
+
+export function assertApprovalReasonSafe(reason: string): void {
+  if (containsDirectPiiOrSecret(reason)) {
+    throw new Error("Approval reason must not contain direct PII or secrets.");
+  }
+}
+
+export function assertApprovalActionOpen(actionId: string): void {
+  if (decidedApprovalActionIds.has(actionId)) {
+    throw new Error("Action already has a human decision.");
+  }
+}
+
+export function recordApprovalActionDecision(actionId: string): void {
+  decidedApprovalActionIds.add(actionId);
+}
+
+function containsDirectPiiOrSecret(value: string): boolean {
+  return (
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu.test(value) ||
+    /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/u.test(value) ||
+    /\bsk-[A-Za-z0-9_-]{8,}\b/u.test(value) ||
+    /(?:api[_-]?key|client[_-]?secret|password|token|secret)\s*[:=]/iu.test(value)
+  );
 }

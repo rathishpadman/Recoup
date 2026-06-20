@@ -1,4 +1,4 @@
-import type { PartialHoldResult } from "../../core/partialHold.js";
+import type { PartialHoldAmountSplit, PartialHoldResult } from "../../core/partialHold.js";
 import type { Money } from "../../types/money.js";
 
 export interface ProposeHoldInput {
@@ -6,6 +6,7 @@ export interface ProposeHoldInput {
   orderId: string;
   orderAmount: Money;
   partialHold: PartialHoldResult;
+  amountSplit: PartialHoldAmountSplit;
   recordIds: string[];
   basis: string;
   proposedBy?: string;
@@ -30,19 +31,16 @@ export interface ProposedHoldAction {
 }
 
 export function proposeHold(input: ProposeHoldInput): ProposedHoldAction {
-  const releaseRatio = input.partialHold.releaseRatioPercent;
-  const proposedReleaseAmount = input.orderAmount.times(releaseRatio).dividedBy(100).toDecimalPlaces(2);
-
   return {
     actionId: `propose-hold:${input.orderId}`,
     actionType: "propose-hold",
     customerId: input.customerId,
     orderId: input.orderId,
     orderAmount: input.orderAmount,
-    proposedReleaseAmount,
-    proposedBackOrderAmount: input.orderAmount.minus(proposedReleaseAmount).toDecimalPlaces(2),
-    amountSource: "partial-hold-core",
-    releaseRatioPercent: releaseRatio,
+    proposedReleaseAmount: input.amountSplit.proposedReleaseAmount,
+    proposedBackOrderAmount: input.amountSplit.proposedBackOrderAmount,
+    amountSource: input.amountSplit.amountSource,
+    releaseRatioPercent: input.partialHold.releaseRatioPercent,
     recordIds: input.recordIds,
     basis: input.basis,
     proposedBy: input.proposedBy ?? "agent:risk-mesh-supervisor",

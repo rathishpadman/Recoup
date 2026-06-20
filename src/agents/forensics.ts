@@ -8,14 +8,30 @@ import { clearDecisionStore, registerDecision } from "../services/decisionStore.
 import { money } from "../types/money.js";
 import type { DeductionLine, DeductionRouting, DeductionVerdict } from "../types/entities.js";
 import type { RuleId } from "../core/rules/types.js";
+import { writeAgentHandoffPacket, writeSessionState, writeTransactionState } from "../memory/session.js";
+import type { MemoryStore } from "../memory/store.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
 import type { EvidenceDocument } from "../tools/retrieval/docs.js";
 import { draftRecovery } from "./recoveryDrafter.js";
 import type { DraftRebillAction } from "../tools/actions/draftRebill.js";
+import { createAgentHandoffPacket } from "./messages.js";
 
 export type ForensicsTraceEvent =
   | { type: "finding"; payload: { source: "tool" | "agent"; lineId: string; ruleId: RuleId; recordIds: string[] } }
-  | { type: "verdict"; payload: { lineId: string; verdict: DeductionVerdict; routing: DeductionRouting } }
+  | {
+      type: "verdict";
+      payload: {
+        lineId: string;
+        verdict: DeductionVerdict;
+        routing: DeductionRouting;
+        recordIds: string[];
+        deterministicBasis: {
+          ruleId: RuleId;
+          computedDeltaAmount: string;
+          amountSource: "core-rule-delta";
+        };
+      };
+    }
   | {
       type: "status";
       payload: {
@@ -62,6 +78,8 @@ export interface RecoveryDecision {
 
 export interface RunForensicsInvestigationOptions {
   analystContext?: string;
+  memoryStore?: MemoryStore;
+  sessionId?: string;
 }
 
 export function runForensicsInvestigation(options: RunForensicsInvestigationOptions = {}): ForensicsRun {
@@ -121,7 +139,13 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
     trace.push({
       type: "verdict",
       payload: {
+        deterministicBasis: {
+          amountSource: decision.deterministicBasis.amountSource,
+          computedDeltaAmount: decision.deterministicBasis.computedDeltaAmount.toFixed(2),
+          ruleId: decision.deterministicBasis.ruleId
+        },
         lineId: decision.lineId,
+        recordIds: decision.recordIds,
         verdict: decision.verdict,
         routing: decision.routing
       }
@@ -147,6 +171,9 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
         }) as RouteBillingAction
       : draftRecovery(decision)
   );
+  if (options.memoryStore !== undefined) {
+    persistForensicsMemory(options.memoryStore, options.sessionId ?? "forensics-run", decisions, actions);
+  }
 
   return {
     decisions,
@@ -166,12 +193,87 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
   };
 }
 
+function persistForensicsMemory(
+  store: MemoryStore,
+  sessionId: string,
+  decisions: DeductionDecision[],
+  actions: Array<RouteBillingAction | DraftRebillAction>
+): void {
+  const citedRecordIds = uniqueRecordIds([
+    ...decisions.flatMap((decision) => decision.recordIds),
+    ...actions.flatMap((action) => action.recordIds)
+  ]);
+
+  writeSessionState(store, {
+    sessionId,
+    key: "last-forensics-run",
+    value: "completed",
+    recordIds: citedRecordIds
+  });
+
+  for (const decision of decisions) {
+    const actionIds = actions.filter((action) => action.lineId === decision.lineId).map((action) => action.actionId);
+    writeTransactionState(store, {
+      transactionId: decision.lineId,
+      key: "deduction-decision",
+      value: {
+        actionIds,
+        confidence: decision.confidence,
+        decisionId: decision.decisionId,
+        evidenceDocumentIds: decision.evidenceDocumentIds,
+        producedBy: decision.producedBy,
+        routing: decision.routing,
+        ruleId: decision.deterministicBasis.ruleId,
+        verdict: decision.verdict
+      },
+      recordIds: decision.recordIds
+    });
+  }
+
+  const handoffPacket = createAgentHandoffPacket({
+    packetId: `forensics-recovery:${sessionId}`,
+    fromAgent: "Forensics Investigator",
+    toAgent: "Recovery Drafter",
+    capability: "B",
+    caseId: sessionId,
+    recordIds: citedRecordIds,
+    deterministicBasis: "runForensicsInvestigation trace + recoupHandoffGraph",
+    intent: "stage-recovery-and-billing-drafts",
+    status: "created"
+  });
+  writeAgentHandoffPacket(store, {
+    handoffId: handoffPacket.packetId,
+    capability: handoffPacket.capability,
+    caseId: handoffPacket.caseId,
+    deterministicBasis: handoffPacket.deterministicBasis,
+    fromAgent: handoffPacket.fromAgent,
+    intent: handoffPacket.intent,
+    toAgent: handoffPacket.toAgent,
+    status: handoffPacket.status,
+    summary: "Forensics completed cited decisions and staged human-review recovery or Billing drafts.",
+    recordIds: handoffPacket.recordIds
+  });
+}
+
+function uniqueRecordIds(recordIds: string[]): string[] {
+  return [...new Set(recordIds)];
+}
+
 function retrieveEvidenceDocuments(line: DeductionLine, trace: ForensicsTraceEvent[]): EvidenceDocument[] {
-  return [
+  const documents = [
     ...(invokeTracedTool(trace, "retrieval.sap", line) as EvidenceDocument[]),
     ...(invokeTracedTool(trace, "retrieval.docs", line) as EvidenceDocument[]),
     ...(invokeTracedTool(trace, "retrieval.tpm", line) as EvidenceDocument[])
   ];
+  const documentsById = new Map<string, EvidenceDocument>();
+
+  for (const document of documents) {
+    if (!documentsById.has(document.documentId)) {
+      documentsById.set(document.documentId, document);
+    }
+  }
+
+  return [...documentsById.values()];
 }
 
 function invokeTracedTool(trace: ForensicsTraceEvent[], toolName: ServiceToolName, input: unknown): unknown {

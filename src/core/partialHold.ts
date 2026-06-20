@@ -1,5 +1,6 @@
 import { Decimal } from "decimal.js";
 import { partialHoldThresholds } from "../../config/thresholds.js";
+import type { Money } from "../types/money.js";
 
 export type PartialHoldCriterion =
   | "orderValueVsExposure"
@@ -22,6 +23,19 @@ export interface PartialHoldResult {
   releaseRatioPercent: Decimal;
 }
 
+export interface PartialHoldAmountSplit {
+  orderAmount: Money;
+  proposedReleaseAmount: Money;
+  proposedBackOrderAmount: Money;
+  releaseRatioPercent: Decimal;
+  amountSource: "partial-hold-core";
+}
+
+export interface PartialHoldAmountSplitInput {
+  orderAmount: Money;
+  releaseRatioPercent: Decimal;
+}
+
 export function computePartialHold(input: PartialHoldInput): PartialHoldResult {
   const compositeScore = Object.entries(input.weights).reduce((total, [criterion, weight]) => {
     const score = input.scores[criterion as PartialHoldCriterion];
@@ -31,6 +45,18 @@ export function computePartialHold(input: PartialHoldInput): PartialHoldResult {
   return {
     compositeScore,
     releaseRatioPercent: releaseRatioForComposite(compositeScore)
+  };
+}
+
+export function computePartialHoldAmountSplit(input: PartialHoldAmountSplitInput): PartialHoldAmountSplit {
+  const proposedReleaseAmount = input.orderAmount.times(input.releaseRatioPercent).dividedBy(100).toDecimalPlaces(2);
+
+  return {
+    orderAmount: input.orderAmount,
+    proposedReleaseAmount,
+    proposedBackOrderAmount: input.orderAmount.minus(proposedReleaseAmount).toDecimalPlaces(2),
+    releaseRatioPercent: input.releaseRatioPercent,
+    amountSource: "partial-hold-core"
   };
 }
 
