@@ -9,9 +9,12 @@ describe("I-15 whitelisted typed tools", () => {
       "actions.proposeHold",
       "actions.proposeTerms",
       "actions.routeBilling",
+      "approvals.decide",
+      "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
+      "query.answer",
       "retrieval.docs",
       "retrieval.sap",
       "retrieval.tpm"
