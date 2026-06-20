@@ -1,3 +1,6 @@
+import { assertIntentEvidence } from "../guardrails/tool/intentEvidence.js";
+import { assertNoWrongfulContainment } from "../guardrails/tool/noWrongfulContainment.js";
+
 export interface HarborContainmentAssessment {
   customerId: "CUST-HARBOR";
   intentLabel: "distressed-honest";
@@ -15,7 +18,7 @@ export interface ContainmentDecision {
 }
 
 export function assessHarborContainment(): HarborContainmentAssessment {
-  return {
+  const assessment: HarborContainmentAssessment = {
     customerId: "CUST-HARBOR",
     intentLabel: "distressed-honest",
     contained: false,
@@ -25,6 +28,11 @@ export function assessHarborContainment(): HarborContainmentAssessment {
       noWrongfulContainment: true
     }
   };
+
+  assertIntentEvidence(assessment);
+  assertNoWrongfulContainment(assessment);
+
+  return assessment;
 }
 
 export function toContainmentDecision(assessment: HarborContainmentAssessment): ContainmentDecision {

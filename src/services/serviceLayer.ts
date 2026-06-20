@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { draftOutreach } from "../tools/actions/draftOutreach.js";
 import { draftRebill } from "../tools/actions/draftRebill.js";
+import { proposeHold } from "../tools/actions/proposeHold.js";
 import { proposeTerms } from "../tools/actions/proposeTerms.js";
 import { routeBilling } from "../tools/actions/routeBilling.js";
 import { retrieveDocs } from "../tools/retrieval/docs.js";
@@ -25,7 +26,7 @@ import {
 } from "./decisionTools.js";
 import { getDecisionOrThrow } from "./decisionStore.js";
 import { DeductionLineSchema } from "../types/entities.js";
-import { runRiskMeshClosedLoop } from "../agents/riskMesh.js";
+import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 
 interface ServiceTool {
   schema: z.ZodTypeAny;
@@ -133,21 +134,16 @@ export const serviceTools = {
     schema: riskMeshCaseSchema,
     handler: (input) => {
       riskMeshCaseSchema.parse(input);
-      const run = runRiskMeshClosedLoop();
-      return run.holdAction;
+      const context = buildHarborRiskMeshProposalContext();
+      return proposeHold(context.holdProposalInput);
     }
   },
   "actions.proposeTerms": {
     schema: riskMeshCaseSchema,
     handler: (input) => {
       riskMeshCaseSchema.parse(input);
-      const run = runRiskMeshClosedLoop();
-      return proposeTerms({
-        basis: run.termsAction.basis,
-        customerId: run.termsAction.customerId,
-        recordIds: run.termsAction.recordIds,
-        terms: run.termsAction.terms
-      });
+      const context = buildHarborRiskMeshProposalContext();
+      return proposeTerms(context.termsProposalInput);
     }
   },
   "actions.routeBilling": {

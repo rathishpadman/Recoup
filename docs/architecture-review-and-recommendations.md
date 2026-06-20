@@ -65,7 +65,7 @@ Read-only subagent reviews were run during the integration and hardening work. T
 - `SapODataReadOnlyAdapter` is read-only and evidence-shaped, with OAuth and Gateway Basic auth plus live metadata proof for the Cost Center Gateway service. Remaining follow-up: wire reachable O2C billing/outbound-delivery services and sample payloads for the mapped evidence route.
 - `retrieval.bureau`, remittance/EDI, `docRepo.ts`, and real TPM adapter files remain planned-only because exact schemas and source contracts are not yet specified.
 - Query is offline-safe for deterministic answers; the guarded Realtime client-secret path was live-proved, but the browser session does not yet perform live text/voice or file-search grounded answers.
-- Guardrail modules for no-wrongful-containment and intent-evidence are not yet separate files, even though the behavior is partly covered by existing S6 tests.
+- Resolved in this patch: guardrail modules for no-wrongful-containment, intent-evidence, and final-output checks now exist as named surfaces under `src/guardrails/`.
 - The cockpit now has a first-viewport desktop/mobile visual QA baseline and should be deepened into fully interactive SDD §11 surfaces after expert-owned constants and live query policy are approved.
 
 ## Hackathon Upgrade Recommendations

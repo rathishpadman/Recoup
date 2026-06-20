@@ -4,7 +4,7 @@
 
 This file is permanent context for every Codex session. It is a **table of contents, not an encyclopedia**. Deep design lives in `Recoup_v2_SDD.md`; the contract lives in `INVARIANTS.md`; facts are locked in `RECONCILIATION_LEDGER.md`; per-session scope is given at session start.
 
-**Scope (locked).** Four capabilities on a deterministic spine: **A. Closed-Loop Risk Mesh · B. Deduction Forensics & Recovery (hero) · C. Dynamic Credit Sentinel · D. Behavioral Containment.** Runtime: **Node 22 + TypeScript** (modular monolith). Offline only: Python `datagen/` (seed 42). Descoped: billing-reconciliation breadth, clause skills, pre-issue invoice validation, ERP write-back, autonomous action.
+**Scope (locked).** Four capabilities on a deterministic spine: **A. Closed-Loop Risk Mesh · B. Deduction Forensics & Recovery (hero) · C. Dynamic Credit Sentinel · D. Behavioral Containment.** Runtime: **Node 22 + TypeScript** (modular monolith). Offline deterministic dataset generation: TypeScript `datagen/` (seed 42). Descoped: billing-reconciliation breadth, clause skills, pre-issue invoice validation, ERP write-back, autonomous action.
 
 ---
 
@@ -48,7 +48,7 @@ src/
   middleware/  errors.ts logging.ts(Winston+correlationId) budgets.ts
   types/       money.ts(Decimal) entities.ts(Zod) variance.ts decision.ts
 config/        models.ts thresholds.ts(Appendix G) weights.ts
-datagen/       generate.py (seed 42) gold/ manifests/      # Python, offline only
+datagen/       generate.ts (seed 42) gold/ manifests/      # offline deterministic generator
 evals/         harness + graders (code-based; NOT hosted Evals)
 tests/         invariants/ evals/ adapters/ unit/           # *.test.ts (vitest)
 cockpit/       Next.js App Router + React + TS + Tailwind (3 surfaces; SDD §11)

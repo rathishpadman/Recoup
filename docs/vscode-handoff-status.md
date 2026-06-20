@@ -1,20 +1,18 @@
 # Recoup VS Code Handoff Status
 
-Date: 2026-06-20  
-Workspace: `C:\Users\s.rathish\OneDrive - HCL Technologies Ltd\Hackathon\Recoup`  
-Branch: `s4-s6-build`  
-Remote: `https://github.com/rathishpadman/Recoup.git`  
-Remote branch: `origin/s4-s6-build`  
-PR URL: `https://github.com/rathishpadman/Recoup/pull/new/s4-s6-build`
+Date: 2026-06-20
+Workspace: `C:\Rathish\Root Folder\CFO\Hackathon\Recoup1\Recoup`
+Branch: `codex/guardrail-riskmesh-hardening`
+Remote: `https://github.com/rathishpadman/Recoup.git`
+Remote branch: not pushed for this local session branch
+PR URL: not opened for this local session branch
 
 ## Current Git Status
 
-- The Recoup build has been pushed to GitHub.
-- Local `s4-s6-build`, `origin/s4-s6-build`, and remote GitHub branch were verified at commit `dc0c984371cc75d34e753fe8d644e4ef161a3f65`.
-- Remote `main` was also advanced to the same split-push tip.
-- The original single checkpoint commit was `53a73d0 Build Recoup cockpit and integration baseline`.
-- GitHub HTTPS returned `HTTP 503` when pushing that large single commit, so the same final file tree was split into smaller commits and pushed successfully.
-- The split tip `dc0c984` was checked against the original verified tree `53a73d0`; there was no file-tree diff.
+- Active work is on local session branch `codex/guardrail-riskmesh-hardening`.
+- The Windows EOL verification fix was preserved in commit `7fccd47 Preserve Windows verification newline fixes`.
+- The current session is reconciling stale handoff docs, named guardrail surfaces, and the Risk Mesh service/tool boundary.
+- Prior pushed-branch notes are historical and no longer describe the active local branch.
 
 ## Last Verification Evidence
 
@@ -292,10 +290,9 @@ Required owner input:
 
 ### Git / Repo Hygiene
 
-- Branch `s4-s6-build` is pushed.
-- Remote `main` was also advanced during the split-push workaround.
-- Consider opening a PR from `s4-s6-build` and deciding whether `main` should remain at the same tip.
-- If a clean single-commit history is desired, use GitHub PR squash merge rather than rewriting local work again.
+- Local branch `codex/guardrail-riskmesh-hardening` contains the preserved EOL verification fix and current guardrail/Risk Mesh hardening work.
+- This session branch has not been pushed.
+- Open a PR only after `npm.cmd run verify` is green on the final diff.
 
 ## How To Run In VS Code
 

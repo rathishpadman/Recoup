@@ -1,13 +1,23 @@
 import { arbitrationPnlWeights, partialHoldWeights } from "../../config/weights.js";
 import { createAuditTrail, type AuditEntry } from "../audit/trail.js";
 import { arbitrateRiskMesh, type ArbitrationPosition, type BlockedArbitrationResult } from "../core/arbitration.js";
-import { computePartialHold, computePartialHoldAmountSplit, type PartialHoldResult } from "../core/partialHold.js";
+import {
+  computePartialHold,
+  computePartialHoldAmountSplit,
+  type PartialHoldAmountSplit,
+  type PartialHoldResult
+} from "../core/partialHold.js";
 import { buildAutonomyGauge, type AutonomyGauge } from "../services/autonomyGauge.js";
-import { proposeHold, type ProposedHoldAction } from "../tools/actions/proposeHold.js";
-import { proposeTerms, type ProposedTermsAction } from "../tools/actions/proposeTerms.js";
+import type { ProposedExternalAction } from "../services/approvals.js";
+import { invokeServiceTool, type ServiceToolName } from "../services/serviceLayer.js";
 import { money } from "../types/money.js";
+import type { Money } from "../types/money.js";
 import { assessHarborContainment, toContainmentDecision, type ContainmentDecision } from "./containment.js";
 import { assessHarborSentinel } from "./sentinel.js";
+
+type RiskMeshProposalToolName = Extract<ServiceToolName, "actions.proposeHold" | "actions.proposeTerms">;
+type ProposedHoldAction = Extract<ProposedExternalAction, { actionType: "propose-hold" }>;
+type ProposedTermsAction = Extract<ProposedExternalAction, { actionType: "propose-terms" }>;
 
 export interface RiskMeshClosedLoopRun {
   customerId: "CUST-HARBOR";
@@ -20,53 +30,50 @@ export interface RiskMeshClosedLoopRun {
   auditEntries: AuditEntry[];
   auditTrailValid: boolean;
   autonomyGauge: AutonomyGauge;
+  serviceToolNames: RiskMeshProposalToolName[];
 }
 
-const harborCaseId = "ARB-HARBOR-ORDER-640K";
-const harborOrderId = "ORDER-HARBOR-640K";
-const harborRecordIds = ["CUST-HARBOR", harborOrderId, "LEDGER-6-PARTIAL-HOLD"];
+export interface HarborRiskMeshProposalContext {
+  sentinel: ReturnType<typeof assessHarborSentinel>;
+  containment: ReturnType<typeof assessHarborContainment>;
+  positions: ArbitrationPosition[];
+  arbitration: BlockedArbitrationResult;
+  partialHold: PartialHoldResult;
+  orderAmount: Money;
+  amountSplit: PartialHoldAmountSplit;
+  holdProposalInput: {
+    basis: string;
+    customerId: "CUST-HARBOR";
+    orderAmount: Money;
+    amountSplit: PartialHoldAmountSplit;
+    orderId: typeof harborOrderId;
+    partialHold: PartialHoldResult;
+    recordIds: string[];
+  };
+  termsProposalInput: {
+    basis: string;
+    customerId: "CUST-HARBOR";
+    recordIds: string[];
+    terms: typeof harborTerms;
+  };
+}
+
+export const harborCaseId = "ARB-HARBOR-ORDER-640K";
+export const harborOrderId = "ORDER-HARBOR-640K";
+export const harborRecordIds = ["CUST-HARBOR", harborOrderId, "LEDGER-6-PARTIAL-HOLD"] as const;
+export const harborHoldBasis =
+  "Harbor worked example computes a 55% controlled release from the deterministic partial-hold core.";
+export const harborTermsBasis = "Sentinel drift observation routes revised terms to HITL without self-applying terms.";
+export const harborTerms = "2/10 Net-30 + deposit/clearance condition";
 
 export function runRiskMeshClosedLoop(): RiskMeshClosedLoopRun {
-  const sentinel = assessHarborSentinel();
-  const containment = assessHarborContainment();
-  const positions = buildHarborPositions();
-  const arbitration = arbitrateRiskMesh({
-    caseId: harborCaseId,
-    positions,
-    weights: arbitrationPnlWeights
-  });
-  const partialHold = computePartialHold({
-    weights: partialHoldWeights,
-    scores: {
-      orderValueVsExposure: 35,
-      customerStrategicValue: 60,
-      dsoPaymentDrift: 30,
-      orderMargin: 80,
-      revenueForecast: 65,
-      paymentPattern: 50
-    }
-  });
-  const orderAmount = money("640000.00");
-  const amountSplit = computePartialHoldAmountSplit({
-    orderAmount,
-    releaseRatioPercent: partialHold.releaseRatioPercent
-  });
-  const holdAction = proposeHold({
-    basis: "Harbor worked example computes a 55% controlled release from the deterministic partial-hold core.",
-    customerId: "CUST-HARBOR",
-    orderAmount,
-    amountSplit,
-    orderId: harborOrderId,
-    partialHold,
-    recordIds: harborRecordIds
-  });
-  const termsAction = proposeTerms({
-    basis: "Sentinel drift observation routes revised terms to HITL without self-applying terms.",
-    customerId: "CUST-HARBOR",
-    recordIds: sentinel.recordIds,
-    terms: "2/10 Net-30 + deposit/clearance condition"
-  });
+  const context = buildHarborRiskMeshProposalContext();
+  const serviceToolNames: RiskMeshProposalToolName[] = [];
+  const holdAction = invokeRiskMeshProposalTool(serviceToolNames, "actions.proposeHold") as ProposedHoldAction;
+  const termsAction = invokeRiskMeshProposalTool(serviceToolNames, "actions.proposeTerms") as ProposedTermsAction;
+  const { arbitration, containment, partialHold, positions, sentinel } = context;
   const trail = createAuditTrail();
+
   trail.append({
     entryType: "sentinel.blocked-risk",
     payload: {
@@ -114,8 +121,69 @@ export function runRiskMeshClosedLoop(): RiskMeshClosedLoopRun {
     containmentDecisions: [toContainmentDecision(containment)],
     auditEntries: trail.entries(),
     auditTrailValid: trail.verify(),
-    autonomyGauge: buildAutonomyGauge()
+    autonomyGauge: buildAutonomyGauge(),
+    serviceToolNames
   };
+}
+
+export function buildHarborRiskMeshProposalContext(): HarborRiskMeshProposalContext {
+  const sentinel = assessHarborSentinel();
+  const containment = assessHarborContainment();
+  const positions = buildHarborPositions();
+  const arbitration = arbitrateRiskMesh({
+    caseId: harborCaseId,
+    positions,
+    weights: arbitrationPnlWeights
+  });
+  const partialHold = computePartialHold({
+    weights: partialHoldWeights,
+    scores: {
+      orderValueVsExposure: 35,
+      customerStrategicValue: 60,
+      dsoPaymentDrift: 30,
+      orderMargin: 80,
+      revenueForecast: 65,
+      paymentPattern: 50
+    }
+  });
+  const orderAmount = money("640000.00");
+  const amountSplit = computePartialHoldAmountSplit({
+    orderAmount,
+    releaseRatioPercent: partialHold.releaseRatioPercent
+  });
+
+  return {
+    sentinel,
+    arbitration,
+    partialHold,
+    containment,
+    positions,
+    orderAmount,
+    amountSplit,
+    holdProposalInput: {
+      basis: harborHoldBasis,
+      customerId: "CUST-HARBOR",
+      orderAmount,
+      amountSplit,
+      orderId: harborOrderId,
+      partialHold,
+      recordIds: [...harborRecordIds]
+    },
+    termsProposalInput: {
+      basis: harborTermsBasis,
+      customerId: "CUST-HARBOR",
+      recordIds: sentinel.recordIds,
+      terms: harborTerms
+    }
+  };
+}
+
+function invokeRiskMeshProposalTool(
+  serviceToolNames: RiskMeshProposalToolName[],
+  toolName: RiskMeshProposalToolName
+): ProposedExternalAction {
+  serviceToolNames.push(toolName);
+  return invokeServiceTool(toolName, { caseId: harborCaseId }) as ProposedExternalAction;
 }
 
 function buildHarborPositions(): ArbitrationPosition[] {
