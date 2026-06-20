@@ -82,4 +82,6 @@ This repo is built **agent-friendly** so Codex can run as a teammate. Optionally
 
 ## 8. Judge-experience / README contract
 
+Judge/reviewer audit evidence belongs in `docs/independent-audit-log.md` and is summarized from `README.md`; chat-only audit notes are not release evidence unless captured there with code/test references.
+
 Maintain a narrative `README.md` that wins the rubric (Best-Practice playbook): quantified problem + NorthBay user story (Relevance) · "How it works" with the System Design diagrams (Technical Excellence) · explicit **"How OpenAI is used"** section mapping each capability to Agents SDK primitives, GPT-5.5/5.4 routing, Realtime, MCP (Use of OpenAI Capabilities) · the claim→code→test traceability table (SDD Appendix D) · setup + live deployed link + recorded demo (Impact) · the scalability path (Scalability). Keep it re-runnable: one `npm run verify`, one deploy.

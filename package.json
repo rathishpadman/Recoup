@@ -13,9 +13,11 @@
     "depcruise": "depcruise src --config dependency-cruiser.config.cjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run depcruise",
     "dev:api": "tsx watch src/services/cockpitApi.ts",
+    "dev:mcp": "tsx watch src/mcp/server.ts",
     "dev:cockpit": "next dev cockpit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/agents": "^0.1.0",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -37,6 +39,7 @@
     "@types/react-dom": "^19.2.3",
     "dependency-cruiser": "^17.3.1",
     "eslint": "^9.39.1",
+    "playwright": "^1.61.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",

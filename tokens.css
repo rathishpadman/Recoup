@@ -63,7 +63,7 @@
   --font-editorial: 'Newsreader', Georgia, serif;       /* hero, exec, empty states, micro-labels (italic) */
   --font-ui:        'IBM Plex Sans', system-ui, sans-serif;
   --font-mono:      'IBM Plex Mono', ui-monospace, monospace; /* numbers/IDs/hex only */
-  --tracking-ui:    -0.01em;
+  --tracking-ui:    0;
 
   /* ---- Spacing (8px base) ---- */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
@@ -74,8 +74,8 @@
   --radius-lg: 8px;  /* inputs/cards */ --radius-panel: 12px; --radius-editorial: 16px;
 
   /* ---- Elevation (two tiers only) ---- */
-  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
-  --shadow-md: 0 8px 16px rgba(15,23,42,0.10);
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.05), 0 0 0 1px rgba(15,23,42,0.02);
+  --shadow-md: 0 12px 28px rgba(15,23,42,0.08), 0 2px 6px rgba(15,23,42,0.05);
 
   /* ---- Shell / density ---- */
   --sidebar-expanded: 252px; --sidebar-collapsed: 72px;
