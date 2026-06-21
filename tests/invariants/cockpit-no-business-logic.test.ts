@@ -59,6 +59,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const realtimeControls = readFileSync("cockpit/app/realtime-query-controls.tsx", "utf8");
     const approvalProxy = readFileSync("cockpit/app/api/approval/route.ts", "utf8");
     const realtimeProxy = readFileSync("cockpit/app/api/query/realtime-client-secret/route.ts", "utf8");
+    const humanAuth = readFileSync("cockpit/app/api/human-auth.ts", "utf8");
 
     expect(example).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_AUTH_TOKEN");
     expect(example).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_HUMAN_PRINCIPAL");
@@ -66,11 +67,12 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalControls).not.toContain("x-recoup-human-token");
     expect(realtimeControls).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_AUTH_TOKEN");
     expect(realtimeControls).not.toContain("x-recoup-human-token");
-    expect(approvalProxy).toContain("RECOUP_COCKPIT_AUTH_TOKEN");
-    expect(approvalProxy).toContain("x-recoup-human-token");
+    expect(humanAuth).toContain("RECOUP_COCKPIT_AUTH_TOKEN");
+    expect(humanAuth).toContain("x-recoup-human-token");
+    expect(humanAuth).toContain("recoup_human_token");
+    expect(approvalProxy).toContain("buildVerifiedHumanAuthHeaders");
     expect(approvalProxy).toContain("loadLocalRuntimeEnvFiles");
-    expect(realtimeProxy).toContain("RECOUP_COCKPIT_AUTH_TOKEN");
-    expect(realtimeProxy).toContain("x-recoup-human-token");
+    expect(realtimeProxy).toContain("buildVerifiedHumanAuthHeaders");
     expect(realtimeProxy).toContain("loadLocalRuntimeEnvFiles");
   });
 
@@ -81,14 +83,25 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(page).toContain("<RealtimeQueryControls");
     expect(page).not.toContain("OPENAI_API_KEY required");
     expect(controls).toContain('"use client"');
+    expect(controls).toContain("./realtime-browser-session");
     expect(controls).toContain("/api/query/realtime-client-secret");
     expect(controls).toContain("OpenAI-Safety-Identifier");
     expect(controls).toContain("auditPolicy");
+    expect(controls).toContain("blocked uncited");
+    expect(controls).toContain("deterministicBasis");
+    expect(controls).toContain("startInFlightRef");
+    expect(controls).toContain('status === "connecting"');
     expect(controls).toContain("no raw audio");
     expect(controls).toContain("WebRTC session ready");
     expect(controls).not.toContain("JSON.stringify({ safetyIdentifier })");
     expect(controls).toContain("key={`${recordId}-${String(index)}`}");
+    expect(controls).not.toContain("sk-");
     expect(controls).not.toContain("OPENAI_API_KEY");
+    expect(controls).not.toContain("RECOUP_COCKPIT_AUTH_TOKEN");
+    expect(controls).not.toContain("x-recoup-human-token");
+    expect(controls).not.toContain("localStorage");
+    expect(controls).not.toContain("sessionStorage");
+    expect(controls).not.toContain("indexedDB");
     expect(controls).not.toContain("decimal.js");
     expect(controls).not.toContain("src/core");
   });

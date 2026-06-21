@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_TOOLS_DATA_TABLE_NAMES,
+  type SupabaseToolDataSchemaProbe
+} from "../../src/adapters/connectorRegistry.js";
+import {
   buildAgentGraphModel,
   buildConnectorReadinessModel,
   buildCfoSummaryCockpitModel,
@@ -50,10 +54,11 @@ describe("S5 Forensics cockpit model", () => {
 
     expect(model.surface).toBe("credit-arbitration");
     expect(model.customerId).toBe("CUST-HARBOR");
+    expect(model.sentinel.reason).toBe("verify-runtime-config-loader-required");
     expect(model.partialHold.releaseRatioPercent).toBe("55%");
     expect(model.partialHold.proposedReleaseAmount).toBe("$352,000.00");
     expect(model.arbitration.status).toBe("blocked");
-    expect(model.arbitration.reason).toBe("expert-arbitration-weights-unset");
+    expect(model.arbitration.reason).toBe("verify-prod-calibration-required");
     expect(model.termProposal.status).toBe("pending_human");
     expect(model.approvalInbox.some((item) => item.actionType === "propose-hold")).toBe(true);
   });
@@ -68,8 +73,15 @@ describe("S5 Forensics cockpit model", () => {
       { label: "DSO / CEI", value: "requires live ERP inputs" },
       { label: "Leakage position", value: "$79,800.00 recovery queue" }
     ]);
-    expect(model.openDependencies).toContain("expert-arbitration-weights");
-    expect(model.openDependencies).toContain("r-score-weights");
+    expect(model.openDependencies).toContain("verify-prod-calibration");
+    expect(model.openDependencies).toContain("verify-runtime-config-loader");
+    expect(model.openDependencies).toContain("verify-embeddings-model-id");
+    expect(model.openDependencies).toContain("verify-codex-build-model-id");
+    expect(model.openDependencies).toContain("verify-sap-sandbox-instance");
+    expect(model.openDependencies).toContain("verify-v3-live-non-sap-contracts");
+    expect(model.openDependencies).not.toContain("r-score-weights");
+    expect(model.openDependencies).not.toContain("r-drift-threshold");
+    expect(model.openDependencies).not.toContain("gaming-thresholds");
   });
 
   it("builds trace, memory, and agent graph read models", () => {
@@ -85,8 +97,8 @@ describe("S5 Forensics cockpit model", () => {
     expect(buildAgentGraphModel().edges.some((edge) => edge.mode === "agents-as-tools")).toBe(true);
   });
 
-  it("builds connector readiness read model without marking absent real contracts ready", () => {
-    const model = buildConnectorReadinessModel();
+  it("builds connector readiness read model with schema-required non-SAP source labels until probed", () => {
+    const model = buildConnectorReadinessModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]);
 
     expect(model.surface).toBe("connector-readiness");
     expect(model.connectors.map((connector) => connector.name).sort()).toEqual([
@@ -111,7 +123,26 @@ describe("S5 Forensics cockpit model", () => {
 
     expect(sap?.missingCredentialEnvNames).toContain("SAP_ODATA_USERID");
     expect(sap?.status).toBe("blocked_credentials_required");
-    expect(tpm?.missingSourceContractInputs).toContain("TPM source contract");
+    expect(tpm?.sourceTableName).toBe("recoup_src_tpm");
+    expect(tpm?.liveContractStatus).toBe("deferred_verify_v3");
     expect(tpm?.status).toBe("blocked_schema_required");
   });
+
+  it("builds connector readiness read model with synthetic-ready non-SAP source labels after probe proof", () => {
+    const model = buildConnectorReadinessModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], allTablesAvailableProbe());
+    const tpm = model.connectors.find((connector) => connector.name === "tpm");
+
+    expect(tpm?.sourceTableName).toBe("recoup_src_tpm");
+    expect(tpm?.toolDataTableNames).toEqual(["customers", "payments", "promotions", "contracts"]);
+    expect(tpm?.status).toBe("ready_synthetic");
+  });
 });
+
+function allTablesAvailableProbe(): SupabaseToolDataSchemaProbe {
+  return {
+    tableStatuses: Object.fromEntries(
+      ALL_TOOLS_DATA_TABLE_NAMES.map((tableName) => [tableName, "available" as const])
+    ),
+    unsafeShadowActions: []
+  };
+}

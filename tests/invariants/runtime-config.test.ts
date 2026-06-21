@@ -8,6 +8,7 @@ import {
   loadRuntimeConfig,
   loadSapODataReadOnlyConnection
 } from "../../config/env.js";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
 
 describe("runtime credential and expert config gates", () => {
   it("documents local-only credential names without real secrets", () => {
@@ -18,6 +19,7 @@ describe("runtime credential and expert config gates", () => {
     expect(example).toContain("SAP_ODATA_BASE_URL=");
     expect(example).toContain("SAP_ODATA_CLIENT_ID=");
     expect(example).toContain("SAP_ODATA_CLIENT_SECRET=");
+    expect(example).toContain("SAP_ODATA_CLIENT=");
     expect(example).toContain("SAP_ODATA_USERID=");
     expect(example).toContain("SAP_ODATA_TOKEN_URL=");
     expect(example).toContain("SAP_ODATA_SCOPE=");
@@ -40,13 +42,66 @@ describe("runtime credential and expert config gates", () => {
     expect(example).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./u);
   });
 
-  it("fails closed when runtime credentials and expert constants are absent", () => {
+  it("fails closed when runtime credentials are absent while keeping owner-supplied Day-1 tunables available", () => {
     expect(loadRuntimeConfig({})).toMatchObject({
       openai: { configured: false },
       sap: { configured: false },
       memory: { configured: false, mode: "in_memory" },
-      expertConstants: { configured: false }
+      expertConstants: {
+        configured: true,
+        configHash: day1GovernedConfigSeed.configHash,
+        configVersion: 1,
+        governedConfigRuntime: {
+          bootstrapAvailable: true,
+          dbBackedLoaderImplemented: true,
+          liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
+        },
+        missing: [],
+        source: "owner-ratified-day-1",
+        productionCalibration: {
+          configured: false,
+          verifyProdCalibration: [
+            "arbitration-weights",
+            "embeddings-model-id",
+            "codex-build-model-id",
+            "sap-sandbox-instance",
+            "verify-v3-live-non-sap-contracts"
+          ]
+        }
+      }
     });
+  });
+
+  it("does not require legacy RECOUP approval flags for supplied Day-1 tunables", () => {
+    const config = loadRuntimeConfig({});
+
+    expect(config.expertConstants.governedConfigRuntime).toEqual({
+      bootstrapAvailable: true,
+      dbBackedLoaderImplemented: true,
+      liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
+    });
+    expect(config.expertConstants.missing).toEqual([]);
+    expect(config.expertConstants.missing).not.toContain("db-backed-governed-config-loader");
+    expect(config.expertConstants.supplied).toEqual([
+      "arbitration-weights",
+      "r-score-weights",
+      "r-drift-trigger",
+      "gaming-gate",
+      "partial-hold",
+      "accuracy-bars",
+      "seed"
+    ]);
+    expect(config.expertConstants.productionCalibration.configured).toBe(false);
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("arbitration-weights");
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).not.toContain(
+      "db-backed-governed-config-loader"
+    );
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("embeddings-model-id");
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("codex-build-model-id");
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("sap-sandbox-instance");
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain(
+      "verify-v3-live-non-sap-contracts"
+    );
   });
 
   it("recognizes configured SAP and OpenAI runtime credentials without exposing secret values", () => {
@@ -55,6 +110,7 @@ describe("runtime credential and expert config gates", () => {
       SAP_ODATA_BASE_URL: "https://sap.example.test",
       SAP_ODATA_CLIENT_ID: "client-id",
       SAP_ODATA_CLIENT_SECRET: "client-secret",
+      SAP_ODATA_CLIENT: "100",
       SAP_ODATA_TOKEN_URL: "https://sap.example.test/oauth/token",
       SAP_ODATA_SCOPE: "api.sap.read",
       SAP_ODATA_TENANT: "northbay"
@@ -64,6 +120,7 @@ describe("runtime credential and expert config gates", () => {
     expect(config.sap).toMatchObject({
       baseUrl: "https://sap.example.test",
       configured: true,
+      sapClient: "100",
       tenant: "northbay"
     });
     expect(JSON.stringify(config)).not.toContain("client-secret");
@@ -74,6 +131,7 @@ describe("runtime credential and expert config gates", () => {
       SAP_ODATA_BASE_URL: "https://sap.example.test",
       SAP_ODATA_CLIENT_ID: "client-id",
       SAP_ODATA_CLIENT_SECRET: "client-secret",
+      SAP_ODATA_CLIENT: "100",
       SAP_ODATA_TOKEN_URL: "https://sap.example.test/oauth/token",
       SAP_ODATA_SCOPE: "api.sap.read",
       SAP_ODATA_TENANT: "northbay"
@@ -82,6 +140,7 @@ describe("runtime credential and expert config gates", () => {
     expect(loadRuntimeConfig(env).sap).toMatchObject({
       baseUrl: "https://sap.example.test",
       configured: true,
+      sapClient: "100",
       tenant: "northbay"
     });
     expect(JSON.stringify(loadRuntimeConfig(env))).not.toContain("client-secret");
@@ -89,6 +148,7 @@ describe("runtime credential and expert config gates", () => {
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "client-secret",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
@@ -99,6 +159,7 @@ describe("runtime credential and expert config gates", () => {
   it("supports read-only SAP Basic auth without scope or tenant when the Gateway endpoint does not require OAuth", () => {
     const env = {
       SAP_ODATA_BASE_URL: "https://sap.example.test:44300",
+      SAP_ODATA_CLIENT: "100",
       SAP_ODATA_CLIENT_SECRET: "sap-password",
       SAP_ODATA_USERID: "sap-user"
     };
@@ -113,6 +174,7 @@ describe("runtime credential and expert config gates", () => {
       authMode: "basic",
       baseUrl: "https://sap.example.test:44300",
       clientSecret: "sap-password",
+      sapClient: "100",
       userId: "sap-user"
     });
   });
@@ -175,6 +237,7 @@ describe("runtime credential and expert config gates", () => {
           "SAP_ODATA_BASE_URL=https://sap.example.test",
           "SAP_ODATA_CLIENT_ID='client-id'",
           "SAP_ODATA_CLIENT_SECRET=\"client-secret\"",
+          "SAP_ODATA_CLIENT=100",
           "SAP_ODATA_TOKEN_URL=https://sap.example.test/oauth/token",
           "SAP_ODATA_SCOPE=api.sap.read",
           "SAP_ODATA_TENANT=northbay",
@@ -188,6 +251,7 @@ describe("runtime credential and expert config gates", () => {
       expect(env.OPENAI_API_KEY).toBe("sk-shell-secret");
       expect(env.SAP_ODATA_CLIENT_ID).toBe("client-id");
       expect(env.SAP_ODATA_CLIENT_SECRET).toBe("client-secret");
+      expect(env.SAP_ODATA_CLIENT).toBe("100");
       expect(env.MCP_PORT).toBe("4319");
       expect(loadRuntimeConfig(env)).toMatchObject({
         memory: { configured: true, dbPath: "C:/tmp/recoup memory.sqlite", mode: "sqlite" },
@@ -237,6 +301,7 @@ describe("runtime credential and expert config gates", () => {
           "SAP_ODATA_BASE_URL=https://sap-base.example.test",
           "SAP_ODATA_CLIENT_ID=base-client",
           "SAP_ODATA_CLIENT_SECRET=base-secret",
+          "SAP_ODATA_CLIENT=100",
           "SAP_ODATA_TOKEN_URL=https://sap-base.example.test/oauth/token",
           "SAP_ODATA_SCOPE=base.scope",
           "SAP_ODATA_TENANT=base"
@@ -249,6 +314,7 @@ describe("runtime credential and expert config gates", () => {
           "SAP_ODATA_BASE_URL=https://sap-local.example.test",
           "SAP_ODATA_CLIENT_ID=local-client",
           "SAP_ODATA_CLIENT_SECRET=local-secret",
+          "SAP_ODATA_CLIENT=200",
           "SAP_ODATA_TOKEN_URL=https://sap-local.example.test/oauth/token",
           "SAP_ODATA_SCOPE=local.scope",
           "SAP_ODATA_TENANT=local"
@@ -262,9 +328,10 @@ describe("runtime credential and expert config gates", () => {
       expect(env.SAP_ODATA_BASE_URL).toBe("https://sap-local.example.test");
       expect(env.SAP_ODATA_CLIENT_ID).toBe("local-client");
       expect(env.SAP_ODATA_CLIENT_SECRET).toBe("local-secret");
+      expect(env.SAP_ODATA_CLIENT).toBe("200");
       expect(config).toMatchObject({
         openai: { configured: true, redactedApiKey: "sk-...cret" },
-        sap: { configured: true, baseUrl: "https://sap-local.example.test", tenant: "local" }
+        sap: { configured: true, baseUrl: "https://sap-local.example.test", sapClient: "200", tenant: "local" }
       });
       expect(JSON.stringify(config)).not.toContain("local-secret");
       expect(JSON.stringify(config)).not.toContain("sk-shell-secret");

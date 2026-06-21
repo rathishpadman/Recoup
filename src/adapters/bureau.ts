@@ -3,6 +3,7 @@ import {
   buildEnterpriseReadRequestPlan,
   createEnterpriseSourceContractSchema,
   describeEnterpriseConnectorReadiness,
+  SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR,
   type EnterpriseConnectorReadiness,
   type EnterpriseReadRequestPlan,
   type EnterpriseSourceContract
@@ -18,7 +19,10 @@ export class BureauReadOnlyAdapter {
   ) {}
 
   describeReadiness(): EnterpriseConnectorReadiness {
-    return describeEnterpriseConnectorReadiness(this.contract, "Bureau", this.availableCredentialEnvNames);
+    return describeEnterpriseConnectorReadiness(this.contract, "Bureau", this.availableCredentialEnvNames, {
+      connectorName: "bureau",
+      sourceTableName: SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR.bureau
+    });
   }
 
   buildReadRequestPlan(line: DeductionLine): EnterpriseReadRequestPlan {

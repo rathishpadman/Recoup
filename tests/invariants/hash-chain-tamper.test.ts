@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAuditTrail } from "../../src/audit/trail.js";
 
-describe("I-9 approval audit trail", () => {
+describe("I-9 hash-chain tamper detection", () => {
   it("hashes approval entries with previous-hash continuity and detects tampering", () => {
     const trail = createAuditTrail();
     const first = trail.append({

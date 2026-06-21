@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decideApproval } from "../../src/services/approvals.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
+import { runRiskMeshClosedLoop } from "../../src/agents/riskMesh.js";
 import { draftOutreach } from "../../src/tools/actions/draftOutreach.js";
 
 describe("I-7 and I-20 HITL gate", () => {
@@ -60,5 +61,21 @@ describe("I-7 and I-20 HITL gate", () => {
         approverId: "agent:forensics-investigator"
       })
     ).toThrow("Approval requires a human approver.");
+  });
+
+  it("halts Risk Mesh hold and term proposals at human approval", () => {
+    const run = runRiskMeshClosedLoop();
+
+    for (const action of [run.holdAction, run.termsAction]) {
+      expect(action.requiresHumanApproval).toBe(true);
+      expect(action.status).toBe("pending_human");
+      expect(action.dispatchedExternally).toBe(false);
+      expect(() =>
+        decideApproval(action, {
+          decision: "approve",
+          approverId: "agent:risk-mesh"
+        })
+      ).toThrow("Approval requires a human approver.");
+    }
   });
 });

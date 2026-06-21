@@ -653,6 +653,65 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("marks Realtime client-secret responses no-store and never returns the server API key", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-secret" },
+      realtimeFetcher: () => Promise.resolve(new Response(JSON.stringify({ value: "ek_test_secret" }), { status: 200 }))
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
+        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(body).not.toContain("sk-test-secret");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("handles only read-only Realtime tool calls through verified human auth", async () => {
+    const { baseUrl, server } = await listen({ env: cockpitAuthEnv });
+
+    try {
+      const response = await fetch(`${baseUrl}/query/realtime-tool`, {
+        body: JSON.stringify({
+          argumentsJson: JSON.stringify({ question: "why is Harbor blocked?" }),
+          name: "query.answer"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const result = (await response.json()) as {
+        recordIds: string[];
+        status: string;
+      };
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(result.status).toBe("ok");
+      expect(result.recordIds).toContain("CUST-HARBOR");
+
+      const blocked = await fetch(`${baseUrl}/query/realtime-tool`, {
+        body: JSON.stringify({
+          argumentsJson: "{}",
+          name: "actions.draftRebill"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      expect(blocked.status).toBe(403);
+      expect(blocked.headers.get("cache-control")).toBe("no-store");
+    } finally {
+      await close(server);
+    }
+  });
+
   it("rejects empty Realtime query requests before credential or upstream handling", async () => {
     const { baseUrl, server } = await listen({ env: cockpitAuthEnv });
     try {

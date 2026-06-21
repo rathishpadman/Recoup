@@ -927,7 +927,7 @@ describe("offline query", () => {
     });
 
     expect(answer.status).toBe("disabled_offline_safe");
-    expect(answer.answer).toContain("r-score-weights-unset");
+    expect(answer.answer).toContain("verify-runtime-config-loader-required");
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.deterministicBasis).toContain("audit.read");
   });

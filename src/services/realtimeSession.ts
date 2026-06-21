@@ -1,7 +1,14 @@
 import { runtimeModels } from "../../config/models.js";
 import type { RuntimeEnv } from "../../config/env.js";
+import { z } from "zod";
+import { invokeServiceTool, serviceToolMetadata } from "./serviceLayer.js";
 
 const realtimeClientSecretUrl = "https://api.openai.com/v1/realtime/client_secrets";
+const RealtimeClientSecretResponseSchema = z
+  .object({
+    value: z.string().startsWith("ek_")
+  })
+  .passthrough();
 
 export interface RealtimeAuditPolicy {
   allowedTools: ["audit.read", "query.answer"];
@@ -27,7 +34,7 @@ export interface RealtimeClientSecretBlocked extends RealtimeSessionPolicy {
 
 export interface RealtimeClientSecretIssued {
   auditPolicy: RealtimeAuditPolicy;
-  clientSecret: unknown;
+  clientSecret: z.infer<typeof RealtimeClientSecretResponseSchema>;
   deterministicBasis: string;
   model: typeof runtimeModels.realtime;
   status: "issued";
@@ -42,6 +49,40 @@ export interface RealtimeClientSecretRequest {
   question?: string;
   safetyIdentifier?: string;
 }
+
+type RealtimeAllowedToolName = RealtimeAuditPolicy["allowedTools"][number];
+
+export interface RealtimeToolManifestItem {
+  description: string;
+  name: RealtimeAllowedToolName;
+  parameters: {
+    additionalProperties: false;
+    properties: Record<string, unknown>;
+    required: string[];
+    type: "object";
+  };
+  type: "function";
+}
+
+export interface RealtimeToolCallInput {
+  argumentsJson: string;
+  name: string;
+}
+
+export type RealtimeToolCallResult =
+  | {
+      deterministicBasis: string;
+      output: unknown;
+      recordIds: string[];
+      status: "ok";
+      toolName: RealtimeAllowedToolName;
+    }
+  | {
+      deterministicBasis: string;
+      recordIds: ["OPENAI-REALTIME-POLICY"];
+      status: "blocked_tool";
+      toolName: string;
+    };
 
 const defaultRealtimeSafetyIdentifier = "human:cockpit-query";
 const realtimeSessionInstructions =
@@ -66,6 +107,61 @@ export function buildRealtimeSessionPolicy(env: RuntimeEnv = process.env): Realt
   };
 }
 
+export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
+  return [
+    {
+      description: "Read the Harbor Risk Mesh audit trail. Input must be the canonical Harbor case id.",
+      name: "audit.read",
+      parameters: {
+        additionalProperties: false,
+        properties: {
+          caseId: { const: "ARB-HARBOR-ORDER-640K", type: "string" }
+        },
+        required: ["caseId"],
+        type: "object"
+      },
+      type: "function"
+    },
+    {
+      description: "Answer a Recoup query through the offline deterministic query guard.",
+      name: "query.answer",
+      parameters: {
+        additionalProperties: false,
+        properties: {
+          question: { maxLength: 500, minLength: 1, type: "string" }
+        },
+        required: ["question"],
+        type: "object"
+      },
+      type: "function"
+    }
+  ];
+}
+
+export function handleRealtimeToolCall(input: RealtimeToolCallInput): RealtimeToolCallResult {
+  if (!isRealtimeAllowedToolName(input.name)) {
+    return blockedRealtimeToolCall(input.name);
+  }
+
+  let parsedArgs: unknown;
+  try {
+    parsedArgs = JSON.parse(input.argumentsJson) as unknown;
+  } catch {
+    return blockedRealtimeToolCall(input.name);
+  }
+
+  const output = invokeServiceTool(input.name, parsedArgs);
+  const recordIds = readRecordIds(output);
+
+  return {
+    deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+    output,
+    recordIds: recordIds.length > 0 ? recordIds : ["OPENAI-REALTIME-POLICY"],
+    status: "ok",
+    toolName: input.name
+  };
+}
+
 export async function requestRealtimeClientSecret({
   env = process.env,
   fetcher = fetch,
@@ -86,6 +182,7 @@ export async function requestRealtimeClientSecret({
       session: {
         instructions: realtimeSessionInstructions,
         model: runtimeModels.realtime,
+        tools: buildRealtimeToolManifest(),
         type: "realtime"
       }
     }),
@@ -101,9 +198,11 @@ export async function requestRealtimeClientSecret({
     throw new Error(`Realtime client secret request failed with status ${String(response.status)}.`);
   }
 
+  const clientSecret = RealtimeClientSecretResponseSchema.parse(await response.json());
+
   return {
     auditPolicy: policy.auditPolicy,
-    clientSecret: await response.json(),
+    clientSecret,
     deterministicBasis: policy.deterministicBasis,
     model: policy.model,
     status: "issued",
@@ -113,4 +212,42 @@ export async function requestRealtimeClientSecret({
 
 function hasOpenAiApiKey(env: RuntimeEnv): boolean {
   return env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.trim().length > 0;
+}
+
+function blockedRealtimeToolCall(toolName: string): RealtimeToolCallResult {
+  return {
+    deterministicBasis: "Realtime tool allowlist blocks non-read-only, malformed, or action-producing tool calls.",
+    recordIds: ["OPENAI-REALTIME-POLICY"],
+    status: "blocked_tool",
+    toolName
+  };
+}
+
+function isRealtimeAllowedToolName(name: string): name is RealtimeAllowedToolName {
+  return (
+    (name === "audit.read" || name === "query.answer") &&
+    serviceToolMetadata[name].riskClass === "read_only" &&
+    serviceToolMetadata[name].sideEffectClass === "none"
+  );
+}
+
+function readRecordIds(output: unknown): string[] {
+  return Array.from(new Set(collectRecordIds(output)));
+}
+
+function collectRecordIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectRecordIds(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const directRecordIds = Array.isArray(record["recordIds"])
+    ? record["recordIds"].filter((recordId): recordId is string => typeof recordId === "string" && recordId.length > 0)
+    : [];
+
+  return [...directRecordIds, ...Object.values(record).flatMap((item) => collectRecordIds(item))];
 }

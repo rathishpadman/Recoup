@@ -3,6 +3,7 @@ import {
   buildEnterpriseReadRequestPlan,
   createEnterpriseSourceContractSchema,
   describeEnterpriseConnectorReadiness,
+  SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR,
   type EnterpriseConnectorReadiness,
   type EnterpriseReadRequestPlan,
   type EnterpriseSourceContract
@@ -18,7 +19,10 @@ export class DocRepoReadOnlyAdapter {
   ) {}
 
   describeReadiness(): EnterpriseConnectorReadiness {
-    return describeEnterpriseConnectorReadiness(this.contract, "Document repository", this.availableCredentialEnvNames);
+    return describeEnterpriseConnectorReadiness(this.contract, "Document repository", this.availableCredentialEnvNames, {
+      connectorName: "docs-repo",
+      sourceTableName: SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR["docs-repo"]
+    });
   }
 
   buildReadRequestPlan(line: DeductionLine): EnterpriseReadRequestPlan {

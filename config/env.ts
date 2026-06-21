@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { z } from "zod";
+import { day1GovernedConfigSeed } from "./governed.js";
 
 export type RuntimeEnv = Partial<Record<string, string | undefined>>;
 
 const RuntimeEnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
   SAP_ODATA_BASE_URL: z.string().url().optional(),
+  SAP_ODATA_CLIENT: z.string().min(1).optional(),
   SAP_ODATA_CLIENT_ID: z.string().min(1).optional(),
   SAP_ODATA_CLIENT_SECRET: z.string().min(1).optional(),
   SAP_ODATA_USERID: z.string().min(1).optional(),
@@ -23,11 +25,7 @@ const RuntimeEnvSchema = z.object({
   RECOUP_MCP_CLIENT_CAPABILITIES: z.string().min(1).optional(),
   RECOUP_MCP_CLIENT_PRINCIPAL: z.string().min(1).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
-  SUPABASE_URL: z.string().url().optional(),
-  RECOUP_ARBITRATION_WEIGHTS_APPROVED: z.literal("true").optional(),
-  RECOUP_R_SCORE_WEIGHTS_APPROVED: z.literal("true").optional(),
-  RECOUP_DRIFT_THRESHOLDS_APPROVED: z.literal("true").optional(),
-  RECOUP_GAMING_THRESHOLDS_APPROVED: z.literal("true").optional()
+  SUPABASE_URL: z.string().url().optional()
 });
 type ParsedRuntimeEnv = z.infer<typeof RuntimeEnvSchema>;
 
@@ -40,6 +38,7 @@ export interface RuntimeConfig {
     authMode?: "basic" | "oauth";
     configured: boolean;
     baseUrl?: string;
+    sapClient?: string;
     tenant?: string;
     tokenUrl?: string;
     scope?: string;
@@ -62,7 +61,20 @@ export interface RuntimeConfig {
       };
   expertConstants: {
     configured: boolean;
+    configHash: string;
+    configVersion: 1;
+    governedConfigRuntime: {
+      bootstrapAvailable: boolean;
+      dbBackedLoaderImplemented: boolean;
+      liveDbValidation: "requires-async-recoup-config-loader-readiness-probe";
+    };
     missing: string[];
+    productionCalibration: {
+      configured: boolean;
+      verifyProdCalibration: string[];
+    };
+    source: "owner-ratified-day-1";
+    supplied: string[];
   };
 }
 
@@ -71,6 +83,7 @@ export interface SapODataReadOnlyConnection {
   baseUrl: string;
   clientId: string;
   clientSecret: string;
+  sapClient: string;
   scope: string;
   tenant: string;
   tokenUrl: string;
@@ -80,12 +93,6 @@ export interface SapODataReadOnlyConnection {
 export function loadRuntimeConfig(env: RuntimeEnv = process.env): RuntimeConfig {
   const parsed = RuntimeEnvSchema.parse(env);
   const sapConfigured = isSapBasicConfigured(parsed) || isSapOAuthConfigured(parsed);
-  const missingExpertConstants = [
-    parsed.RECOUP_ARBITRATION_WEIGHTS_APPROVED === "true" ? undefined : "arbitration-weights",
-    parsed.RECOUP_R_SCORE_WEIGHTS_APPROVED === "true" ? undefined : "r-score-weights",
-    parsed.RECOUP_DRIFT_THRESHOLDS_APPROVED === "true" ? undefined : "drift-thresholds",
-    parsed.RECOUP_GAMING_THRESHOLDS_APPROVED === "true" ? undefined : "gaming-thresholds"
-  ].filter((value): value is string => value !== undefined);
 
   return {
     openai:
@@ -100,8 +107,35 @@ export function loadRuntimeConfig(env: RuntimeEnv = process.env): RuntimeConfig 
       : { configured: false },
     memory: buildMemoryConfig(parsed),
     expertConstants: {
-      configured: missingExpertConstants.length === 0,
-      missing: missingExpertConstants
+      configured: true,
+      configHash: day1GovernedConfigSeed.configHash,
+      configVersion: day1GovernedConfigSeed.configVersion,
+      governedConfigRuntime: {
+        bootstrapAvailable: true,
+        dbBackedLoaderImplemented: true,
+        liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
+      },
+      missing: [],
+      productionCalibration: {
+        configured: false,
+        verifyProdCalibration: [
+          "arbitration-weights",
+          "embeddings-model-id",
+          "codex-build-model-id",
+          "sap-sandbox-instance",
+          "verify-v3-live-non-sap-contracts"
+        ]
+      },
+      source: "owner-ratified-day-1",
+      supplied: [
+        "arbitration-weights",
+        "r-score-weights",
+        "r-drift-trigger",
+        "gaming-gate",
+        "partial-hold",
+        "accuracy-bars",
+        "seed"
+      ]
     }
   };
 }
@@ -152,7 +186,8 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
 
   const clientSecret = env.SAP_ODATA_CLIENT_SECRET;
   const baseUrl = env.SAP_ODATA_BASE_URL;
-  if (baseUrl === undefined || clientSecret === undefined) {
+  const sapClient = env.SAP_ODATA_CLIENT;
+  if (baseUrl === undefined || clientSecret === undefined || sapClient === undefined) {
     throw new Error("SAP runtime config was marked configured without client credentials.");
   }
 
@@ -167,6 +202,7 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
       baseUrl,
       clientId: "",
       clientSecret,
+      sapClient,
       scope: "",
       tenant: env.SAP_ODATA_TENANT ?? "",
       tokenUrl: "",
@@ -184,6 +220,7 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
     baseUrl,
     clientId,
     clientSecret,
+    sapClient,
     scope: env.SAP_ODATA_SCOPE ?? "",
     tenant: env.SAP_ODATA_TENANT ?? "",
     tokenUrl
@@ -192,8 +229,9 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
 
 function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
   const baseUrl = parsed.SAP_ODATA_BASE_URL;
+  const sapClient = parsed.SAP_ODATA_CLIENT;
 
-  if (baseUrl === undefined) {
+  if (baseUrl === undefined || sapClient === undefined) {
     throw new Error("SAP runtime config was marked configured without the required read credentials.");
   }
 
@@ -201,7 +239,8 @@ function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
     return {
       authMode: "basic",
       configured: true,
-      baseUrl
+      baseUrl,
+      sapClient
     };
   }
 
@@ -209,7 +248,8 @@ function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
     const sap: RuntimeConfig["sap"] = {
       authMode: "oauth",
       configured: true,
-      baseUrl
+      baseUrl,
+      sapClient
     };
     if (parsed.SAP_ODATA_TENANT !== undefined) {
       sap.tenant = parsed.SAP_ODATA_TENANT;
@@ -230,6 +270,7 @@ function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
 function isSapBasicConfigured(parsed: ParsedRuntimeEnv): boolean {
   return (
     parsed.SAP_ODATA_BASE_URL !== undefined &&
+    parsed.SAP_ODATA_CLIENT !== undefined &&
     parsed.SAP_ODATA_CLIENT_SECRET !== undefined &&
     parsed.SAP_ODATA_USERID !== undefined
   );
@@ -238,6 +279,7 @@ function isSapBasicConfigured(parsed: ParsedRuntimeEnv): boolean {
 function isSapOAuthConfigured(parsed: ParsedRuntimeEnv): boolean {
   return (
     parsed.SAP_ODATA_BASE_URL !== undefined &&
+    parsed.SAP_ODATA_CLIENT !== undefined &&
     parsed.SAP_ODATA_CLIENT_ID !== undefined &&
     parsed.SAP_ODATA_CLIENT_SECRET !== undefined &&
     parsed.SAP_ODATA_TOKEN_URL !== undefined

@@ -1,6 +1,6 @@
 # Recoup VS Code Handoff Status
 
-Date: 2026-06-20
+Date: 2026-06-21
 Workspace: `C:\Rathish\Root Folder\CFO\Hackathon\Recoup1\Recoup`
 Branch: `codex/guardrail-riskmesh-hardening`
 Remote: `https://github.com/rathishpadman/Recoup.git`
@@ -26,7 +26,7 @@ Result:
 
 - ESLint passed.
 - TypeScript typecheck passed.
-- Vitest passed: `53` test files, `251` tests.
+- Vitest passed: `61` test files, `322` tests.
 - Dependency Cruiser passed with no dependency violations.
 
 Note: after the split-push rewrite, the final tree was verified to match the previously verified commit tree. No source files were intentionally changed during the split.
@@ -71,6 +71,10 @@ Key files:
 - No ERP write-back path was added.
 - OAuth and Gateway Basic auth are supported for read-only metadata/GET access.
 - Scope and tenant are optional when the SAP endpoint does not require them.
+- `docs/Tools_data` invoice reads are mapped to `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs`.
+- `SAP_ODATA_CLIENT` is required for live SAP readiness and is sent as `sap-client` on metadata/read GETs.
+- Non-numeric synthetic `INV-*` IDs fail closed instead of becoming live SAP reads.
+- POD, credit memo, and duplicate-claim proof are no longer emitted as SAP fallback evidence.
 - Live Basic-auth metadata proof was captured for `FCOM_COSTCENTER_SRV/$metadata`.
 - The live metadata proof exposed `CostCenterSet` and `F4_CostCenterSet`.
 - SAP credential details are not serialized in runtime config output.
@@ -93,7 +97,7 @@ Key files:
 - Realtime issuance gates only on `OPENAI_API_KEY`; unrelated SAP/Supabase config parsing cannot block it.
 - Local live proof returned HTTP `200`, status `issued`, transport `webrtc`, and audit record `OPENAI-REALTIME-POLICY`.
 - No OpenAI key or client secret value was printed.
-- Browser voice UX remains a controlled demo surface; live browser session/tool wiring is still pending.
+- Browser voice/text remains a controlled demo surface wired through the guarded Realtime browser helper; production live-query policy and identity remain approval dependencies.
 
 Important caveat:
 
@@ -139,7 +143,7 @@ Key files:
 - Handoff graph and Zod handoff packets are implemented.
 - Handoff packets carry `recordIds`.
 - Query remains deterministic/offline-safe for answers and cites deterministic Harbor state.
-- Risk Mesh/Sentinel/Containment remain deterministic harness modules until expert-owned constants are approved.
+- Risk Mesh/Sentinel/Containment remain deterministic harness modules. Owner-ratified Day-1 tunables from `CODEX_BUILD_ANSWERS.md` now have config-as-code bootstrap plus `recoup_config` v1 seed rows; the DB-backed runtime config loader/injection and VERIFY-PROD calibration remain open.
 
 Key files:
 
@@ -226,15 +230,17 @@ Key files:
 
 ## Pending Items
 
-### Must Not Be Invented
+### Expert-Owned Tunables
 
-These remain expert-owned and must not be guessed:
+Owner-ratified Day-1 tunables are supplied for the demo in `CODEX_BUILD_ANSWERS.md`, and the repo now includes config-as-code bootstrap plus `recoup_config` v1 seed rows. The next implementation step is the DB-backed governed config loader/injection; remaining production calibration and owner `[VERIFY]` flags must not be guessed:
 
 - Arbitration P&L weights.
 - R-score weights.
 - Drift thresholds.
 - Gaming thresholds.
-- Appendix G constants not explicitly provided.
+- Embeddings model id.
+- Codex build-model id.
+- SAP sandbox instance.
 
 ### SAP / O2C Live Depth
 
@@ -247,7 +253,7 @@ These remain expert-owned and must not be guessed:
 ### Realtime / Query
 
 - Server-side Realtime client-secret path is live-proved.
-- Browser voice/text session still needs wiring beyond client-secret issuance.
+- Browser voice/text session is wired through the guarded Realtime browser helper; production live-query policy remains an approval dependency.
 - Live answers must remain constrained to deterministic query tools and cited Recoup records.
 - Local Node/Windows CA trust should be fixed to avoid TLS bypass during demos.
 
@@ -264,9 +270,9 @@ These remain expert-owned and must not be guessed:
 - Secure MCP Tunnel/private-network hardening remains a scale-path item.
 - Production IdP/OAuth/KMS decisions remain open.
 
-### Connector Schemas
+### Connector Strategy
 
-The following remain schema-level/readiness only until exact source contracts are provided:
+SAP remains the only live adapter. Workflow 2B implements the Day-1 synthetic Supabase static table schema and readiness foundation for the other sources behind canonical source ports:
 
 - Bureau feed.
 - Remittance.
@@ -274,13 +280,21 @@ The following remain schema-level/readiness only until exact source contracts ar
 - Document repository.
 - TPM.
 
-Required owner input:
+Implemented foundation:
 
-- Field dictionaries.
-- Example payloads.
-- Reconciliation keys.
-- Evidence rules.
-- Any thresholds/weights owned by domain experts.
+- Added static Supabase table definitions for bureau, docs, consolidated remittance/EDI, and TPM.
+- Connector readiness reports non-SAP sources as `ready_synthetic` only after a Supabase schema probe verifies the `docs/Tools_data` tables.
+- Credentials without a successful probe report `blocked_schema_required`, not ready.
+- Readiness blocks on missing/not-exposed `Tools_data` tables and unsafe shadow statuses such as `SENT_TO_SAP`, `SUBMITTED_TO_PORTAL`, or `SAP_STAGE_WRITE`.
+- `docs/Tools_data/seed_data.sql` remains human-approval only because it truncates tables and seeds action/decision/audit-like rows.
+- `recoup_src_remittance` is the shared static table for remittance and EDI-remittance via `transaction_set`.
+
+Remaining implementation:
+
+- Add full synthetic table-reading adapters if source retrieval expands beyond readiness.
+- Keep `provenance = synthetic` and semi-trusted connector state visible in any seeded connector records.
+- Preserve the source-swap boundary so live contracts can replace synthetic adapters later without changing core/services.
+- Keep real non-SAP live contracts deferred to VERIFY-V3.
 
 ### Cockpit Product Depth
 
@@ -299,7 +313,7 @@ Required owner input:
 Open the repo folder:
 
 ```powershell
-cd "C:\Users\s.rathish\OneDrive - HCL Technologies Ltd\Hackathon\Recoup"
+cd "C:\Rathish\Root Folder\CFO\Hackathon\Recoup1\Recoup"
 code .
 ```
 
@@ -337,12 +351,19 @@ Open the Next.js URL printed by `dev:cockpit`.
 
 ## Demo Flow
 
+The live story is a two-persona demo:
+
+- Maya Patel is the Deduction Forensics analyst: she works the recovery queue, evidence pack, draft action, approval controls, run trace, and guarded Realtime query.
+- David Kim is the Credit / Arbitration lead: he reviews Harbor through Sentinel, Risk Mesh arbitration, deterministic partial-hold split, draft terms, and pending human approvals.
+- CFO Summary remains the read-only executive close.
+
 1. Start on the Forensics queue and show recovery and billing-prevention drafts.
 2. Open evidence pack and record IDs for a recovery line.
 3. Use approval controls to show human approval and audit hash output.
-4. Move to Credit/Arbitration and explain Harbor's governed partial-hold split.
-5. Show Agent Operations: MCP surface, typed memory categories, handoff graph, and trace timeline.
-6. Close with CFO Summary and explicitly call out open expert-owned dependencies.
+4. Ask the guarded Realtime query why Harbor is blocked and show cited-or-blocked output.
+5. Move to Credit/Arbitration and explain Harbor's governed partial-hold split.
+6. Show Agent Operations: MCP surface, typed memory categories, handoff graph, and trace timeline.
+7. Close with CFO Summary and explicitly call out open VERIFY-PROD calibration dependencies.
 
 ## Safety Reminders
 

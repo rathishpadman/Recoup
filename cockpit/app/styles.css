@@ -855,17 +855,47 @@ h3 {
   line-height: 18px;
 }
 
-.realtime-card.issued .query-heading span {
+.realtime-card.connected .query-heading span,
+.realtime-card.answered .query-heading span {
   background: var(--bg-surface);
   border-color: color-mix(in srgb, var(--status-success-text) 30%, var(--border-default));
   color: var(--status-success-text);
 }
 
+.realtime-card.connecting .query-heading span,
+.realtime-card.requesting .query-heading span {
+  background: var(--bg-surface);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--border-default));
+  color: var(--color-primary);
+}
+
 .realtime-card.blocked .query-heading span,
-.realtime-card.error .query-heading span {
+.realtime-card.error .query-heading span,
+.realtime-card.ended .query-heading span {
   background: var(--bg-surface);
   border-color: color-mix(in srgb, var(--status-warning-text) 32%, var(--border-default));
   color: var(--status-warning-text);
+}
+
+.query-answer {
+  background: color-mix(in srgb, var(--bg-subtle) 72%, var(--bg-surface));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+}
+
+.query-answer strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.query-answer p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  margin: 0;
 }
 
 .record-strip {

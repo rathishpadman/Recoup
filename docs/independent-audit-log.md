@@ -15,11 +15,11 @@ npm.cmd run verify
 | Architecture and harness | Independent architecture review | Memory, skills, handoffs, permission metadata, run control, audit replay, and launch gates needed clearer implementation status. | Partially resolved | `docs/architecture-review-and-recommendations.md`, `src/memory/`, `src/agents/handoffGraph.ts`, `src/services/conductor.ts`, `tests/invariants/memory-contract.test.ts`, `tests/invariants/run-control.test.ts` |
 | Supabase memory | Independent memory/Supabase audit | Supabase must be the primary shared memory path; live Postgres timestamps must round-trip into Recoup's ISO memory contract. | Resolved baseline | `src/memory/supabaseStore.ts`, `docs/supabase-memory-schema.sql`, `tests/unit/supabase-memory.test.ts`, `tests/unit/runtime-memory.test.ts` |
 | SQLite memory | Independent memory audit | Runtime memory needed durable SQLite-backed records and cockpit visibility. | Resolved baseline | `src/memory/sqliteStore.ts`, `src/memory/runtime.ts`, `src/services/cockpitApi.ts`, `tests/unit/sqlite-memory.test.ts`, `tests/unit/cockpit-api.test.ts` |
-| SAP OData | Independent SAP connector audit | SAP must stay read-only, protect credentials, support OAuth or Gateway Basic auth, and map live OData payloads to evidence. | Resolved baseline; O2C service availability remains open | `src/adapters/sapOData.ts`, `src/tools/retrieval/sap.ts`, `skills/sap-odata-access/SKILL.md`, `tests/unit/sap-odata.test.ts`, `tests/invariants/no-erp-writeback.test.ts` |
+| SAP OData | Independent SAP connector audit | SAP must stay read-only, protect credentials, support OAuth or Gateway Basic auth, and map `docs/Tools_data` invoice IDs through `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` with `sap-client`. | Resolved invoice baseline; broader O2C service depth remains open | `src/adapters/sapOData.ts`, `src/tools/retrieval/sap.ts`, `skills/sap-odata-access/SKILL.md`, `tests/unit/sap-odata.test.ts`, `tests/invariants/no-erp-writeback.test.ts` |
 | Cockpit auth and Realtime | Independent security audit | Cockpit approval and Realtime secret endpoints allowed forged human context. Service approval path hard-coded a human approver. Realtime credential gating was coupled to unrelated connector config. | Resolved hackathon guard; live client-secret proof captured | `src/services/cockpitApi.ts`, `src/services/realtimeSession.ts`, `src/services/serviceLayer.ts`, `cockpit/app/approval-controls.tsx`, `cockpit/app/realtime-query-controls.tsx`, `tests/unit/cockpit-api.test.ts`, `tests/unit/realtime-session.test.ts`, `tests/invariants/integration-contract.test.ts` |
 | MCP and tool permissions | Independent MCP/RBAC audit | Production MCP endpoint and helper facade needed auth; MCP calls needed actor capability checks; internal approval/core tools must remain hidden. | Resolved hackathon guard | `src/mcp/server.ts`, `src/services/permissionEngine.ts`, `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibility.test.ts`, `tests/invariants/tool-permissions.test.ts` |
 | UI/UX against O2C Design System | Independent visual audit | Cockpit needed restrained operational framing, a desktop hero workflow, and mobile table ergonomics. | Resolved first-viewport QA baseline | `cockpit/app/page.tsx`, `cockpit/app/styles.css`, `tests/invariants/cockpit-no-business-logic.test.ts`, `O2C Design System v3.1.dc.html` |
-| Connector readiness | Independent connector/security audit | Bureau, remittance/EDI, document repository, and TPM adapters need real schemas before production-grade mappings. | Open pending source contracts | `src/adapters/connectorRegistry.ts`, `src/adapters/bureau.ts`, `src/adapters/remittance.ts`, `src/adapters/ediRemittance.ts`, `src/adapters/docRepo.ts`, `src/adapters/tpm.ts`, `tests/invariants/connector-readiness.test.ts` |
+| Connector readiness | Independent connector/security audit | SAP stays live read-only; bureau, remittance/EDI, document repository, and TPM use synthetic Supabase static table readiness for Day 1, but only after a schema probe verifies the `docs/Tools_data` tables and no unsafe shadow action statuses are present. | Foundation implemented; live contracts deferred; seed SQL remains human-approval only | `src/adapters/connectorRegistry.ts`, `src/adapters/bureau.ts`, `src/adapters/remittance.ts`, `src/adapters/ediRemittance.ts`, `src/adapters/docRepo.ts`, `src/adapters/tpm.ts`, `src/memory/supabaseStore.ts`, `docs/supabase-memory-schema.sql`, `tests/invariants/connector-readiness.test.ts` |
 
 ## Resolved Findings
 
@@ -50,16 +50,30 @@ Evidence: `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibi
 - SAP OData adapter exposes read and request-planning methods only.
 - The local SAP OData skill guides metadata-first, read-only Gateway access and blocks SAP mutation paths inside Recoup.
 - OAuth client-credentials token retrieval is isolated from SAP business reads, and Gateway Basic auth is supported when `SAP_ODATA_USERID` plus the configured secret are present.
+- The `docs/Tools_data` invoice mapping uses `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` and requires `SAP_ODATA_CLIENT` so read URLs include `sap-client`.
+- Synthetic `INV-*` IDs without a numeric SAP suffix fail closed and do not become live SAP reads.
+- POD, credit memo, and duplicate-claim proof are no longer attributed to SAP by the fallback path; they remain non-SAP evidence unless deterministic SAP keys are added.
 - Secret-bearing connection details are not serialized through runtime config or adapter JSON.
 - Live Basic-auth metadata proof on June 19, 2026 returned HTTP 200 for `FCOM_COSTCENTER_SRV/$metadata` and exposed `CostCenterSet` plus `F4_CostCenterSet` without requiring scope or tenant.
 - Live OData payload mapping to Recoup evidence is covered by unit tests.
 
 Evidence: `tests/unit/sap-odata.test.ts`, `tests/invariants/no-erp-writeback.test.ts`, `tests/invariants/integration-contract.test.ts`.
 
+### Probe-Gated Tools Data Readiness
+
+- Supabase credentials alone no longer mark bureau, docs, remittance/EDI, or TPM as `ready_synthetic`.
+- The connector readiness model requires a Supabase schema probe for the `docs/Tools_data` tables and reports `blocked_schema_required` for 404/not-exposed tables.
+- The probe returns table/status classes only and does not return row IDs, amounts, or service-role secrets.
+- Readiness blocks if shadow action tables contain external-action statuses: `billing_requests.status=SENT_TO_SAP`, `recovery_packages.status=SUBMITTED_TO_PORTAL`, or `immutable_audit_log.action_type=SAP_STAGE_WRITE`.
+- `docs/Tools_data/seed_data.sql` is not applied automatically because it runs `TRUNCATE ... CASCADE` and seeds action/decision/audit-like rows.
+
+Evidence: `src/memory/supabaseStore.ts`, `src/adapters/connectorRegistry.ts`, `tests/unit/supabase-memory.test.ts`, `tests/invariants/connector-readiness.test.ts`.
+
 ### Supabase Durable Memory Baseline
 
 - Supabase/Postgres is selected ahead of SQLite when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured.
 - The generated DDL and reviewable SQL artifact stay aligned, with constrained memory categories, record IDs, indexes, RLS enablement, and service-role-only grants.
+- The same schema artifact now includes Day-1 synthetic source tables for bureau, docs, consolidated remittance/EDI, and TPM with `provenance = synthetic`.
 - Live Supabase REST table reads were verified for `recoup_memory_records`.
 - Postgres `timestamptz` rows are normalized to Recoup's internal ISO datetime memory contract before Zod validation.
 
@@ -75,13 +89,14 @@ Evidence: `cockpit/app/styles.css`, `tests/invariants/cockpit-no-business-logic.
 
 ## Open Findings For Judges
 
-These are intentionally visible because Recoup's contract says not to invent missing enterprise constants or source schemas.
+These are intentionally visible because Recoup's contract says supplied owner decisions must be implemented through governed config/source boundaries, not guessed in runtime logic.
 
 | Open Finding | Why It Is Open | Required Owner Input |
 |---|---|---|
-| Expert-owned constants | Arbitration weights, R-score weights, drift thresholds, and gaming thresholds are expert-owned and must not be guessed. | Finance/risk owner approval of provisional demo values or final Appendix G constants. |
+| Expert-owned constants | Arbitration weights, R-score weights, drift thresholds, gaming thresholds, partial-hold config, accuracy bars, and seed are owner-ratified Day-1 tunables for the demo and must not be guessed beyond that record; config-as-code bootstrap seed rows exist in repo. | DB-backed governed config runtime loader, then production VERIFY-PROD calibration before final operating use. |
 | Real SAP S/4HANA O2C query mapping | Read-only OAuth/Basic OData baseline and live Gateway metadata proof exist, but the mapped billing/outbound-delivery services still need reachable endpoints and metadata-backed entity mapping. | Reachable O2C SAP services, entity sets, key fields, and sample payloads. |
-| Bureau/remittance/EDI/docs/TPM schemas | Adapter scaffolds exist; production mappings need exact schemas and evidence rules. | Source contracts, field dictionaries, example payloads, and reconciliation keys. |
+| Bureau/remittance/EDI/docs/TPM source depth | Static table schema and readiness foundation are implemented for Day 1, but full table-reading adapters and live mappings remain deferred. | Implement synthetic retrieval adapters if needed beyond readiness; later source contracts, field dictionaries, example payloads, and reconciliation keys for VERIFY-V3 live adapters. |
+| Model/build/runtime verification flags | `CODEX_BUILD_ANSWERS.md` leaves embeddings model id, Codex build-model id, and SAP sandbox instance as `[VERIFY]`; Recoup must not assert final production identity for them until confirmed. | Owner-confirmed model IDs and SAP sandbox instance before production or published benchmark claims. |
 | Full cockpit depth | First-viewport desktop/mobile visual QA baseline is resolved; deeper interactive drilldowns remain planned. | Final O2C design review for expanded flows beyond the first viewport. |
 | Enterprise identity | Hackathon guards use configured principal/token headers. | Production IdP/OAuth/KMS/Secure MCP Tunnel decision. |
 

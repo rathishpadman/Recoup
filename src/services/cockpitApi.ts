@@ -5,16 +5,21 @@ import { z } from "zod";
 import { runForensicsInvestigation } from "../agents/forensics.js";
 import { createAuditTrail } from "../audit/trail.js";
 import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/env.js";
+import { ALL_TOOLS_DATA_TABLE_NAMES } from "../adapters/connectorRegistry.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
-import { createSupabaseMemoryRepositoryFromEnv, type SupabaseMemoryFetch } from "../memory/supabaseStore.js";
+import {
+  createSupabaseMemoryRepositoryFromEnv,
+  createSupabaseTableReadinessProbeFromEnv,
+  type SupabaseMemoryFetch
+} from "../memory/supabaseStore.js";
 import {
   assertApprovalActionOpen,
   assertApprovalReasonSafe,
   decideApproval,
   recordApprovalActionDecision
 } from "./approvals.js";
-import { requestRealtimeClientSecret } from "./realtimeSession.js";
+import { handleRealtimeToolCall, requestRealtimeClientSecret } from "./realtimeSession.js";
 import {
   buildAgentGraphModel,
   buildCfoSummaryCockpitModel,
@@ -58,6 +63,10 @@ const approvalRequestSchema = z.object({
 
 const realtimeClientSecretRequestSchema = z.object({
   question: z.string().trim().min(1, "Realtime query question is required.")
+});
+const realtimeToolCallRequestSchema = z.object({
+  argumentsJson: z.string().max(4000),
+  name: z.string().min(1)
 });
 const approvalAuditTrail = createAuditTrail();
 const cockpitApproverId = "human:maya-lead";
@@ -135,8 +144,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     response.json(buildAgentGraphModel());
   });
 
-  app.get("/connectors", (_request, response) => {
-    response.json(buildConnectorReadinessModel(readConfiguredEnvNames(runtimeEnv)));
+  app.get("/connectors", async (_request, response) => {
+    const supabaseProbe = createSupabaseTableReadinessProbeFromEnv(runtimeEnv, options.memoryFetcher);
+    const toolDataSchemaProbe = supabaseProbe === undefined ? undefined : await supabaseProbe.probeTables(ALL_TOOLS_DATA_TABLE_NAMES);
+
+    response.json(buildConnectorReadinessModel(readConfiguredEnvNames(runtimeEnv), toolDataSchemaProbe));
   });
 
   app.get("/run", async (request, response) => {
@@ -234,6 +246,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   });
 
   app.post("/query/realtime-client-secret", async (request, response) => {
+    response.setHeader("cache-control", "no-store");
     const human = verifyHumanCockpitAuth(request, runtimeEnv);
     if (!human.success) {
       response.status(401).json({ error: human.error });
@@ -258,6 +271,28 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       response
         .status(502)
         .json({ error: error instanceof Error ? error.message : "Realtime session request failed." });
+    }
+  });
+
+  app.post("/query/realtime-tool", (request, response) => {
+    response.setHeader("cache-control", "no-store");
+    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    if (!human.success) {
+      response.status(401).json({ error: human.error });
+      return;
+    }
+
+    const parsedRequest = realtimeToolCallRequestSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+      response.status(400).json({ error: "Invalid Realtime tool request." });
+      return;
+    }
+
+    try {
+      const result = handleRealtimeToolCall(parsedRequest.data);
+      response.status(result.status === "blocked_tool" ? 403 : 200).json(result);
+    } catch {
+      response.status(400).json({ error: "Invalid Realtime tool request." });
     }
   });
 

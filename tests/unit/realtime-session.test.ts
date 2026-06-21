@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRealtimeSessionPolicy, requestRealtimeClientSecret } from "../../src/services/realtimeSession.js";
+import {
+  buildRealtimeSessionPolicy,
+  buildRealtimeToolManifest,
+  handleRealtimeToolCall,
+  requestRealtimeClientSecret
+} from "../../src/services/realtimeSession.js";
+import { serviceToolMetadata } from "../../src/services/serviceLayer.js";
 
 describe("Realtime session policy", () => {
   it("fails closed without an OpenAI API key", async () => {
@@ -45,12 +51,13 @@ describe("Realtime session policy", () => {
       throw new Error("Expected Realtime upstream body to be a JSON string.");
     }
     const upstreamBody = JSON.parse(upstreamRequestBody) as {
-      session: { instructions?: string; model: string; type: string };
+      session: { instructions?: string; model: string; tools?: Array<{ name: string }>; type: string };
     };
     expect(upstreamRequestBody).not.toContain("why is harbor blocked");
     expect(upstreamBody.session.instructions).toContain("cite deterministic Recoup recordIds");
     expect(upstreamBody.session.instructions).toContain("External actions are forbidden");
     expect(upstreamBody.session.instructions).toContain("Allowed tools: audit.read and query.answer");
+    expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
     expect(calls[0]?.init.headers).toMatchObject({
       Authorization: "Bearer sk-live-secret",
       "OpenAI-Safety-Identifier": "human-cfo"
@@ -89,6 +96,57 @@ describe("Realtime session policy", () => {
     expect(policy.auditPolicy.allowedTools).toEqual(["audit.read", "query.answer"]);
     expect(policy.auditPolicy.forbiddenPersistence).toContain("raw_audio");
     expect(policy.auditPolicy.retention).toContain("no raw audio");
+  });
+
+  it("declares Realtime tools as a read-only deterministic subset of service tools", () => {
+    const allowedTools = buildRealtimeSessionPolicy().auditPolicy.allowedTools;
+
+    expect(allowedTools).toEqual(["audit.read", "query.answer"]);
+    for (const toolName of allowedTools) {
+      expect(serviceToolMetadata[toolName]).toMatchObject({
+        riskClass: "read_only",
+        sideEffectClass: "none"
+      });
+    }
+    expect(allowedTools.some((toolName) => toolName.startsWith("actions."))).toBe(false);
+    expect(allowedTools.some((toolName) => toolName.startsWith("approvals."))).toBe(false);
+  });
+
+  it("builds a browser-safe Realtime tool manifest without action or write-capable tools", () => {
+    const manifest = buildRealtimeToolManifest();
+    const serialized = JSON.stringify(manifest);
+
+    expect(manifest.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
+    expect(serialized).not.toMatch(/draft|approve|rebill|hold|terms|routeBilling|erp|write/iu);
+  });
+
+  it("blocks Realtime tool calls outside the deterministic query allowlist", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: "{}",
+      name: "actions.draftRebill"
+    });
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool"
+    });
+    expect(result.deterministicBasis).toContain("Realtime tool allowlist");
+  });
+
+  it("rejects upstream client-secret responses that are not ephemeral keys", async () => {
+    await expect(
+      requestRealtimeClientSecret({
+        env: { OPENAI_API_KEY: "sk-live-secret" },
+        fetcher: () =>
+          Promise.resolve(
+            new Response(JSON.stringify({ value: "sk-leaked-server-key" }), {
+              headers: { "content-type": "application/json" },
+              status: 200
+            })
+          ),
+        safetyIdentifier: "human-cfo"
+      })
+    ).rejects.toThrow();
   });
 });
 

@@ -1,10 +1,4 @@
-export const partialHoldWeights = {
-  orderValueVsExposure: 0.2,
-  customerStrategicValue: 0.15,
-  dsoPaymentDrift: 0.2,
-  orderMargin: 0.15,
-  revenueForecast: 0.15,
-  paymentPattern: 0.15
-} as const;
+import { day1GovernedConfigSeed } from "./governed.js";
 
-export const arbitrationPnlWeights = "<TO BE SET BY EXPERT>" as const;
+export const partialHoldWeights = day1GovernedConfigSeed.values.partialHold.weights;
+export const arbitrationPnlWeights = day1GovernedConfigSeed.values.arbitrationWeights;

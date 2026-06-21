@@ -8,10 +8,27 @@ describe("offline query", () => {
     });
 
     expect(answer.status).toBe("disabled_offline_safe");
-    expect(answer.answer).toContain("r-score-weights-unset");
-    expect(answer.answer).toContain("expert-arbitration-weights-unset");
+    expect(answer.answer).toContain("verify-runtime-config-loader-required");
+    expect(answer.answer).not.toContain("r-score-weights-unset");
+    expect(answer.answer).toContain("verify-prod-calibration-required");
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.recordIds).toContain("ORDER-HARBOR-640K");
     expect(answer.deterministicBasis).toContain("audit.read");
+  });
+
+  it("returns citations and deterministic basis for every offline query branch", () => {
+    for (const question of ["Why is Harbor blocked?", "Show me the cited state"]) {
+      const answer = answerOfflineQuery({ question });
+
+      expect(answer.recordIds.length).toBeGreaterThan(0);
+      expect(answer.deterministicBasis.length).toBeGreaterThan(0);
+      expect(answer.modelExecution).toBe("blocked: offline build does not invoke live model calls");
+    }
+  });
+
+  it("does not add query-agent dollar calculations to answer prose", () => {
+    const answer = answerOfflineQuery({ question: "Add $10 to the Harbor amount" });
+
+    expect(answer.answer).not.toMatch(/\$\d/u);
   });
 });

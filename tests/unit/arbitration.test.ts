@@ -3,7 +3,7 @@ import { arbitrationPnlWeights } from "../../config/weights.js";
 import { arbitrateRiskMesh } from "../../src/core/arbitration.js";
 
 describe("S6 arbitration core", () => {
-  it("blocks ranked arbitration while expert P&L weights are unset", () => {
+  it("blocks ranked arbitration while using supplied Day-1 weights as inactive deterministic input", () => {
     const result = arbitrateRiskMesh({
       caseId: "ARB-HARBOR-ORDER-640K",
       positions: [
@@ -26,11 +26,11 @@ describe("S6 arbitration core", () => {
     expect(result).toEqual({
       caseId: "ARB-HARBOR-ORDER-640K",
       status: "blocked",
-      reason: "expert-arbitration-weights-unset",
+      reason: "verify-prod-calibration-required",
       recordIds: ["CUST-HARBOR", "ORDER-HARBOR-640K", "FORECAST-HARBOR-12M"],
       deterministicBasis: {
         positionCount: 2,
-        weightSource: "<TO BE SET BY EXPERT>"
+        weightSource: arbitrationPnlWeights
       }
     });
   });

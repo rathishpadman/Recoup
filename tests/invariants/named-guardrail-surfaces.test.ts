@@ -21,6 +21,19 @@ describe("named guardrail surfaces", () => {
         }
       });
     }).toThrow("Distressed-honest customers cannot be contained without approved gaming thresholds.");
+
+    expect(() => {
+      assertNoWrongfulContainment({
+        customerId: "CUST-RISK",
+        intentLabel: "gaming",
+        contained: true,
+        recordIds: ["CUST-RISK", "RISK-LEDGER-1"],
+        deterministicBasis: {
+          gamingThresholds: "industry-model",
+          noWrongfulContainment: true
+        }
+      });
+    }).toThrow("Containment decisions require approved gaming thresholds.");
   });
 
   it("exposes the intentEvidence tool guardrail as a named module", async () => {

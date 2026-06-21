@@ -18,7 +18,7 @@ export interface ArbitrateRiskMeshInput {
 export interface BlockedArbitrationResult {
   caseId: string;
   status: "blocked";
-  reason: "expert-arbitration-weights-unset";
+  reason: "verify-prod-calibration-required";
   recordIds: string[];
   deterministicBasis: {
     positionCount: number;
@@ -30,7 +30,7 @@ export function arbitrateRiskMesh(input: ArbitrateRiskMeshInput): BlockedArbitra
   return {
     caseId: input.caseId,
     status: "blocked",
-    reason: "expert-arbitration-weights-unset",
+    reason: "verify-prod-calibration-required",
     recordIds: unique(input.positions.flatMap((position) => position.recordIds)),
     deterministicBasis: {
       positionCount: input.positions.length,

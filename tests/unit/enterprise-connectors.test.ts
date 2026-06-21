@@ -26,6 +26,77 @@ const line = {
 };
 
 describe("enterprise read-only connector adapters", () => {
+  it("reports Day-1 synthetic static tables as schema-required until the Supabase probe verifies them", () => {
+    expect(new BureauReadOnlyAdapter(undefined, ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).describeReadiness()).toMatchObject({
+      configured: false,
+      connectorName: "bureau",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_bureau"
+    });
+    expect(new DocRepoReadOnlyAdapter(undefined, ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).describeReadiness()).toMatchObject({
+      configured: false,
+      connectorName: "docs-repo",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_docs"
+    });
+    expect(new EdiRemittanceReadOnlyAdapter(undefined, ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).describeReadiness()).toMatchObject({
+      configured: false,
+      connectorName: "edi-remittance",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_remittance"
+    });
+    expect(new RemittanceReadOnlyAdapter(undefined, ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).describeReadiness()).toMatchObject({
+      configured: false,
+      connectorName: "remittance",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_remittance"
+    });
+    expect(new TpmReadOnlyAdapter(undefined, ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).describeReadiness()).toMatchObject({
+      configured: false,
+      connectorName: "tpm",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_tpm"
+    });
+  });
+
+  it("does not report a supplied non-SAP live source contract as Day-1 readiness", () => {
+    const contract = DocRepoSourceContractSchema.parse({
+      allowedRecordPrefixes: ["DOC-"],
+      baseUrl: "https://docs.example.test",
+      canonicalEvidenceMapping: {
+        documentIdField: "document_id",
+        documentTypeField: "document_type",
+        recordIdsField: "record_ids",
+        summaryField: "summary"
+      },
+      connectorName: "docs-repo",
+      credentialEnvNames: ["DOCS_REPO_TOKEN"],
+      evidenceTypes: ["POD"],
+      readPathTemplate: "/evidence/{recordId}",
+      recordIdSources: ["recordIds"]
+    });
+
+    const readiness = new DocRepoReadOnlyAdapter(contract, [
+      "DOCS_REPO_TOKEN",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ]).describeReadiness();
+
+    expect(readiness).toMatchObject({
+      configured: false,
+      connectorName: "docs-repo",
+      liveContractStatus: "deferred_verify_v3",
+      mode: "synthetic-static-table-schema-required",
+      sourceTableName: "recoup_src_docs"
+    });
+    expect(JSON.stringify(readiness)).not.toContain("docs.example.test");
+  });
+
   it("fails closed when source contracts are not configured", () => {
     expect(new BureauReadOnlyAdapter().buildReadRequestPlan(line)).toEqual({
       configured: false,
@@ -91,7 +162,7 @@ describe("enterprise read-only connector adapters", () => {
     ).toThrow("baseUrl must not include credentials, query strings, or fragments");
   });
 
-  it("does not build live read plans until declared credentials are available", () => {
+  it("keeps supplied live source contracts deferred before checking connector credentials", () => {
     const contract = DocRepoSourceContractSchema.parse({
       allowedRecordPrefixes: ["DOC-"],
         baseUrl: "https://docs.example.test",
@@ -110,12 +181,13 @@ describe("enterprise read-only connector adapters", () => {
 
     expect(new DocRepoReadOnlyAdapter(contract).buildReadRequestPlan(line)).toEqual({
       configured: false,
-      reason: "Document repository credentials are not available for DOCS_REPO_TOKEN.",
+      reason:
+        "Document repository live source reads are deferred to VERIFY-V3; Day-1 source readiness uses synthetic Supabase static table recoup_src_docs.",
       requests: []
     });
   });
 
-  it("builds GET-only request plans without leaking credential names or secret values", () => {
+  it("does not build live non-SAP GET plans while VERIFY-V3 source contracts are deferred", () => {
     const adapters = [
       new BureauReadOnlyAdapter(
         BureauSourceContractSchema.parse({
@@ -211,20 +283,16 @@ describe("enterprise read-only connector adapters", () => {
 
     const plans = adapters.map((adapter) => adapter.buildReadRequestPlan(line));
 
-    expect(plans.every((plan) => plan.configured)).toBe(true);
-    const requests = plans.flatMap((plan) => (plan.configured ? plan.requests : []));
-    expect(requests.map((request) => request.connectorName).sort()).toEqual([
-      "bureau",
-      "bureau",
-      "docs-repo",
-      "edi-remittance",
-      "remittance",
-      "tpm"
-    ]);
-    expect([...new Set(requests.map((request) => request.method))]).toEqual(["GET"]);
-    expect(requests.every((request) => request.recordIds.includes(line.lineId))).toBe(true);
-    expect(requests.some((request) => request.url === "https://docs.example.test/evidence/DOC-POD-1")).toBe(true);
-    expect(requests.some((request) => request.url === "https://bureau.example.test/customers/CUST-GREENLEAF/signals")).toBe(true);
+    for (const plan of plans) {
+      expect(plan.configured).toBe(false);
+      if (plan.configured) {
+        throw new Error("Non-SAP live read plans must stay disabled until VERIFY-V3.");
+      }
+      expect(plan.requests).toEqual([]);
+      expect(plan.reason).toContain("VERIFY-V3");
+      expect(plan.reason).toContain("synthetic Supabase static table");
+    }
+    expect(JSON.stringify(plans)).not.toContain("example.test");
     expect(JSON.stringify(plans)).not.toContain("TOKEN");
     expect(JSON.stringify(plans)).not.toContain("secret");
   });

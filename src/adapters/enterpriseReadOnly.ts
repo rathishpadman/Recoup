@@ -3,6 +3,14 @@ import type { DeductionLine } from "../types/entities.js";
 
 export const EnterpriseConnectorNameSchema = z.enum(["bureau", "docs-repo", "edi-remittance", "remittance", "tpm"]);
 export const RecordIdSourceSchema = z.enum(["customerId", "lineId", "recordIds"]);
+export const SUPABASE_SYNTHETIC_SOURCE_CREDENTIAL_ENV_NAMES = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
+export const SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR = {
+  bureau: "recoup_src_bureau",
+  "docs-repo": "recoup_src_docs",
+  "edi-remittance": "recoup_src_remittance",
+  remittance: "recoup_src_remittance",
+  tpm: "recoup_src_tpm"
+} as const;
 
 const CanonicalEvidenceMappingSchema = z.object({
   documentIdField: z.string().min(1),
@@ -79,13 +87,67 @@ export type EnterpriseConnectorReadiness =
       configured: true;
       connectorName: EnterpriseConnectorName;
       mode: "read-only-source-contract";
+    }
+  | {
+      configured: false;
+      connectorName: EnterpriseConnectorName;
+      liveContractStatus: "deferred_verify_v3";
+      missingCredentialEnvNames: string[];
+      mode: "synthetic-static-table-credentials-required";
+      reason: string;
+      sourceTableName: string;
+    }
+  | {
+      configured: true;
+      connectorName: EnterpriseConnectorName;
+      liveContractStatus: "deferred_verify_v3";
+      mode: "synthetic-static-table";
+      sourceTableName: string;
+    }
+  | {
+      configured: false;
+      connectorName: EnterpriseConnectorName;
+      liveContractStatus: "deferred_verify_v3";
+      missingCredentialEnvNames: [];
+      mode: "synthetic-static-table-schema-required";
+      reason: string;
+      sourceTableName: string;
     };
 
 export function describeEnterpriseConnectorReadiness(
   contract: EnterpriseSourceContract | undefined,
   displayName: string,
-  availableCredentialEnvNames: readonly string[] = []
+  availableCredentialEnvNames: readonly string[] = [],
+  syntheticSource?: {
+    connectorName: EnterpriseConnectorName;
+    sourceTableName: string;
+  }
 ): EnterpriseConnectorReadiness {
+  if (syntheticSource !== undefined) {
+    const missingCredentialEnvNames = findMissingSyntheticSourceCredentialEnvNames(availableCredentialEnvNames);
+    if (missingCredentialEnvNames.length > 0) {
+      return {
+        configured: false,
+        connectorName: syntheticSource.connectorName,
+        liveContractStatus: "deferred_verify_v3",
+        missingCredentialEnvNames,
+        mode: "synthetic-static-table-credentials-required",
+        reason: `${displayName} synthetic source table ${syntheticSource.sourceTableName} requires Supabase source-table credentials.`,
+        sourceTableName: syntheticSource.sourceTableName
+      };
+    }
+
+    return {
+      configured: false,
+      connectorName: syntheticSource.connectorName,
+      liveContractStatus: "deferred_verify_v3",
+      missingCredentialEnvNames: [],
+      mode: "synthetic-static-table-schema-required",
+      reason: `${displayName} synthetic source table ${syntheticSource.sourceTableName} requires a Supabase schema readiness probe.`,
+      sourceTableName: syntheticSource.sourceTableName
+    };
+  }
+
   if (contract === undefined) {
     return {
       configured: false,
@@ -111,11 +173,13 @@ export function describeEnterpriseConnectorReadiness(
 }
 
 export function buildEnterpriseReadRequestPlan(
-  line: DeductionLine,
+  _line: DeductionLine,
   contract: EnterpriseSourceContract | undefined,
   displayName: string,
-  availableCredentialEnvNames: readonly string[] = []
+  _availableCredentialEnvNames: readonly string[] = []
 ): EnterpriseReadRequestPlan {
+  void _line;
+  void _availableCredentialEnvNames;
   if (contract === undefined) {
     return {
       configured: false,
@@ -123,55 +187,12 @@ export function buildEnterpriseReadRequestPlan(
       requests: []
     };
   }
-  const missingCredentialEnvNames = findMissingCredentialEnvNames(contract, availableCredentialEnvNames);
-  if (missingCredentialEnvNames.length > 0) {
-    return {
-      configured: false,
-      reason: `${displayName} credentials are not available for ${missingCredentialEnvNames.join(", ")}.`,
-      requests: []
-    };
-  }
 
   return {
-    configured: true,
-    connectorName: contract.connectorName,
-    requests: collectRecordIds(line, contract)
-      .filter((recordId) => contract.allowedRecordPrefixes.some((prefix) => recordId.startsWith(prefix)))
-      .map((recordId) => ({
-        canonicalEvidenceMapping: { ...contract.canonicalEvidenceMapping },
-        connectorName: contract.connectorName,
-        evidenceTypes: [...contract.evidenceTypes],
-        method: "GET",
-        recordIds: [line.lineId, recordId],
-        url: buildReadUrl(contract.baseUrl, contract.readPathTemplate, recordId)
-      }))
+    configured: false,
+    reason: `${displayName} live source reads are deferred to VERIFY-V3; Day-1 source readiness uses synthetic Supabase static table ${SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR[contract.connectorName]}.`,
+    requests: []
   };
-}
-
-function collectRecordIds(line: DeductionLine, contract: EnterpriseSourceContract): string[] {
-  const ids = new Set<string>();
-
-  for (const source of contract.recordIdSources) {
-    if (source === "customerId") {
-      ids.add(line.customerId);
-    } else if (source === "lineId") {
-      ids.add(line.lineId);
-    } else {
-      for (const recordId of line.recordIds) {
-        ids.add(recordId);
-      }
-    }
-  }
-
-  return [...ids];
-}
-
-function buildReadUrl(baseUrl: string, readPathTemplate: string, recordId: string): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  const expandedPath = readPathTemplate.replace(/\{recordId\}/g, encodeURIComponent(recordId));
-  const normalizedPath = expandedPath.startsWith("/") ? expandedPath : `/${expandedPath}`;
-
-  return `${normalizedBase}${normalizedPath}`;
 }
 
 export function hasAvailableCredentialEnvNames(
@@ -188,6 +209,12 @@ function findMissingCredentialEnvNames(
   const available = new Set(availableCredentialEnvNames);
 
   return contract.credentialEnvNames.filter((credentialEnvName) => !available.has(credentialEnvName));
+}
+
+export function findMissingSyntheticSourceCredentialEnvNames(availableCredentialEnvNames: readonly string[]): string[] {
+  const available = new Set(availableCredentialEnvNames);
+
+  return SUPABASE_SYNTHETIC_SOURCE_CREDENTIAL_ENV_NAMES.filter((credentialEnvName) => !available.has(credentialEnvName));
 }
 
 function hasNoSecretBearingUrlParts(value: string): boolean {

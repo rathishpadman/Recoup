@@ -987,7 +987,7 @@ describe("offline query", () => {
     });
 
     expect(answer.status).toBe("disabled_offline_safe");
-    expect(answer.answer).toContain("r-score-weights-unset");
+    expect(answer.answer).toContain("verify-runtime-config-loader-required");
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.deterministicBasis).toContain("audit.read");
   });
@@ -1015,7 +1015,7 @@ Expected before implementation: FAIL. Expected after implementation: PASS.
   - `ORDER-HARBOR-640K`
   - `LEDGER-6-PARTIAL-HOLD`
 - Include deterministic basis containing `audit.read`.
-- Mention open dependency `r-score-weights-unset` instead of inventing weights.
+- Mention open dependency `verify-runtime-config-loader-required` instead of inventing runtime config loading.
 - Avoid new dollar math.
 
 - [ ] **Step 4: Update integration expectation if needed**

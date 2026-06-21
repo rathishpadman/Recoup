@@ -3,6 +3,7 @@ import {
   buildEnterpriseReadRequestPlan,
   createEnterpriseSourceContractSchema,
   describeEnterpriseConnectorReadiness,
+  SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR,
   type EnterpriseConnectorReadiness,
   type EnterpriseReadRequestPlan,
   type EnterpriseSourceContract
@@ -18,7 +19,10 @@ export class TpmReadOnlyAdapter {
   ) {}
 
   describeReadiness(): EnterpriseConnectorReadiness {
-    return describeEnterpriseConnectorReadiness(this.contract, "TPM", this.availableCredentialEnvNames);
+    return describeEnterpriseConnectorReadiness(this.contract, "TPM", this.availableCredentialEnvNames, {
+      connectorName: "tpm",
+      sourceTableName: SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR.tpm
+    });
   }
 
   buildReadRequestPlan(line: DeductionLine): EnterpriseReadRequestPlan {

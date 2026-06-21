@@ -1,5 +1,11 @@
 import { MemoryRecordSchema, memoryCategories, type MemoryRecord } from "./schema.js";
 import type { RuntimeEnv } from "../../config/env.js";
+import {
+  canonicalJson,
+  governedConfigSeedRows,
+  parseActiveGovernedConfigRows,
+  type GovernedConfigRuntimeSnapshot
+} from "../../config/governed.js";
 
 export type SupabaseMemoryFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -9,10 +15,41 @@ export interface SupabaseMemoryRepository {
   listAll(): Promise<MemoryRecord[]>;
 }
 
+export interface SupabaseGovernedConfigRepository {
+  loadActive(): Promise<GovernedConfigRuntimeSnapshot>;
+}
+
 export interface SupabaseMemoryRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
   tableName?: string;
+  url: string;
+}
+
+export interface SupabaseGovernedConfigRepositoryOptions {
+  fetcher?: SupabaseMemoryFetch;
+  serviceRoleKey: string;
+  url: string;
+}
+
+export type SupabaseTableReadinessStatus = "available" | "not_found_or_not_exposed" | "error";
+
+export interface SupabaseTableReadinessSnapshot {
+  tableStatuses: Record<string, SupabaseTableReadinessStatus>;
+  unsafeShadowActions: Array<{
+    columnName: string;
+    tableName: string;
+    value: string;
+  }>;
+}
+
+export interface SupabaseTableReadinessProbe {
+  probeTables(tableNames: readonly string[]): Promise<SupabaseTableReadinessSnapshot>;
+}
+
+export interface SupabaseTableReadinessProbeOptions {
+  fetcher?: SupabaseMemoryFetch;
+  serviceRoleKey: string;
   url: string;
 }
 
@@ -79,14 +116,186 @@ export function createSupabaseMemoryRepositoryFromEnv(
   });
 }
 
+export function createSupabaseGovernedConfigRepository(
+  options: SupabaseGovernedConfigRepositoryOptions
+): SupabaseGovernedConfigRepository {
+  const baseUrl = normalizeSupabaseUrl(options.url);
+  const fetcher = options.fetcher ?? fetch;
+
+  return {
+    async loadActive() {
+      const url = new URL(`${baseUrl}/rest/v1/recoup_config`);
+      url.searchParams.set("active", "eq.true");
+      url.searchParams.set("config_version", "eq.1");
+      url.searchParams.set(
+        "select",
+        "config_version,key,value_json,config_hash,effective_from,approved_by,active"
+      );
+      url.searchParams.set("order", "config_version.asc,key.asc");
+      const rows = await requestGovernedConfigRows(fetcher, {
+        method: "GET",
+        serviceRoleKey: options.serviceRoleKey,
+        url: url.href
+      });
+
+      return parseActiveGovernedConfigRows(rows);
+    }
+  };
+}
+
+export function createSupabaseGovernedConfigRepositoryFromEnv(
+  env: RuntimeEnv,
+  fetcher?: SupabaseMemoryFetch
+): SupabaseGovernedConfigRepository | undefined {
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  return createSupabaseGovernedConfigRepository({
+    ...(fetcher === undefined ? {} : { fetcher }),
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    url: env.SUPABASE_URL
+  });
+}
+
+export function createSupabaseTableReadinessProbe(
+  options: SupabaseTableReadinessProbeOptions
+): SupabaseTableReadinessProbe {
+  const baseUrl = normalizeSupabaseUrl(options.url);
+  const fetcher = options.fetcher ?? fetch;
+
+  return {
+    async probeTables(tableNames) {
+      const uniqueTableNames = [...new Set(tableNames.map(normalizeTableName))];
+      const tableStatuses: Record<string, SupabaseTableReadinessStatus> = {};
+
+      for (const tableName of uniqueTableNames) {
+        tableStatuses[tableName] = await requestTableReadiness(fetcher, {
+          serviceRoleKey: options.serviceRoleKey,
+          tableName,
+          url: baseUrl
+        });
+      }
+
+      return {
+        tableStatuses,
+        unsafeShadowActions: await requestUnsafeShadowActions(fetcher, {
+          serviceRoleKey: options.serviceRoleKey,
+          url: baseUrl
+        })
+      };
+    }
+  };
+}
+
+export function createSupabaseTableReadinessProbeFromEnv(
+  env: RuntimeEnv,
+  fetcher?: SupabaseMemoryFetch
+): SupabaseTableReadinessProbe | undefined {
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  return createSupabaseTableReadinessProbe({
+    ...(fetcher === undefined ? {} : { fetcher }),
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    url: env.SUPABASE_URL
+  });
+}
+
 export function buildSupabaseMemorySchemaSql(tableName = defaultMemoryTableName): string {
   const safeTableName = normalizeTableName(tableName);
   const categoryValues = memoryCategories.map((category) => `'${category}'`).join(", ");
+  const governedConfigKeyValues = [
+    "arbitration_weights",
+    "r_score_weights",
+    "r_drift",
+    "gaming_gate",
+    "partial_hold",
+    "accuracy_bars",
+    "seed"
+  ]
+    .map((key) => `'${key}'`)
+    .join(", ");
+  const governedConfigSeedValues = governedConfigSeedRows
+    .map(
+      (row) =>
+        `(${String(row.configVersion)}, '${row.key}', '${escapeSql(canonicalJson(row.valueJson))}'::jsonb, '${row.configHash}', '${row.effectiveFrom}', '${row.approvedBy}', true)`
+    )
+    .join(",\n  ");
   return `
 CREATE TABLE IF NOT EXISTS recoup_app_principals (
   principal text PRIMARY KEY,
   capabilities text[] NOT NULL DEFAULT ARRAY[]::text[],
   created_at timestamptz NOT NULL DEFAULT now()
+);
+
+DROP INDEX IF EXISTS idx_recoup_config_active_key;
+
+CREATE TABLE IF NOT EXISTS recoup_config (
+  config_version int NOT NULL,
+  key text NOT NULL CHECK (key IN (${governedConfigKeyValues})),
+  value_json jsonb NOT NULL CHECK (jsonb_typeof(value_json) = 'object'),
+  config_hash text NOT NULL CHECK (config_hash ~ '^[a-f0-9]{64}$'),
+  effective_from timestamptz NOT NULL,
+  approved_by text NOT NULL REFERENCES recoup_app_principals(principal),
+  active boolean NOT NULL DEFAULT true,
+  PRIMARY KEY (config_version, key)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_audit_chain (
+  entry_hash text PRIMARY KEY CHECK (entry_hash ~ '^[a-f0-9]{64}$'),
+  prev_hash text CHECK (prev_hash IS NULL OR prev_hash ~ '^[a-f0-9]{64}$'),
+  payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+  seq bigint GENERATED BY DEFAULT AS IDENTITY UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_src_bureau (
+  customer_id text NOT NULL,
+  bureau_id text PRIMARY KEY,
+  as_of_date date NOT NULL,
+  risk_score int NOT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
+  limit_recommendation numeric NOT NULL,
+  public_records jsonb NOT NULL CHECK (jsonb_typeof(public_records) = 'object'),
+  delinquency_flag boolean NOT NULL,
+  provenance text NOT NULL CHECK (provenance = 'synthetic')
+);
+
+CREATE TABLE IF NOT EXISTS recoup_src_docs (
+  doc_id text PRIMARY KEY,
+  doc_type text NOT NULL CHECK (doc_type IN ('POD', 'contract', 'TPM', 'correspondence')),
+  customer_id text NOT NULL,
+  linked_record_ids jsonb NOT NULL CHECK (jsonb_typeof(linked_record_ids) = 'array' AND jsonb_array_length(linked_record_ids) > 0),
+  uri text NOT NULL,
+  signed_date date,
+  provenance text NOT NULL CHECK (provenance = 'synthetic')
+);
+
+CREATE TABLE IF NOT EXISTS recoup_src_remittance (
+  remit_id text PRIMARY KEY,
+  transaction_set text NOT NULL CHECK (transaction_set IN ('820', '812', '810', 'manual')),
+  customer_id text NOT NULL,
+  paid_amount numeric NOT NULL,
+  invoice_refs jsonb NOT NULL CHECK (jsonb_typeof(invoice_refs) = 'array'),
+  deduction_refs jsonb NOT NULL CHECK (jsonb_typeof(deduction_refs) = 'array'),
+  payment_date date NOT NULL,
+  currency text NOT NULL,
+  provenance text NOT NULL CHECK (provenance = 'synthetic')
+);
+
+CREATE TABLE IF NOT EXISTS recoup_src_tpm (
+  promo_id text PRIMARY KEY,
+  customer_id text NOT NULL,
+  product_scope jsonb NOT NULL CHECK (jsonb_typeof(product_scope) = 'object'),
+  promo_type text NOT NULL,
+  approved_allowance numeric NOT NULL,
+  accrued_amount numeric NOT NULL,
+  window_start date NOT NULL,
+  window_end date NOT NULL,
+  claim_refs jsonb NOT NULL CHECK (jsonb_typeof(claim_refs) = 'array'),
+  provenance text NOT NULL CHECK (provenance = 'synthetic'),
+  CHECK (window_end >= window_start)
 );
 
 CREATE TABLE IF NOT EXISTS ${safeTableName} (
@@ -100,6 +309,16 @@ CREATE TABLE IF NOT EXISTS ${safeTableName} (
   created_at timestamptz NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_recoup_config_version ON recoup_config (config_version);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recoup_audit_chain_seq ON recoup_audit_chain (seq);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_bureau_customer_date ON recoup_src_bureau (customer_id, as_of_date);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_customer ON recoup_src_docs (customer_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_linked_record_ids ON recoup_src_docs USING gin (linked_record_ids);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_customer_payment ON recoup_src_remittance (customer_id, payment_date);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_invoice_refs ON recoup_src_remittance USING gin (invoice_refs);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_deduction_refs ON recoup_src_remittance USING gin (deduction_refs);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_customer_window ON recoup_src_tpm (customer_id, window_start, window_end);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_claim_refs ON recoup_src_tpm USING gin (claim_refs);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_${safeTableName}_id ON ${safeTableName} (id);
 CREATE INDEX IF NOT EXISTS idx_${safeTableName}_scope_sequence ON ${safeTableName} (scope, sequence);
 CREATE INDEX IF NOT EXISTS idx_${safeTableName}_record_ids ON ${safeTableName} USING gin (record_ids_json);
@@ -107,11 +326,44 @@ CREATE INDEX IF NOT EXISTS idx_recoup_app_principals_capabilities ON recoup_app_
 
 REVOKE ALL ON TABLE ${safeTableName} FROM anon, authenticated;
 REVOKE ALL ON TABLE recoup_app_principals FROM anon, authenticated;
+REVOKE ALL ON TABLE recoup_config FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_audit_chain FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_src_bureau FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_src_docs FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE ${safeTableName} TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_app_principals TO service_role;
+GRANT SELECT, INSERT ON TABLE recoup_config TO service_role;
+GRANT SELECT, INSERT ON TABLE recoup_audit_chain TO service_role;
+GRANT SELECT ON TABLE recoup_src_bureau TO service_role;
+GRANT SELECT ON TABLE recoup_src_docs TO service_role;
+GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
+GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
+
+INSERT INTO recoup_app_principals (principal, capabilities)
+VALUES ('human:owner-ratified-day-1', ARRAY['config:approve'])
+ON CONFLICT (principal) DO NOTHING;
+
+INSERT INTO recoup_config (config_version, key, value_json, config_hash, effective_from, approved_by, active)
+VALUES
+  ${governedConfigSeedValues}
+ON CONFLICT (config_version, key) DO NOTHING;
 
 ALTER TABLE recoup_app_principals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_app_principals FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_config FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_audit_chain ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_audit_chain FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_bureau ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_bureau FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_docs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_docs FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_remittance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_remittance FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
 ALTER TABLE ${safeTableName} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ${safeTableName} FORCE ROW LEVEL SECURITY;
 `.trim();
@@ -137,6 +389,109 @@ async function requestRows(
   }
 
   return (await response.json()) as SupabaseMemoryRow[];
+}
+
+async function requestGovernedConfigRows(
+  fetcher: SupabaseMemoryFetch,
+  input: { method: "GET"; serviceRoleKey: string; url: string }
+): Promise<unknown[]> {
+  const response = await fetcher(input.url, {
+    headers: {
+      apikey: input.serviceRoleKey,
+      authorization: `Bearer ${input.serviceRoleKey}`
+    },
+    method: input.method
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase governed config request failed with HTTP ${String(response.status)}.`);
+  }
+
+  const rows = (await response.json()) as unknown;
+  if (!Array.isArray(rows)) {
+    throw new Error("Supabase governed config response must be an array of rows.");
+  }
+
+  return rows.map((row) => row as unknown);
+}
+
+async function requestTableReadiness(
+  fetcher: SupabaseMemoryFetch,
+  input: { serviceRoleKey: string; tableName: string; url: string }
+): Promise<SupabaseTableReadinessStatus> {
+  const url = new URL(`${input.url}/rest/v1/${input.tableName}`);
+  url.searchParams.set("select", "*");
+  url.searchParams.set("limit", "0");
+
+  try {
+    const response = await fetcher(url.href, {
+      headers: serviceRoleReadHeaders(input.serviceRoleKey),
+      method: "GET"
+    });
+
+    if (response.ok) {
+      return "available";
+    }
+
+    return response.status === 404 ? "not_found_or_not_exposed" : "error";
+  } catch {
+    return "error";
+  }
+}
+
+async function requestUnsafeShadowActions(
+  fetcher: SupabaseMemoryFetch,
+  input: { serviceRoleKey: string; url: string }
+): Promise<SupabaseTableReadinessSnapshot["unsafeShadowActions"]> {
+  const findings: SupabaseTableReadinessSnapshot["unsafeShadowActions"] = [];
+
+  for (const check of unsafeShadowActionChecks) {
+    const url = new URL(`${input.url}/rest/v1/${check.tableName}`);
+    url.searchParams.set("select", check.columnName);
+    url.searchParams.set(check.columnName, `in.(${check.values.join(",")})`);
+    url.searchParams.set("limit", "1");
+
+    try {
+      const response = await fetcher(url.href, {
+        headers: serviceRoleReadHeaders(input.serviceRoleKey),
+        method: "GET"
+      });
+      if (!response.ok) {
+        continue;
+      }
+
+      const rows = (await response.json()) as unknown;
+      if (!Array.isArray(rows)) {
+        continue;
+      }
+
+      for (const row of rows) {
+        if (!isJsonRecord(row)) {
+          continue;
+        }
+
+        const value = row[check.columnName];
+        if (typeof value === "string" && (check.values as readonly string[]).includes(value)) {
+          findings.push({
+            columnName: check.columnName,
+            tableName: check.tableName,
+            value
+          });
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return findings;
+}
+
+function serviceRoleReadHeaders(serviceRoleKey: string): Record<string, string> {
+  return {
+    apikey: serviceRoleKey,
+    authorization: `Bearer ${serviceRoleKey}`
+  };
 }
 
 function toSupabaseRow(record: MemoryRecord): SupabaseMemoryRow {
@@ -209,4 +564,30 @@ function normalizeTableName(tableName: string): string {
   }
 
   return tableName;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const unsafeShadowActionChecks = [
+  {
+    columnName: "status",
+    tableName: "billing_requests",
+    values: ["SENT_TO_SAP"]
+  },
+  {
+    columnName: "status",
+    tableName: "recovery_packages",
+    values: ["SUBMITTED_TO_PORTAL"]
+  },
+  {
+    columnName: "action_type",
+    tableName: "immutable_audit_log",
+    values: ["SAP_STAGE_WRITE"]
+  }
+] as const;
+
+function escapeSql(value: string): string {
+  return value.replace(/'/gu, "''");
 }

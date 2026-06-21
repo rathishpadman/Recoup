@@ -7,6 +7,7 @@ import {
   type PartialHoldAmountSplit,
   type PartialHoldResult
 } from "../core/partialHold.js";
+import { assertFinalAgentOutput } from "../guardrails/output/final.js";
 import { buildAutonomyGauge, type AutonomyGauge } from "../services/autonomyGauge.js";
 import type { ProposedExternalAction } from "../services/approvals.js";
 import { invokeServiceTool, type ServiceToolName } from "../services/serviceLayer.js";
@@ -68,10 +69,12 @@ export const harborTerms = "2/10 Net-30 + deposit/clearance condition";
 
 export function runRiskMeshClosedLoop(): RiskMeshClosedLoopRun {
   const context = buildHarborRiskMeshProposalContext();
+  const { arbitration, containment, partialHold, positions, sentinel } = context;
+  assertFinalAgentOutput({ containmentDecisions: [containment] });
+
   const serviceToolNames: RiskMeshProposalToolName[] = [];
   const holdAction = invokeRiskMeshProposalTool(serviceToolNames, "actions.proposeHold") as ProposedHoldAction;
   const termsAction = invokeRiskMeshProposalTool(serviceToolNames, "actions.proposeTerms") as ProposedTermsAction;
-  const { arbitration, containment, partialHold, positions, sentinel } = context;
   const trail = createAuditTrail();
 
   trail.append({

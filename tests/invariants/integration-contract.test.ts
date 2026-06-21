@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serviceTools, invokeServiceTool } from "../../src/services/serviceLayer.js";
+import { serviceToolMetadata, serviceTools, invokeServiceTool } from "../../src/services/serviceLayer.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
 
@@ -37,9 +37,19 @@ describe("integration contract", () => {
     const answer = answerOfflineQuery({
       question: "What changed for Harbor?"
     });
-    expect(answer.answer).toContain("r-score-weights-unset");
+    expect(answer.answer).toContain("verify-runtime-config-loader-required");
+    expect(answer.answer).not.toContain("r-score-weights-unset");
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.deterministicBasis).toContain("audit.read");
+  });
+
+  it("keeps Realtime browser query on read-only query and audit tools", async () => {
+    const { buildRealtimeToolManifest } = await import("../../src/services/realtimeSession.js");
+    const manifest = buildRealtimeToolManifest();
+
+    expect(manifest.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
+    expect(manifest.every((tool) => Object.hasOwn(serviceTools, tool.name))).toBe(true);
+    expect(manifest.map((tool) => serviceToolMetadata[tool.name].sideEffectClass)).toEqual(["none", "none"]);
   });
 
   it("reads audit entries through a bounded service tool", () => {

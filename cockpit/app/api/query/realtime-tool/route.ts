@@ -9,7 +9,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const upstream = await fetch(`${runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317"}/query/realtime-client-secret`, {
+    const upstream = await fetch(`${runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317"}/query/realtime-tool`, {
       body: await request.text(),
       headers: {
         "content-type": request.headers.get("content-type") ?? "application/json",
@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
       status: upstream.status
     });
   } catch {
-    return Response.json({ error: "Realtime session service unavailable." }, { headers: noStoreHeaders(), status: 502 });
+    return Response.json({ error: "Realtime tool service unavailable." }, { headers: noStoreHeaders(), status: 502 });
   }
 }
 

@@ -1,4 +1,8 @@
-import { buildConnectorReadiness, type ConnectorReadiness } from "../adapters/connectorRegistry.js";
+import {
+  buildConnectorReadiness,
+  type ConnectorReadiness,
+  type SupabaseToolDataSchemaProbe
+} from "../adapters/connectorRegistry.js";
 import { buildSyntheticDataset } from "../adapters/syntheticData.js";
 import { recoupAgentRoster } from "../agents/agentRuntime.js";
 import { runForensicsInvestigation, type ForensicsTraceEvent } from "../agents/forensics.js";
@@ -282,11 +286,12 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
     whatChanged: "Forensics, Risk Mesh, Sentinel, and Containment now land in governed human-review queues.",
     aiInsight: "Recoup demonstrates a deterministic evidence spine with live model execution blocked until runtime policy and credentials are approved.",
     openDependencies: [
-      "expert-arbitration-weights",
-      "r-score-weights",
-      "r-drift-threshold",
-      "gaming-thresholds",
-      "sap-sandbox"
+      "verify-prod-calibration",
+      "verify-runtime-config-loader",
+      "verify-embeddings-model-id",
+      "verify-codex-build-model-id",
+      "verify-sap-sandbox-instance",
+      "verify-v3-live-non-sap-contracts"
     ]
   };
 }
@@ -394,10 +399,13 @@ export function buildAgentGraphModel(): AgentGraphCockpitModel {
   };
 }
 
-export function buildConnectorReadinessModel(availableCredentialEnvNames: readonly string[] = []): ConnectorReadinessCockpitModel {
+export function buildConnectorReadinessModel(
+  availableCredentialEnvNames: readonly string[] = [],
+  toolDataSchemaProbe?: SupabaseToolDataSchemaProbe
+): ConnectorReadinessCockpitModel {
   return {
     surface: "connector-readiness",
-    connectors: buildConnectorReadiness([], availableCredentialEnvNames)
+    connectors: buildConnectorReadiness([], availableCredentialEnvNames, toolDataSchemaProbe)
   };
 }
 

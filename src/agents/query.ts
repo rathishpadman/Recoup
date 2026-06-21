@@ -32,10 +32,10 @@ export function answerOfflineQuery(input: OfflineQueryInput): OfflineQueryAnswer
     return {
       status: "disabled_offline_safe",
       answer:
-        `Harbor is staged for human-reviewed Risk Mesh handling from cited audit and cockpit state. The live risk narrative remains blocked by r-score-weights-unset and ${riskRun.arbitration.reason}, so the offline harness reports the dependencies instead of inventing expert-owned weights.`,
+        `Harbor is staged for human-reviewed Risk Mesh handling from cited audit and cockpit state. Runtime ranking remains blocked by ${riskRun.sentinel.reason} and ${riskRun.arbitration.reason}, so the offline harness reports the DB-backed loader and VERIFY-PROD calibration dependencies instead of activating ranking.`,
       recordIds,
       deterministicBasis:
-        "audit.read + core.riskMeshClosedLoop staged records; Realtime/text execution is blocked until runtime credentials and HITL query policy are configured.",
+        "audit.read + core.riskMeshClosedLoop staged records; owner-ratified config-as-code seed rows exist, while DB-backed runtime config loading, runtime credentials, and HITL query policy remain blocked.",
       modelExecution: "blocked: offline build does not invoke live model calls",
       plannedModels: {
         voice: runtimeModels.realtime,

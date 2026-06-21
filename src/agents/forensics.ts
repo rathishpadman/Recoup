@@ -2,6 +2,7 @@ import { runtimeModels } from "../../config/models.js";
 import { SyntheticSource } from "../adapters/synthetic.js";
 import type { RuleFinding, RuleInput } from "../core/rules/index.js";
 import { redactPiiForModelContext } from "../guardrails/input/pii.js";
+import { assertFinalAgentOutput } from "../guardrails/output/final.js";
 import { s4AgentBoundary } from "./agentRuntime.js";
 import { invokeServiceTool, type ServiceToolName } from "../services/serviceLayer.js";
 import { clearDecisionStore, registerDecision } from "../services/decisionStore.js";
@@ -153,6 +154,7 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
 
     return decision;
   });
+  assertFinalAgentOutput({ deductionDecisions: decisions });
 
   trace.push({
     type: "status",

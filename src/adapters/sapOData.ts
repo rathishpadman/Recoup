@@ -8,6 +8,7 @@ export interface SapODataConnection {
   baseUrl: string;
   clientId: string;
   clientSecret: string;
+  sapClient?: string;
   scope: string;
   tenant: string;
   tokenUrl: string;
@@ -31,6 +32,7 @@ export type SapODataReadiness =
       configured: true;
       mode: "sap-odata-readonly";
       baseUrl: string;
+      sapClient?: string;
       tenant: string;
     };
 
@@ -60,9 +62,17 @@ type SapFetch = typeof fetch;
 type SapJsonRecord = Record<string, unknown>;
 type SapRecordMapping = {
   entitySet: string;
+  keyValueFromRecordId?: (recordId: string) => string | undefined;
   keyName: string;
   purpose: SapODataReadRequest["purpose"];
   recordPrefix: string;
+  serviceName: string;
+};
+
+type SapMetadataCoverageMapping = {
+  entitySet: string;
+  keyNames: string[];
+  purpose: SapODataReadRequest["purpose"];
   serviceName: string;
 };
 
@@ -73,7 +83,7 @@ export interface SapODataMetadataCoverageClient {
 export interface SapODataMetadataCoverageProof {
   mappings: Array<{
     entitySet: string;
-    keyName: string;
+    keyNames: string[];
     purpose: SapODataReadRequest["purpose"];
     ready: boolean;
     serviceName: string;
@@ -87,41 +97,62 @@ export interface SapODataMetadataCoverageProof {
 
 const SAP_RECORD_MAPPINGS: SapRecordMapping[] = [
   {
-    entitySet: "A_BillingDocument",
+    entitySet: "C_BillingDocumentFs",
+    keyValueFromRecordId: extractSapNumericSuffix("INV-"),
     keyName: "BillingDocument",
     purpose: "billing-document",
     recordPrefix: "INV-",
-    serviceName: "API_BILLING_DOCUMENT_SRV"
+    serviceName: "ZUI_BILLINGDOCUMENTFS_0001"
+  }
+];
+
+const SAP_METADATA_COVERAGE_MAPPINGS: SapMetadataCoverageMapping[] = [
+  {
+    entitySet: "C_BillingDocumentFs",
+    keyNames: ["BillingDocument"],
+    purpose: "billing-document",
+    serviceName: "ZUI_BILLINGDOCUMENTFS_0001"
   },
   {
-    entitySet: "A_OutbDeliveryItem",
-    keyName: "DeliveryDocument",
-    purpose: "delivery-item",
-    recordPrefix: "POD-",
-    serviceName: "API_OUTBOUND_DELIVERY_SRV"
-  },
-  {
-    entitySet: "A_BillingDocumentItem",
-    keyName: "BillingDocument",
+    entitySet: "C_BillingDocumentItemFs",
+    keyNames: ["BillingDocument", "BillingDocumentItem"],
     purpose: "reference-document",
-    recordPrefix: "CREDIT-",
-    serviceName: "API_BILLING_DOCUMENT_SRV"
+    serviceName: "ZUI_BILLINGDOCUMENTFS_0001"
   },
   {
-    entitySet: "A_BillingDocumentItem",
-    keyName: "BillingDocument",
+    entitySet: "A_SalesOrder",
+    keyNames: ["SalesOrder"],
     purpose: "reference-document",
-    recordPrefix: "DUP-",
-    serviceName: "API_BILLING_DOCUMENT_SRV"
+    serviceName: "ZAPI_SALES_ORDER_SRV_0001"
+  },
+  {
+    entitySet: "A_SalesOrderItem",
+    keyNames: ["SalesOrder", "SalesOrderItem"],
+    purpose: "reference-document",
+    serviceName: "ZAPI_SALES_ORDER_SRV_0001"
+  },
+  {
+    entitySet: "CreditAccountSummary",
+    keyNames: ["BusinessPartner", "CreditSegment"],
+    purpose: "reference-document",
+    serviceName: "ZUI_CREDITACCOUNT_DISPLAY_0001"
+  },
+  {
+    entitySet: "PeriodicAmounts",
+    keyNames: [],
+    purpose: "reference-document",
+    serviceName: "ZUI_ACCRUALS_MANAGE_0001"
   }
 ];
 export const SAP_ODATA_BASIC_ENV_NAMES = [
   "SAP_ODATA_BASE_URL",
+  "SAP_ODATA_CLIENT",
   "SAP_ODATA_USERID",
   "SAP_ODATA_CLIENT_SECRET"
 ] as const;
 export const SAP_ODATA_OAUTH_ENV_NAMES = [
   "SAP_ODATA_BASE_URL",
+  "SAP_ODATA_CLIENT",
   "SAP_ODATA_CLIENT_ID",
   "SAP_ODATA_CLIENT_SECRET",
   "SAP_ODATA_TOKEN_URL"
@@ -145,20 +176,21 @@ export async function validateSapODataMetadataCoverage(
   client: SapODataMetadataCoverageClient
 ): Promise<SapODataMetadataCoverageProof> {
   const metadataByService = new Map<string, SapODataMetadata>();
-  const services = [...new Set(SAP_RECORD_MAPPINGS.map((mapping) => mapping.serviceName))];
+  const services = [...new Set(SAP_METADATA_COVERAGE_MAPPINGS.map((mapping) => mapping.serviceName))];
 
   for (const serviceName of services) {
     metadataByService.set(serviceName, parseSapODataMetadata(await client.fetchMetadata(serviceName)));
   }
 
-  const mappings = SAP_RECORD_MAPPINGS.map((mapping) => {
+  const mappings = SAP_METADATA_COVERAGE_MAPPINGS.map((mapping) => {
     const metadata = metadataByService.get(mapping.serviceName);
     const entitySet = metadata?.entitySets[mapping.entitySet];
-    const ready = entitySet?.keys.some((key) => key.name === mapping.keyName) ?? false;
+    const ready =
+      entitySet !== undefined && mapping.keyNames.every((keyName) => entitySet.keys.some((key) => key.name === keyName));
 
     return {
       entitySet: mapping.entitySet,
-      keyName: mapping.keyName,
+      keyNames: mapping.keyNames,
       purpose: mapping.purpose,
       ready,
       serviceName: mapping.serviceName
@@ -202,6 +234,7 @@ export class SapODataReadOnlyAdapter {
       configured: true,
       mode: "sap-odata-readonly",
       baseUrl: this.#connection.baseUrl,
+      ...(this.#connection.sapClient === undefined ? {} : { sapClient: this.#connection.sapClient }),
       tenant: this.#connection.tenant
     };
   }
@@ -237,27 +270,15 @@ export class SapODataReadOnlyAdapter {
   }
 
   retrieveDeliveryItem(line: DeductionLine): EvidenceDocument[] {
-    return line.recordIds
-      .filter((recordId) => recordId.startsWith("POD-"))
-      .map((recordId) => ({
-        documentId: recordId,
-        source: "sap",
-        documentType: "POD",
-        summary: `Read-only SAP delivery/POD proxy for ${line.lineId}.`,
-        recordIds: [line.lineId, recordId]
-      }));
+    void line;
+
+    return [];
   }
 
   retrieveReferenceDocuments(line: DeductionLine): EvidenceDocument[] {
-    return line.recordIds
-      .filter((recordId) => recordId.startsWith("CREDIT-") || recordId.startsWith("DUP-"))
-      .map((recordId) => ({
-        documentId: recordId,
-        source: "sap",
-        documentType: "credit-memo",
-        summary: `Read-only SAP reference document for ${line.lineId}.`,
-        recordIds: [line.lineId, recordId]
-      }));
+    void line;
+
+    return [];
   }
 
   retrieveDeductionCase(line: DeductionLine): EvidenceDocument[] {
@@ -339,13 +360,17 @@ export class SapODataReadOnlyAdapter {
           requests: []
         };
       }
+      const keyValue = mapping.keyValueFromRecordId?.(recordId);
+      if (mapping.keyValueFromRecordId !== undefined && keyValue === undefined) {
+        continue;
+      }
 
       requests.push(
         buildRequestFromMetadata(
           this.#connection,
-          mapping.purpose,
-          `${mapping.serviceName}/${mapping.entitySet}`,
+          mapping,
           key,
+          keyValue ?? recordId,
           recordId,
           line.lineId
         )
@@ -367,7 +392,10 @@ export class SapODataReadOnlyAdapter {
     return {
       method: "GET",
       purpose,
-      url: `${this.#connection.baseUrl.replace(/\/$/, "")}/sap/opu/odata/sap/${entitySet}('${encodeURIComponent(recordId)}')`,
+      url: appendSapQueryParams(
+        `${this.#connection.baseUrl.replace(/\/$/, "")}/sap/opu/odata/sap/${entitySet}('${encodeURIComponent(recordId)}')`,
+        sapClientParam(this.#connection.sapClient)
+      ),
       recordIds: [lineId, recordId]
     };
   }
@@ -375,18 +403,24 @@ export class SapODataReadOnlyAdapter {
 
 function buildRequestFromMetadata(
   connection: SapODataConnection,
-  purpose: SapODataReadRequest["purpose"],
-  entityPath: string,
+  mapping: SapRecordMapping,
   key: SapODataMetadataKey,
+  keyValue: string,
   recordId: string,
   lineId: string
 ): SapODataReadRequest {
   return {
     method: "GET",
-    purpose,
-    url: `${connection.baseUrl.replace(/\/$/, "")}/sap/opu/odata/sap/${entityPath}(${buildODataKeyPredicate([key], {
-      [key.name]: recordId
-    })})`,
+    purpose: mapping.purpose,
+    url: appendSapQueryParams(
+      `${connection.baseUrl.replace(/\/$/, "")}/sap/opu/odata/sap/${mapping.serviceName}/${mapping.entitySet}(${buildODataKeyPredicate(
+        [key],
+        {
+          [key.name]: keyValue
+        }
+      )})`,
+      sapClientParam(connection.sapClient)
+    ),
     recordIds: [lineId, recordId]
   };
 }
@@ -397,6 +431,14 @@ function metadataForMapping(metadataInput: SapODataMetadataInput, mapping: SapRe
   }
 
   return metadataInput[mapping.serviceName];
+}
+
+function extractSapNumericSuffix(prefix: string): (recordId: string) => string | undefined {
+  return (recordId) => {
+    const suffix = recordId.slice(prefix.length);
+
+    return /^\d+$/u.test(suffix) ? suffix : undefined;
+  };
 }
 
 function isSapODataMetadata(metadataInput: SapODataMetadataInput): metadataInput is SapODataMetadata {
@@ -443,7 +485,7 @@ export class SapODataReadOnlyClient {
   }
 
   async fetchReadRequest(request: SapODataReadRequest): Promise<unknown> {
-    const response = await this.#fetcher(withJsonFormat(request.url), {
+    const response = await this.#fetcher(withJsonFormat(request.url, this.#connection.sapClient), {
       headers: await this.#buildReadHeaders("application/json"),
       method: "GET"
     });
@@ -458,10 +500,12 @@ export class SapODataReadOnlyClient {
   private buildServiceUrl(path: string, params: Record<string, string> = {}): string {
     const trimmedBase = this.#connection.baseUrl.replace(/\/$/, "");
     const normalizedPath = path.replace(/^\//, "");
-    const search = new URLSearchParams(params).toString();
     const url = `${trimmedBase}/sap/opu/odata/sap/${normalizedPath}`;
 
-    return search.length === 0 ? url : `${url}?${search}`;
+    return appendSapQueryParams(url, {
+      ...params,
+      ...sapClientParam(this.#connection.sapClient)
+    });
   }
 
   async #buildReadHeaders(accept: "application/json" | "application/xml"): Promise<Record<string, string>> {
@@ -594,13 +638,30 @@ function uniqueRecordIds(recordIds: string[]): string[] {
   return [...new Set(recordIds)];
 }
 
-function withJsonFormat(url: string): string {
-  const parsed = new URL(url);
-  if (!parsed.searchParams.has("$format")) {
-    parsed.searchParams.set("$format", "json");
+function withJsonFormat(url: string, sapClient: string | undefined): string {
+  return appendSapQueryParams(url, {
+    $format: "json",
+    ...sapClientParam(sapClient)
+  });
+}
+
+function appendSapQueryParams(url: string, params: Record<string, string | undefined>): string {
+  const queryIndex = url.indexOf("?");
+  const baseUrl = queryIndex === -1 ? url : url.slice(0, queryIndex);
+  const searchParams = new URLSearchParams(queryIndex === -1 ? "" : url.slice(queryIndex + 1));
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && !searchParams.has(key)) {
+      searchParams.set(key, value);
+    }
   }
 
-  return parsed.href;
+  const search = searchParams.toString();
+  return search.length === 0 ? baseUrl : `${baseUrl}?${search}`;
+}
+
+function sapClientParam(sapClient: string | undefined): Record<"sap-client", string> | Record<string, never> {
+  return sapClient === undefined ? {} : { "sap-client": sapClient };
 }
 
 export function parseSapODataMetadata(xml: string): SapODataMetadata {

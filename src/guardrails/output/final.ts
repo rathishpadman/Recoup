@@ -23,6 +23,7 @@ export function assertFinalAgentOutput(output: FinalAgentOutputGuardInput): void
   }
 
   for (const decision of output.containmentDecisions ?? []) {
+    assertIntentEvidence(decision);
     assertNoWrongfulContainment(decision);
   }
 }

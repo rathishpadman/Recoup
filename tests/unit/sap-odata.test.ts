@@ -24,6 +24,7 @@ describe("SAP OData read-only query mapping", () => {
   it("creates a configured read-only adapter from complete runtime env without leaking secrets", () => {
     const adapter = createSapODataReadOnlyAdapter({
       SAP_ODATA_BASE_URL: "https://sap.example.test",
+      SAP_ODATA_CLIENT: "100",
       SAP_ODATA_CLIENT_ID: "client-id",
       SAP_ODATA_CLIENT_SECRET: "client-secret",
       SAP_ODATA_TOKEN_URL: "https://sap.example.test/oauth/token",
@@ -35,6 +36,7 @@ describe("SAP OData read-only query mapping", () => {
       baseUrl: "https://sap.example.test",
       configured: true,
       mode: "sap-odata-readonly",
+      sapClient: "100",
       tenant: "northbay"
     });
     expect(JSON.stringify(adapter.describeReadiness())).not.toContain("client-secret");
@@ -45,42 +47,32 @@ describe("SAP OData read-only query mapping", () => {
     const proof = await validateSapODataMetadataCoverage({
       fetchMetadata(serviceName) {
         fetchedServices.push(serviceName);
-        if (serviceName === "API_OUTBOUND_DELIVERY_SRV") {
-          return Promise.resolve(`
-            <Schema Namespace="API_OUTBOUND_DELIVERY_SRV">
-              <EntityType Name="A_OutbDeliveryItemType">
-                <Key><PropertyRef Name="DeliveryDocument" /></Key>
-                <Property Name="DeliveryDocument" Type="Edm.String" />
-              </EntityType>
-              <EntityContainer>
-                <EntitySet Name="A_OutbDeliveryItem" EntityType="API_OUTBOUND_DELIVERY_SRV.A_OutbDeliveryItemType" />
-              </EntityContainer>
-            </Schema>
-          `);
-        }
-
-        return Promise.resolve(`
-          <Schema Namespace="API_BILLING_DOCUMENT_SRV">
-            <EntityType Name="A_BillingDocumentType">
-              <Key><PropertyRef Name="BillingDocument" /></Key>
-              <Property Name="BillingDocument" Type="Edm.String" />
-            </EntityType>
-            <EntityType Name="A_BillingDocumentItemType">
-              <Key><PropertyRef Name="BillingDocument" /></Key>
-              <Property Name="BillingDocument" Type="Edm.String" />
-            </EntityType>
-            <EntityContainer>
-              <EntitySet Name="A_BillingDocument" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentType" />
-              <EntitySet Name="A_BillingDocumentItem" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentItemType" />
-            </EntityContainer>
-          </Schema>
-        `);
+        return Promise.resolve(toolsDataMetadata(serviceName));
       }
     });
 
-    expect(fetchedServices.sort()).toEqual(["API_BILLING_DOCUMENT_SRV", "API_OUTBOUND_DELIVERY_SRV"]);
+    expect(fetchedServices.sort()).toEqual([
+      "ZAPI_SALES_ORDER_SRV_0001",
+      "ZUI_ACCRUALS_MANAGE_0001",
+      "ZUI_BILLINGDOCUMENTFS_0001",
+      "ZUI_CREDITACCOUNT_DISPLAY_0001"
+    ]);
     expect(proof.ready).toBe(true);
-    expect(proof.services).toHaveLength(2);
+    expect(proof.services).toHaveLength(4);
+    expect(proof.mappings).toContainEqual({
+      entitySet: "C_BillingDocumentFs",
+      keyNames: ["BillingDocument"],
+      purpose: "billing-document",
+      ready: true,
+      serviceName: "ZUI_BILLINGDOCUMENTFS_0001"
+    });
+    expect(proof.mappings).toContainEqual({
+      entitySet: "CreditAccountSummary",
+      keyNames: ["BusinessPartner", "CreditSegment"],
+      purpose: "reference-document",
+      ready: true,
+      serviceName: "ZUI_CREDITACCOUNT_DISPLAY_0001"
+    });
     expect(proof.mappings.every((mapping) => mapping.ready)).toBe(true);
     expect(JSON.stringify(proof)).not.toContain("sap.example.test");
     expect(JSON.stringify(proof)).not.toContain("client-secret");
@@ -175,6 +167,7 @@ describe("SAP OData read-only query mapping", () => {
         baseUrl: "https://sap.example.test",
         clientId: "client-id",
         clientSecret: "",
+        sapClient: "100",
         scope: "api.sap.read",
         tenant: "northbay",
         tokenUrl: "https://sap.example.test/oauth/token"
@@ -190,16 +183,20 @@ describe("SAP OData read-only query mapping", () => {
       }
     );
 
-    await client.fetchMetadata("API_BILLING_DOCUMENT_SRV");
-    const payload = await client.fetchJson("API_BILLING_DOCUMENT_SRV/A_BillingDocument('INV-1')", {
+    await client.fetchMetadata("ZUI_BILLINGDOCUMENTFS_0001");
+    const payload = await client.fetchJson("ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')", {
       $format: "json",
       $select: "BillingDocument"
     });
 
     expect(payload).toEqual({ d: { results: [{ Document: "INV-1" }] } });
     expect(calls.map((call) => call.method)).toEqual(["GET", "GET"]);
-    expect(calls[0]?.url).toBe("https://sap.example.test/sap/opu/odata/sap/API_BILLING_DOCUMENT_SRV/$metadata");
-    expect(calls[1]?.url).toBe("https://sap.example.test/sap/opu/odata/sap/API_BILLING_DOCUMENT_SRV/A_BillingDocument('INV-1')?%24format=json&%24select=BillingDocument");
+    expect(calls[0]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
+    );
+    expect(calls[1]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&%24select=BillingDocument&sap-client=100"
+    );
     expect(JSON.stringify(calls)).not.toContain("clientSecret");
   });
 
@@ -216,6 +213,7 @@ describe("SAP OData read-only query mapping", () => {
         baseUrl: "https://sap.example.test",
         clientId: "client-id",
         clientSecret: "client-secret",
+        sapClient: "100",
         scope: "api.sap.read",
         tenant: "northbay",
         tokenUrl: "https://sap.example.test/oauth/token"
@@ -242,8 +240,8 @@ describe("SAP OData read-only query mapping", () => {
       }
     );
 
-    await client.fetchMetadata("API_BILLING_DOCUMENT_SRV");
-    await client.fetchJson("API_BILLING_DOCUMENT_SRV/A_BillingDocument('INV-1')", { $format: "json" });
+    await client.fetchMetadata("ZUI_BILLINGDOCUMENTFS_0001");
+    await client.fetchJson("ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')", { $format: "json" });
 
     expect(calls.map((call) => call.method)).toEqual(["POST", "GET", "GET"]);
     expect(calls[0]).toMatchObject({
@@ -251,6 +249,12 @@ describe("SAP OData read-only query mapping", () => {
       clientSecretSubmitted: true,
       url: "https://sap.example.test/oauth/token"
     });
+    expect(calls[1]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
+    );
+    expect(calls[2]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&sap-client=100"
+    );
     expect(calls[1]?.headers).toMatchObject({ Accept: "application/xml", Authorization: "Bearer sap-access-token" });
     expect(calls[2]?.headers).toMatchObject({ Accept: "application/json", Authorization: "Bearer sap-access-token" });
     expect(JSON.stringify(calls)).not.toContain("client-secret");
@@ -264,6 +268,7 @@ describe("SAP OData read-only query mapping", () => {
         baseUrl: "https://sap.example.test:44300",
         clientId: "",
         clientSecret: "sap-password",
+        sapClient: "100",
         scope: "",
         tenant: "",
         tokenUrl: "",
@@ -275,12 +280,12 @@ describe("SAP OData read-only query mapping", () => {
       }
     );
 
-    await client.fetchMetadata("FCOM_COSTCENTER_SRV");
+    await client.fetchMetadata("ZUI_BILLINGDOCUMENTFS_0001");
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       method: "GET",
-      url: "https://sap.example.test:44300/sap/opu/odata/sap/FCOM_COSTCENTER_SRV/$metadata"
+      url: "https://sap.example.test:44300/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
     });
     expect(calls[0]?.headers).toMatchObject({
       Accept: "application/xml",
@@ -290,41 +295,23 @@ describe("SAP OData read-only query mapping", () => {
   });
 
   it("maps live SAP OData read responses into canonical evidence documents", async () => {
-    const line = buildSyntheticDataset({ seed: 42 }).deductionLines.find((candidate) =>
-      candidate.recordIds.some((recordId) => recordId.startsWith("INV-")) && candidate.recordIds.some((recordId) => recordId.startsWith("POD-"))
-    );
-    if (line === undefined) {
-      throw new Error("Synthetic dataset must include invoice and POD records.");
-    }
+    const line = sapInvoiceLine();
     const adapter = new SapODataReadOnlyAdapter({
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "client-secret",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
     });
-    const metadata = parseSapODataMetadata(`
-      <Schema Namespace="API_BILLING_DOCUMENT_SRV">
-        <EntityType Name="A_BillingDocumentType">
-          <Key><PropertyRef Name="BillingDocument" /></Key>
-          <Property Name="BillingDocument" Type="Edm.String" />
-        </EntityType>
-        <EntityType Name="A_OutbDeliveryItemType">
-          <Key><PropertyRef Name="DeliveryDocument" /></Key>
-          <Property Name="DeliveryDocument" Type="Edm.String" />
-        </EntityType>
-        <EntityContainer>
-          <EntitySet Name="A_BillingDocument" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentType" />
-          <EntitySet Name="A_OutbDeliveryItem" EntityType="API_BILLING_DOCUMENT_SRV.A_OutbDeliveryItemType" />
-        </EntityContainer>
-      </Schema>
-    `);
+    const metadata = parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"));
     const client = new SapODataReadOnlyClient(
       {
         baseUrl: "https://sap.example.test",
         clientId: "client-id",
         clientSecret: "client-secret",
+        sapClient: "100",
         scope: "api.sap.read",
         tenant: "northbay",
         tokenUrl: "https://sap.example.test/oauth/token"
@@ -334,69 +321,44 @@ describe("SAP OData read-only query mapping", () => {
         if (init?.method === "POST") {
           return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
         }
-        const body = requestUrl.includes("A_OutbDeliveryItem")
-          ? { d: { DeliveryDocument: "POD-LIVE-1" } }
-          : { d: { BillingDocument: "INV-LIVE-1" } };
+        expect(requestUrl).toContain("ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')");
+        expect(requestUrl).toContain("sap-client=100");
+        expect(requestUrl).toContain("%24format=json");
+        const body = { d: { BillingDocument: "90000002" } };
 
         return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
       }
     );
 
     const documents = await adapter.retrieveDeductionCaseLive(line, metadata, client);
-    const invoice = documents.find((document) => document.documentId === "INV-LIVE-1");
-    const pod = documents.find((document) => document.documentId === "POD-LIVE-1");
+    const invoice = documents.find((document) => document.documentId === "90000002");
 
-    expect(invoice).toMatchObject({ documentId: "INV-LIVE-1", documentType: "invoice", source: "sap" });
+    expect(invoice).toMatchObject({ documentId: "90000002", documentType: "invoice", source: "sap" });
     expect(invoice?.recordIds).toContain(line.lineId);
-    expect(pod).toMatchObject({ documentId: "POD-LIVE-1", documentType: "POD", source: "sap" });
-    expect(pod?.recordIds).toContain(line.lineId);
+    expect(documents).toHaveLength(1);
     expect(JSON.stringify(documents)).not.toContain("client-secret");
   });
 
-  it("uses service-scoped SAP metadata when live reads span multiple OData services", async () => {
-    const line = buildSyntheticDataset({ seed: 42 }).deductionLines.find((candidate) =>
-      candidate.recordIds.some((recordId) => recordId.startsWith("INV-")) && candidate.recordIds.some((recordId) => recordId.startsWith("POD-"))
-    );
-    if (line === undefined) {
-      throw new Error("Synthetic dataset must include invoice and POD records.");
-    }
+  it("uses service-scoped SAP metadata for Tools_data invoice reads", async () => {
+    const line = sapInvoiceLine();
     const adapter = new SapODataReadOnlyAdapter({
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "client-secret",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
     });
     const metadataByService = {
-      API_BILLING_DOCUMENT_SRV: parseSapODataMetadata(`
-        <Schema Namespace="API_BILLING_DOCUMENT_SRV">
-          <EntityType Name="A_BillingDocumentType">
-            <Key><PropertyRef Name="BillingDocument" /></Key>
-            <Property Name="BillingDocument" Type="Edm.String" />
-          </EntityType>
-          <EntityContainer>
-            <EntitySet Name="A_BillingDocument" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentType" />
-          </EntityContainer>
-        </Schema>
-      `),
-      API_OUTBOUND_DELIVERY_SRV: parseSapODataMetadata(`
-        <Schema Namespace="API_OUTBOUND_DELIVERY_SRV">
-          <EntityType Name="A_OutbDeliveryItemType">
-            <Key><PropertyRef Name="DeliveryDocument" /></Key>
-            <Property Name="DeliveryDocument" Type="Edm.String" />
-          </EntityType>
-          <EntityContainer>
-            <EntitySet Name="A_OutbDeliveryItem" EntityType="API_OUTBOUND_DELIVERY_SRV.A_OutbDeliveryItemType" />
-          </EntityContainer>
-        </Schema>
-      `)
+      ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"))
     };
     const client = new SapODataReadOnlyClient(
       {
         baseUrl: "https://sap.example.test",
         clientId: "client-id",
         clientSecret: "client-secret",
+        sapClient: "100",
         scope: "api.sap.read",
         tenant: "northbay",
         tokenUrl: "https://sap.example.test/oauth/token"
@@ -406,9 +368,8 @@ describe("SAP OData read-only query mapping", () => {
         if (init?.method === "POST") {
           return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
         }
-        const body = requestUrl.includes("API_OUTBOUND_DELIVERY_SRV")
-          ? { d: { DeliveryDocument: "POD-LIVE-1" } }
-          : { d: { BillingDocument: "INV-LIVE-1" } };
+        expect(requestUrl).toContain("ZUI_BILLINGDOCUMENTFS_0001");
+        const body = { d: { BillingDocument: "90000002" } };
 
         return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
       }
@@ -416,41 +377,22 @@ describe("SAP OData read-only query mapping", () => {
 
     const documents = await adapter.retrieveDeductionCaseLive(line, metadataByService, client);
 
-    expect(documents.some((document) => document.documentId === "INV-LIVE-1" && document.documentType === "invoice")).toBe(true);
-    expect(documents.some((document) => document.documentId === "POD-LIVE-1" && document.documentType === "POD")).toBe(true);
+    expect(documents).toHaveLength(1);
+    expect(documents.some((document) => document.documentId === "90000002" && document.documentType === "invoice")).toBe(true);
   });
 
   it("validates read-request mapping against parsed metadata before building real SAP paths", () => {
-    const line = buildSyntheticDataset({ seed: 42 }).deductionLines.find((candidate) =>
-      candidate.recordIds.some((recordId) => recordId.startsWith("INV-")) && candidate.recordIds.some((recordId) => recordId.startsWith("POD-"))
-    );
-    if (line === undefined) {
-      throw new Error("Synthetic dataset must include invoice and POD records.");
-    }
+    const line = sapInvoiceLine();
     const adapter = new SapODataReadOnlyAdapter({
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
     });
-    const metadata = parseSapODataMetadata(`
-      <Schema Namespace="API_BILLING_DOCUMENT_SRV">
-        <EntityType Name="A_BillingDocumentType">
-          <Key><PropertyRef Name="BillingDocument" /></Key>
-          <Property Name="BillingDocument" Type="Edm.String" />
-        </EntityType>
-        <EntityType Name="A_OutbDeliveryItemType">
-          <Key><PropertyRef Name="DeliveryDocument" /></Key>
-          <Property Name="DeliveryDocument" Type="Edm.String" />
-        </EntityType>
-        <EntityContainer>
-          <EntitySet Name="A_BillingDocument" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentType" />
-          <EntitySet Name="A_OutbDeliveryItem" EntityType="API_BILLING_DOCUMENT_SRV.A_OutbDeliveryItemType" />
-        </EntityContainer>
-      </Schema>
-    `);
+    const metadata = parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"));
 
     const plan = adapter.buildMetadataValidatedReadRequestPlan(line, metadata);
 
@@ -458,34 +400,73 @@ describe("SAP OData read-only query mapping", () => {
     if (!plan.configured) {
       throw new Error("Expected configured metadata-validated SAP plan.");
     }
-    expect(plan.requests.some((request) => request.url.includes("A_BillingDocument(BillingDocument='INV-"))).toBe(true);
-    expect(plan.requests.some((request) => request.url.includes("A_OutbDeliveryItem(DeliveryDocument='POD-"))).toBe(true);
+    expect(plan.requests).toHaveLength(1);
+    expect(plan.requests[0]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?sap-client=100"
+    );
+    expect(plan.requests[0]?.recordIds).toEqual([line.lineId, "INV-90000002"]);
     expect(JSON.stringify(plan)).not.toContain("clientSecret");
   });
 
-  it("fails closed when SAP metadata does not expose a required mapped entity set", () => {
-    const line = buildSyntheticDataset({ seed: 42 }).deductionLines.find((candidate) =>
-      candidate.recordIds.some((recordId) => recordId.startsWith("INV-")) && candidate.recordIds.some((recordId) => recordId.startsWith("POD-"))
-    );
-    if (line === undefined) {
-      throw new Error("Synthetic dataset must include invoice and POD records.");
-    }
+  it("does not build live SAP read requests for non-numeric synthetic invoice record ids", () => {
+    const line = sapInvoiceLine(["INV-S1-1"]);
     const adapter = new SapODataReadOnlyAdapter({
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    });
+    const metadata = parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"));
+
+    const plan = adapter.buildMetadataValidatedReadRequestPlan(line, metadata);
+
+    expect(plan).toEqual({
+      configured: true,
+      requests: [],
+      tenant: "northbay"
+    });
+    expect(JSON.stringify(plan)).not.toContain("INV-S1-1");
+  });
+
+  it("keeps the SAP synthetic fallback invoice-only so POD and reference evidence stay with non-SAP sources", () => {
+    const line = sapInvoiceLine(["INV-90000002", "POD-SIGNED-1", "CREDIT-MEMO-1", "DUP-CLAIM-1"]);
+    const adapter = new SapODataReadOnlyAdapter();
+
+    expect(adapter.retrieveDeliveryItem(line)).toEqual([]);
+    expect(adapter.retrieveReferenceDocuments(line)).toEqual([]);
+    expect(adapter.retrieveDeductionCase(line)).toEqual([
+      {
+        documentId: "INV-90000002",
+        documentType: "invoice",
+        recordIds: [line.lineId, "INV-90000002"],
+        source: "sap",
+        summary: `Read-only SAP billing document for ${line.lineId}.`
+      }
+    ]);
+  });
+
+  it("fails closed when SAP metadata does not expose a required mapped entity set", () => {
+    const line = sapInvoiceLine();
+    const adapter = new SapODataReadOnlyAdapter({
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
     });
     const metadata = parseSapODataMetadata(`
-      <Schema Namespace="API_BILLING_DOCUMENT_SRV">
-        <EntityType Name="A_BillingDocumentType">
+      <Schema Namespace="ZUI_BILLINGDOCUMENTFS_0001">
+        <EntityType Name="C_BillingDocumentItemFsType">
           <Key><PropertyRef Name="BillingDocument" /></Key>
           <Property Name="BillingDocument" Type="Edm.String" />
         </EntityType>
         <EntityContainer>
-          <EntitySet Name="A_BillingDocument" EntityType="API_BILLING_DOCUMENT_SRV.A_BillingDocumentType" />
+          <EntitySet Name="C_BillingDocumentItemFs" EntityType="ZUI_BILLINGDOCUMENTFS_0001.C_BillingDocumentItemFsType" />
         </EntityContainer>
       </Schema>
     `);
@@ -494,43 +475,34 @@ describe("SAP OData read-only query mapping", () => {
 
     expect(plan).toEqual({
       configured: false,
-      reason: "SAP metadata missing mapped entity set A_OutbDeliveryItem.",
+      reason: "SAP metadata missing mapped entity set C_BillingDocumentFs.",
       requests: []
     });
   });
 
-  it("fails closed when SAP metadata exposes composite keys that the record mapping cannot satisfy", () => {
-    const line = buildSyntheticDataset({ seed: 42 }).deductionLines.find((candidate) =>
-      candidate.recordIds.some((recordId) => recordId.startsWith("POD-"))
-    );
-    if (line === undefined) {
-      throw new Error("Synthetic dataset must include POD records.");
-    }
+  it("fails closed when SAP metadata exposes composite keys that the invoice record mapping cannot satisfy", () => {
+    const line = sapInvoiceLine();
     const adapter = new SapODataReadOnlyAdapter({
       baseUrl: "https://sap.example.test",
       clientId: "client-id",
       clientSecret: "",
+      sapClient: "100",
       scope: "api.sap.read",
       tenant: "northbay",
       tokenUrl: "https://sap.example.test/oauth/token"
     });
     const metadata = parseSapODataMetadata(`
-      <Schema Namespace="API_OUTBOUND_DELIVERY_SRV">
-        <EntityType Name="A_BillingDocumentType">
-          <Key><PropertyRef Name="BillingDocument" /></Key>
-          <Property Name="BillingDocument" Type="Edm.String" />
-        </EntityType>
-        <EntityType Name="A_OutbDeliveryItemType">
+      <Schema Namespace="ZUI_BILLINGDOCUMENTFS_0001">
+        <EntityType Name="C_BillingDocumentFsType">
           <Key>
-            <PropertyRef Name="DeliveryDocument" />
-            <PropertyRef Name="DeliveryDocumentItem" />
+            <PropertyRef Name="BillingDocument" />
+            <PropertyRef Name="BillingDocumentItem" />
           </Key>
-          <Property Name="DeliveryDocument" Type="Edm.String" />
-          <Property Name="DeliveryDocumentItem" Type="Edm.String" />
+          <Property Name="BillingDocument" Type="Edm.String" />
+          <Property Name="BillingDocumentItem" Type="Edm.String" />
         </EntityType>
         <EntityContainer>
-          <EntitySet Name="A_BillingDocument" EntityType="API_OUTBOUND_DELIVERY_SRV.A_BillingDocumentType" />
-          <EntitySet Name="A_OutbDeliveryItem" EntityType="API_OUTBOUND_DELIVERY_SRV.A_OutbDeliveryItemType" />
+          <EntitySet Name="C_BillingDocumentFs" EntityType="ZUI_BILLINGDOCUMENTFS_0001.C_BillingDocumentFsType" />
         </EntityContainer>
       </Schema>
     `);
@@ -539,7 +511,7 @@ describe("SAP OData read-only query mapping", () => {
 
     expect(plan).toEqual({
       configured: false,
-      reason: "SAP metadata key set for mapped entity set A_OutbDeliveryItem requires unsupported key DeliveryDocumentItem.",
+      reason: "SAP metadata key set for mapped entity set C_BillingDocumentFs requires unsupported key BillingDocumentItem.",
       requests: []
     });
   });
@@ -568,4 +540,109 @@ function stringifyRequestUrl(url: RequestInfo | URL): string {
   }
 
   return url.url;
+}
+
+function sapInvoiceLine(recordIds = ["INV-90000002"]) {
+  const line = buildSyntheticDataset({ seed: 42 }).deductionLines[0];
+  if (line === undefined) {
+    throw new Error("Synthetic dataset must include at least one deduction line.");
+  }
+
+  return {
+    ...line,
+    lineId: "LINE-SAP-INVOICE",
+    recordIds: ["LINE-SAP-INVOICE", ...recordIds]
+  };
+}
+
+function toolsDataMetadata(serviceName: string): string {
+  if (serviceName === "ZUI_BILLINGDOCUMENTFS_0001") {
+    return `
+      <Schema Namespace="ZUI_BILLINGDOCUMENTFS_0001">
+        <EntityType Name="C_BillingDocumentFsType">
+          <Key><PropertyRef Name="BillingDocument" /></Key>
+          <Property Name="BillingDocument" Type="Edm.String" />
+          <Property Name="BillingDocumentType" Type="Edm.String" />
+          <Property Name="SoldToParty" Type="Edm.String" />
+          <Property Name="TotalNetAmount" Type="Edm.Decimal" />
+        </EntityType>
+        <EntityType Name="C_BillingDocumentItemFsType">
+          <Key>
+            <PropertyRef Name="BillingDocument" />
+            <PropertyRef Name="BillingDocumentItem" />
+          </Key>
+          <Property Name="BillingDocument" Type="Edm.String" />
+          <Property Name="BillingDocumentItem" Type="Edm.String" />
+          <Property Name="Material" Type="Edm.String" />
+          <Property Name="NetAmount" Type="Edm.Decimal" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="C_BillingDocumentFs" EntityType="ZUI_BILLINGDOCUMENTFS_0001.C_BillingDocumentFsType" />
+          <EntitySet Name="C_BillingDocumentItemFs" EntityType="ZUI_BILLINGDOCUMENTFS_0001.C_BillingDocumentItemFsType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  if (serviceName === "ZAPI_SALES_ORDER_SRV_0001") {
+    return `
+      <Schema Namespace="ZAPI_SALES_ORDER_SRV_0001">
+        <EntityType Name="A_SalesOrderType">
+          <Key><PropertyRef Name="SalesOrder" /></Key>
+          <Property Name="SalesOrder" Type="Edm.String" />
+          <Property Name="SoldToParty" Type="Edm.String" />
+          <Property Name="TotalNetAmount" Type="Edm.Decimal" />
+        </EntityType>
+        <EntityType Name="A_SalesOrderItemType">
+          <Key>
+            <PropertyRef Name="SalesOrder" />
+            <PropertyRef Name="SalesOrderItem" />
+          </Key>
+          <Property Name="SalesOrder" Type="Edm.String" />
+          <Property Name="SalesOrderItem" Type="Edm.String" />
+          <Property Name="Material" Type="Edm.String" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="A_SalesOrder" EntityType="ZAPI_SALES_ORDER_SRV_0001.A_SalesOrderType" />
+          <EntitySet Name="A_SalesOrderItem" EntityType="ZAPI_SALES_ORDER_SRV_0001.A_SalesOrderItemType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  if (serviceName === "ZUI_CREDITACCOUNT_DISPLAY_0001") {
+    return `
+      <Schema Namespace="ZUI_CREDITACCOUNT_DISPLAY_0001">
+        <EntityType Name="CreditAccountSummaryType">
+          <Key>
+            <PropertyRef Name="BusinessPartner" />
+            <PropertyRef Name="CreditSegment" />
+          </Key>
+          <Property Name="BusinessPartner" Type="Edm.String" />
+          <Property Name="CreditSegment" Type="Edm.String" />
+          <Property Name="CreditLimitAmount" Type="Edm.Decimal" />
+          <Property Name="DaysSalesOutstanding" Type="Edm.String" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="CreditAccountSummary" EntityType="ZUI_CREDITACCOUNT_DISPLAY_0001.CreditAccountSummaryType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  if (serviceName === "ZUI_ACCRUALS_MANAGE_0001") {
+    return `
+      <Schema Namespace="ZUI_ACCRUALS_MANAGE_0001">
+        <EntityType Name="PeriodicAmountsType">
+          <Property Name="AccrualObject" Type="Edm.String" />
+          <Property Name="ActualAccrualItemType" Type="Edm.String" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="PeriodicAmounts" EntityType="ZUI_ACCRUALS_MANAGE_0001.PeriodicAmountsType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  throw new Error(`Unexpected Tools_data SAP service ${serviceName}.`);
 }

@@ -3,6 +3,7 @@ import {
   buildEnterpriseReadRequestPlan,
   createEnterpriseSourceContractSchema,
   describeEnterpriseConnectorReadiness,
+  SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR,
   type EnterpriseConnectorReadiness,
   type EnterpriseReadRequestPlan,
   type EnterpriseSourceContract
@@ -18,7 +19,10 @@ export class RemittanceReadOnlyAdapter {
   ) {}
 
   describeReadiness(): EnterpriseConnectorReadiness {
-    return describeEnterpriseConnectorReadiness(this.contract, "Remittance", this.availableCredentialEnvNames);
+    return describeEnterpriseConnectorReadiness(this.contract, "Remittance", this.availableCredentialEnvNames, {
+      connectorName: "remittance",
+      sourceTableName: SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR.remittance
+    });
   }
 
   buildReadRequestPlan(line: DeductionLine): EnterpriseReadRequestPlan {

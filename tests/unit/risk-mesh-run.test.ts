@@ -7,9 +7,14 @@ describe("S6 Risk Mesh closed loop", () => {
 
     expect(run.customerId).toBe("CUST-HARBOR");
     expect(run.sentinel.status).toBe("blocked");
-    expect(run.sentinel.reason).toBe("r-score-weights-unset");
+    expect(run.sentinel.reason).toBe("verify-runtime-config-loader-required");
+    expect(run.sentinel.deterministicBasis).toMatchObject({
+      rDriftTrigger: "owner-ratified-day-1-seed-present",
+      rScoreWeights: "owner-ratified-day-1-seed-present",
+      runtimeConfigLoader: "verify-runtime-config-loader-required"
+    });
     expect(run.arbitration.status).toBe("blocked");
-    expect(run.arbitration.reason).toBe("expert-arbitration-weights-unset");
+    expect(run.arbitration.reason).toBe("verify-prod-calibration-required");
     expect(run.partialHold.compositeScore.toFixed(2)).toBe("51.25");
     expect(run.partialHold.releaseRatioPercent.toFixed(0)).toBe("55");
     expect(run.holdAction.proposedReleaseAmount.toFixed(2)).toBe("352000.00");

@@ -12,11 +12,12 @@ export interface RiskObservationInput {
 export interface BlockedRiskAssessment {
   customerId: string;
   status: "blocked";
-  reason: "r-score-weights-unset";
+  reason: "verify-runtime-config-loader-required";
   recordIds: string[];
   deterministicBasis: {
-    rScoreWeights: "unset";
-    driftThreshold: "unset";
+    rDriftTrigger: "owner-ratified-day-1-seed-present";
+    rScoreWeights: "owner-ratified-day-1-seed-present";
+    runtimeConfigLoader: "verify-runtime-config-loader-required";
     observedSignals: RiskObservationInput["observedSignals"];
   };
 }
@@ -25,11 +26,12 @@ export function buildBlockedRiskAssessment(input: RiskObservationInput): Blocked
   return {
     customerId: input.customerId,
     status: "blocked",
-    reason: "r-score-weights-unset",
+    reason: "verify-runtime-config-loader-required",
     recordIds: input.recordIds,
     deterministicBasis: {
-      rScoreWeights: "unset",
-      driftThreshold: "unset",
+      rDriftTrigger: "owner-ratified-day-1-seed-present",
+      rScoreWeights: "owner-ratified-day-1-seed-present",
+      runtimeConfigLoader: "verify-runtime-config-loader-required",
       observedSignals: input.observedSignals
     }
   };
