@@ -2,10 +2,6 @@
   box-sizing: border-box;
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
 html,
 body {
   margin: 0;
@@ -392,6 +388,28 @@ h3 {
   grid-template-columns: minmax(540px, 0.95fr) minmax(520px, 1.05fr);
 }
 
+.route-grid {
+  align-items: start;
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.route-grid.forensics {
+  grid-template-columns: minmax(640px, 1.18fr) minmax(420px, 0.82fr);
+}
+
+.route-grid.run,
+.route-grid.resolve,
+.route-grid.executive {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.62fr);
+}
+
+.route-grid.run .audit-rail,
+.route-grid.executive .surface-panel:first-child {
+  grid-column: 1 / -1;
+}
+
 .stream {
   grid-column: 1 / -1;
 }
@@ -441,18 +459,28 @@ h3 {
 
 .data-table {
   display: grid;
-  overflow-x: auto;
+  min-width: 598px;
+  overflow: visible;
   position: relative;
+  width: 100%;
+}
+
+.workspace-table-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: var(--space-1);
+  scrollbar-gutter: stable;
 }
 
 .table-row {
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
   display: grid;
-  gap: var(--space-3);
-  grid-template-columns: minmax(112px, 1fr) minmax(146px, 1.08fr) 96px 116px 88px 96px;
+  gap: var(--space-2);
+  grid-template-columns: minmax(88px, 0.9fr) minmax(136px, 1.15fr) 80px 90px 82px 60px;
   min-height: var(--row-default);
-  min-width: 714px;
+  min-width: 598px;
 }
 
 .table-row:last-child {
@@ -1288,13 +1316,33 @@ code {
   padding: 0 var(--space-3);
 }
 
+.governance-tabs a {
+  align-items: center;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  text-decoration: none;
+}
+
 .governance-tabs button[aria-selected="true"] {
   background: var(--bg-surface);
   box-shadow: var(--shadow-sm);
   color: var(--color-primary);
 }
 
-.governance-tabs button:hover {
+.governance-tabs a[aria-selected="true"] {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-primary);
+}
+
+.governance-tabs button:hover,
+.governance-tabs a:hover {
   color: var(--color-primary);
 }
 
@@ -1420,6 +1468,102 @@ code {
   animation: spin var(--motion-slow) linear infinite;
 }
 
+.login-form {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  text-align: left;
+}
+
+.login-form label,
+.login-form > div {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.login-form label span {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-form input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  min-height: 42px;
+  padding: 0 var(--space-3);
+}
+
+.login-form input:focus {
+  border-color: var(--color-primary);
+}
+
+.login-form > div button,
+.login-form > button,
+.sidebar-note button {
+  align-items: center;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  min-height: 38px;
+}
+
+.login-form > div button {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+}
+
+.login-form > div button:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.login-form > div button span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.login-form > button {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--white);
+  font-weight: 700;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-4);
+}
+
+.login-form > button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.login-form > button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.sidebar-note button {
+  background: transparent;
+  border: 1px solid var(--neutral-700);
+  color: var(--neutral-300);
+  font-size: 13px;
+  justify-content: center;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+}
+
+.sidebar-note button:hover {
+  border-color: var(--color-primary-subtle);
+  color: var(--white);
+}
+
 .skeleton-stack {
   display: grid;
   gap: var(--space-2);
@@ -1482,10 +1626,6 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
   *,
   *::before,
   *::after {
@@ -1561,6 +1701,10 @@ code {
   }
 
   .surface-grid,
+  .route-grid.forensics,
+  .route-grid.run,
+  .route-grid.resolve,
+  .route-grid.executive,
   .governance-layout {
     grid-template-columns: 1fr;
   }
@@ -1648,6 +1792,10 @@ code {
   .summary-grid,
   .content-grid,
   .surface-grid,
+  .route-grid.forensics,
+  .route-grid.run,
+  .route-grid.resolve,
+  .route-grid.executive,
   .governance-layout,
   .surface-metrics,
   .risk-board,
@@ -1664,21 +1812,13 @@ code {
     min-height: 74px;
   }
 
+  .workspace-table-scroll,
   .data-table {
-    overflow-x: visible;
+    overflow-x: auto;
   }
 
   .table-row {
-    gap: var(--space-2);
-    grid-template-columns: minmax(76px, 0.76fr) minmax(102px, 1fr) minmax(74px, 0.72fr);
-    min-width: 0;
-  }
-
-  .table-head span:nth-child(n + 4),
-  .data-table .governance-badge,
-  .data-table .verdict-cell,
-  .data-table .next-action-cell {
-    display: none;
+    min-width: 598px;
   }
 
   .work-row .amount {
@@ -1692,9 +1832,55 @@ code {
 
   .status-row,
   .agent-row,
+  .connector-row,
   .edge-row,
   .memory-row,
   .trace-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .state-shell {
+    align-items: start;
+    padding: var(--space-3);
+  }
+
+  .state-panel {
+    padding: var(--space-5);
+    text-align: left;
+  }
+
+  .state-panel h1 {
+    font-size: 32px;
+    line-height: 38px;
+  }
+
+  .state-panel p:not(.micro) {
+    margin-inline: 0;
+  }
+
+  .login-form > div button {
+    align-items: flex-start;
+    display: grid;
+    gap: var(--space-1);
+    justify-content: stretch;
+    padding-block: var(--space-2);
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    padding: 0 0 var(--space-3);
+  }
+
+  .worklist,
+  .detail,
+  .stream,
+  .surface-panel,
+  .decision-console {
+    padding: var(--space-3);
   }
 }

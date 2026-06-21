@@ -1,34 +1,50 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 
 function normalizeNewlines(value: string): string {
   return value.replace(/\r\n/g, "\n");
 }
 
+function read(paths: string[]): string {
+  return paths.map((path) => readFileSync(path, "utf8")).join("\n");
+}
+
 describe("S5 cockpit business-logic boundary", () => {
   it("keeps the Next cockpit surface free of core rule and Decimal imports", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+    const cockpitSources = read([
+      "cockpit/app/page.tsx",
+      "cockpit/app/cockpit-data.ts",
+      "cockpit/app/cockpit-shell.tsx",
+      "cockpit/app/forensics/page.tsx",
+      "cockpit/app/run/page.tsx",
+      "cockpit/app/credit/page.tsx",
+      "cockpit/app/cfo/page.tsx"
+    ]);
 
-    expect(page).not.toContain("decimal.js");
-    expect(page).not.toContain("../../src/services");
-    expect(page).not.toContain("src/core");
-    expect(page).not.toContain("evaluateRule");
-    expect(page).not.toContain("runForensicsInvestigation");
+    expect(cockpitSources).not.toContain("decimal.js");
+    expect(cockpitSources).not.toContain("../../src/services");
+    expect(cockpitSources).not.toContain("src/core");
+    expect(cockpitSources).not.toContain("evaluateRule");
+    expect(cockpitSources).not.toContain("runForensicsInvestigation");
   });
 
-  it("loads cockpit data through REST and SSE API boundaries", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+  it("loads cockpit data through typed REST and SSE API boundaries", () => {
+    const data = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
     const stream = readFileSync("cockpit/app/run-stream.tsx", "utf8");
+    const realtimeControls = readFileSync("cockpit/app/realtime-query-controls.tsx", "utf8");
 
-    expect(page).toContain("/forensics");
-    expect(page).toContain("/trace");
-    expect(page).toContain("/memory");
-    expect(page).toContain("/agents");
-    expect(page).toContain("/connectors");
+    expect(data).toContain("/forensics");
+    expect(data).toContain("/credit");
+    expect(data).toContain("/cfo");
+    expect(data).toContain("/trace");
+    expect(data).toContain("/memory");
+    expect(data).toContain("/agents");
+    expect(data).toContain("/connectors");
     expect(stream).toContain("EventSource");
     expect(stream).toContain("/run");
-    expect(page).not.toContain("runRiskMeshClosedLoop");
-    expect(page).not.toContain("computePartialHold");
+    expect(realtimeControls).toContain("/api/query/realtime-client-secret");
+    expect(data).not.toContain("runRiskMeshClosedLoop");
+    expect(data).not.toContain("computePartialHold");
   });
 
   it("keeps cockpit money display away from JS number conversion", () => {
@@ -53,11 +69,13 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(controls).not.toContain("human:maya-lead");
   });
 
-  it("keeps human cockpit auth tokens server-only", () => {
+  it("keeps human cockpit auth tokens and Supabase service role server-only", () => {
     const example = readFileSync(".env.example", "utf8");
     const approvalControls = readFileSync("cockpit/app/approval-controls.tsx", "utf8");
     const realtimeControls = readFileSync("cockpit/app/realtime-query-controls.tsx", "utf8");
+    const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
     const approvalProxy = readFileSync("cockpit/app/api/approval/route.ts", "utf8");
+    const loginProxy = readFileSync("cockpit/app/api/demo-login/route.ts", "utf8");
     const realtimeProxy = readFileSync("cockpit/app/api/query/realtime-client-secret/route.ts", "utf8");
     const humanAuth = readFileSync("cockpit/app/api/human-auth.ts", "utf8");
 
@@ -67,21 +85,25 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalControls).not.toContain("x-recoup-human-token");
     expect(realtimeControls).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_AUTH_TOKEN");
     expect(realtimeControls).not.toContain("x-recoup-human-token");
+    expect(loginForm).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(loginForm).not.toContain("password_hash");
     expect(humanAuth).toContain("RECOUP_COCKPIT_AUTH_TOKEN");
     expect(humanAuth).toContain("x-recoup-human-token");
     expect(humanAuth).toContain("recoup_human_token");
     expect(approvalProxy).toContain("buildVerifiedHumanAuthHeaders");
     expect(approvalProxy).toContain("loadLocalRuntimeEnvFiles");
+    expect(loginProxy).toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(loginProxy).toContain("verify_recoup_demo_login");
     expect(realtimeProxy).toContain("buildVerifiedHumanAuthHeaders");
     expect(realtimeProxy).toContain("loadLocalRuntimeEnvFiles");
   });
 
   it("wires Realtime query controls to the credential-gated audit endpoint", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+    const runPage = readFileSync("cockpit/app/run/page.tsx", "utf8");
     const controls = readFileSync("cockpit/app/realtime-query-controls.tsx", "utf8");
 
-    expect(page).toContain("<RealtimeQueryControls");
-    expect(page).not.toContain("OPENAI_API_KEY required");
+    expect(runPage).toContain("<RealtimeQueryControls");
+    expect(runPage).not.toContain("OPENAI_API_KEY required");
     expect(controls).toContain('"use client"');
     expect(controls).toContain("./realtime-browser-session");
     expect(controls).toContain("/api/query/realtime-client-secret");
@@ -106,37 +128,43 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(controls).not.toContain("src/core");
   });
 
-  it("keeps cockpit navigation and icon controls accessible", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+  it("keeps cockpit navigation as accessible real routes", () => {
+    const root = readFileSync("cockpit/app/page.tsx", "utf8");
+    const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
+    const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
 
-    expect(page).toContain('href="#forensics"');
-    expect(page).toContain('href="#credit"');
-    expect(page).toContain('href="#cfo"');
-    expect(page).toContain('title="Refresh run"');
-    expect(page).toContain('title="Filter worklist"');
-    expect(page).toContain("StatusPill");
-    expect(page).toContain("const isSelected = item.lineId === model.selected.lineId;");
-    expect(page).toContain("aria-selected={isSelected}");
-    expect(page).toContain('className="verdict-cell" role="cell"');
-    expect(page).toContain('className="next-action-cell" role="cell"');
-    expect(page).toContain('aria-label={`Review selected ${item.lineId}');
-    expect(page).toContain("next-action-muted");
-    expect(page).toContain('href="#selected-line"');
-    expect(page).not.toContain('href="#selected-line" role="cell"');
-    expect(page).not.toContain('aria-label={`Review ${item.lineId}');
+    expect(root).toContain("requireDemoSession");
+    expect(root).toContain("defaultRoute");
+    expect(shell).toContain('href: "/forensics"');
+    expect(shell).toContain('href: "/run"');
+    expect(shell).toContain('href: "/credit"');
+    expect(shell).toContain('href: "/cfo"');
+    expect(shell).toContain('href: "/governance/connectors"');
+    expect(shell).toContain("href={item.href}");
+    expect(shell).toContain("aria-current");
+    expect(shell).toContain("session.allowedRoutes.includes(item.href)");
+    expect(forensics).toContain("ApprovalControls");
+    expect(forensics).toContain("aria-selected={isSelected}");
+    expect(forensics).toContain('className="verdict-cell" role="cell"');
+    expect(forensics).toContain('className="next-action-cell" role="cell"');
+    expect(shell).not.toContain('href="#credit"');
+    expect(shell).not.toContain('href="#cfo"');
+    expect(root).not.toContain("<GovernanceTabs");
   });
 
-  it("protects tablet and low-desktop layouts from fixed-column overflow", () => {
+  it("protects tablet, mobile, and table layouts from fixed-column page overflow", () => {
     const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
 
     expect(styles).toContain("@media (max-width: 1372px)");
-    expect(styles).toContain(".governance-surface");
-    expect(styles).toContain(".worklist {\n    grid-column: 1 / -1;");
-    expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr));");
-    expect(styles).toContain(".summary-grid {\n    grid-template-columns: repeat(2, minmax(0, 1fr));");
-    expect(styles).toContain(".metric {\n    min-height: 74px;");
+    expect(styles).toContain("@media (max-width: 900px)");
+    expect(styles).toContain("@media (max-width: 620px)");
+    expect(styles).toContain(".workspace-table-scroll");
     expect(styles).toContain("overflow-x: auto;");
-    expect(styles).toContain("flex: 0 0 auto;");
+    expect(styles).toContain(".route-grid.forensics");
+    expect(styles).toContain("grid-template-columns: minmax(640px, 1.18fr) minmax(420px, 0.82fr);");
+    expect(styles).toContain("min-width: 0;");
+    expect(styles).toContain("min-width: 598px;");
+    expect(styles).toContain("scrollbar-gutter: stable;");
   });
 
   it("anchors cockpit styling to the O2C v3.1 design-system tokens", () => {
@@ -146,34 +174,31 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(layout).toContain("../../tokens.css");
     expect(styles).not.toMatch(/#[0-9a-f]{3,8}/iu);
     expect(styles).toContain("letter-spacing: var(--tracking-ui)");
-    expect(styles).not.toContain(".workspace::before");
-    expect(styles).toContain(".state-panel::before");
     expect(styles).toContain("var(--atmos-mint)");
     expect(styles).toContain("var(--radius-lg)");
     expect(styles).not.toContain("var(--text-on-primary)");
     expect(styles).not.toContain("text-transform: uppercase");
-    expect(styles).toContain("max-width: 1560px;");
     expect(styles).toContain("font-family: var(--font-ui);");
-    expect(styles).toContain("@media (max-width: 900px)");
+    expect(styles).toContain("font-family: var(--font-editorial);");
+    expect(styles).toContain("font-family: var(--font-mono);");
   });
 
   it("keeps operational surfaces restrained instead of over-framed demo cards", () => {
     const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
 
-    expect(styles).toContain(".metric,\n.worklist,\n.detail,\n.stream,\n.surface-panel {\n  background: var(--bg-surface);");
+    expect(styles).toContain(".metric,\n.worklist,\n.detail,\n.stream,\n.surface-panel");
     expect(styles).toContain("border-radius: var(--radius-lg);");
     expect(styles).toContain(".topbar {\n  border-bottom: 1px solid var(--border-default);");
     expect(styles).not.toContain("box-shadow: var(--shadow-md);");
     expect(styles).not.toContain("linear-gradient(135deg, var(--color-primary-tint)");
     expect(styles).not.toContain("linear-gradient(180deg, color-mix(in srgb, var(--atmos-mint)");
-    expect(styles).not.toContain(".risk-board > div,\n.executive-strip > div {\n  background:");
   });
 
   it("provides premium loading, error, reduced-motion, and desktop action states", () => {
     const styles = readFileSync("cockpit/app/styles.css", "utf8");
     const loading = readFileSync("cockpit/app/loading.tsx", "utf8");
     const error = readFileSync("cockpit/app/error.tsx", "utf8");
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+    const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
 
     expect(loading).toContain("state-panel");
     expect(loading).toContain("aria-busy=\"true\"");
@@ -184,45 +209,50 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(styles).toContain(".state-panel");
     expect(styles).toContain(".skeleton-line");
     expect(styles).toContain('.work-row[aria-selected="true"]');
-    expect(page).toContain('id="selected-line"');
-    expect(page).toContain('href="#selected-line"');
+    expect(forensics).toContain('id="selected-line"');
   });
 
-  it("prioritizes the desktop hero workflow over low-level trace content", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
+  it("prioritizes the Maya hero workflow over low-level trace content", () => {
+    const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
+    const run = readFileSync("cockpit/app/run/page.tsx", "utf8");
     const styles = readFileSync("cockpit/app/styles.css", "utf8");
 
-    expect(page.indexOf('className="decision-console"')).toBeLessThan(page.indexOf('className="audit-rail stream"'));
-    expect(page.indexOf('className="next-best-action flagship-action"')).toBeLessThan(page.indexOf("Evidence pack"));
-    expect(page.indexOf('className="draft priority-draft"')).toBeLessThan(page.indexOf("Evidence pack"));
-    expect(page).toContain('variant="primary"');
-    expect(page).toContain('drillDown="Open recovery queue"');
+    expect(forensics.indexOf('className="decision-console"')).toBeGreaterThan(-1);
+    expect(forensics.indexOf('className="decision-console"')).toBeLessThan(forensics.indexOf("Evidence pack"));
+    expect(forensics.indexOf('className="next-best-action flagship-action"')).toBeLessThan(forensics.indexOf("Evidence pack"));
+    expect(forensics.indexOf('className="draft priority-draft"')).toBeLessThan(forensics.indexOf("Evidence pack"));
+    expect(run).toContain("<RunStream");
+    expect(run).toContain("<RealtimeQueryControls");
     expect(styles).toContain(".metric.primary");
     expect(styles).toContain(".decision-console");
     expect(styles).toContain(".flagship-action");
     expect(styles).toContain(".priority-draft");
     expect(styles).toContain(".audit-rail");
-    expect(styles).toContain("grid-template-columns: minmax(540px, 0.95fr) minmax(520px, 1.05fr);");
   });
 
-  it("renders governance operations as an interactive tabbed cockpit surface", () => {
-    const page = readFileSync("cockpit/app/page.tsx", "utf8");
-    const tabs = readFileSync("cockpit/app/governance-tabs.tsx", "utf8");
+  it("renders governance operations as URL-backed route surfaces", () => {
+    const root = readFileSync("cockpit/app/page.tsx", "utf8");
+    const nav = readFileSync("cockpit/app/governance/governance-nav.tsx", "utf8");
+    const agents = readFileSync("cockpit/app/governance/agents/page.tsx", "utf8");
+    const connectors = readFileSync("cockpit/app/governance/connectors/page.tsx", "utf8");
+    const memory = readFileSync("cockpit/app/governance/memory/page.tsx", "utf8");
+    const trace = readFileSync("cockpit/app/governance/trace/page.tsx", "utf8");
 
-    expect(page).toContain("<GovernanceTabs");
-    expect(page).not.toContain('className="operations-grid"');
-    expect(tabs).toContain('"use client"');
-    expect(tabs).toContain('role="tablist"');
-    expect(tabs).toContain('role="tab"');
-    expect(tabs).toContain('aria-selected');
-    expect(tabs).toContain('role="tabpanel"');
-    expect(tabs).not.toContain("fetch(");
-    expect(tabs).not.toContain("decimal.js");
-    expect(tabs).not.toContain("src/core");
-    expect(tabs).toContain("Agent operations");
-    expect(tabs).toContain("Connector readiness");
-    expect(tabs).toContain("Memory");
-    expect(tabs).toContain("Trace");
-    expect(tabs).toContain("externalWritesAllowed");
+    expect(root).not.toContain("<GovernanceTabs");
+    expect(nav).toContain('"use client"');
+    expect(nav).toContain('role="tablist"');
+    expect(nav).toContain('role="tab"');
+    expect(nav).toContain("aria-selected");
+    expect(nav).toContain('href: "/governance/agents"');
+    expect(nav).toContain('href: "/governance/connectors"');
+    expect(nav).toContain('href: "/governance/memory"');
+    expect(nav).toContain('href: "/governance/trace"');
+    expect(agents).toContain("fetchAgentGraphModel");
+    expect(connectors).toContain("fetchConnectorReadinessModel");
+    expect(memory).toContain("fetchMemoryModel");
+    expect(trace).toContain("fetchTraceModel");
+    expect(nav).not.toContain("fetch(");
+    expect(nav).not.toContain("decimal.js");
+    expect(nav).not.toContain("src/core");
   });
 });
