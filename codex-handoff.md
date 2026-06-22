@@ -39,7 +39,9 @@ Next.js is canonical for the Recoup cockpit. Vite may be used only for an isolat
 
 > You are building **Recoup — Revenue-Integrity Cockpit**, an agentic Order-to-Cash product for CPG deduction recovery, credit arbitration, and CFO visibility.
 >
-> Read these files first, in this order: `AGENTS.md`, `INVARIANTS.md`, `RECONCILIATION_LEDGER.md` §4, `Recoup_v2_SDD.md` §11, `O2C_Collections_Design_System_v3.md`, `tokens.json`, and `tokens.css`.
+> Read these files first, in this order: `AGENTS.md`, `INVARIANTS.md`, `RECONCILIATION_LEDGER.md` §4, `docs/Agentic_O2C_Persona_Journey_v1_2.md` (§4-§8), `Recoup_v2_SDD.md` for technical architecture, `O2C_Collections_Design_System_v3.md`, `tokens.json`, and `tokens.css`.
+>
+> SDD §11 is superseded for cockpit by `docs/Agentic_O2C_Persona_Journey_v1_2.md` (§4-§8); do not treat SDD §11 as the authoritative cockpit UX spec.
 >
 > Stack: Next.js App Router + React + TypeScript + Tailwind mapped from `tokens.json` + Vercel AI SDK + Radix UI + TanStack Table + Recharts + @phosphor-icons/react.
 >

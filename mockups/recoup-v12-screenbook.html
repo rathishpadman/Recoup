@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recoup v1.2 Mockup Screenbook</title>
+    <link rel="stylesheet" href="./recoup-v12-screenbook.css" />
+  </head>
+  <body>
+    <main class="screenbook">
+      <section class="screen" id="m1-worklist">
+        <aside class="sidebar">
+          <div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div>
+          <div class="nav-group"><span>Operate</span><div class="nav-item active">Forensics</div><div class="nav-item">Run trace</div></div>
+          <div class="nav-group"><span>Govern</span><div class="nav-item">Tool sources</div><div class="nav-item">Audit chain</div></div>
+        </aside>
+        <section class="workspace">
+          <header class="topbar">
+            <div><p class="micro">Maya workspace</p><h1>M1 Settlement Worklist</h1><p class="copy">Twenty deduction lines collapsed into eight scenario cards, ranked by recovery probability and value.</p></div>
+            <span class="audit-chip"><span class="mono">run-2026-06-21</span><span>read logged</span></span>
+          </header>
+          <div class="tool-rail">
+            <span class="tool-pill live">SAP OData live</span><span class="tool-pill synthetic">TPM synthetic</span><span class="tool-pill live">3PL POD live</span><span class="tool-pill live">Bureau live</span><span class="tool-pill live">Remittance live</span><span class="tool-pill synthetic">Contract repo synthetic</span><span class="tool-pill live">MCP live</span>
+          </div>
+          <div class="grid two">
+            <section class="panel">
+              <h2>Scenario worklist</h2>
+              <div class="table">
+                <div class="row header"><span>Scenario</span><span>Reason</span><span>Amount</span><span>Band</span><span>Next</span></div>
+                <div class="row selected"><strong>S3-L1</strong><span>Shortage claim with signed POD</span><span class="amount">$5,300</span><span class="status-pill danger">Invalid</span><span>Review</span></div>
+                <div class="row"><strong>S6-L1</strong><span>Pricing chargeback below contract</span><span class="amount">$9,200</span><span class="status-pill danger">Invalid</span><span>Review</span></div>
+                <div class="row"><strong>S1-L1</strong><span>Damaged product evidence received</span><span class="amount">$2,700</span><span class="status-pill live">Valid</span><span>Route</span></div>
+                <div class="row"><strong>S7-L1</strong><span>Promo overclaim exceeds accrual</span><span class="amount">$7,950</span><span class="status-pill pending">Partial</span><span>Review</span></div>
+              </div>
+            </section>
+            <section class="panel accent">
+              <h2>Recommendation per record</h2>
+              <p class="copy">Next-best-action: stage recovery draft for human review. Basis cites POD-SIGNED-1 and INV-S3-1.</p>
+              <div class="grid three">
+                <div class="metric"><span class="label">Gross scope</span><span class="amount">$112,400</span></div>
+                <div class="metric"><span class="label">Recovery lines</span><span class="amount">13</span></div>
+                <div class="metric"><span class="label">Billing lines</span><span class="amount">7</span></div>
+              </div>
+              <span class="audit-chip"><span class="mono">sha256:run-read</span><span>tamper-evident</span></span>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="m2-m3-evidence-dock">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Operate</span><div class="nav-item active">Forensics</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">Maya workspace</p><h1>M2/M3 Evidence Dossier + Multimodal Dock</h1><p class="copy">Three-pane case file with citation chips and a subordinate dock that spawns named retrieval agents.</p></div><span class="status-pill pending">Classify locked until evidence opened</span></header>
+          <div class="tool-rail"><span class="tool-pill live">POD live</span><span class="tool-pill synthetic">TPM synthetic</span><span class="tool-pill live">Contract live</span><span class="tool-pill live">MCP live</span></div>
+          <div class="grid two">
+            <section class="panel">
+              <h2>S3 Crestline shortage</h2>
+              <p class="copy">Verdict: invalid. The signed POD confirms full delivery while the shortage claim omits the signed line.</p>
+              <div class="actions"><span class="chip live">POD-SIGNED-1 opened</span><span class="chip info">INV-S3-1</span><span class="chip synthetic">Contract repo synthetic</span></div>
+              <section class="panel accent"><h3>Artifact viewer</h3><p class="quote">Highlighted cited region: signed proof of delivery anchored to POD-SIGNED-1.</p></section>
+            </section>
+            <aside class="panel dock">
+              <div><h2>MultimodalDock</h2><p class="copy">Detected: Espanol. Voice disclosure visible. Text path mandatory.</p></div>
+              <div class="dock-step"><span>POD-Retriever</span><span class="status-pill live">returned POD-SIGNED-1</span></div>
+              <div class="dock-step"><span>Contract-Reader</span><span class="status-pill live">returned CONTRACT-S3</span></div>
+              <div class="dock-step"><span>TPM-Matcher</span><span class="status-pill synthetic">synthetic TPM proof</span></div>
+              <div class="transcript"><p class="quote">Por que es invalida esta deduccion?</p><p class="quote">The claim is invalid because the signed POD cites a full delivery. Record IDs match voice and text.</p></div>
+              <span class="audit-chip"><span class="mono">POD-SIGNED-1 INV-S3-1</span><span>I-29 parity</span></span>
+            </aside>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="m4-trace">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Operate</span><div class="nav-item active">Run trace</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">Maya workspace</p><h1>M4 Chain-of-Work Inspector</h1><p class="copy">Collapsible spans, tool calls, handoffs, guardrails, and decisions link back to evidence.</p></div><span class="audit-chip"><span class="mono">sha256:trace</span><span>verified</span></span></header>
+          <div class="grid two">
+            <section class="panel"><h2>Span tree</h2><div class="trace-tree"><div class="trace-node"><strong>Forensics Investigator</strong><span>LLM generation</span><span>812ms</span><span class="mono">deterministic_read_model</span></div><div class="trace-node"><strong>POD tool</strong><span>retrieved signed proof</span><span>184ms</span><span>POD-SIGNED-1</span></div><div class="trace-node"><strong>Guardrail</strong><span>evidence pack present</span><span>31ms</span><span>passed</span></div></div></section>
+            <section class="panel"><h2>Timeline replay</h2><div class="timeline"><div class="timeline-bar">retrieve POD</div><div class="timeline-bar">read invoice</div><div class="timeline-bar">write audit hash</div></div></section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="m5-decision-routing">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Operate</span><div class="nav-item active">Forensics</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">Maya workspace</p><h1>M5 Decision & Routing</h1><p class="copy">Every external action is staged for human approval. Valid routes draft to Billing; invalid routes pursue recovery.</p></div><span class="status-pill pending">pending human</span></header>
+          <div class="grid two">
+            <section class="panel accent"><h2>Recovery packet</h2><p class="copy">Draft recovery for S3-L1 with code-computed amount and cited basis. No dispatch until approval.</p><div class="actions"><button class="button">Approve draft</button><button class="button secondary">Modify</button><button class="button danger">Reject</button></div></section>
+            <section class="panel"><h2>Audit write preview</h2><span class="audit-chip"><span class="mono">sha256:pending</span><span>verify after commit</span></span><p class="copy">Proposer differs from approver; viewed evidence list is included in the append-only packet.</p></section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="m6-containment">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Operate</span><div class="nav-item active">Containment</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">Maya workspace</p><h1>M6 Containment Hand-off</h1><p class="copy">Repeat invalid shortage and pricing patterns surface as a cited behavior flag for Risk-Mesh review.</p></div><span class="status-pill pending">routed to David</span></header>
+          <div class="grid two">
+            <section class="panel danger-edge"><h2>Crestline pattern</h2><p class="copy">R-score components cite S3 shortage and S6 pricing behavior. Intent label remains evidence-bound.</p><div class="actions"><span class="chip danger">soft response</span><span class="chip pending">hard response staged</span><span class="chip info">Risk Mesh handoff</span></div></section>
+            <section class="panel"><h2>Negotiation feed</h2><div class="trace-tree"><div class="dock-step"><span>Collections</span><span>pursue recovery</span></div><div class="dock-step"><span>Credit</span><span>monitor terms</span></div><div class="dock-step"><span>Supervisor</span><span>requires approval</span></div></div></section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen" id="d1-sentinel">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Resolve</span><div class="nav-item active">Credit</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">David workspace</p><h1>D1 Sentinel Alert / Account-360</h1><p class="copy">Harbor rises to the top of the portfolio risk board with order breach, DSO drift, and bureau lien evidence.</p></div><span class="status-pill danger">bureau lien</span></header>
+          <div class="grid four"><div class="panel metric"><span class="label">Credit limit</span><span class="amount">$500,000</span></div><div class="panel metric"><span class="label">Order</span><span class="amount">$640,000</span></div><div class="panel metric"><span class="label">DSO drift</span><span class="amount">32 -> 51</span></div><div class="panel metric"><span class="label">Queue</span><span class="amount">1</span></div></div>
+          <section class="panel"><h2>Portfolio risk board</h2><div class="table"><div class="row header"><span>Account</span><span>Signal</span><span>Exposure</span><span>Band</span><span>Next</span></div><div class="row selected"><strong>Harbor</strong><span>Limit breach plus lien</span><span class="amount">$640K</span><span class="status-pill danger">High</span><span>Score</span></div></div></section>
+        </section>
+      </section>
+
+      <section class="screen" id="d2-scoring">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Resolve</span><div class="nav-item active">Credit</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">David workspace</p><h1>D2 Partial-Hold Scoring Visualizer</h1><p class="copy">Six locked criteria compute a deterministic composite and release ratio. No model math.</p></div><span class="audit-chip"><span class="mono">51.25</span><span>55 / 45 split</span></span></header>
+          <section class="panel"><h2>Weighted criteria</h2><div class="score-row"><span>Payment drift</span><span class="mono">0.20</span><div class="bar"><span style="width: 72%"></span></div><span class="mono">14.40</span></div><div class="score-row"><span>Bureau risk</span><span class="mono">0.25</span><div class="bar"><span style="width: 65%"></span></div><span class="mono">16.25</span></div><div class="score-row"><span>Margin value</span><span class="mono">0.15</span><div class="bar"><span style="width: 84%"></span></div><span class="mono">12.60</span></div><div class="score-row"><span>Relationship</span><span class="mono">0.15</span><div class="bar"><span style="width: 48%"></span></div><span class="mono">7.20</span></div></section>
+          <div class="grid two"><section class="panel accent"><h2>Recommendation</h2><span class="amount">55% release</span><p class="copy">Back-order 45% with deposit and 2/10 Net-30 terms.</p></section><section class="panel"><h2>Sensitivity</h2><p class="copy">Bureau-risk weight would need to fall before full release wins.</p></section></div>
+        </section>
+      </section>
+
+      <section class="screen" id="d3-negotiation">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Resolve</span><div class="nav-item active">Risk Mesh</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">David workspace</p><h1>D3 Risk-Mesh Arbitration</h1><p class="copy">Specialist agents expose positions, P&L weights, confidence bands, and a deterministic recompute path.</p></div><span class="status-pill pending">precomputed demo</span></header>
+          <div class="graph"><div class="node supervisor"><h2>Supervisor</h2><p class="copy">Converges on 55/45 split</p></div><div class="node"><h3>Credit</h3><p class="mono">weight .35</p><p>hold 45%</p></div><div class="node"><h3>Fulfilment</h3><p class="mono">weight .25</p><p>release high-margin goods</p></div><div class="node"><h3>Billing</h3><p class="mono">weight .15</p><p>deposit condition</p></div><div class="node"><h3>Collections</h3><p class="mono">weight .25</p><p>protect DSO</p></div></div>
+          <section class="panel"><h2>A2A message timeline</h2><div class="timeline"><div class="timeline-bar">Credit: lien increases risk</div><div class="timeline-bar">Fulfilment: holiday margin protected</div><div class="timeline-bar">Supervisor: deterministic split recomputed</div></div></section>
+        </section>
+      </section>
+
+      <section class="screen" id="d4-terms">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Resolve</span><div class="nav-item active">Terms</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">David workspace</p><h1>D4 Proactive Terms + Execute</h1><p class="copy">Draft-only action packet stages credit-master change request, release, back-order conditions, and Sales notification.</p></div><span class="status-pill pending">HITL required</span></header>
+          <div class="grid two"><section class="panel accent"><h2>Terms proposal</h2><p class="copy">Temporary limit, deposit on back-ordered balance, 2/10 Net-30. No production ERP write-back.</p><div class="actions"><button class="button">Approve packet</button><button class="button secondary">Modify</button><button class="button danger">Reject</button></div></section><section class="panel"><h2>Action staging</h2><div class="dock-step"><span>credit-master change request</span><span>draft</span></div><div class="dock-step"><span>55% release</span><span>pending</span></div><div class="dock-step"><span>Sales notice</span><span>pending</span></div></section></div>
+        </section>
+      </section>
+
+      <section class="screen dark" id="d5-command" data-theme="dark">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Monitor</span><div class="nav-item active">Command Centre</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">David workspace</p><h1>D5 Command Centre</h1><p class="copy">Only dark-mode surface: portfolio exposure, live bureau and behavioral signals, active arbitrations, and full ToolStatusRail.</p></div><span class="status-pill info">monitoring</span></header>
+          <div class="tool-rail"><span class="tool-pill live">SAP live</span><span class="tool-pill live">Bureau live</span><span class="tool-pill synthetic">TPM synthetic</span><span class="tool-pill live">MCP live</span></div>
+          <div class="grid two"><section class="panel"><h2>Active arbitrations</h2><div class="table"><div class="row selected"><strong>Harbor</strong><span>new terms monitoring</span><span class="amount">$640K</span><span class="status-pill pending">Watch</span><span>Re-open on breach</span></div></div></section><section class="panel accent"><h2>Signal rail</h2><div class="timeline"><div class="timeline-bar">Bureau lien unchanged</div><div class="timeline-bar">Payment promise due</div><div class="timeline-bar">Behavioral threshold armed</div></div></section></div>
+        </section>
+      </section>
+
+      <section class="screen" id="cfo-readout">
+        <aside class="sidebar"><div><div class="brand">Recoup</div><p>Deduction recovery mesh</p></div><div class="nav-group"><span>Resolve</span><div class="nav-item active">CFO</div></div><div class="nav-group"><span>Govern</span><div class="nav-item">Agents</div><div class="nav-item">Trace</div></div></aside>
+        <section class="workspace">
+          <header class="topbar"><div><p class="micro">Executive readout</p><h1>CFO Summary</h1><p class="copy">Read-only board view of recovery posture, governed readiness, open proof dependencies, and audit posture.</p></div><span class="audit-chip"><span class="mono">sha256:summary</span><span>verified</span></span></header>
+          <div class="grid four"><div class="panel metric"><span class="label">Gross-to-net</span><span class="amount">$112,400</span></div><div class="panel metric"><span class="label">Margin protected</span><span class="amount">$32,600</span></div><div class="panel metric"><span class="label">Leakage queue</span><span class="amount">$79,800</span></div><div class="panel metric"><span class="label">DSO / CEI</span><span>requires live ERP inputs</span></div></div>
+          <div class="grid two"><section class="panel"><h2>Audit posture</h2><div class="grid three"><div class="metric"><span class="label">External writes</span><strong>Blocked by HITL</strong></div><div class="metric"><span class="label">Evidence spine</span><strong>Hash-chained</strong></div><div class="metric"><span class="label">Runtime</span><strong>Ready with proof gaps</strong></div></div></section><section class="panel"><h2>Open dependencies</h2><div class="actions"><span class="chip pending">verify-prod-calibration</span><span class="chip pending">verify-runtime-config-loader</span><span class="chip pending">verify-sap-sandbox-instance</span></div></section></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

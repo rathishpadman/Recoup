@@ -1,7 +1,7 @@
 # Recoup v2 — Software Design Document (SDD)
 
-**Technical realization of BRD v3.1 and Persona Journey v1.1 · TypeScript-native · four capabilities (A/B/C/D).**
-Self-contained. Binds to `RECONCILIATION_LEDGER.md` (source of truth), `OPENAI_STACK_DOSSIER.md` (stack), and `INVARIANTS.md` (contract, I-1…I-28). Where this SDD and an input doc disagree, the Ledger governs.
+**Technical realization of BRD v3.1 and Persona Journey v1.2 (`docs/Agentic_O2C_Persona_Journey_v1_2.md`) · TypeScript-native · four capabilities (A/B/C/D).**
+Self-contained. Binds to `RECONCILIATION_LEDGER.md` (source of truth), `OPENAI_STACK_DOSSIER.md` (stack), Persona Journey v1.2 (`docs/Agentic_O2C_Persona_Journey_v1_2.md`) for cockpit UX, and `INVARIANTS.md` (contract, I-1…I-30). Where this SDD and an input doc disagree, the Ledger governs.
 
 | Field | Value |
 |---|---|
@@ -31,7 +31,7 @@ In scope per BRD §4; **out of scope:** billing-reconciliation breadth, clause e
 Build team (Codex sessions), O2C process owners, Finance sponsor, Internal Audit.
 
 ### 1.3 References
-BRD v3.1; Persona Journey v1.1; Reconciliation Ledger; OpenAI Stack Dossier; INVARIANTS.md; Architectural Blueprint; Best-Practice Patterns.
+BRD v3.1; Persona Journey v1.2 (`docs/Agentic_O2C_Persona_Journey_v1_2.md`); Reconciliation Ledger; OpenAI Stack Dossier; INVARIANTS.md; Architectural Blueprint; Best-Practice Patterns.
 
 ### 1.4 Load-bearing rule (non-negotiable)
 > **Code computes every dollar and every decision threshold. Models classify, retrieve, narrate, and draft — they never compute the number that drives an external action. A human approves every external action.** (Enforces I-1, I-7, I-17, I-20, I-24.)
@@ -186,7 +186,7 @@ band:   C < 40            → release 0%   (full hold)
 Worked example: C = 51.25 → `ceil(51.25/5)*5 = 55%` → $352K ship / $288K back-order. Weights, bands, and step are **Day-1 tunable** (Appendix G); any agent-proposed weight change is clamped to governance bands and routed to HITL — never self-applied (I-24).
 
 ### 5.7 Arbitration P&L score (`arbitration.ts`) — A
-Collects each function's position/option (credit, fulfilment, billing, collections), computes ranked resolution options with quantified P&L trade-offs = Σ(optionValue · **expertWeights**). **Arbitration weights are EXPERT-OWNED placeholders — Codex must never invent them** (Appendix G marks them `<TO BE SET BY EXPERT>`). The supervisory agent explains and recommends; code computes; human approves (I-7, I-21).
+Collects each function's position/option (credit, fulfilment, billing, collections), computes ranked resolution options with quantified P&L trade-offs = Σ(optionValue · **expertWeights**). **Arbitration weights are expert-owned constants**: Day-1 demo values are owner-ratified in config-as-code seed rows, Codex must never invent or change them, and production calibration remains VERIFY-PROD (Appendix G). The supervisory agent explains and recommends; code computes; human approves (I-7, I-21).
 
 ### 5.8 Idempotency, determinism, replay
 Pure core + fixed seed + hash-keyed events → a sweep replays byte-identical (I-4, I-13).
@@ -289,6 +289,8 @@ Agents SDK **tracing**; Winston JSON logs + correlation IDs across async hops (B
 
 ## 11. Cockpit / UI surfaces
 
+Cockpit UX is governed by Persona Journey v1.2 (`docs/Agentic_O2C_Persona_Journey_v1_2.md`), especially §§4-8; that document supersedes this SDD section for cockpit UX details.
+
 Three surfaces (Decision 2): **Forensics cockpit (Maya)** — pre-triaged 8-card queue, evidence dossier, verdict+confidence, action inbox, recovery tracker, retrieval status. **Credit/Arbitration cockpit (David)** — portfolio risk board, watchlist, arbitration view with ranked options, partial-hold scoring view, term proposals, approval inbox. **CFO summary (read-only)** — gross-to-net, margin protected, DSO/CEI, leakage position, what-changed, AI insight. All five common capabilities (BRD §11): what-changed, AI insight, conversational query (text+voice), trend/forecast, drill-down to records (NFR-5/10/4). Design system per `O2C_Collections_Design_System_v3.md`, `tokens.json`, and `tokens.css` (IBM Plex Sans; layered semantic tokens; exhaustive component states — Blueprint §UI).
 
 ---
@@ -320,11 +322,11 @@ Per BRD §4 and INVARIANTS I-10/I-11 (retired).
 | Partial-hold score→ratio fn | **deterministic** | `clamp(ceil(C/5)*5, 40, 70)` within band (§5.6) |
 | Term menu | **Day-1 tunable** | {Net-30, 2/10 Net-30, deposit %, temporary limit} |
 | Decision-eval bars | **release blockers** | validity ≥0.90, intent ≥0.90, arbitration ≥0.85 (I-28) |
-| **Arbitration P&L weights** | **EXPERT-OWNED** | `<TO BE SET BY EXPERT>` — Codex must not invent (§5.7) |
+| **Arbitration P&L weights** | **EXPERT-OWNED / Day-1 ratified** | Owner-ratified Day-1 values live in governed config-as-code seed rows for the demo; Codex must read, cite, and preserve them, never invent or change them (§5.7). Production calibration remains VERIFY-PROD. |
 | Run budgets / retry caps | **Day-1 tunable** | per-phase token/step caps; max retries (I-16) |
 
 ## Appendix C — `[VERIFY]` before lock
-V1(TS subagents) · V3(SAP sandbox) · V6(embeddings model id) · V7(Codex model id). Arbitration weights pending expert input.
+V1(TS subagents) · V3(SAP sandbox) · V6(embeddings model id) · V7(Codex model id). Arbitration weights have owner-ratified Day-1 demo values in governed config seed rows; production calibration remains VERIFY-PROD.
 
 ## Appendix D — Traceability (FR/NFR → capability → invariant → test)
 | BRD ref | Capability | Invariant(s) | Test |

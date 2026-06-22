@@ -70,6 +70,31 @@ Detection, ranking, and routing are **services, not agents**. One rule = one mod
 - New dependencies without approval; free-form (non-Zod) tool calls; interpolate user content into tool instructions.
 - Re-introduce descoped scope without an explicit brief; load the full SDD/BRD into a session.
 
+## 5.1 Cockpit UI anti-slop standard
+
+For `cockpit/` UI work, treat this as a standing review gate. Recoup must look like a premium B2B SaaS command surface, not a generic AI-generated dashboard. Subagents and reviewers must receive these constraints when working on Maya, David credit, David D5, or CFO views.
+
+Avoid these high-signal generated-UI tells:
+
+- Typography: all-caps tracked micro-labels, repeated eyebrow labels, gradient-clipped text, flat size hierarchy, crushed display tracking, single-font monotony, and oversized italic serif headlines.
+- Color: default Tailwind indigo/violet/purple, blue-to-purple gradients, dark navy plus cyan glow, warm cream as a reflex, gray text on colored panels, and raw ad-hoc component hex values.
+- Surface: card-everything layouts, nested cards, thick one-sided accent borders, hairline border plus wide diffuse shadow on the same surface, glassmorphism as decoration, over-rounded blob cards, and amateur hand-coded SVG illustration.
+- Layout: centered generic max-width dashboards, identical three-up card grids, hero-metric blocks, numbered section markers, monotonous `gap-4` / `gap-6` rhythm, huge whitespace, and symmetric filler composition.
+- Iconography: emoji icons, icon tiles stacked above headings, oversized rounded icon containers, mixed stroke/fill styles, and generated decorative icons where a proven vector icon system is available.
+- Motion: `transition-all` everywhere, hover scale/rotate as default polish, bounce/elastic overshoot, floating blobs, and decorative animation that does not explain state.
+- Copy: em-dash-heavy prose, manufactured contrast aphorisms, buzzword stacks, fake stats, "AI/powered by" badges without product value, and redundant label + sublabel + helper text.
+- Data presentation: raw backend enum names as primary UI copy, unformatted action IDs, proof keys such as `verify-*` shown as business language, or placeholder values not backed by read models.
+
+Do this instead:
+
+- Use ImageGen mockups in `mockups/imagegen/` as visual north stars, then implement with real React components, backend/read-model data, tokenized CSS, and one consistent vector icon family.
+- Build desktop-first, dense operational screens: persistent sidebar navigation, compact source health, table-led work areas, evidence/provenance panes, and persona-specific command surfaces.
+- Keep every cockpit view wired to backend/API/read-model data. Static React-only persona UI is not acceptable; UI may format labels and statuses for humans, but it must not invent dollars, thresholds, scores, claims, or decision outcomes.
+- Prefer hierarchy through alignment, density, typography, dividers, and state chips over decorative gradients, large cards, or explanatory filler.
+- Before declaring a cockpit UI pass done, compare the runtime screenshot against the matching ImageGen cue for Maya, David credit, David D5, and CFO, and explicitly call out remaining visual deltas.
+- Visual audit scores below `4/5` are not passable: `1/5`, `2/5`, and `3/5` remain failed/pending and cannot be marked complete.
+- Persona work uses implementer subagent -> reviewer gate(s) -> verification -> handoff update. Stale or slow subagents must be terminated or replaced rather than waited on indefinitely.
+
 ## 6. Definition of done (per session)
 
 Stated success check passes · `npm run verify` green · no unrelated lines in the diff · spec-validation produced no unresolved inconsistencies · `tests/invariants/` and the release-blocking eval gates (I-5, I-22, I-27, I-28) still green · senior-critique pass done.
