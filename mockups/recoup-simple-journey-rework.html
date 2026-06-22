@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recoup Simple Journey Rework</title>
+    <link rel="stylesheet" href="./recoup-simple-journey-rework.css" />
+  </head>
+  <body>
+    <main class="screenbook">
+      <section class="screen login-screen" id="login">
+        <div class="login-copy">
+          <div class="brand-lockup">
+            <span class="brand-mark">R</span>
+            <div>
+              <p class="eyebrow">Recoup Cockpit</p>
+              <h1>Sign in to the recovery workspace</h1>
+            </div>
+          </div>
+          <p class="lead">
+            One entry point for deduction recovery, credit risk arbitration, and executive proof review.
+          </p>
+          <p class="login-note">Secure demo access for assigned hackathon personas.</p>
+        </div>
+        <form class="login-panel" aria-label="Sign in mockup">
+          <label>
+            <span>User ID</span>
+            <input value="maya.analyst" aria-label="User ID" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input value="********" aria-label="Password" />
+          </label>
+          <button type="button" class="primary-button">Sign in</button>
+          <div class="persona-row" aria-label="Persona shortcuts">
+            <button type="button" class="persona selected">Maya</button>
+            <button type="button" class="persona">David</button>
+            <button type="button" class="persona">CFO</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="screen app-screen" id="maya">
+        <aside class="sidebar">
+          <div class="brand">Recoup</div>
+          <nav>
+            <span>Operate</span>
+            <button class="nav-item active">Worklist</button>
+            <button class="nav-item">Run trace</button>
+            <button class="nav-item">Evidence</button>
+          </nav>
+          <nav>
+            <span>Govern</span>
+            <button class="nav-item">Sources</button>
+            <button class="nav-item">Audit</button>
+          </nav>
+        </aside>
+        <section class="workspace">
+          <header class="workspace-head">
+            <div>
+              <p class="eyebrow">Maya deduction analyst</p>
+              <h1>Welcome back, Maya</h1>
+              <p class="caption">Select a work item to open supporting documents and deterministic basis.</p>
+            </div>
+            <div class="source-strip">
+              <span class="source-chip ready">SAP OData accessible</span>
+              <span class="source-chip ready">Supabase tools data available</span>
+              <span class="source-chip locked">HITL required</span>
+            </div>
+          </header>
+          <section class="analytics-band" aria-label="Maya worklist analytics">
+            <div class="analytics-card"><span>Work items</span><strong>8</strong><small>Scenario queue</small></div>
+            <div class="analytics-card"><span>Evidence ready</span><strong>3</strong><small>Docs opened from source</small></div>
+            <div class="analytics-card"><span>Draft recovery</span><strong>HITL gated</strong><small>No dispatch from UI</small></div>
+          </section>
+          <div class="maya-layout">
+            <section class="worklist full-list">
+              <div class="panel-head">
+                <h2>Deduction worklist</h2>
+                <button type="button" class="ghost-button">Filters</button>
+              </div>
+              <div class="data-table">
+                <button class="table-row" type="button"><strong>S1</strong><span>Damage claim</span><span>Needs evidence check</span><span>Open</span></button>
+                <button class="table-row selected" type="button"><strong>S3</strong><span>Shortage claim</span><span>Signed POD available</span><span>Selected</span></button>
+                <button class="table-row" type="button"><strong>S6</strong><span>Pricing chargeback</span><span>Contract basis required</span><span>Open</span></button>
+                <button class="table-row" type="button"><strong>S8</strong><span>Duplicate deduction</span><span>Invoice match required</span><span>Open</span></button>
+              </div>
+            </section>
+            <section class="worklist collapsed-list">
+              <h2>Worklist</h2>
+              <button class="rail-item">S1</button>
+              <button class="rail-item active">S3</button>
+              <button class="rail-item">S6</button>
+              <button class="rail-item">S8</button>
+            </section>
+            <section class="evidence-pane">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Selected item</p>
+                  <h2>S3 shortage claim</h2>
+                </div>
+                <span class="status-chip warning">Decision locked until evidence viewed</span>
+              </div>
+              <div class="split-detail">
+                <article>
+                  <h3>Supporting docs</h3>
+                  <button class="doc-row">POD-SIGNED-1 <span>Opened</span></button>
+                  <button class="doc-row">INV-S3-1 <span>Matched</span></button>
+                  <button class="doc-row">Contract basis <span>Available</span></button>
+                </article>
+                <article>
+                  <h3>Deterministic basis</h3>
+                  <p class="caption">Verdict and amounts remain read-model driven. UI only selects records and displays cited evidence.</p>
+                  <div class="approval-bar">
+                    <button class="secondary-button">Modify</button>
+                    <button class="primary-button disabled">Approve draft</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen app-screen" id="david">
+        <aside class="sidebar">
+          <div class="brand">Recoup</div>
+          <nav>
+            <span>Resolve</span>
+            <button class="nav-item active">Exceptions</button>
+            <button class="nav-item">Accounts</button>
+            <button class="nav-item">Risk-Mesh</button>
+          </nav>
+          <nav>
+            <span>Govern</span>
+            <button class="nav-item">Sources</button>
+            <button class="nav-item">Audit</button>
+          </nav>
+        </aside>
+        <section class="workspace">
+          <header class="workspace-head">
+            <div>
+              <p class="eyebrow">David credit manager</p>
+              <h1>Credit exceptions with evidence first</h1>
+              <p class="caption">Every recommendation stays staged until a human approves the action packet.</p>
+            </div>
+            <div class="source-strip">
+              <span class="source-chip ready">SAP OData accessible</span>
+              <span class="source-chip ready">Supabase tools data available</span>
+              <span class="source-chip deferred">Bureau data via Supabase</span>
+            </div>
+          </header>
+          <section class="analytics-band" aria-label="David credit analytics">
+            <div class="analytics-card"><span>Exceptions</span><strong>3</strong><small>Selectable queue</small></div>
+            <div class="analytics-card"><span>Basis checks</span><strong>2</strong><small>Read-only actions</small></div>
+            <div class="analytics-card"><span>Action packet</span><strong>Pending human</strong><small>Approval required</small></div>
+          </section>
+          <div class="three-pane">
+            <section class="list-pane">
+              <div class="panel-head">
+                <h2>Exception list</h2>
+                <button class="ghost-button">View</button>
+              </div>
+              <button class="exception selected"><strong>Harbor</strong><span>Limit breach plus lien signal</span></button>
+              <button class="exception"><strong>Crestline</strong><span>Repeat deduction behavior</span></button>
+              <button class="exception"><strong>NorthBay</strong><span>Payment drift review</span></button>
+            </section>
+            <section class="basis-pane">
+              <h2>Account evidence</h2>
+              <div class="basis-grid">
+                <div><span>Signal</span><strong>Bureau lien evidence</strong></div>
+                <div><span>Basis</span><strong>Deterministic score model</strong></div>
+                <div><span>Action</span><strong>Draft-only packet</strong></div>
+              </div>
+              <button class="doc-row">Inspect basis <span>Read-only</span></button>
+              <button class="doc-row">Simulate alternatives <span>No dispatch</span></button>
+            </section>
+            <section class="action-pane">
+              <h2>Human approval footer</h2>
+              <p class="caption">Send action packet remains guarded. Approval requires evidence review and approver identity.</p>
+              <div class="approval-card">
+                <span class="status-chip warning">Pending human</span>
+                <button class="primary-button disabled">Send action packet</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section class="screen app-screen" id="cfo">
+        <aside class="sidebar">
+          <div class="brand">Recoup</div>
+          <nav>
+            <span>Executive</span>
+            <button class="nav-item active">Proof board</button>
+            <button class="nav-item">Recoveries</button>
+            <button class="nav-item">Dependencies</button>
+          </nav>
+          <nav>
+            <span>Governance</span>
+            <button class="nav-item">Connectors</button>
+            <button class="nav-item">Trace</button>
+          </nav>
+        </aside>
+        <section class="workspace">
+          <header class="workspace-head">
+            <div>
+              <p class="eyebrow">CFO read-only view</p>
+              <h1>Executive proof board</h1>
+              <p class="caption">Business metrics stay separate from technical source readiness and audit proof.</p>
+            </div>
+            <button type="button" class="source-toggle">Source health</button>
+          </header>
+          <section class="analytics-band" aria-label="CFO proof analytics">
+            <div class="analytics-card"><span>Proof rows</span><strong>4</strong><small>Dependencies visible</small></div>
+            <div class="analytics-card"><span>Available sources</span><strong>2</strong><small>Credential/schema basis</small></div>
+            <div class="analytics-card"><span>ERP writes</span><strong>0</strong><small>Blocked by design</small></div>
+          </section>
+          <div class="cfo-layout">
+            <section class="proof-table">
+              <div class="panel-head">
+                <h2>Dependencies and proof</h2>
+                <span class="status-chip info">Read-only</span>
+              </div>
+              <button class="proof-row selected"><strong>SAP OData</strong><span>Accessible read path</span><span>ERP writes blocked</span></button>
+              <button class="proof-row"><strong>Supabase</strong><span>Tools data available</span><span>Schema probe basis</span></button>
+              <button class="proof-row"><strong>Audit chain</strong><span>Hash-linked evidence</span><span>Reviewer visible</span></button>
+              <button class="proof-row"><strong>Open gaps</strong><span>Calibration and live contracts</span><span>Explicitly deferred</span></button>
+            </section>
+            <aside class="readout-pane">
+              <h2>Connector detail</h2>
+              <div class="detail-card">
+                <span class="source-chip ready">SAP OData accessible</span>
+                <p>Basis: read-only OData credentials configured. No ERP write-back surface is exposed.</p>
+              </div>
+              <div class="detail-card">
+                <span class="source-chip ready">Supabase tools data available</span>
+                <p>Basis: schema probe for demo source tables. Live non-SAP contracts remain clearly labeled.</p>
+              </div>
+              <div class="detail-card">
+                <span class="source-chip locked">External actions blocked</span>
+                <p>HITL approval is required before any packet leaves the cockpit.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
