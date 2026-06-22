@@ -3,23 +3,29 @@ import { pathToFileURL } from "node:url";
 import express, { type Express } from "express";
 import { z } from "zod";
 import { runForensicsInvestigation } from "../agents/forensics.js";
-import { createAuditTrail } from "../audit/trail.js";
 import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/env.js";
+import {
+  cockpitHumanProxyBodyHashHeader,
+  cockpitHumanProxyIssuedAtHeader,
+  cockpitHumanProxyNonceHeader,
+  cockpitHumanProxyProofHeader,
+  cockpitHumanProxyRoleHeader,
+  defaultCockpitHumanPrincipal,
+  verifyCockpitHumanProxyPrincipal,
+  type CockpitHumanProxyPurpose
+} from "../../config/cockpitHumanPrincipals.js";
 import { ALL_TOOLS_DATA_TABLE_NAMES } from "../adapters/connectorRegistry.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
+import type { MemoryRecord } from "../memory/schema.js";
 import {
   createSupabaseMemoryRepositoryFromEnv,
   createSupabaseTableReadinessProbeFromEnv,
   type SupabaseMemoryFetch
 } from "../memory/supabaseStore.js";
-import {
-  assertApprovalActionOpen,
-  assertApprovalReasonSafe,
-  decideApproval,
-  recordApprovalActionDecision
-} from "./approvals.js";
+import { assertApprovalReasonSafe } from "./approvals.js";
 import { handleRealtimeToolCall, requestRealtimeClientSecret } from "./realtimeSession.js";
+import { invokeServiceTool, prepareApprovalDecision } from "./serviceLayer.js";
 import {
   buildAgentGraphModel,
   buildCfoSummaryCockpitModel,
@@ -27,6 +33,7 @@ import {
   buildCreditCockpitModel,
   buildForensicsCockpitModel,
   buildMemorySummaryModel,
+  buildLoginModel,
   buildTraceModel,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
@@ -68,11 +75,30 @@ const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
 });
-const approvalAuditTrail = createAuditTrail();
-const cockpitApproverId = "human:maya-lead";
 const defaultAllowedCockpitOrigins = ["http://127.0.0.1:3000", "http://localhost:3000"];
 const humanPrincipalHeader = "x-recoup-human-principal";
 const humanTokenHeader = "x-recoup-human-token";
+const cockpitApiDefaultPort = 4317;
+const cockpitApiVersion = "0.1.0";
+const approvalAlreadyDecidedMessage = "Action already has a human decision.";
+const durableApprovalUnavailableMessage = "Durable approval finality is unavailable.";
+const consumedHumanProxyNonces = new Set<string>();
+const cockpitApiRoutes = [
+  "GET /",
+  "GET /healthz",
+  "GET /forensics",
+  "GET /login",
+  "GET /credit",
+  "GET /cfo",
+  "GET /trace",
+  "GET /memory",
+  "GET /agents",
+  "GET /connectors",
+  "GET /run",
+  "POST /approval",
+  "POST /query/realtime-client-secret",
+  "POST /query/realtime-tool"
+] as const;
 
 export interface CockpitApiOptions {
   env?: RuntimeEnv;
@@ -107,10 +133,39 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
 
     next();
   });
-  app.use(express.json());
+  app.use(
+    express.json({
+      verify(request, _response, body) {
+        (request as express.Request & { rawBody?: string }).rawBody = body.toString("utf8");
+      }
+    })
+  );
+
+  app.get("/", (_request, response) => {
+    response.json({
+      cockpitHint: "Run npm run dev:cockpit and open the Next.js URL.",
+      defaultPort: cockpitApiDefaultPort,
+      routes: cockpitApiRoutes,
+      service: "recoup-cockpit-api",
+      surface: "api",
+      version: cockpitApiVersion
+    });
+  });
+
+  app.get("/healthz", (_request, response) => {
+    response.json({
+      ok: true,
+      surface: "cockpit-api",
+      version: cockpitApiVersion
+    });
+  });
 
   app.get("/forensics", (_request, response) => {
     response.json(buildForensicsCockpitModel());
+  });
+
+  app.get("/login", (_request, response) => {
+    response.json(buildLoginModel());
   });
 
   app.get("/credit", (_request, response) => {
@@ -128,13 +183,17 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   app.get("/memory", async (_request, response) => {
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
     if (supabaseMemory !== undefined) {
-      response.json(buildMemorySummaryModel(await supabaseMemory.listAll()));
+      response.json(buildMemorySummaryModel(await supabaseMemory.listAll(), { backend: "supabase" }));
       return;
     }
 
     const memoryStore = createRuntimeMemoryStore(runtimeEnv);
     try {
-      response.json(memoryStore.mode === "sqlite" ? buildMemorySummaryModel(memoryStore.listAll()) : buildMemorySummaryModel());
+      response.json(
+        memoryStore.mode === "sqlite"
+          ? buildMemorySummaryModel(memoryStore.listAll(), { backend: "sqlite" })
+          : buildMemorySummaryModel()
+      );
     } finally {
       memoryStore.close();
     }
@@ -193,8 +252,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     });
   });
 
-  app.post("/approval", (request, response) => {
-    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+  app.post("/approval", async (request, response) => {
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["maya", "david"],
+      proxyPurpose: "approval"
+    });
     if (!human.success) {
       response.status(401).json({ error: human.error });
       return;
@@ -206,48 +268,47 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const action = runForensicsInvestigation().actions.find((candidate) => candidate.actionId === parsed.data.actionId);
-    if (action === undefined) {
-      response.status(404).json({ error: "Action not found." });
-      return;
-    }
-
     try {
-      assertApprovalActionOpen(action.actionId);
-      const approval = decideApproval(action, {
-        approverId: human.principal,
+      const approvalInput = {
+        actionId: parsed.data.actionId,
         decision: parsed.data.decision,
+        ...(parsed.data.approverId === undefined ? {} : { approverId: parsed.data.approverId }),
         ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason })
+      };
+      const prepared = prepareApprovalDecision(approvalInput, { verifiedHumanPrincipal: human.principal });
+      const durableClaim = await claimDurableApprovalDecision(runtimeEnv, options.memoryFetcher, prepared.approval);
+      if (durableClaim === "duplicate") {
+        response.status(409).json({ error: approvalAlreadyDecidedMessage });
+        return;
+      }
+
+      const approval = invokeServiceTool("approvals.decide", approvalInput, {
+        verifiedHumanPrincipal: human.principal
       });
-      const auditEntry = approvalAuditTrail.append({
-        entryType: "approval.decision",
-        payload: {
-          actionId: approval.actionId,
-          approverId: approval.approverId,
-          decision: approval.decision,
-          ...(approval.reason === undefined ? {} : { reason: approval.reason }),
-          status: approval.status
-        },
-        recordIds: [approval.actionId, action.lineId, ...action.recordIds]
-      });
-      recordApprovalActionDecision(action.actionId);
-      response.json({
-        actionId: approval.actionId,
-        auditEntryHash: auditEntry.entryHash,
-        approverId: approval.approverId,
-        decision: approval.decision,
-        ...(approval.reason === undefined ? {} : { reason: approval.reason }),
-        status: approval.status
-      });
+      await persistDurableApprovalDecision(runtimeEnv, options.memoryFetcher, approval as ApprovalDecisionResponse);
+      response.json(approval);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Approval rejected.";
-      response.status(message === "Action already has a human decision." ? 409 : 400).json({ error: message });
+      response
+        .status(
+          message === approvalAlreadyDecidedMessage
+            ? 409
+            : message === "Action not found."
+              ? 404
+              : message === durableApprovalUnavailableMessage
+                ? 503
+                : 400
+        )
+        .json({ error: message });
     }
   });
 
   app.post("/query/realtime-client-secret", async (request, response) => {
     response.setHeader("cache-control", "no-store");
-    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["maya"],
+      proxyPurpose: "realtime"
+    });
     if (!human.success) {
       response.status(401).json({ error: human.error });
       return;
@@ -276,7 +337,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
 
   app.post("/query/realtime-tool", (request, response) => {
     response.setHeader("cache-control", "no-store");
-    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["maya"],
+      proxyPurpose: "realtime"
+    });
     if (!human.success) {
       response.status(401).json({ error: human.error });
       return;
@@ -316,12 +380,18 @@ function isUnsafeMethod(method: string): boolean {
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
+interface CockpitHumanAuthOptions {
+  allowProxyDemoRoles?: readonly string[];
+  proxyPurpose?: CockpitHumanProxyPurpose;
+}
+
 function verifyHumanCockpitAuth(
   request: express.Request,
-  env: RuntimeEnv
+  env: RuntimeEnv,
+  options: CockpitHumanAuthOptions = {}
 ): { principal: string; success: true } | { error: string; success: false } {
   const expectedToken = env.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
-  const expectedPrincipal = env.RECOUP_COCKPIT_HUMAN_PRINCIPAL?.trim() ?? cockpitApproverId;
+  const expectedPrincipal = env.RECOUP_COCKPIT_HUMAN_PRINCIPAL?.trim() ?? defaultCockpitHumanPrincipal;
   const requestPrincipal = request.header(humanPrincipalHeader)?.trim();
   const requestToken = request.header(humanTokenHeader)?.trim();
 
@@ -330,16 +400,213 @@ function verifyHumanCockpitAuth(
   }
 
   if (
-    requestPrincipal === undefined ||
-    !requestPrincipal.startsWith("human:") ||
-    requestPrincipal !== expectedPrincipal ||
-    requestToken === undefined ||
-    !constantTimeEqual(requestToken, expectedToken)
+    requestPrincipal !== undefined &&
+    requestPrincipal.startsWith("human:") &&
+    requestPrincipal === expectedPrincipal &&
+    requestToken !== undefined &&
+    constantTimeEqual(requestToken, expectedToken)
   ) {
-    return { error: "Verified human cockpit auth required.", success: false };
+    return { principal: requestPrincipal, success: true };
   }
 
-  return { principal: requestPrincipal, success: true };
+  const proxyPrincipal = verifyHumanProxyAuth(request, env, expectedToken, options);
+  if (proxyPrincipal !== undefined) {
+    return { principal: proxyPrincipal, success: true };
+  }
+
+  return { error: "Verified human cockpit auth required.", success: false };
+}
+
+function verifyHumanProxyAuth(
+  request: express.Request,
+  env: RuntimeEnv,
+  expectedToken: string,
+  options: CockpitHumanAuthOptions
+): string | undefined {
+  if (options.proxyPurpose === undefined || options.allowProxyDemoRoles === undefined || options.allowProxyDemoRoles.length === 0) {
+    return undefined;
+  }
+
+  const requestPrincipal = request.header(humanPrincipalHeader)?.trim();
+  const requestToken = request.header(humanTokenHeader)?.trim();
+  const role = request.header(cockpitHumanProxyRoleHeader)?.trim();
+  const proof = request.header(cockpitHumanProxyProofHeader)?.trim();
+  const bodySha256 = request.header(cockpitHumanProxyBodyHashHeader)?.trim();
+  const issuedAt = request.header(cockpitHumanProxyIssuedAtHeader)?.trim();
+  const nonce = request.header(cockpitHumanProxyNonceHeader)?.trim();
+  const secret = resolveDemoProxySecret(env);
+  if (
+    requestPrincipal === undefined ||
+    !requestPrincipal.startsWith("human:") ||
+    requestToken === undefined ||
+    !constantTimeEqual(requestToken, expectedToken) ||
+    role === undefined ||
+    !options.allowProxyDemoRoles.includes(role) ||
+    secret === undefined ||
+    nonce === undefined ||
+    isHumanProxyNonceConsumed(options.proxyPurpose, role, nonce) ||
+    !verifyCockpitHumanProxyPrincipal({
+      bodySha256,
+      issuedAt,
+      nonce,
+      principal: requestPrincipal,
+      proof,
+      purpose: options.proxyPurpose,
+      request: {
+        body: readRawRequestBody(request),
+        method: request.method,
+        path: request.path
+      },
+      role,
+      secret
+    })
+  ) {
+    return undefined;
+  }
+
+  consumeHumanProxyNonce(options.proxyPurpose, role, nonce);
+  return requestPrincipal;
+}
+
+function resolveDemoProxySecret(env: RuntimeEnv): string | undefined {
+  const configured = env.RECOUP_DEMO_SESSION_SECRET?.trim();
+  if (configured !== undefined && configured.length > 0) {
+    return configured;
+  }
+
+  return undefined;
+}
+
+function readRawRequestBody(request: express.Request): string {
+  const rawBody = (request as express.Request & { rawBody?: unknown }).rawBody;
+  return typeof rawBody === "string" ? rawBody : "";
+}
+
+function isHumanProxyNonceConsumed(purpose: CockpitHumanProxyPurpose, role: string, nonce: string): boolean {
+  return consumedHumanProxyNonces.has(humanProxyNonceKey(purpose, role, nonce));
+}
+
+function consumeHumanProxyNonce(purpose: CockpitHumanProxyPurpose, role: string, nonce: string): void {
+  consumedHumanProxyNonces.add(humanProxyNonceKey(purpose, role, nonce));
+}
+
+function humanProxyNonceKey(purpose: CockpitHumanProxyPurpose, role: string, nonce: string): string {
+  return `${purpose}:${role}:${nonce}`;
+}
+
+interface ApprovalDecisionResponse {
+  actionId: string;
+  approverId: string;
+  auditEntryHash: string;
+  decision: "approve" | "modify" | "reject";
+  reason?: string;
+  status: "human_decided";
+}
+
+type DurableApprovalClaimResult = "claimed" | "duplicate" | "unconfigured";
+
+function approvalMemoryScope(actionId: string): string {
+  return `approval:${actionId}`;
+}
+
+async function claimDurableApprovalDecision(
+  env: RuntimeEnv,
+  memoryFetcher: SupabaseMemoryFetch | undefined,
+  approval: Omit<ApprovalDecisionResponse, "auditEntryHash">
+): Promise<DurableApprovalClaimResult> {
+  const record = buildApprovalMemoryClaim(approval);
+  const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(env, memoryFetcher);
+  if (supabaseMemory !== undefined) {
+    try {
+      return (await supabaseMemory.appendIfAbsent(record)) === undefined ? "duplicate" : "claimed";
+    } catch {
+      throw new Error(durableApprovalUnavailableMessage);
+    }
+  }
+
+  const dbPath = env.RECOUP_MEMORY_DB_PATH?.trim();
+  if (dbPath === undefined || dbPath.length === 0) {
+    return "unconfigured";
+  }
+
+  let memoryStore: ReturnType<typeof createRuntimeMemoryStore> | undefined;
+  try {
+    memoryStore = createRuntimeMemoryStore(env);
+    return memoryStore.appendIfAbsent(record) === undefined ? "duplicate" : "claimed";
+  } catch {
+    throw new Error(durableApprovalUnavailableMessage);
+  } finally {
+    memoryStore?.close();
+  }
+}
+
+async function persistDurableApprovalDecision(
+  env: RuntimeEnv,
+  memoryFetcher: SupabaseMemoryFetch | undefined,
+  approval: ApprovalDecisionResponse
+): Promise<void> {
+  const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(env, memoryFetcher);
+  const record = buildApprovalMemoryRecord(approval);
+  if (supabaseMemory !== undefined) {
+    try {
+      await supabaseMemory.append(record);
+    } catch {
+      throw new Error(durableApprovalUnavailableMessage);
+    }
+    return;
+  }
+
+  const dbPath = env.RECOUP_MEMORY_DB_PATH?.trim();
+  if (dbPath === undefined || dbPath.length === 0) {
+    return;
+  }
+
+  let memoryStore: ReturnType<typeof createRuntimeMemoryStore> | undefined;
+  try {
+    memoryStore = createRuntimeMemoryStore(env);
+    memoryStore.append(record);
+  } catch {
+    throw new Error(durableApprovalUnavailableMessage);
+  } finally {
+    memoryStore?.close();
+  }
+}
+
+function buildApprovalMemoryClaim(approval: Omit<ApprovalDecisionResponse, "auditEntryHash">): MemoryRecord {
+  return {
+    category: "approval_records",
+    createdAt: new Date(0).toISOString(),
+    id: `approval:${approval.actionId}`,
+    payload: {
+      actionId: approval.actionId,
+      approverId: approval.approverId,
+      decision: approval.decision,
+      ...(approval.reason === undefined ? {} : { reason: approval.reason }),
+      status: approval.status
+    },
+    recordIds: [approval.actionId],
+    scope: approvalMemoryScope(approval.actionId),
+    trustLevel: "trusted"
+  };
+}
+
+function buildApprovalMemoryRecord(approval: ApprovalDecisionResponse): MemoryRecord {
+  return {
+    category: "approval_records",
+    createdAt: new Date(0).toISOString(),
+    id: `approval:${approval.actionId}`,
+    payload: {
+      actionId: approval.actionId,
+      approverId: approval.approverId,
+      auditEntryHash: approval.auditEntryHash,
+      decision: approval.decision,
+      ...(approval.reason === undefined ? {} : { reason: approval.reason }),
+      status: approval.status
+    },
+    recordIds: [approval.actionId],
+    scope: approvalMemoryScope(approval.actionId),
+    trustLevel: "trusted"
+  };
 }
 
 function isClosableMemoryStore(memoryStore: unknown): memoryStore is { close: () => void } {
@@ -359,7 +626,7 @@ function constantTimeEqual(left: string, right: string): boolean {
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
-  const port = Number(runtimeEnv.PORT ?? 4317);
+  const port = Number(runtimeEnv.PORT ?? cockpitApiDefaultPort);
   const server = createCockpitApi({ env: runtimeEnv }).listen(port, () => {
     console.log(`Recoup cockpit API listening on http://127.0.0.1:${String(port)}`);
   });

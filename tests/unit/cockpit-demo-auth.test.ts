@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createSignedDemoSessionValue,
+  demoProfiles,
   isDemoRouteAllowed,
   roleAllowedRoutes,
   roleHomeRoute,
@@ -8,6 +9,12 @@ import {
 } from "../../cockpit/app/demo-auth.ts";
 
 describe("cockpit demo auth helpers", () => {
+  it("exports the canonical demo profiles used by login and session validation", () => {
+    expect(demoProfiles.map((profile) => profile.loginId)).toEqual(["Maya", "david", "CFO"]);
+    expect(demoProfiles.map((profile) => profile.defaultRoute)).toEqual(["/forensics", "/credit", "/cfo"]);
+    expect(demoProfiles.map((profile) => profile.displayName)).toEqual(["Maya Patel", "David Kim", "CFO"]);
+  });
+
   it("maps each demo role to the expected default route and route allowlist", () => {
     expect(roleHomeRoute("maya")).toBe("/forensics");
     expect(roleHomeRoute("david")).toBe("/credit");

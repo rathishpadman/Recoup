@@ -121,6 +121,11 @@ describe("Realtime browser session helper", () => {
     fakes.lastDataChannel.dispatchMessage(
       JSON.stringify({
         deterministicBasis: "query.answer + cited records",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
         recordIds: ["CUST-HARBOR"],
         text:
           "Harbor's cited answer must disclose governed config/runtime injection and VERIFY-PROD calibration remain pending.",
@@ -137,12 +142,82 @@ describe("Realtime browser session helper", () => {
     });
   });
 
+  it("blocks cited Realtime answer events that do not carry matching voice/text citation parity", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "Why is Harbor blocked?"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["CUST-HARBOR"],
+        text: "Harbor should not display without parity.",
+        type: "recoup.cited_answer"
+      })
+    );
+
+    expect(result.getSnapshot().answer).toBeUndefined();
+    expect(result.getSnapshot()).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_uncited_output"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        deterministicBasis: "query.answer + cited records",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["ORDER-HARBOR-640K"],
+          parity: "same_record_ids"
+        },
+        recordIds: ["CUST-HARBOR"],
+        text: "Harbor should not display with mismatched parity.",
+        type: "recoup.cited_answer"
+      })
+    );
+
+    expect(result.getSnapshot().answer).toBeUndefined();
+    expect(result.getSnapshot()).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_uncited_output"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        deterministicBasis: "query.answer + cited records",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR", 7],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
+        recordIds: ["CUST-HARBOR"],
+        text: "Harbor should not display with malformed parity.",
+        type: "recoup.cited_answer"
+      })
+    );
+
+    expect(result.getSnapshot().answer).toBeUndefined();
+    expect(result.getSnapshot()).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_uncited_output"
+    });
+  });
+
   it("bridges Realtime function calls through the guarded local tool route and surfaces cited output", async () => {
     const fakes = createConnectedRealtimeFakes();
     fakes.enqueueJsonResponse({
       deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
       output: {
         answer: "Harbor is blocked from cited deterministic state.",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
         deterministicBasis: "query.answer + cited records",
         recordIds: ["CUST-HARBOR"]
       },
@@ -186,12 +261,59 @@ describe("Realtime browser session helper", () => {
     });
   });
 
+  it("blocks Realtime tool output without matching citation parity before display", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "Harbor should not display without parity.",
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["CUST-HARBOR"]
+      },
+      recordIds: ["CUST-HARBOR"],
+      status: "ok",
+      toolName: "query.answer"
+    });
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "Why is Harbor blocked?"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        item: {
+          arguments: JSON.stringify({ question: "Why is Harbor blocked?" }),
+          call_id: "call-query-answer",
+          name: "query.answer",
+          type: "function_call"
+        },
+        type: "response.output_item.done"
+      })
+    );
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot().answer).toBeUndefined();
+    expect(result.getSnapshot()).toMatchObject({
+      recordIds: ["CUST-HARBOR"],
+      status: "blocked_uncited_output"
+    });
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("function_call_output"))).toBe(false);
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("response.create"))).toBe(false);
+  });
+
   it("bridges Realtime function-call argument completion events through the guarded tool route", async () => {
     const fakes = createConnectedRealtimeFakes();
     fakes.enqueueJsonResponse({
       deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
       output: {
         answer: "Harbor uses cited deterministic state.",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
         deterministicBasis: "query.answer + cited records",
         recordIds: ["CUST-HARBOR"]
       },

@@ -238,18 +238,24 @@ async function handleRealtimeEvent(
     const text = typeof parsed["text"] === "string" ? parsed["text"] : undefined;
     const deterministicBasis =
       typeof parsed["deterministicBasis"] === "string" ? parsed["deterministicBasis"] : undefined;
-    const recordIds = Array.isArray(parsed["recordIds"])
-      ? parsed["recordIds"].filter((value): value is string => typeof value === "string" && value.length > 0)
-      : [];
-    if (text !== undefined && deterministicBasis !== undefined && recordIds.length > 0) {
+    const citedAnswer = readCitedAnswer({
+      ...(text === undefined ? {} : { answer: text }),
+      ...(deterministicBasis === undefined ? {} : { deterministicBasis }),
+      citationParity: parsed["citationParity"],
+      recordIds: parsed["recordIds"]
+    });
+    if (citedAnswer !== undefined) {
       context.publish({
-        answer: text,
-        deterministicBasis,
+        answer: citedAnswer.answer,
+        deterministicBasis: citedAnswer.deterministicBasis,
         message: "Cited Realtime answer received.",
-        recordIds,
+        recordIds: citedAnswer.recordIds,
         status: "answered"
       });
+      return;
     }
+
+    publishBlockedCitationParity(context.publish, policyRecordIds);
     return;
   }
 
@@ -298,6 +304,17 @@ async function handleRealtimeToolCall(
     return;
   }
 
+  const citedAnswer = readCitedAnswer(result.output);
+  if (toolCall.name === "query.answer" && citedAnswer === undefined) {
+    publish({
+      deterministicBasis: result.deterministicBasis,
+      message: "Blocked cited Realtime answer without matching voice/text citation parity.",
+      recordIds: result.recordIds,
+      status: "blocked_uncited_output"
+    });
+    return;
+  }
+
   dataChannel.send(
     JSON.stringify({
       item: {
@@ -310,7 +327,6 @@ async function handleRealtimeToolCall(
   );
   dataChannel.send(JSON.stringify({ type: "response.create" }));
 
-  const citedAnswer = readCitedAnswer(result.output);
   if (citedAnswer !== undefined) {
     publish({
       answer: citedAnswer.answer,
@@ -319,7 +335,9 @@ async function handleRealtimeToolCall(
       recordIds: citedAnswer.recordIds,
       status: "answered"
     });
+    return;
   }
+
 }
 
 interface RealtimeFunctionCall {
@@ -388,14 +406,60 @@ function readCitedAnswer(output: unknown):
 
   const answer = typeof output["answer"] === "string" ? output["answer"] : undefined;
   const deterministicBasis = typeof output["deterministicBasis"] === "string" ? output["deterministicBasis"] : undefined;
-  const recordIds = Array.isArray(output["recordIds"])
-    ? output["recordIds"].filter((recordId): recordId is string => typeof recordId === "string" && recordId.length > 0)
-    : [];
-  if (answer === undefined || deterministicBasis === undefined || recordIds.length === 0) {
+  const recordIds = readStrictStringArray(output["recordIds"]);
+  if (
+    answer === undefined ||
+    deterministicBasis === undefined ||
+    recordIds === undefined ||
+    recordIds.length === 0 ||
+    !hasValidCitationParity(output, recordIds)
+  ) {
     return undefined;
   }
 
   return { answer, deterministicBasis, recordIds };
+}
+
+function hasValidCitationParity(output: Record<string, unknown>, recordIds: readonly string[]): boolean {
+  const citationParity = output["citationParity"];
+  if (!isObject(citationParity)) {
+    return false;
+  }
+
+  return (
+    citationParity["parity"] === "same_record_ids" &&
+    sameStringArray(readStrictStringArray(citationParity["textRecordIds"]), recordIds) &&
+    sameStringArray(readStrictStringArray(citationParity["voiceRecordIds"]), recordIds)
+  );
+}
+
+function publishBlockedCitationParity(
+  publish: (snapshot: RealtimeBrowserSessionSnapshot) => void,
+  recordIds: string[]
+): void {
+  publish({
+    message: "Blocked cited Realtime answer without matching voice/text citation parity.",
+    recordIds,
+    status: "blocked_uncited_output"
+  });
+}
+
+function readStrictStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.every((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
+    ? value
+    : undefined;
+}
+
+function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  if (left === undefined) {
+    return false;
+  }
+
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

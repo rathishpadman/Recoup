@@ -133,6 +133,98 @@ describe("Realtime session policy", () => {
     expect(result.deterministicBasis).toContain("Realtime tool allowlist");
   });
 
+  it("returns query.answer output with voice/text citation parity", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
+      name: "query.answer"
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") {
+      throw new Error("Expected query.answer to be allowed.");
+    }
+
+    const output = result.output as {
+      citationParity?: {
+        parity: string;
+        textRecordIds: string[];
+        voiceRecordIds: string[];
+      };
+      recordIds?: string[];
+    };
+
+    expect(output.recordIds).toEqual(result.recordIds);
+    expect(output.citationParity).toEqual({
+      textRecordIds: result.recordIds,
+      voiceRecordIds: result.recordIds,
+      parity: "same_record_ids"
+    });
+  });
+
+  it("blocks query.answer output missing citation parity at the Realtime boundary", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
+      name: "query.answer"
+    }, () => ({
+      answer: "Harbor is blocked from cited deterministic state.",
+      deterministicBasis: "query.answer + cited records",
+      recordIds: ["CUST-HARBOR"]
+    }));
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool",
+      toolName: "query.answer"
+    });
+    expect(result.deterministicBasis).toContain("citation parity");
+  });
+
+  it("blocks query.answer output with mismatched voice/text/record citations at the Realtime boundary", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
+      name: "query.answer"
+    }, () => ({
+      answer: "Harbor is blocked from cited deterministic state.",
+      citationParity: {
+        textRecordIds: ["CUST-HARBOR"],
+        voiceRecordIds: ["ORDER-HARBOR-640K"],
+        parity: "same_record_ids"
+      },
+      deterministicBasis: "query.answer + cited records",
+      recordIds: ["CUST-HARBOR"]
+    }));
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool",
+      toolName: "query.answer"
+    });
+    expect(result.deterministicBasis).toContain("citation parity");
+  });
+
+  it("blocks query.answer output with malformed citation parity arrays at the Realtime boundary", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
+      name: "query.answer"
+    }, () => ({
+      answer: "Harbor is blocked from cited deterministic state.",
+      citationParity: {
+        textRecordIds: ["CUST-HARBOR", 7],
+        voiceRecordIds: ["CUST-HARBOR"],
+        parity: "same_record_ids"
+      },
+      deterministicBasis: "query.answer + cited records",
+      recordIds: ["CUST-HARBOR"]
+    }));
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool",
+      toolName: "query.answer"
+    });
+    expect(result.deterministicBasis).toContain("citation parity");
+  });
+
   it("rejects upstream client-secret responses that are not ephemeral keys", async () => {
     await expect(
       requestRealtimeClientSecret({

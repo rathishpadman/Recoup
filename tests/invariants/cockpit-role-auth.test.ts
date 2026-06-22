@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { cockpitHumanPrincipalByDemoRole } from "../../config/cockpitHumanPrincipals.js";
 
 describe("cockpit role-based demo auth", () => {
   it("adds a login route and server-only demo auth boundary", () => {
@@ -40,12 +41,18 @@ describe("cockpit role-based demo auth", () => {
     const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
     const loginRoute = readFileSync("cockpit/app/api/demo-login/route.ts", "utf8");
     const demoAuth = readFileSync("cockpit/app/demo-auth.ts", "utf8");
+    const demoProfiles = readFileSync("config/cockpitDemoProfiles.ts", "utf8");
 
     expect(loginForm).toContain('"use client"');
     expect(loginForm).toContain("/api/demo-login");
-    expect(loginForm).toContain("Maya");
-    expect(loginForm).toContain("david");
-    expect(loginForm).toContain("CFO");
+    expect(loginForm).toContain('action="/api/demo-login"');
+    expect(loginForm).toContain('method="post"');
+    expect(loginForm).toContain("personas.map");
+    expect(loginRoute).toContain("request.formData()");
+    expect(loginRoute).toContain("NextResponse.redirect");
+    expect(demoProfiles).toContain('loginId: "Maya"');
+    expect(demoProfiles).toContain('loginId: "david"');
+    expect(demoProfiles).toContain('loginId: "CFO"');
     expect(loginForm).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(loginForm).not.toContain("password_hash");
     expect(loginRoute).toContain("verify_recoup_demo_login");
@@ -55,13 +62,24 @@ describe("cockpit role-based demo auth", () => {
 
   it("defines role-scoped route access", () => {
     const auth = readFileSync("cockpit/app/demo-auth.ts", "utf8");
+    const demoProfiles = readFileSync("config/cockpitDemoProfiles.ts", "utf8");
 
-    expect(auth).toContain('loginId: "Maya"');
-    expect(auth).toContain('loginId: "david"');
-    expect(auth).toContain('loginId: "CFO"');
-    expect(auth).toContain('defaultRoute: "/forensics"');
-    expect(auth).toContain('defaultRoute: "/credit"');
-    expect(auth).toContain('defaultRoute: "/cfo"');
-    expect(auth).toContain('"/governance/connectors"');
+    expect(auth).toContain("cockpitDemoProfiles");
+    expect(auth).toContain("profilesByRole");
+    expect(demoProfiles).toContain('loginId: "Maya"');
+    expect(demoProfiles).toContain('loginId: "david"');
+    expect(demoProfiles).toContain('loginId: "CFO"');
+    expect(demoProfiles).toContain('defaultRoute: "/forensics"');
+    expect(demoProfiles).toContain('defaultRoute: "/credit"');
+    expect(demoProfiles).toContain('defaultRoute: "/cfo"');
+    expect(demoProfiles).toContain('"/governance/connectors"');
+  });
+
+  it("defines deterministic role-derived human principals for demo sessions", () => {
+    expect(cockpitHumanPrincipalByDemoRole).toEqual({
+      cfo: "human:cfo-lead",
+      david: "human:david-lead",
+      maya: "human:maya-lead"
+    });
   });
 });

@@ -1,10 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+  cockpitDemoProfiles,
+  isCockpitDemoLoginId,
+  type CockpitDemoLoginId
+} from "../../config/cockpitDemoProfiles.ts";
+import type { CockpitDemoRole } from "../../config/cockpitHumanPrincipals.ts";
 import { loadDemoRuntimeEnv, type DemoRuntimeEnv } from "./demo-runtime-env.ts";
 
 type RuntimeEnv = DemoRuntimeEnv;
 
-export type DemoRole = "maya" | "david" | "cfo";
-export type DemoLoginId = "Maya" | "david" | "CFO";
+export type DemoRole = CockpitDemoRole;
+export type DemoLoginId = CockpitDemoLoginId;
 
 export interface DemoSession {
   allowedRoutes: readonly string[];
@@ -16,41 +22,23 @@ export interface DemoSession {
 
 export const demoSessionCookieName = "recoup_demo_session";
 
-const demoProfiles = [
-  {
-    allowedRoutes: ["/forensics", "/run"],
-    defaultRoute: "/forensics",
-    displayName: "Maya Patel",
-    loginId: "Maya",
-    role: "maya"
-  },
-  {
-    allowedRoutes: ["/credit"],
-    defaultRoute: "/credit",
-    displayName: "David Kim",
-    loginId: "david",
-    role: "david"
-  },
-  {
-    allowedRoutes: ["/cfo", "/governance/agents", "/governance/connectors", "/governance/memory", "/governance/trace"],
-    defaultRoute: "/cfo",
-    displayName: "CFO",
-    loginId: "CFO",
-    role: "cfo"
-  }
-] as const satisfies readonly DemoSession[];
+export const demoProfiles = cockpitDemoProfiles.map((profile) => ({
+  allowedRoutes: [...profile.allowedRoutes],
+  defaultRoute: profile.defaultRoute,
+  displayName: profile.displayName,
+  loginId: profile.loginId,
+  role: profile.role
+})) as readonly DemoSession[];
 
-const profilesByRole: Record<DemoRole, DemoSession> = {
-  cfo: demoProfiles[2],
-  david: demoProfiles[1],
-  maya: demoProfiles[0]
-};
+const profilesByRole = Object.fromEntries(demoProfiles.map((profile) => [profile.role, profile])) as Record<
+  DemoRole,
+  DemoSession
+>;
 
-const profilesByLoginId: Record<DemoLoginId, DemoSession> = {
-  CFO: demoProfiles[2],
-  Maya: demoProfiles[0],
-  david: demoProfiles[1]
-};
+const profilesByLoginId = Object.fromEntries(demoProfiles.map((profile) => [profile.loginId, profile])) as Record<
+  DemoLoginId,
+  DemoSession
+>;
 
 export function roleHomeRoute(role: DemoRole): string {
   return profilesByRole[role].defaultRoute;
@@ -61,7 +49,7 @@ export function roleAllowedRoutes(role: DemoRole): string[] {
 }
 
 export function isKnownDemoLoginId(loginId: string): loginId is DemoLoginId {
-  return Object.hasOwn(profilesByLoginId, loginId);
+  return isCockpitDemoLoginId(loginId);
 }
 
 export function isDemoRouteAllowed(routePath: string, allowedRoutes: readonly string[]): boolean {

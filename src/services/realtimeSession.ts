@@ -69,6 +69,8 @@ export interface RealtimeToolCallInput {
   name: string;
 }
 
+type RealtimeServiceToolInvoker = (name: string, input: unknown) => unknown;
+
 export type RealtimeToolCallResult =
   | {
       deterministicBasis: string;
@@ -138,7 +140,10 @@ export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
   ];
 }
 
-export function handleRealtimeToolCall(input: RealtimeToolCallInput): RealtimeToolCallResult {
+export function handleRealtimeToolCall(
+  input: RealtimeToolCallInput,
+  serviceToolInvoker: RealtimeServiceToolInvoker = invokeServiceTool
+): RealtimeToolCallResult {
   if (!isRealtimeAllowedToolName(input.name)) {
     return blockedRealtimeToolCall(input.name);
   }
@@ -150,8 +155,11 @@ export function handleRealtimeToolCall(input: RealtimeToolCallInput): RealtimeTo
     return blockedRealtimeToolCall(input.name);
   }
 
-  const output = invokeServiceTool(input.name, parsedArgs);
+  const output = serviceToolInvoker(input.name, parsedArgs);
   const recordIds = readRecordIds(output);
+  if (input.name === "query.answer" && !hasValidCitationParity(output)) {
+    return blockedRealtimeToolCall(input.name, "Realtime query.answer blocked: citation parity must match text, voice, and output recordIds.");
+  }
 
   return {
     deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
@@ -214,9 +222,12 @@ function hasOpenAiApiKey(env: RuntimeEnv): boolean {
   return env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.trim().length > 0;
 }
 
-function blockedRealtimeToolCall(toolName: string): RealtimeToolCallResult {
+function blockedRealtimeToolCall(
+  toolName: string,
+  deterministicBasis = "Realtime tool allowlist blocks non-read-only, malformed, or action-producing tool calls."
+): RealtimeToolCallResult {
   return {
-    deterministicBasis: "Realtime tool allowlist blocks non-read-only, malformed, or action-producing tool calls.",
+    deterministicBasis,
     recordIds: ["OPENAI-REALTIME-POLICY"],
     status: "blocked_tool",
     toolName
@@ -233,6 +244,48 @@ function isRealtimeAllowedToolName(name: string): name is RealtimeAllowedToolNam
 
 function readRecordIds(output: unknown): string[] {
   return Array.from(new Set(collectRecordIds(output)));
+}
+
+function hasValidCitationParity(output: unknown): boolean {
+  if (typeof output !== "object" || output === null || Array.isArray(output)) {
+    return false;
+  }
+
+  const record = output as Record<string, unknown>;
+  const recordIds = readStrictStringArray(record["recordIds"]);
+  if (recordIds === undefined || recordIds.length === 0) {
+    return false;
+  }
+
+  const citationParity = record["citationParity"];
+  if (typeof citationParity !== "object" || citationParity === null || Array.isArray(citationParity)) {
+    return false;
+  }
+
+  const parity = citationParity as Record<string, unknown>;
+  return (
+    parity["parity"] === "same_record_ids" &&
+    sameStringArray(readStrictStringArray(parity["textRecordIds"]), recordIds) &&
+    sameStringArray(readStrictStringArray(parity["voiceRecordIds"]), recordIds)
+  );
+}
+
+function readStrictStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.every((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
+    ? value
+    : undefined;
+}
+
+function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  if (left === undefined) {
+    return false;
+  }
+
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function collectRecordIds(value: unknown): string[] {

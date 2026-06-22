@@ -12,20 +12,21 @@ interface DemoLoginRequest {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const wantsJson = isJsonRequest(request);
   const credentials = await readLoginRequest(request);
   if (credentials === undefined) {
-    return Response.json({ error: "Login ID and password are required." }, { headers: noStoreHeaders(), status: 400 });
+    return loginErrorResponse(request, wantsJson, "Login ID and password are required.", 400);
   }
 
   if (!isKnownDemoLoginId(credentials.loginId)) {
-    return Response.json({ error: "Invalid demo credentials." }, { headers: noStoreHeaders(), status: 401 });
+    return loginErrorResponse(request, wantsJson, "Invalid demo credentials.", 401);
   }
 
   const runtimeEnv = loadDemoRuntimeEnv();
   const supabaseUrl = runtimeEnv.SUPABASE_URL;
   const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY;
   if (supabaseUrl === undefined || serviceRoleKey === undefined) {
-    return Response.json({ error: "Demo login is not configured." }, { headers: noStoreHeaders(), status: 503 });
+    return loginErrorResponse(request, wantsJson, "Demo login is not configured.", 503);
   }
 
   try {
@@ -43,46 +44,68 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (!upstream.ok) {
-      return Response.json({ error: "Demo login verification failed." }, { headers: noStoreHeaders(), status: 502 });
+      return loginErrorResponse(request, wantsJson, "Demo login verification failed.", 502);
     }
 
     const rawResult = (await upstream.json()) as unknown;
     const session = demoSessionFromSupabaseRecord(Array.isArray(rawResult) ? rawResult[0] : rawResult);
     if (session === undefined) {
-      return Response.json({ error: "Invalid demo credentials." }, { headers: noStoreHeaders(), status: 401 });
+      return loginErrorResponse(request, wantsJson, "Invalid demo credentials.", 401);
     }
 
-    const response = NextResponse.json(
-      {
-        defaultRoute: session.defaultRoute,
-        displayName: session.displayName,
-        role: session.role
-      },
-      { headers: noStoreHeaders() }
-    );
+    const response = wantsJson
+      ? NextResponse.json(
+          {
+            defaultRoute: session.defaultRoute,
+            displayName: session.displayName,
+            role: session.role
+          },
+          { headers: noStoreHeaders() }
+        )
+      : NextResponse.redirect(new URL(session.defaultRoute, request.url), { headers: noStoreHeaders(), status: 303 });
     const cookie = createDemoSessionCookie(session, runtimeEnv);
     response.cookies.set(cookie.name, cookie.value, cookie.options);
 
     return response;
   } catch {
-    return Response.json({ error: "Demo login service unavailable." }, { headers: noStoreHeaders(), status: 502 });
+    return loginErrorResponse(request, wantsJson, "Demo login service unavailable.", 502);
   }
 }
 
 async function readLoginRequest(request: Request): Promise<DemoLoginRequest | undefined> {
   try {
+    if (!isJsonRequest(request)) {
+      const formData = await request.formData();
+      const loginId = formData.get("loginId");
+      const password = formData.get("password");
+      if (typeof loginId !== "string" || typeof password !== "string") {
+        return undefined;
+      }
+
+      return normalizeLoginRequest({ loginId, password });
+    }
+
     const body = (await request.json()) as unknown;
     if (!isLoginRequest(body)) {
       return undefined;
     }
 
-    return {
-      loginId: body.loginId.trim(),
-      password: body.password
-    };
+    return normalizeLoginRequest(body);
   } catch {
     return undefined;
   }
+}
+
+function normalizeLoginRequest(body: DemoLoginRequest): DemoLoginRequest | undefined {
+  const loginId = body.loginId.trim();
+  if (loginId.length === 0 || body.password.length === 0) {
+    return undefined;
+  }
+
+  return {
+    loginId,
+    password: body.password
+  };
 }
 
 function isLoginRequest(value: unknown): value is DemoLoginRequest {
@@ -100,4 +123,19 @@ function isLoginRequest(value: unknown): value is DemoLoginRequest {
 
 function noStoreHeaders(): HeadersInit {
   return { "cache-control": "no-store" };
+}
+
+function isJsonRequest(request: Request): boolean {
+  return request.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
+}
+
+function loginErrorResponse(request: Request, wantsJson: boolean, error: string, status: number): Response {
+  if (wantsJson) {
+    return Response.json({ error }, { headers: noStoreHeaders(), status });
+  }
+
+  const url = new URL("/login", request.url);
+  url.searchParams.set("error", "demo-login");
+
+  return NextResponse.redirect(url, { headers: noStoreHeaders(), status: 303 });
 }

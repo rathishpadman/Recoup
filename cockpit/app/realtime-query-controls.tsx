@@ -11,9 +11,12 @@ import {
 } from "./realtime-browser-session.ts";
 
 type RealtimeStatus = "idle" | "requesting" | "connecting" | "connected" | "answered" | "blocked" | "ended" | "error";
-const auditPolicyRecordIds = ["OPENAI-REALTIME-POLICY"];
+const auditPolicyRecordIds = ["Realtime citation policy"];
 const realtimeClientSecretPath = "/api/query/realtime-client-secret";
 const realtimeReadyCopy = "WebRTC session ready";
+const safetyIdentifierHeaderName = "OpenAI-Safety-Identifier";
+const blockedUncitedOutputPolicy = "blocked uncited output";
+const rawAudioRetentionPolicy = "no raw audio retained";
 
 export function RealtimeQueryControls() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -21,8 +24,8 @@ export function RealtimeQueryControls() {
   const startInFlightRef = useRef(false);
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState<RealtimeStatus>("idle");
-  const [message, setMessage] = useState("Credential-gated WebRTC client secret path with audit-only retention.");
-  const [auditRetention] = useState("Recoup stores no raw audio or uncited transcript for this query.");
+  const [message, setMessage] = useState("Answers must cite recovery records before they appear.");
+  const [auditRetention] = useState("Raw audio is not retained for this review.");
   const [recordIds, setRecordIds] = useState(auditPolicyRecordIds);
   const [answer, setAnswer] = useState<string | undefined>(undefined);
   const [deterministicBasis, setDeterministicBasis] = useState<string | undefined>(undefined);
@@ -42,7 +45,7 @@ export function RealtimeQueryControls() {
     const trimmedQuestion = question.trim();
     if (trimmedQuestion.length === 0) {
       setStatus("blocked");
-      setMessage("Ask a scoped question before requesting a Realtime session.");
+      setMessage("Enter a recovery question first.");
       return;
     }
 
@@ -52,7 +55,7 @@ export function RealtimeQueryControls() {
     setAnswer(undefined);
     setDeterministicBasis(undefined);
     setStatus("requesting");
-    setMessage("Requesting audit-scoped Realtime session");
+    setMessage("Opening scoped evidence session");
     try {
       const session = await startRealtimeBrowserSession({
         onSnapshot: (snapshot: RealtimeBrowserSessionSnapshot) => {
@@ -76,7 +79,7 @@ export function RealtimeQueryControls() {
       sessionRef.current = session;
     } catch {
       setStatus("error");
-      setMessage("Realtime session service unavailable.");
+      setMessage("Evidence session service unavailable.");
     } finally {
       startInFlightRef.current = false;
     }
@@ -95,7 +98,7 @@ export function RealtimeQueryControls() {
     >
       <div className="query-heading">
         <Microphone size={18} />
-        <label htmlFor="recoup-query">Realtime query</label>
+        <label htmlFor="recoup-query">Evidence query</label>
         <span>{statusLabel(status)}</span>
       </div>
       <div className="query-input-row">
@@ -104,7 +107,7 @@ export function RealtimeQueryControls() {
           onChange={(event) => {
             setQuestion(event.target.value);
           }}
-          placeholder="Ask about a cited account, deduction, or action"
+          placeholder="Ask about the selected deduction"
           value={question}
         />
         <button
@@ -115,7 +118,7 @@ export function RealtimeQueryControls() {
           type="button"
         >
           <PaperPlaneTilt size={15} />
-          Request session
+          Ask
         </button>
         <button
           disabled={sessionRef.current === null}
@@ -133,7 +136,7 @@ export function RealtimeQueryControls() {
       </div>
       {answer === undefined ? null : (
         <div className="query-answer">
-          <strong>Cited answer</strong>
+          <strong>Evidence answer</strong>
           <p>{answer}</p>
         </div>
       )}
@@ -143,7 +146,13 @@ export function RealtimeQueryControls() {
         ))}
       </div>
       {deterministicBasis === undefined ? null : <small>{deterministicBasis}</small>}
-      <small>External actions: none. OpenAI-Safety-Identifier is applied server-side; blocked uncited output is hidden.</small>
+      <small
+        data-output-rule={blockedUncitedOutputPolicy}
+        data-retention-policy={rawAudioRetentionPolicy}
+        data-safety-header={safetyIdentifierHeaderName}
+      >
+        No external actions. Record-cited answers only.
+      </small>
     </div>
   );
 }
@@ -177,7 +186,7 @@ function statusLabel(status: RealtimeStatus): string {
     return "ended";
   }
 
-  return "audit gated";
+  return "Citations required";
 }
 
 function toControlStatus(status: RealtimeBrowserSessionSnapshot["status"]): RealtimeStatus {
