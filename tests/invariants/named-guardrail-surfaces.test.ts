@@ -75,4 +75,39 @@ describe("named guardrail surfaces", () => {
       });
     }).toThrow("Gaming intent labels require cited behavioral evidence and R-score components.");
   });
+
+  it("accepts the Crestline M6 risk-review-only candidate through named intent and containment guardrails", async () => {
+    const { assessCrestlineM6Containment } = await import("../../src/agents/containment.js");
+    const { assertIntentEvidence } = await import("../../src/guardrails/tool/intentEvidence.js");
+    const { assertNoWrongfulContainment } = await import(
+      "../../src/guardrails/tool/noWrongfulContainment.js"
+    );
+
+    const candidate = assessCrestlineM6Containment();
+
+    expect(candidate).toMatchObject({
+      customerId: "CUST-CRESTLINE",
+      intentLabel: "gaming",
+      contained: false,
+      posture: "hitl-risk-review-only",
+      actionPosture: "no-external-action-staged",
+      deterministicBasis: {
+        gamingThresholds: "owner-ratified-day-1-seed-present",
+        noWrongfulContainment: true
+      }
+    });
+    expect(candidate.recordIds).toEqual(
+      expect.arrayContaining(["S3-L1", "POD-SIGNED-1", "S6-L1", "PRICE-CLAUSE-1"])
+    );
+    expect(candidate.behavioralEvidenceIds).toEqual(
+      expect.arrayContaining(["POD-SIGNED-1", "PRICE-CLAUSE-1"])
+    );
+    expect(Object.keys(candidate.deterministicBasis.rScoreComponents)).not.toHaveLength(0);
+    expect(() => {
+      assertIntentEvidence(candidate);
+    }).not.toThrow();
+    expect(() => {
+      assertNoWrongfulContainment(candidate);
+    }).not.toThrow();
+  });
 });

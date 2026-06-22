@@ -16,6 +16,12 @@ import type { EvidenceDocument } from "../tools/retrieval/docs.js";
 import { draftRecovery } from "./recoveryDrafter.js";
 import type { DraftRebillAction } from "../tools/actions/draftRebill.js";
 import { createAgentHandoffPacket } from "./messages.js";
+import {
+  assessCrestlineM6Containment,
+  toContainmentDecision,
+  type ContainmentDecision,
+  type CrestlineM6ContainmentAssessment
+} from "./containment.js";
 
 export type ForensicsTraceEvent =
   | { type: "finding"; payload: { source: "tool" | "agent"; lineId: string; ruleId: RuleId; recordIds: string[] } }
@@ -66,6 +72,8 @@ export interface DeductionDecision {
 export interface ForensicsRun {
   decisions: DeductionDecision[];
   actions: Array<RouteBillingAction | DraftRebillAction>;
+  containmentCandidates: CrestlineM6ContainmentAssessment[];
+  containmentDecisions: ContainmentDecision[];
   recoveryDecisions: RecoveryDecision[];
   openDependencies: string[];
   agentBoundary: typeof s4AgentBoundary;
@@ -154,7 +162,12 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
 
     return decision;
   });
+  const containmentCandidate = assessCrestlineM6Containment(dataset.deductionLines);
   assertFinalAgentOutput({ deductionDecisions: decisions });
+  assertFinalAgentOutput({
+    containmentDecisions: [containmentCandidate],
+    intentDecisions: [containmentCandidate]
+  });
 
   trace.push({
     type: "status",
@@ -180,6 +193,8 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
   return {
     decisions,
     actions,
+    containmentCandidates: [containmentCandidate],
+    containmentDecisions: [toContainmentDecision(containmentCandidate)],
     recoveryDecisions: decisions.map((decision) => ({
       lineId: decision.lineId,
       pursueRecovery: decision.routing === "recovery"

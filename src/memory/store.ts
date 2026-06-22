@@ -2,6 +2,7 @@ import { MemoryRecordSchema, type MemoryRecord } from "./schema.js";
 
 export interface MemoryStore {
   append(record: MemoryRecord): MemoryRecord;
+  appendIfAbsent(record: MemoryRecord): MemoryRecord | undefined;
   find(scope: string, predicate: (record: MemoryRecord) => boolean): MemoryRecord | undefined;
   list(scope: string): MemoryRecord[];
   listAll(): MemoryRecord[];
@@ -19,6 +20,14 @@ export function createInMemoryStore(): MemoryStore {
       } else {
         records[existingIndex] = parsed;
       }
+      return parsed;
+    },
+    appendIfAbsent(record) {
+      const parsed = MemoryRecordSchema.parse(record);
+      if (records.some((candidate) => candidate.id === parsed.id)) {
+        return undefined;
+      }
+      records.push(parsed);
       return parsed;
     },
     find(scope, predicate) {

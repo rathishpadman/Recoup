@@ -93,6 +93,24 @@ describe("decision false-positive gate", () => {
     });
   });
 
+  it("keeps the actual M6 containment slice risk-review-only without wrongful Harbor containment", () => {
+    const run = runForensicsInvestigation();
+    const riskReviewDecisions: ContainmentDecision[] = [
+      ...run.containmentDecisions,
+      { customerId: "CUST-HARBOR", contained: false }
+    ];
+    const labels: CustomerIntentLabel[] = [
+      { customerId: "CUST-HARBOR", intentLabel: "distressed-honest" },
+      { customerId: "CUST-CRESTLINE", intentLabel: "gaming" }
+    ];
+
+    expect(run.containmentDecisions).toContainEqual({
+      customerId: "CUST-CRESTLINE",
+      contained: false
+    });
+    expect(findWrongfulContainments(labels, riskReviewDecisions)).toEqual([]);
+  });
+
   it("fails the false-positive gate with violations and reports the count", () => {
     expect(evaluateFalsePositiveGate(["S1-L1", "CUST-HARBOR"])).toEqual({
       status: "fail",

@@ -11,6 +11,7 @@ export type SupabaseMemoryFetch = (url: string, init: RequestInit) => Promise<Re
 
 export interface SupabaseMemoryRepository {
   append(record: MemoryRecord): Promise<MemoryRecord>;
+  appendIfAbsent(record: MemoryRecord): Promise<MemoryRecord | undefined>;
   list(scope: string): Promise<MemoryRecord[]>;
   listAll(): Promise<MemoryRecord[]>;
 }
@@ -81,6 +82,19 @@ export function createSupabaseMemoryRepository(options: SupabaseMemoryRepository
       });
 
       return parseSupabaseMemoryRow(rows[0]);
+    },
+    async appendIfAbsent(record) {
+      const parsed = MemoryRecordSchema.parse(record);
+      const rows = await requestRows(fetcher, {
+        body: JSON.stringify(toSupabaseRow(parsed)),
+        conflictAsEmpty: true,
+        method: "POST",
+        prefer: "return=representation",
+        serviceRoleKey: options.serviceRoleKey,
+        url: `${baseUrl}/rest/v1/${tableName}`
+      });
+
+      return rows.length === 0 ? undefined : parseSupabaseMemoryRow(rows[0]);
     },
     async list(scope) {
       const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
@@ -371,7 +385,14 @@ ALTER TABLE ${safeTableName} FORCE ROW LEVEL SECURITY;
 
 async function requestRows(
   fetcher: SupabaseMemoryFetch,
-  input: { body?: string; method: "GET" | "POST"; serviceRoleKey: string; url: string }
+  input: {
+    body?: string;
+    conflictAsEmpty?: boolean;
+    method: "GET" | "POST";
+    prefer?: string;
+    serviceRoleKey: string;
+    url: string;
+  }
 ): Promise<SupabaseMemoryRow[]> {
   const response = await fetcher(input.url, {
     ...(input.body === undefined ? {} : { body: input.body }),
@@ -379,12 +400,15 @@ async function requestRows(
       apikey: input.serviceRoleKey,
       authorization: `Bearer ${input.serviceRoleKey}`,
       "content-type": "application/json",
-      prefer: "resolution=merge-duplicates,return=representation"
+      prefer: input.prefer ?? "resolution=merge-duplicates,return=representation"
     },
     method: input.method
   });
 
   if (!response.ok) {
+    if (input.conflictAsEmpty === true && response.status === 409) {
+      return [];
+    }
     throw new Error(`Supabase memory request failed with HTTP ${String(response.status)}.`);
   }
 

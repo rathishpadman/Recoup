@@ -109,6 +109,20 @@ describe("final output guardrail", () => {
     }).toThrow("Distressed-honest customers cannot be contained without approved gaming thresholds.");
   });
 
+  it("allows the Crestline M6 candidate when it carries behavioral evidence and no-action posture", async () => {
+    const { assessCrestlineM6Containment } = await import("../../src/agents/containment.js");
+    const candidate = assessCrestlineM6Containment();
+
+    expect(() => {
+      assertFinalAgentOutput({
+        containmentDecisions: [candidate],
+        intentDecisions: [candidate]
+      });
+    }).not.toThrow();
+    expect(candidate.contained).toBe(false);
+    expect(candidate.actionPosture).toBe("no-external-action-staged");
+  });
+
   it("wires the final-output guard into agent finalization paths", () => {
     const forensics = readFileSync("src/agents/forensics.ts", "utf8");
     const riskMesh = readFileSync("src/agents/riskMesh.ts", "utf8");

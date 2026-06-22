@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAccuracyBarReport,
   buildCanonicalDeductionValidityCases,
+  buildReleaseReadinessReport,
   calculateAccuracy,
   calculateAgreement,
   calculatePrecision,
@@ -251,5 +252,109 @@ describe("accuracy bar metric harness", () => {
         reason: "arbitration expert labels unavailable"
       }
     });
+  });
+
+  it("marks blocked run control and blocked eval bars as a failed release gate", () => {
+    const report = buildReleaseReadinessReport({
+      runControl: {
+        status: "blocked",
+        reason: "appendix-g-run-control-unset",
+        openDependencies: ["run-control-token-budget", "run-control-step-budget", "run-control-retry-cap"]
+      },
+      accuracyBars: {
+        deductionValidity: {
+          status: "pass",
+          score: 1,
+          threshold: decisionEvalBars.deductionValidityAccuracy
+        },
+        intentPrecision: {
+          status: "blocked",
+          reason: "complete intent labels unavailable"
+        },
+        arbitrationAgreement: {
+          status: "blocked",
+          reason: "arbitration expert labels unavailable"
+        }
+      }
+    });
+
+    expect(report).toEqual({
+      status: "fail",
+      blockers: [
+        {
+          gate: "run-control",
+          reason: "appendix-g-run-control-unset",
+          openDependencies: ["run-control-token-budget", "run-control-step-budget", "run-control-retry-cap"]
+        },
+        {
+          gate: "intent-precision",
+          reason: "complete intent labels unavailable"
+        },
+        {
+          gate: "arbitration-agreement",
+          reason: "arbitration expert labels unavailable"
+        }
+      ]
+    });
+  });
+
+  it("marks failing eval bars as a failed release gate", () => {
+    expect(
+      buildReleaseReadinessReport({
+        runControl: { status: "pass" },
+        accuracyBars: {
+          deductionValidity: {
+            status: "fail",
+            score: 0.85,
+            threshold: decisionEvalBars.deductionValidityAccuracy
+          },
+          intentPrecision: {
+            status: "pass",
+            score: 1,
+            threshold: decisionEvalBars.intentPrecision
+          },
+          arbitrationAgreement: {
+            status: "pass",
+            score: 1,
+            threshold: decisionEvalBars.arbitrationAgreement
+          }
+        }
+      })
+    ).toEqual({
+      status: "fail",
+      blockers: [
+        {
+          gate: "deduction-validity",
+          reason: "release-blocking metric below threshold",
+          score: 0.85,
+          threshold: decisionEvalBars.deductionValidityAccuracy
+        }
+      ]
+    });
+  });
+
+  it("passes release readiness only when run control and all eval bars pass", () => {
+    expect(
+      buildReleaseReadinessReport({
+        runControl: { status: "pass" },
+        accuracyBars: {
+          deductionValidity: {
+            status: "pass",
+            score: 1,
+            threshold: decisionEvalBars.deductionValidityAccuracy
+          },
+          intentPrecision: {
+            status: "pass",
+            score: 1,
+            threshold: decisionEvalBars.intentPrecision
+          },
+          arbitrationAgreement: {
+            status: "pass",
+            score: 1,
+            threshold: decisionEvalBars.arbitrationAgreement
+          }
+        }
+      })
+    ).toEqual({ status: "pass", blockers: [] });
   });
 });

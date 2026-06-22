@@ -5,7 +5,8 @@ import {
   computePartialHold,
   computePartialHoldAmountSplit,
   type PartialHoldAmountSplit,
-  type PartialHoldResult
+  type PartialHoldResult,
+  type PartialHoldScores
 } from "../core/partialHold.js";
 import { assertFinalAgentOutput } from "../guardrails/output/final.js";
 import { buildAutonomyGauge, type AutonomyGauge } from "../services/autonomyGauge.js";
@@ -40,6 +41,8 @@ export interface HarborRiskMeshProposalContext {
   positions: ArbitrationPosition[];
   arbitration: BlockedArbitrationResult;
   partialHold: PartialHoldResult;
+  partialHoldScores: PartialHoldScores;
+  partialHoldWeights: typeof partialHoldWeights;
   orderAmount: Money;
   amountSplit: PartialHoldAmountSplit;
   holdProposalInput: {
@@ -138,16 +141,17 @@ export function buildHarborRiskMeshProposalContext(): HarborRiskMeshProposalCont
     positions,
     weights: arbitrationPnlWeights
   });
+  const partialHoldScores: PartialHoldScores = {
+    orderValueVsExposure: 35,
+    customerStrategicValue: 60,
+    dsoPaymentDrift: 30,
+    orderMargin: 80,
+    revenueForecast: 65,
+    paymentPattern: 50
+  };
   const partialHold = computePartialHold({
     weights: partialHoldWeights,
-    scores: {
-      orderValueVsExposure: 35,
-      customerStrategicValue: 60,
-      dsoPaymentDrift: 30,
-      orderMargin: 80,
-      revenueForecast: 65,
-      paymentPattern: 50
-    }
+    scores: partialHoldScores
   });
   const orderAmount = money("640000.00");
   const amountSplit = computePartialHoldAmountSplit({
@@ -161,6 +165,8 @@ export function buildHarborRiskMeshProposalContext(): HarborRiskMeshProposalCont
     partialHold,
     containment,
     positions,
+    partialHoldScores,
+    partialHoldWeights,
     orderAmount,
     amountSplit,
     holdProposalInput: {

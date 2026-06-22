@@ -57,6 +57,35 @@ export interface AccuracyBarReport {
   arbitrationAgreement: MetricGateResult;
 }
 
+export interface ReleaseReadinessRunControl {
+  status: "pass" | "blocked";
+  reason?: string;
+  openDependencies?: string[];
+}
+
+export type ReleaseReadinessGate =
+  | "run-control"
+  | "deduction-validity"
+  | "intent-precision"
+  | "arbitration-agreement";
+
+export interface ReleaseReadinessBlocker {
+  gate: ReleaseReadinessGate;
+  reason: string;
+  openDependencies?: string[];
+  score?: number;
+  threshold?: number;
+}
+
+export interface ReleaseReadinessReportInput {
+  runControl: ReleaseReadinessRunControl;
+  accuracyBars: AccuracyBarReport;
+}
+
+export type ReleaseReadinessReport =
+  | { status: "pass"; blockers: [] }
+  | { status: "fail"; blockers: [ReleaseReadinessBlocker, ...ReleaseReadinessBlocker[]] };
+
 export function buildCanonicalDeductionValidityCases(
   lines: DeductionLine[]
 ): Array<MetricCase<DeductionEvaluationLabel>> {
@@ -195,6 +224,50 @@ export function buildAccuracyBarReport(input: AccuracyBarReportInput): AccuracyB
       input.requiredArbitrationLabelCount
     )
   };
+}
+
+export function buildReleaseReadinessReport(input: ReleaseReadinessReportInput): ReleaseReadinessReport {
+  const blockers: ReleaseReadinessBlocker[] = [];
+
+  if (input.runControl.status === "blocked") {
+    blockers.push({
+      gate: "run-control",
+      reason: input.runControl.reason ?? "run-control blocked",
+      ...(input.runControl.openDependencies !== undefined
+        ? { openDependencies: input.runControl.openDependencies }
+        : {})
+    });
+  }
+
+  collectMetricBlocker(blockers, "deduction-validity", input.accuracyBars.deductionValidity);
+  collectMetricBlocker(blockers, "intent-precision", input.accuracyBars.intentPrecision);
+  collectMetricBlocker(blockers, "arbitration-agreement", input.accuracyBars.arbitrationAgreement);
+
+  if (blockers.length === 0) {
+    return { status: "pass", blockers: [] };
+  }
+
+  return { status: "fail", blockers: blockers as [ReleaseReadinessBlocker, ...ReleaseReadinessBlocker[]] };
+}
+
+function collectMetricBlocker(
+  blockers: ReleaseReadinessBlocker[],
+  gate: ReleaseReadinessGate,
+  result: MetricGateResult
+): void {
+  if (result.status === "blocked") {
+    blockers.push({ gate, reason: result.reason });
+    return;
+  }
+
+  if (result.status === "fail") {
+    blockers.push({
+      gate,
+      reason: "release-blocking metric below threshold",
+      score: result.score,
+      threshold: result.threshold
+    });
+  }
 }
 
 function buildCanonicalRuleInput(line: DeductionLine): RuleInput {

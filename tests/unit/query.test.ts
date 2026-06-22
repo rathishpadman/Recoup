@@ -14,6 +14,11 @@ describe("offline query", () => {
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.recordIds).toContain("ORDER-HARBOR-640K");
     expect(answer.deterministicBasis).toContain("audit.read");
+    expect(answer.citationParity).toEqual({
+      textRecordIds: answer.recordIds,
+      voiceRecordIds: answer.recordIds,
+      parity: "same_record_ids"
+    });
   });
 
   it("returns citations and deterministic basis for every offline query branch", () => {
@@ -23,6 +28,9 @@ describe("offline query", () => {
       expect(answer.recordIds.length).toBeGreaterThan(0);
       expect(answer.deterministicBasis.length).toBeGreaterThan(0);
       expect(answer.modelExecution).toBe("blocked: offline build does not invoke live model calls");
+      expect(answer.citationParity.textRecordIds).toEqual(answer.recordIds);
+      expect(answer.citationParity.voiceRecordIds).toEqual(answer.recordIds);
+      expect(answer.citationParity.parity).toBe("same_record_ids");
     }
   });
 

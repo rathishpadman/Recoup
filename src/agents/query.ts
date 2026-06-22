@@ -8,6 +8,7 @@ export interface OfflineQueryInput {
 export interface OfflineQueryAnswer {
   status: "disabled_offline_safe";
   answer: string;
+  citationParity: CitationParity;
   recordIds: string[];
   deterministicBasis: string;
   modelExecution: "blocked: offline build does not invoke live model calls";
@@ -15,6 +16,12 @@ export interface OfflineQueryAnswer {
     voice: typeof runtimeModels.realtime;
     text: typeof runtimeModels.fast;
   };
+}
+
+export interface CitationParity {
+  textRecordIds: string[];
+  voiceRecordIds: string[];
+  parity: "same_record_ids";
 }
 
 export function answerOfflineQuery(input: OfflineQueryInput): OfflineQueryAnswer {
@@ -33,6 +40,7 @@ export function answerOfflineQuery(input: OfflineQueryInput): OfflineQueryAnswer
       status: "disabled_offline_safe",
       answer:
         `Harbor is staged for human-reviewed Risk Mesh handling from cited audit and cockpit state. Runtime ranking remains blocked by ${riskRun.sentinel.reason} and ${riskRun.arbitration.reason}, so the offline harness reports the DB-backed loader and VERIFY-PROD calibration dependencies instead of activating ranking.`,
+      citationParity: sameRecordIdCitationParity(recordIds),
       recordIds,
       deterministicBasis:
         "audit.read + core.riskMeshClosedLoop staged records; owner-ratified config-as-code seed rows exist, while DB-backed runtime config loading, runtime credentials, and HITL query policy remain blocked.",
@@ -50,6 +58,7 @@ export function answerOfflineQuery(input: OfflineQueryInput): OfflineQueryAnswer
       normalizedQuestion.length === 0
         ? "Conversational query is staged for offline demo only; no live model call was made."
         : "Conversational query is staged for offline demo only; use the cockpit records and audit trail for cited evidence.",
+    citationParity: sameRecordIdCitationParity(["SYNTHETIC-SEED-42"]),
     recordIds: ["SYNTHETIC-SEED-42"],
     deterministicBasis: "Offline harness blocks Realtime/text model execution until runtime credentials and HITL query policy are configured.",
     modelExecution: "blocked: offline build does not invoke live model calls",
@@ -57,5 +66,15 @@ export function answerOfflineQuery(input: OfflineQueryInput): OfflineQueryAnswer
       voice: runtimeModels.realtime,
       text: runtimeModels.fast
     }
+  };
+}
+
+function sameRecordIdCitationParity(recordIds: readonly string[]): CitationParity {
+  const citedRecordIds = [...recordIds];
+
+  return {
+    textRecordIds: citedRecordIds,
+    voiceRecordIds: [...citedRecordIds],
+    parity: "same_record_ids"
   };
 }

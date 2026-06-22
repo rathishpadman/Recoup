@@ -46,6 +46,11 @@ export function createSqliteMemoryStore(dbPath: string): SqliteMemoryStore {
       record_ids_json = excluded.record_ids_json,
       created_at = excluded.created_at
   `);
+  const insertIfAbsent = database.prepare(`
+    INSERT INTO memory_records (id, category, trust_level, scope, payload_json, record_ids_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO NOTHING
+  `);
   const selectByScope = database.prepare(`
     SELECT id, category, trust_level, scope, payload_json, record_ids_json, created_at
     FROM memory_records
@@ -72,6 +77,20 @@ export function createSqliteMemoryStore(dbPath: string): SqliteMemoryStore {
       );
 
       return parsed;
+    },
+    appendIfAbsent(record) {
+      const parsed = MemoryRecordSchema.parse(record);
+      const result = insertIfAbsent.run(
+        parsed.id,
+        parsed.category,
+        parsed.trustLevel,
+        parsed.scope,
+        JSON.stringify(parsed.payload),
+        JSON.stringify(parsed.recordIds),
+        parsed.createdAt
+      ) as { changes: number };
+
+      return result.changes === 0 ? undefined : parsed;
     },
     find(scope, predicate) {
       return readScope(selectByScope, scope).find(predicate);

@@ -13,6 +13,7 @@ import {
   assertApprovalReasonSafe,
   decideApproval,
   recordApprovalActionDecision,
+  type ApprovalResult,
   type ProposedExternalAction
 } from "./approvals.js";
 import { createAuditTrail } from "../audit/trail.js";
@@ -85,6 +86,11 @@ const queryAnswerToolSchema = z.object({
   question: z.string().min(1).max(500)
 });
 const serviceApprovalAuditTrail = createAuditTrail();
+
+export interface PreparedApprovalDecision {
+  action: ProposedExternalAction;
+  approval: ApprovalResult;
+}
 
 export const serviceToolMetadata = {
   "actions.draftOutreach": { riskClass: "communication", sideEffectClass: "draft_only", visibility: "mcp" },
@@ -162,15 +168,7 @@ export const serviceTools = {
   "approvals.decide": {
     schema: approvalDecisionToolSchema,
     handler: (input, context) => {
-      const parsed = approvalDecisionToolSchema.parse(input);
-      const approverId = readVerifiedHumanPrincipal(context);
-      const action = findPendingAction(parsed.actionId);
-      assertApprovalActionOpen(action.actionId);
-      const approval = decideApproval(action, {
-        approverId,
-        decision: parsed.decision,
-        ...(parsed.reason === undefined ? {} : { reason: parsed.reason })
-      });
+      const { action, approval } = prepareApprovalDecision(input, context);
       const auditEntry = serviceApprovalAuditTrail.append({
         entryType: "approval.decision",
         payload: {
@@ -244,6 +242,21 @@ export function invokeServiceTool(name: string, input: unknown, context: Service
 
   const tool = serviceTools[name];
   return tool.handler(tool.schema.parse(input), context);
+}
+
+export function prepareApprovalDecision(input: unknown, context: ServiceInvocationContext = {}): PreparedApprovalDecision {
+  const parsed = approvalDecisionToolSchema.parse(input);
+  const approverId = readVerifiedHumanPrincipal(context);
+  const action = findPendingAction(parsed.actionId);
+  assertApprovalActionOpen(action.actionId);
+  return {
+    action,
+    approval: decideApproval(action, {
+      approverId,
+      decision: parsed.decision,
+      ...(parsed.reason === undefined ? {} : { reason: parsed.reason })
+    })
+  };
 }
 
 function isServiceToolName(name: string): name is ServiceToolName {

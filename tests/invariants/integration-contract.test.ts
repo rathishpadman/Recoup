@@ -59,6 +59,11 @@ describe("integration contract", () => {
       caseId: "ARB-HARBOR-ORDER-640K",
       auditTrailValid: true
     });
+    expect(
+      (result as { auditEntries: Array<{ entryHash: string }> }).auditEntries.every((entry) =>
+        /^[a-f0-9]{64}$/u.test(entry.entryHash)
+      )
+    ).toBe(true);
     expect(JSON.stringify(result)).toContain("partial-hold.proposed");
   });
 

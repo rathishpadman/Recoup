@@ -38,7 +38,7 @@ describe("judge README contract", () => {
   it("keeps the VS Code handoff verification evidence aligned with the final proof pack", () => {
     const handoff = readFileSync("docs/vscode-handoff-status.md", "utf8");
 
-    expect(handoff).toContain("Vitest passed: `61` test files, `322` tests.");
+    expect(handoff).toContain("Vitest passed: `66` test files, `349` tests.");
     expect(handoff).not.toContain("Vitest passed: `61` test files, `304` tests.");
     expect(handoff).not.toContain("Vitest passed: `53` test files, `251` tests.");
   });
