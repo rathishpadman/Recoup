@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --pool=threads",
+    "test:e2e": "tsx tests/e2e/cockpit-premium-e2e.ts",
     "depcruise": "depcruise src --config dependency-cruiser.config.cjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run depcruise",
     "dev:api": "tsx watch src/services/cockpitApi.ts",

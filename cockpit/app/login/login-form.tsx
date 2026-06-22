@@ -1,20 +1,20 @@
 "use client";
 
 import { ArrowRightIcon as ArrowRight } from "@phosphor-icons/react/dist/csr/ArrowRight";
+import { CheckCircleIcon as CheckCircle } from "@phosphor-icons/react/dist/csr/CheckCircle";
 import { type SyntheticEvent, useState } from "react";
-
-const personas = [
-  { loginId: "Maya", workspace: "Deduction Forensics" },
-  { loginId: "david", workspace: "Credit Arbitration" },
-  { loginId: "CFO", workspace: "Executive Readout" }
-] as const;
+import type { LoginCockpitModel } from "../cockpit-data.ts";
 
 interface DemoLoginResponse {
   defaultRoute?: string;
   error?: string;
 }
 
-export function LoginForm() {
+interface LoginFormProps {
+  personas: LoginCockpitModel["personas"];
+}
+
+export function LoginForm({ personas }: LoginFormProps) {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>();
@@ -51,45 +51,64 @@ export function LoginForm() {
   }
 
   return (
-    <form aria-describedby={error === undefined ? undefined : "login-error"} className="login-form" onSubmit={handleSubmit}>
-      <label>
-        <span>User ID</span>
-        <input
-          autoComplete="username"
-          name="loginId"
-          onChange={(event) => {
-            setLoginId(event.target.value);
-          }}
-          required
-          value={loginId}
-        />
-      </label>
-      <label>
-        <span>Password</span>
-        <input
-          autoComplete="current-password"
-          name="password"
-          onChange={(event) => {
-            setPassword(event.target.value);
-          }}
-          required
-          type="password"
-          value={password}
-        />
-      </label>
-      <div aria-label="Demo personas">
+    <form
+      aria-describedby={error === undefined ? undefined : "login-error"}
+      action="/api/demo-login"
+      className="login-form"
+      method="post"
+      onSubmit={handleSubmit}
+    >
+      <div className="login-persona-grid" aria-label="Demo personas">
         {personas.map((persona) => (
           <button
+            aria-pressed={loginId === persona.loginId}
             key={persona.loginId}
             onClick={() => {
               setLoginId(persona.loginId);
             }}
             type="button"
           >
-            <strong>{persona.loginId}</strong>
-            <span>{persona.workspace}</span>
+            <span className="login-persona-mark" aria-hidden="true">
+              {loginId === persona.loginId ? <CheckCircle size={15} weight="fill" /> : persona.loginId.slice(0, 1)}
+            </span>
+            <span>
+              <strong>{persona.loginId}</strong>
+              <em>{persona.persona}</em>
+            </span>
+            <small>{persona.workspace}</small>
           </button>
         ))}
+      </div>
+      <div className="login-fields">
+        <label>
+          <span>User ID</span>
+          <input
+            autoComplete="username"
+            name="loginId"
+            onChange={(event) => {
+              setLoginId(event.target.value);
+            }}
+            required
+            value={loginId}
+          />
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            autoComplete="current-password"
+            name="password"
+            onChange={(event) => {
+              setPassword(event.target.value);
+            }}
+            required
+            type="password"
+            value={password}
+          />
+        </label>
+      </div>
+      <div className="login-auth-note">
+        <span>Demo credentials only</span>
+        <span>Server validates role and default route</span>
       </div>
       {error === undefined ? null : (
         <p className="micro" id="login-error" role="alert">

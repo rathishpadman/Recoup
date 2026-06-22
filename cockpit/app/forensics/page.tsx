@@ -1,100 +1,95 @@
 import { ArrowClockwiseIcon as ArrowClockwise } from "@phosphor-icons/react/dist/ssr/ArrowClockwise";
-import { ArrowRightIcon as ArrowRight } from "@phosphor-icons/react/dist/ssr/ArrowRight";
-import { ChartLineUpIcon as ChartLineUp } from "@phosphor-icons/react/dist/ssr/ChartLineUp";
-import { FileTextIcon as FileText } from "@phosphor-icons/react/dist/ssr/FileText";
+import { DownloadSimpleIcon as DownloadSimple } from "@phosphor-icons/react/dist/ssr/DownloadSimple";
 import { FunnelIcon as Funnel } from "@phosphor-icons/react/dist/ssr/Funnel";
-import { ShieldCheckIcon as ShieldCheck } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
-import { TrayIcon as Tray } from "@phosphor-icons/react/dist/ssr/Tray";
+import { SquaresFourIcon as SquaresFour } from "@phosphor-icons/react/dist/ssr/SquaresFour";
 import { ApprovalControls } from "../approval-controls.tsx";
-import { CockpitShell, GovernanceBadge, Metric, RecordStrip, StatusPill } from "../cockpit-shell.tsx";
-import { fetchForensicsModel } from "../cockpit-data.ts";
+import { CockpitShell, RecordStrip } from "../cockpit-shell.tsx";
+import { fetchConnectorReadinessModel, fetchForensicsModel } from "../cockpit-data.ts";
 import { requireRouteAccess } from "../demo-auth.ts";
+import { AuditVerifyChip, MultimodalDock, ToolStatusRail } from "../premium-components.tsx";
 
 export default async function ForensicsPage() {
   const session = await requireRouteAccess("/forensics");
-  const model = await fetchForensicsModel();
-  const selectedLine = model.worklist.find((item) => item.lineId === model.selected.lineId) ?? model.worklist[0];
+  const [model, connectors] = await Promise.all([fetchForensicsModel(), fetchConnectorReadinessModel()]);
+  const selectedScenario = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? model.worklist[0];
 
   return (
     <CockpitShell
       active="forensics"
-      kicker="Maya workspace"
+      kicker="Recoup / Deductions / Forensics"
+      prelude={<ToolStatusRail connectors={connectors} />}
       session={session}
-      subtitle="Recover invalid deductions from a deterministic evidence pack, with every external action held for human approval."
-      title="Deduction Forensics"
+      subtitle="Scenario worklist, cited evidence, sub-agent proof, and human-gated recovery drafts."
+      title="Recoup deduction forensics"
+      titleAccessory={<span className="journey-chip">Maya journey</span>}
       toolbar={
         <div className="toolbar" aria-label="Forensics tools">
           <button aria-label="Refresh run" title="Refresh run" type="button">
             <ArrowClockwise size={18} />
           </button>
-          <button aria-label="Filter worklist" title="Filter worklist" type="button">
+          <button aria-label="Filter worklist" title="Filters" type="button">
             <Funnel size={18} />
+            <span>Filters</span>
+          </button>
+          <button aria-label="Saved views" title="Views" type="button">
+            <SquaresFour size={18} />
+            <span>Views</span>
+          </button>
+          <button aria-label="Export scenario packet" title="Export" type="button">
+            <DownloadSimple size={18} />
+            <span>Export</span>
           </button>
         </div>
       }
     >
-      <section className="summary-grid" aria-label="Recovery summary">
-        <Metric
-          delta={`${String(model.recoveryTracker.recoveryLines)} recovery lines`}
-          drillDown="Open recovery queue"
-          icon={<ChartLineUp size={18} />}
-          label="Projected recovery"
-          value={model.recoveryTracker.projectedRecovery}
-          variant="primary"
-        />
-        <Metric
-          delta={`${String(model.recoveryTracker.billingLines)} prevention drafts`}
-          icon={<ShieldCheck size={18} />}
-          label="Billing protection"
-          value={model.recoveryTracker.projectedBilling}
-        />
-        <Metric icon={<Tray size={18} />} label="Gross scope" value={model.recoveryTracker.totalExposure} />
-        <Metric icon={<FileText size={18} />} label="Evidence sources" value={String(model.retrievalStatus.length)} />
+      <section className="scenario-metric-ledger" aria-label="Recovery summary">
+        {model.kpiStrip.map((item) => (
+          <div key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.support}</small>
+          </div>
+        ))}
       </section>
 
-      <section className="route-grid forensics" aria-label="Maya deduction recovery route">
-        <section className="worklist">
+      <section className="route-grid forensics workbench-grid" aria-label="Maya deduction recovery route">
+        <section className="worklist forensic-worklist">
           <div className="section-heading">
             <div>
-              <h2>Worklist</h2>
-              <span>{String(model.worklist.length)} pre-triaged deductions</span>
+              <h2>Scenario worklist</h2>
+              <span>{String(model.worklist.length)} cases from the settlement run</span>
             </div>
           </div>
           <div className="workspace-table-scroll">
             <div className="data-table" role="table" aria-label="Deduction worklist">
               <div className="table-row table-head" role="row">
-                <span role="columnheader">Line</span>
                 <span role="columnheader">Scenario</span>
-                <span role="columnheader">Amount</span>
-                <span role="columnheader">Verdict</span>
-                <span role="columnheader">Confidence</span>
-                <span role="columnheader">Next action</span>
+                <span role="columnheader">Reason</span>
+                <span role="columnheader">Exposure</span>
+                <span role="columnheader">Evidence</span>
+                <span role="columnheader">Queue</span>
               </div>
               {model.worklist.map((item) => {
-                const isSelected = item.lineId === model.selected.lineId;
+                const isSelected = item.lineIds.includes(model.selected.lineId);
 
                 return (
                   <div className="table-row work-row" aria-selected={isSelected} key={item.lineId} role="row">
-                    <div role="cell">
-                      <strong>{item.lineId}</strong>
-                      <span>{item.customerId ?? item.routing ?? "synthetic seed 42"}</span>
+                    <div className="scenario-cell" role="cell">
+                      <strong>{item.scenarioId}</strong>
+                      <span>{item.customerLabel}</span>
                     </div>
-                    <span role="cell">{item.scenarioType}</span>
+                    <span className="account-cell" role="cell">
+                      <span>{item.scenarioType}</span>
+                    </span>
                     <span className="amount" role="cell">
                       {item.amount}
                     </span>
-                    <span className="verdict-cell" role="cell">
-                      <StatusPill status={item.verdict} />
+                    <span className="evidence-score-cell" role="cell">
+                      <strong>{item.evidenceScoreLabel}</strong>
+                      <span>cited</span>
                     </span>
-                    <GovernanceBadge value={item.confidence} />
-                    <span className="next-action-cell" role="cell">
-                      {isSelected ? (
-                        <span className="next-action-muted">Selected</span>
-                      ) : (
-                        <a className="next-action" href="#selected-line" aria-label={`Review selected ${item.lineId}`}>
-                          Review <ArrowRight size={13} />
-                        </a>
-                      )}
+                    <span className="queue-cell" role="cell">
+                      {item.queueLabel}
                     </span>
                   </div>
                 );
@@ -103,61 +98,162 @@ export default async function ForensicsPage() {
           </div>
         </section>
 
-        <section className="decision-console" id="selected-line" aria-label="Selected deduction decision">
+        <section className="decision-console dossier-workbench" id="selected-line" aria-label="Selected deduction decision">
           <div className="section-heading">
             <div>
-              <h2>{selectedLine?.lineId ?? model.selected.lineId}</h2>
-              <span>Deterministic basis plus cited documents</span>
+              <h2>{selectedScenario?.scenarioId ?? model.selected.lineId}</h2>
+              <span>{selectedScenario?.scenarioType ?? "Selected deduction"}</span>
             </div>
-            <StatusPill status={model.selected.draft.status} />
+            <span className="review-state">{model.selected.draft.statusLabel}</span>
           </div>
 
-          <div className="next-best-action flagship-action">
-            <h3>Next-best-action</h3>
+          <div className="case-tabbar" aria-label="Selected scenario sections">
+            <span aria-current="page">Overview</span>
+            <span>Evidence {String(model.selected.evidencePack.documents.length)}</span>
+            <span>Journey</span>
+            <span>Decision</span>
+            <span>Audit</span>
+          </div>
+
+          <div className="case-snapshot case-meta-row">
+            <div>
+              <span>Customer</span>
+              <strong>{selectedScenario?.customerLabel ?? "Selected account"}</strong>
+            </div>
+            <div>
+              <span>Selected line</span>
+              <strong>{model.selected.lineId}</strong>
+            </div>
+            <div>
+              <span>Exposure</span>
+              <strong className="amount">{model.selected.draft.amount}</strong>
+            </div>
+            <div>
+              <span>Decision</span>
+              <strong>{selectedScenario?.verdictLabel ?? "Recovery"}</strong>
+            </div>
+          </div>
+
+          <section className="next-best-action flagship-action dossier-band" aria-label="Selected scenario overview">
+            <h3>What happened</h3>
             <div className="action-summary">
               <strong>Stage the recovery draft for human review.</strong>
               <span>{model.selected.draft.basis}</span>
             </div>
             <div className="action-paths">
-              <span>Draft action: {model.selected.draft.actionType}</span>
+              <span>{model.selected.draft.actionLabel}</span>
               <span>Amount: {model.selected.draft.amount}</span>
             </div>
-          </div>
+          </section>
 
-          <div className="draft priority-draft">
+          <section className="evidence dossier-band" aria-label="Evidence dossier">
+            <h3>Evidence pack</h3>
+            <div className="evidence-summary-grid">
+              <span>
+                <strong>{String(model.selected.evidencePack.documents.length)}</strong>
+                cited documents
+              </span>
+              <span>
+                <strong>{String(model.selected.evidencePack.recordIds.length)}</strong>
+                record IDs
+              </span>
+              <span>
+                <strong>pending human</strong>
+                dispatch state
+              </span>
+            </div>
+            <RecordStrip label="Selected line record IDs" recordIds={model.selected.evidencePack.recordIds} />
+            <div className="evidence-dossier" role="table" aria-label="Key evidence">
+              <div className="evidence-dossier-row evidence-dossier-head" role="row">
+                <span role="columnheader">Artifact</span>
+                <span role="columnheader">Source</span>
+                <span role="columnheader">Description</span>
+                <span role="columnheader">Cite</span>
+                <span role="columnheader">Rel.</span>
+                <span role="columnheader">Check</span>
+              </div>
+              {model.selected.evidencePack.documents.map((document) => (
+                <div className="evidence-dossier-row" key={document.documentId} role="row">
+                  <strong role="cell">{document.documentId}</strong>
+                  <span role="cell">{document.sourceLabel}</span>
+                  <span role="cell">{document.description}</span>
+                  <code role="cell">{document.citationId}</code>
+                  <span role="cell">{document.relevance}</span>
+                  <span role="cell">{document.verifiedLabel}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="maya-journey dossier-band" aria-label="Maya journey">
+            <h3>Maya journey</h3>
+            <ol>
+              {model.mayaJourney.map((step) => (
+                <li key={`${step.label}-${step.timestamp}`}>
+                  <span className="journey-node" aria-hidden="true" />
+                  <div>
+                    <span>{step.timestamp}</span>
+                    <strong>{step.label}</strong>
+                    <em>{step.status}</em>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section className="draft priority-draft dossier-band" aria-label="Human approval gate">
             <div className="draft-footer">
               <div>
                 <h3>Human approval</h3>
-                <span>External dispatch is blocked until a reviewer decides.</span>
+                <span>Evidence is opened before any external dispatch can continue.</span>
               </div>
               <strong className="amount">{model.selected.draft.amount}</strong>
             </div>
-            <ApprovalControls actionId={model.selected.draft.actionId} />
-          </div>
+            <ApprovalControls actionId={model.selected.draft.actionId} actions={model.selected.approvalActions} />
+          </section>
+        </section>
 
-          <div className="evidence">
-            <h3>Evidence pack</h3>
-            <RecordStrip label="Selected line record IDs" recordIds={model.selected.evidencePack.recordIds} />
-            {model.selected.evidencePack.documents.map((document) => (
-              <div className="evidence-row" key={document.documentId}>
-                <strong>{document.documentType}</strong>
-                <p>{document.summary}</p>
-                <code>{document.documentId}</code>
+        <aside className="agent-sidecar" aria-label="Maya agent operations">
+          <MultimodalDock dock={model.multimodalDock} recordIds={model.selected.evidencePack.recordIds} />
+          <AuditVerifyChip
+            hash="pending until human decision"
+            label="Recovery draft gate"
+            recordIds={model.selected.evidencePack.recordIds}
+            state="pending_human"
+          />
+          <section className="inbox compact-inbox containment-brief" aria-label={model.containmentPanel.statusLabel}>
+            <h3>{model.containmentPanel.statusLabel}</h3>
+            <div className="inbox-row">
+              <span>{model.containmentPanel.customerLabel}</span>
+              <strong>{model.containmentPanel.intentLabel}</strong>
+              <span>{model.containmentPanel.postureLabel}</span>
+            </div>
+            <div className="inbox-row">
+              <span>{model.containmentPanel.handoff.label}</span>
+              <strong>{model.containmentPanel.handoff.target}</strong>
+              <span>{model.containmentPanel.handoff.status}</span>
+            </div>
+            {model.containmentPanel.basisRows.map((row) => (
+              <div className="inbox-row" key={row.label}>
+                <span>{row.label}</span>
+                <strong>{row.value}</strong>
               </div>
             ))}
-          </div>
-
-          <div className="inbox">
+            <p>{model.containmentPanel.componentReadoutLabel}</p>
+            <p>{model.containmentPanel.actionPostureLabel}</p>
+            <RecordStrip label={model.containmentPanel.recordStripLabel} recordIds={model.containmentPanel.recordIds} />
+          </section>
+          <div className="inbox compact-inbox">
             <h3>Action inbox</h3>
-            {model.actionInbox.slice(0, 5).map((action) => (
+            {model.actionInbox.slice(0, 3).map((action) => (
               <div className="inbox-row" key={action.actionId}>
                 <span>{action.lineId}</span>
-                <strong>{action.actionType}</strong>
+                <strong>{action.actionLabel}</strong>
                 <span className="amount">{action.amount}</span>
               </div>
             ))}
           </div>
-        </section>
+        </aside>
       </section>
     </CockpitShell>
   );

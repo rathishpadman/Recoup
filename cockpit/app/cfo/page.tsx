@@ -1,9 +1,7 @@
-import { BriefcaseIcon as Briefcase } from "@phosphor-icons/react/dist/ssr/Briefcase";
-import { ChartLineUpIcon as ChartLineUp } from "@phosphor-icons/react/dist/ssr/ChartLineUp";
-import { ShieldCheckIcon as ShieldCheck } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
-import { CockpitShell, Metric } from "../cockpit-shell.tsx";
+import { CockpitShell } from "../cockpit-shell.tsx";
 import { fetchCfoModel } from "../cockpit-data.ts";
 import { requireRouteAccess } from "../demo-auth.ts";
+import { AuditVerifyChip } from "../premium-components.tsx";
 
 export default async function CfoPage() {
   const session = await requireRouteAccess("/cfo");
@@ -12,68 +10,165 @@ export default async function CfoPage() {
   return (
     <CockpitShell
       active="cfo"
-      kicker="Executive readout"
+      kicker="Executive readout / Read-only"
       session={session}
-      subtitle="A compact board view of deterministic recovery posture, open proof dependencies, and governed AI readiness."
-      title="CFO Cockpit"
+      subtitle="Board-pack view of deterministic recovery posture, proof dependencies, and governed AI readiness."
+      title="CFO Readout"
+      toolbar={
+        <div className="readout-toolbar" aria-label="CFO readout status">
+          {model.readoutStatusLabels.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      }
     >
-      <section className="summary-grid" aria-label="Board metric strip">
-        {model.metrics.map((metric, index) => (
-          <Metric
-            icon={index === 0 ? <Briefcase size={18} /> : index === 1 ? <ShieldCheck size={18} /> : <ChartLineUp size={18} />}
-            key={metric.label}
-            label={metric.label}
-            value={metric.value}
-            {...(index === 0 ? { variant: "primary" as const } : {})}
-          />
+      <section className="cfo-report-meta" aria-label="CFO report metadata">
+        {model.reportMetadata.map((item) => (
+          <div key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.valueLabel}</strong>
+          </div>
+        ))}
+        <div>
+          <span>{model.assurance.label}</span>
+          <strong>{model.assurance.statusLabel}</strong>
+        </div>
+      </section>
+
+      <section className="board-metric-ledger" aria-label="Board metric ledger">
+        {model.boardMetrics.map((metric) => (
+          <article key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.supportLabel}</small>
+          </article>
         ))}
       </section>
 
-      <section className="route-grid executive" aria-label="CFO executive route">
-        <section className="surface-panel executive-panel">
-          <div className="section-heading">
+      <section className="cfo-board-grid" aria-label="CFO executive route">
+        <section className="surface-panel executive-panel board-readout cfo-audit-panel">
+          <div className="section-heading cfo-audit-heading">
             <div>
               <h2>Audit posture</h2>
-              <span>Governed run state for internal demo readiness.</span>
+              <span>{model.auditPosture.summary.supportLabel}</span>
             </div>
+            <AuditVerifyChip
+              hash={model.provenance.auditHash}
+              label="Board readout standard"
+            />
           </div>
-          <div className="executive-strip">
+          <div className="audit-summary-row" aria-label="Overall audit posture">
+            <span>Overall posture</span>
+            <strong>{model.auditPosture.summary.status}</strong>
+            <span>{model.auditPosture.recordCountLabel}</span>
+          </div>
+          <div className="control-ledger cfo-control-ledger">
+            {model.auditPosture.controls.map((control) => (
+              <div key={control.label}>
+                <span>{control.label}</span>
+                <strong>{control.value}</strong>
+                <small>{control.supportLabel}</small>
+              </div>
+            ))}
+          </div>
+          <div className="board-proof-table cfo-proof-table" aria-label="Executive proof posture">
             <div>
-              <span>External writes</span>
-              <strong>Blocked by HITL</strong>
+              <span>Proof lane</span>
+              <span>State</span>
+              <span>Basis</span>
+              <span>Records</span>
             </div>
-            <div>
-              <span>Evidence spine</span>
-              <strong>Hash-chained and cited</strong>
-            </div>
-            <div>
-              <span>Runtime posture</span>
-              <strong>Ready with proof gaps</strong>
-            </div>
-          </div>
-          <div className="insight">
-            <h3>What changed</h3>
-            <p>{model.whatChanged}</p>
-          </div>
-          <div className="insight">
-            <h3>AI insight</h3>
-            <p>{model.aiInsight}</p>
-          </div>
-        </section>
-
-        <section className="surface-panel">
-          <div className="section-heading">
-            <div>
-              <h2>Open dependencies</h2>
-              <span>Release blockers that need owner proof before a public demo.</span>
-            </div>
-          </div>
-          <div className="dependency-list">
-            {model.openDependencies.map((dependency) => (
-              <span key={dependency}>{dependency}</span>
+            {model.auditPosture.evidenceRows.map((row) => (
+              <div key={row.label}>
+                <strong>{row.label}</strong>
+                <span>{row.state}</span>
+                <span>{row.basisLabel}</span>
+                <span>{row.recordCountLabel}</span>
+              </div>
             ))}
           </div>
         </section>
+
+        <section className="surface-panel dependency-panel">
+          <div className="section-heading">
+            <div>
+              <h2>Open dependencies</h2>
+              <span>Owner proof required before public demo claims.</span>
+            </div>
+          </div>
+          <div className="dependency-table cfo-dependency-table" aria-label="Open proof dependency table">
+            <div className="dependency-row dependency-header">
+              <span>Dependency</span>
+              <span>Owner</span>
+              <span>Timing</span>
+              <span>Impact</span>
+              <span>Status</span>
+            </div>
+            {model.dependencies.map((dependency) => (
+              <div className="dependency-row" key={dependency.dependencyId}>
+                <strong>{dependency.label}</strong>
+                <span>{dependency.owner}</span>
+                <span>{dependency.timing}</span>
+                <span>{dependency.impact}</span>
+                <span>{dependency.status}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="surface-panel cfo-change-panel">
+          <div className="section-heading">
+            <div>
+              <h2>What changed</h2>
+              <span>{model.whatChanged}</span>
+            </div>
+          </div>
+          <div className="cfo-change-table" aria-label="CFO change ledger">
+            <div>
+              <span>Movement</span>
+              <span>Value</span>
+              <span>Posture</span>
+              <span>Support</span>
+            </div>
+            {model.changeLedger.map((row) => (
+              <div key={row.label}>
+                <strong>{row.label}</strong>
+                <span>{row.value}</span>
+                <span>{row.postureLabel}</span>
+                <span>{row.supportLabel}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="surface-panel cfo-insight-panel">
+          <div className="insight cfo-ai-readout">
+            <div className="cfo-insight-heading">
+              <h3>AI insight</h3>
+              <span>{model.insightReadout.posture}</span>
+            </div>
+            <strong>{model.insightReadout.title}</strong>
+            <p>{model.aiInsight}</p>
+            <dl>
+              <div>
+                <dt>Basis</dt>
+                <dd>{model.insightReadout.basisLabel}</dd>
+              </div>
+              <div>
+                <dt>Source systems</dt>
+                <dd>{model.provenance.sourceSystems.join(" / ")}</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
+        <footer className="provenance-footer cfo-provenance-footer">
+          <span>Provenance</span>
+          <strong>{model.provenance.sourceLabel}</strong>
+          <span>{model.provenance.dataBasisLabel}</span>
+          <span>{model.provenance.actionPosture}</span>
+          <span>{model.provenance.sourceSystemCountLabel}</span>
+        </footer>
       </section>
     </CockpitShell>
   );
