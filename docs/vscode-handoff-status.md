@@ -4,14 +4,16 @@ Date: 2026-06-22
 Workspace: `C:\Rathish\Root Folder\CFO\Hackathon\Recoup1\Recoup`
 Branch: `codex/guardrail-riskmesh-hardening`
 Remote: `https://github.com/rathishpadman/Recoup.git`
-Remote branch: not pushed for this local session branch
+Remote branch: pending push for this local session branch
 PR URL: not opened for this local session branch
 
 ## Current Git Status
 
 - Active work is on local session branch `codex/guardrail-riskmesh-hardening`.
 - The Windows EOL verification fix was preserved in commit `7fccd47 Preserve Windows verification newline fixes`.
-- The current session is reconciling stale handoff docs, named guardrail surfaces, and the Risk Mesh service/tool boundary.
+- The current session has four new local commits after the user-requested git-prioritization checkpoint: `e42530b Harden runtime guardrail gates`, `24ba638 Harden cockpit auth proxy boundaries`, `1e0d18a Rework cockpit persona surfaces`, and `457737a Document cockpit visual handoff evidence`.
+- Fresh pre-commit verification passed before those commits: `npm.cmd run test:e2e` passed after the Next app-route env-loader fix, and `npm.cmd run verify` passed with ESLint green, TypeScript green, Vitest `67` files / `401` tests green, and Dependency Cruiser green (`97` modules / `249` dependencies).
+- The branch still needs a safe upstream push with no rebase or force-push: check `git ls-remote --heads origin codex/guardrail-riskmesh-hardening` first, then `git push -u origin codex/guardrail-riskmesh-hardening` if empty.
 - Prior pushed-branch notes are historical and no longer describe the active local branch.
 
 ## Restart-Ready Handoff - Read First
@@ -22,7 +24,7 @@ Current live checkpoint after user-approved continuation:
 
 - Human UI verification is now an explicit required gate before marking any UI/UX surface passed. The cockpit is running for reviewer inspection at `http://localhost:3000`; the API is running at `http://127.0.0.1:4317`.
 - Fresh David `/credit` desktop visual reviewer `Godel` scored the post-Risk-Mesh-overlap screenshot `3/5 FAIL`. The old Risk Mesh collision is resolved, but the middle Partial hold workbench / Proactive terms action packet still read too generated, with cramped score copy, text-heavy action rows, and raw IDs too prominent.
-- A narrow RED/GREEN fix is in progress for David `/credit`: `tests/invariants/cockpit-no-business-logic.test.ts` now protects unclipped score-basis copy, compact `credit-action-decision-row` structure, and low-emphasis `credit-provenance-strip` record IDs. The RED failure was observed, then focused verification passed: `npm.cmd run test -- tests\invariants\cockpit-no-business-logic.test.ts` (`23/23`), `npm.cmd run typecheck`, and `npm.cmd run test -- tests\invariants\cockpit-no-business-logic.test.ts tests\unit\cockpit.test.ts` (`39/39`).
+- A narrow RED/GREEN fix landed locally for David `/credit`: `tests/invariants/cockpit-no-business-logic.test.ts` now protects unclipped score-basis copy, compact `credit-action-decision-row` structure, and low-emphasis `credit-provenance-strip` record IDs. The RED failure was observed, then focused verification passed: `npm.cmd run test -- tests\invariants\cockpit-no-business-logic.test.ts` (`23/23`), `npm.cmd run typecheck`, and `npm.cmd run test -- tests\invariants\cockpit-no-business-logic.test.ts tests\unit\cockpit.test.ts` (`39/39`).
 - The first full `npm.cmd run test:e2e` retry after this fix failed after ~174s at `input[name="loginId"]` because Next served a 500 dev error for `./config/env.ts` importing `./governed.js` through `cockpit/app/api/approval/route.ts`. Root cause: Next/Turbopack could not resolve the NodeNext `.js` source import in the app-route graph after approval-route compilation. Fix: app API routes now import `loadLocalRuntimeEnvFiles` from new `config/localRuntimeEnv.ts`, while `config/env.ts` re-exports that loader for Node runtime callers. RED coverage was added in `tests/invariants/cockpit-route-architecture.test.ts`; route/runtime verification passed: `npm.cmd run test -- tests\invariants\cockpit-route-architecture.test.ts tests\invariants\runtime-config.test.ts tests\unit\realtime-next-routes.test.ts` (`32/32`) and `npm.cmd run typecheck`.
 - The stale Next dev server had to be restarted after the module-boundary fix. After restart, `/login` returned HTTP `200` with `input[name="loginId"]`, and a fresh full `npm.cmd run test:e2e` passed, refreshing `output/playwright/e2e/*`. The pass took ~296s because the script captures the full responsive matrix with repeated fresh login contexts; logs show repeated `/login` and `/run` renders around 3s each.
 - A selector-specificity issue then appeared in the quick David screenshot: the older `.credit-action-table > div` grid rule overrode the new compact decision-row grid. A RED regression tightened the CSS selector requirement, and the fix now uses `.credit-arbitration-workstation .credit-action-table > .credit-action-decision-row`. `npm.cmd run test -- tests\invariants\cockpit-no-business-logic.test.ts` passed (`23/23`), and the refreshed `output/playwright/e2e/david-credit-1440.png` shows compact horizontal action rows.
