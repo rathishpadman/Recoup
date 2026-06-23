@@ -112,7 +112,7 @@ describe("Maya shadcn cockpit boundary", () => {
   it("renders through a dedicated review route backed by canonical read models", () => {
     const route = readFileSync("cockpit/app/forensics/shadcn/page.tsx", "utf8");
 
-    expect(route).toMatch(/requireRouteAccess\(\s*["']\/forensics["']\s*\)/u);
+    expect(route).toMatch(/requireRouteAccess\(\s*["']\/forensics\/shadcn["']\s*\)/u);
     expect(route).toMatch(/\bfetchForensicsModel\s*\(\s*\)/u);
     expect(route).toMatch(/\bfetchConnectorReadinessModel\s*\(\s*\)/u);
     expect(route).toMatch(/<MayaForensicsSurface\b/u);
@@ -150,8 +150,6 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(surface).toMatch(/\bMayaForensicsSurface\b/u);
     expect(surface).toMatch(/\bMayaForensicsSurfaceProps\b/u);
     expect(surface).toMatch(/\bmodel\.worklist\b/u);
-    expect(surface).toMatch(/\bmodel\.selected\b/u);
-    expect(surface).toMatch(/\bmodel\.selected\.lineId\b/u);
     expect(surface).toContain("connectors={connectors}");
     expect(surface).toContain("session={session}");
 
@@ -263,22 +261,68 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).not.toContain("human:cfo-lead");
     expect(auditPanel).toContain("response?.auditEntryHash");
     expect(auditPanel).toContain("response?.status");
-    expect(surface).toContain("setApprovalResponse");
-    expect(surface).toContain("approvalResponse === undefined ? {} : { approvalResponse }");
     expect(types).toMatch(/interface ApprovalGateResponse\s*\{[^}]*actionId:\s*string;/su);
   });
 
-  it("does not expose row switching while details are fixed to model.selected", () => {
+  it("keeps Beat 2 row selection as UI state over fetched worklist records", () => {
     const sources = readTree("cockpit/components/maya");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const table = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
 
-    expect(surface).toMatch(/\bmodel\.selected\.lineId\b/u);
     expect(surface).not.toContain("model.worklist[0]");
     expect(surface).toContain("<MayaEmptyState");
+    expect(surface).toContain("Select a deduction to open its work item");
+    expect(surface).toContain("selectedWorklistItem");
+    expect(surface).toContain("setSelectedWorklistItem");
+    expect(surface).not.toContain("<DeductionCaseWorkspace");
+    expect(surface).not.toContain("activeLineId=");
+    expect(table).toContain("onSelectItem");
+    expect(table).toContain("selectedLineId");
+    expect(table).toContain("item.lineId");
+    expect(sources).toContain("Backend fixed selected record");
     expect(sources).not.toContain("setSelectedLineId");
     expect(sources).not.toMatch(/useState[^;]*selectedLineId/su);
     expect(sources).not.toMatch(/onClick=\{[^}]*setSelectedLineId/su);
     expect(sources).not.toContain("Select ${");
+  });
+
+  it("keeps Beat 2 priority gaps inside the KPI strip instead of a separate alert", () => {
+    const kpiStrip = readFileSync("cockpit/components/maya/maya-run-kpi-strip.tsx", "utf8");
+
+    expect(kpiStrip).toContain("Needs priority field");
+    expect(kpiStrip).toContain("High-priority items");
+    expect(kpiStrip).toContain("recoveryTracker");
+    expect(kpiStrip).toContain("actionInbox");
+    expect(kpiStrip).not.toContain("@/components/ui/alert");
+    expect(kpiStrip).not.toMatch(/<Alert(?:\s|>)/u);
+    expect(kpiStrip).not.toContain("maya-priority-contract-gap");
+  });
+
+  it("keeps source readiness as a slim backend-wired strip", () => {
+    const sourceStrip = readFileSync("cockpit/components/maya/source-readiness-strip.tsx", "utf8");
+
+    expect(sourceStrip).toContain("connectors.sourceTiles.slice");
+    expect(sourceStrip).toContain("connectors.lastRefreshedLabel");
+    expect(sourceStrip).toContain("source.modeLabel");
+    expect(sourceStrip).toContain("source.stateLabel");
+    expect(sourceStrip).not.toContain("View all sources");
+    expect(sourceStrip).not.toContain("lg:grid-cols-7");
+    expect(sourceStrip).not.toContain("connectors.connectors.map");
+  });
+
+  it("keeps the Beat 2 worklist table-led with mockup-like controls and no fake columns", () => {
+    const table = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
+
+    expect(table).toContain("Deduction Worklist");
+    expect(table).toContain("items.length");
+    expect(table).toContain("InputGroup");
+    expect(table).toContain("Search by scenario, customer, or line ID");
+    expect(table).toContain("Save view");
+    expect(table).toContain("More filters");
+    expect(table).toContain("Recommended action");
+    expect(table).not.toContain("Priority");
+    expect(table).not.toContain("Owner");
+    expect(table).not.toContain("Age");
   });
 
   it("keeps lucide icons accessible or explicitly decorative", () => {

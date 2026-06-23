@@ -1,6 +1,6 @@
 # Maya Beat 2 Shadcn Spec: Morning Run Summary
 
-Status: draft for user review before Beat 3.
+Status: mandatory Beat 2 implementation contract after read-only review failure.
 
 Success check for this spec: a build worker can implement only the Beat 2 mini-dashboard landing state from this document without inventing backend facts, reusing old premium/custom UI modules, or drifting beyond the mockup target.
 
@@ -8,7 +8,9 @@ Success check for this spec: a build worker can implement only the Beat 2 mini-d
 
 Beat 2 covers only the post-login Maya landing state: the mini-dashboard / morning run summary that appears before Maya opens a specific case.
 
-This document is a spec, not an implementation authorization. It must be user-reviewed before Beat 3 worklist/recommended-action implementation proceeds. The approved methodology remains:
+The earlier Beat 2 spec was read-only reviewed as failed (`3/5`), and the runtime screenshot was user-rated `2/5`. This document is now the stricter implementation contract for rebuilding Beat 2 to the accepted mockup anatomy before any Beat 3 work begins.
+
+The approved methodology remains:
 
 1. Mockup.
 2. Spec.
@@ -17,9 +19,9 @@ This document is a spec, not an implementation authorization. It must be user-re
 
 Non-goals:
 
-- Do not implement UI code from this document.
 - Do not change backend contracts in the Beat 2 UI pass unless a later brief explicitly names those files.
 - Do not invent total pending counts, high-priority counts, source health, approvals, recommendations, evidence, claims, dollars, or statuses in React.
+- Do not treat vague/weak earlier spec language as permission to keep the failed runtime anatomy.
 
 ## 2. Mockup Target And Visual Goals
 
@@ -34,8 +36,12 @@ Supporting direction:
 Non-negotiable visual goals:
 
 - Light-first, premium B2B SaaS command surface.
-- Persistent left navigation/sidebar, not a centered generic dashboard.
-- Dense morning summary: compact KPI strip, source readiness strip, worklist-led main area, and a quiet empty/detail state.
+- Persistent left navigation/sidebar, not a centered generic dashboard. Target width is roughly `240px`, with a dark petrol Recoup command sidebar.
+- Dense morning summary: a six-card KPI strip, compact source readiness strip, table-led main area, and a quiet right workspace pane.
+- High-priority unavailable state must live inside the KPI slot, never as a separate alert/banner.
+- Source readiness must be a single compact row with no cramped source cards, badge collisions, or label clipping.
+- Worklist must be table-led with no desktop horizontal scrolling, clipped action chips, or incoherent text overlap at `1440px` or `1280px`.
+- Right pane target width is `320px` to `360px`. It starts as an Empty workspace starter and shows only fetched-row client-selection summary after row click.
 - Shadcn-only composition using installed primitives in `cockpit/components/ui`.
 - No old bespoke `premium-components` surface language, no generated dashboard tells, no purple/blue gradient treatment, no decorative hero.
 - Data must read as operational evidence, not marketing copy.
@@ -49,7 +55,7 @@ Beat 2 route target:
 
 Current route behavior:
 
-- Calls `requireRouteAccess("/forensics")`.
+- Calls `requireRouteAccess("/forensics/shadcn")`.
 - Fetches `fetchForensicsModel()` from `GET /forensics`.
 - Fetches `fetchConnectorReadinessModel()` from `GET /connectors`.
 - Renders `MayaForensicsSurface`.
@@ -70,6 +76,14 @@ Current data transport:
 | Recommended action state | `worklist[].recommendedActionLabel`; supporting tooltip can use `evidenceLabel` and `confidenceLabel`. | Render as advisory label with lucide agent/bot/lightbulb-style icon. Copy must avoid autonomous action language. | No separate recommendation object, eligibility, or action authority field. |
 | Pending human action | `actionInbox[]`; `selected.draft.status` and `statusLabel` when `pending_human`. | Display as HITL context only. | No consolidated approvals summary endpoint. |
 | Empty/detail state | `model.selected.lineId` and selected worklist match inside `MayaForensicsSurface`. | If selected line is absent, render an honest read-model mismatch/empty state. | No backend row selection endpoint for Beat 2. |
+
+Backend gaps that must remain honest:
+
+- No `workspaceSummary` exists.
+- No per-row priority, age, SLA, owner, source, or work-type fields exist that match the mockup.
+- No backend row-switch endpoint exists; Beat 2 may use client selection over fetched `worklist[]` only.
+- No consolidated approvals summary exists.
+- KPI labels have no stable keys; do not infer business meaning beyond display and explicit contract-gap handling.
 
 ## 4. Implementation Ownership
 
@@ -119,6 +133,8 @@ Composition rules:
 - Use `Badge` for statuses, not custom spans.
 - Use semantic tokens and variants; no raw ad hoc color ramps for business status.
 - Icon-only or icon-leading buttons must use lucide and shadcn icon conventions.
+- Do not use `CockpitShell`, `premium-components`, old `/forensics` components, Phosphor icons, or custom div tables.
+- Do not show disabled action buttons unless the control is backed by a fetched row/action contract. The empty right pane should be an Empty state only.
 
 ## 6. Interconnection And Backend Wiring Requirements
 
@@ -138,6 +154,7 @@ Banned:
 - Client-side derivation of dollars, priority, evidence readiness, approval eligibility, source readiness, verdict, routing, or audit state.
 - Static mockup data in React.
 - Copy that says or implies autonomous recovery/send/ERP write-back.
+- Route access checks that guard the review route as `/forensics` instead of `/forensics/shadcn`.
 
 ## 7. Recommended Action State
 
@@ -187,10 +204,11 @@ Checklist:
 
 - First viewport after Maya login or review route matches the Beat 2 morning-summary anatomy.
 - Persistent sidebar is present and visually integrated.
-- KPI strip is compact, real-data backed, and does not parse or invent dollars.
+- KPI strip is six large cards, real-data backed, and does not parse or invent dollars.
 - Total pending/high-priority handling is honest: backend value or clear unavailable/contract-gap state.
-- Source readiness uses `/connectors` data and does not label synthetic sources as live.
-- Worklist preview is dense and table-led, not card-everything.
+- Source readiness uses `/connectors` data, stays a compact single row, and does not label synthetic sources as live.
+- Worklist preview is dense and table-led, not card-everything, with no desktop horizontal scrolling at `1440px` or `1280px`.
+- Right workspace pane is `320px` to `360px`, begins as a centered Empty state, and only shows fetched-row client selection on click.
 - Recommended action appears as advisory with an agent/bot/lightbulb icon and no autonomous action copy.
 - Empty/detail state is quiet and operational, not a marketing hero.
 - No legacy Maya custom/premium visual language is obvious.
@@ -211,5 +229,6 @@ Later Beat 2 implementation verification:
 - `npm run typecheck`
 - `npm run test`
 - E2E screenshot capture for `output/playwright/e2e/maya-beat-02-dashboard.png`.
+- Explicit visual check at `1440px` and `1280px` desktop widths for table fit, source label fit, and right-pane proportions.
 - Visual comparison against `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png` and `mockups/imagegen/maya-shadcn-worklist-first-2026-06-23.png`.
 - Full `npm run verify` before claiming the broader Maya shadcn goal is complete.

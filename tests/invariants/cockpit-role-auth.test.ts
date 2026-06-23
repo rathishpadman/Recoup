@@ -69,7 +69,7 @@ describe("cockpit role-based demo auth", () => {
     expect(demoProfiles).toContain('loginId: "Maya"');
     expect(demoProfiles).toContain('loginId: "david"');
     expect(demoProfiles).toContain('loginId: "CFO"');
-    expect(demoProfiles).toContain('defaultRoute: "/forensics"');
+    expect(demoProfiles).toContain('defaultRoute: "/forensics/shadcn"');
     expect(demoProfiles).toContain('defaultRoute: "/credit"');
     expect(demoProfiles).toContain('defaultRoute: "/cfo"');
     expect(demoProfiles).toContain('"/governance/connectors"');

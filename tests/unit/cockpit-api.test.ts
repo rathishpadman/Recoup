@@ -314,7 +314,7 @@ describe("S5 cockpit API", () => {
       expect(model.surface).toBe("login");
       expect(model.personas.map((persona) => persona.loginId)).toEqual(["Maya", "david", "CFO"]);
       expect(model.personas.map((persona) => persona.role)).toEqual(["maya", "david", "cfo"]);
-      expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics", "/credit", "/cfo"]);
+      expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics/shadcn", "/credit", "/cfo"]);
       expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([2, 1, 5]);
       expect(model.personas.every((persona) => persona.sourceMode === "deterministic_demo_profile")).toBe(true);
     } finally {

@@ -1,8 +1,7 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ConnectorReadinessCockpitModel } from "../../app/cockpit-data.ts";
 import type { MayaSourceTile } from "./types.ts";
 
@@ -22,58 +21,78 @@ function sourceToneVariant(statusTone: MayaSourceTile["statusTone"]): "default" 
   return "outline";
 }
 
+function sourceToneRule(statusTone: MayaSourceTile["statusTone"]): string {
+  if (statusTone === "ready") {
+    return "before:bg-[color:var(--status-success-text)]";
+  }
+
+  if (statusTone === "blocked") {
+    return "before:bg-destructive";
+  }
+
+  return "before:bg-[color:var(--color-accent)]";
+}
+
 export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) {
+  if (connectors.sourceTiles.length === 0) {
+    return (
+      <Alert>
+        <AlertTitle>Source readiness unavailable</AlertTitle>
+        <AlertDescription>The connector read model returned no source readiness rows.</AlertDescription>
+      </Alert>
+    );
+  }
+
+  const visibleSources = connectors.sourceTiles.slice(0, 5);
+
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>Source readiness</CardTitle>
-        <CardDescription>{connectors.lastRefreshedLabel}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-w-0 flex-col gap-3">
-        <div className="grid gap-3 lg:grid-cols-3">
-          {connectors.sourceTiles.map((source) => (
-            <div className="flex min-w-0 flex-col gap-2 rounded-lg border p-3" key={source.key}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium">{source.label}</p>
-                  <p className="text-sm text-muted-foreground">{source.summary}</p>
-                </div>
-                <Badge variant={sourceToneVariant(source.statusTone)}>{source.stateLabel}</Badge>
-              </div>
-              <div className="flex flex-wrap gap-2" aria-label={`${source.label} proof`}>
-                <Badge variant="outline">{source.modeLabel}</Badge>
-                <Badge variant="outline">{source.mark}</Badge>
-                {source.proofItems.map((proof) => (
-                  <Badge key={`${source.key}-${proof}`} variant="outline">
-                    {proof}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-sm text-muted-foreground">{source.detail}</p>
-            </div>
-          ))}
+    <Card className="rounded-lg py-0 shadow-none" size="sm">
+      <CardContent
+        aria-label={connectors.lastRefreshedLabel}
+        className="grid min-h-[78px] min-w-0 items-center gap-3 px-3 py-2 xl:grid-cols-[220px_repeat(5,minmax(96px,1fr))]"
+      >
+        <div className="grid min-w-0 gap-1">
+          <CardTitle>Source Readiness</CardTitle>
+          <CardDescription className="truncate text-xs">System connectivity and data freshness</CardDescription>
         </div>
-        <Separator />
-        <ScrollArea className="max-h-44">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Connector</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Reason</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {connectors.connectors.map((connector) => (
-                <TableRow key={connector.name}>
-                  <TableCell className="whitespace-normal font-medium">{connector.name}</TableCell>
-                  <TableCell className="whitespace-normal">{connector.status}</TableCell>
-                  <TableCell className="whitespace-normal text-muted-foreground">{connector.reason}</TableCell>
-                </TableRow>
+        {visibleSources.map((source) => (
+          <Tooltip key={source.key}>
+            <TooltipTrigger asChild>
+              <div
+                className={`relative grid min-h-12 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-md pt-2 before:absolute before:inset-x-0 before:top-0 before:h-0.5 ${sourceToneRule(
+                  source.statusTone
+                )}`}
+              >
+                <div className="flex size-7 items-center justify-center rounded-lg border bg-muted text-xs font-semibold text-muted-foreground">
+                  {source.mark}
+                </div>
+                <div className="grid min-w-0 gap-1">
+                  <div className="grid min-w-0 gap-0.5">
+                    <p className="min-w-0 truncate text-xs font-medium leading-4" title={source.label}>
+                      {source.label}
+                    </p>
+                    <Badge
+                      className="h-5 max-w-full shrink-0 justify-start truncate px-1.5 text-[10px]"
+                      title={source.stateLabel}
+                      variant={sourceToneVariant(source.statusTone)}
+                    >
+                      <span className="min-w-0 truncate">{source.stateLabel}</span>
+                    </Badge>
+                  </div>
+                  <p className="min-w-0 truncate text-xs leading-4 text-muted-foreground" title={source.modeLabel}>
+                    {source.modeLabel}
+                  </p>
+                </div>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-72">
+              <span>{source.detail}</span>
+              {source.proofItems.map((proof) => (
+                <span key={`${source.key}-${proof}`}>{proof}</span>
               ))}
-            </TableBody>
-          </Table>
-        </ScrollArea>
+            </TooltipContent>
+          </Tooltip>
+        ))}
       </CardContent>
     </Card>
   );

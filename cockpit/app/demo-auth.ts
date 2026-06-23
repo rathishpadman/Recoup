@@ -167,7 +167,7 @@ export function demoSessionFromSupabaseRecord(record: unknown): DemoSession | un
     role: record.role
   };
 
-  return normalizeDemoSession(candidate);
+  return normalizeVerifiedDemoRecord(candidate);
 }
 
 function demoSessionCookieOptions(env: RuntimeEnv) {
@@ -227,6 +227,44 @@ function normalizeDemoSession(value: unknown): DemoSession | undefined {
     canonical.displayName !== displayName ||
     canonical.defaultRoute !== defaultRoute ||
     !sameRoutes(canonical.allowedRoutes, allowedRoutes)
+  ) {
+    return undefined;
+  }
+
+  return {
+    allowedRoutes: [...canonical.allowedRoutes],
+    defaultRoute: canonical.defaultRoute,
+    displayName: canonical.displayName,
+    loginId: canonical.loginId,
+    role: canonical.role
+  };
+}
+
+function normalizeVerifiedDemoRecord(value: unknown): DemoSession | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const { allowedRoutes, defaultRoute, displayName, loginId, role } = value;
+  if (
+    !Array.isArray(allowedRoutes) ||
+    !allowedRoutes.every((route): route is string => typeof route === "string") ||
+    typeof defaultRoute !== "string" ||
+    typeof displayName !== "string" ||
+    typeof loginId !== "string" ||
+    typeof role !== "string" ||
+    !isKnownDemoLoginId(loginId) ||
+    !isDemoRole(role)
+  ) {
+    return undefined;
+  }
+
+  const canonical = profilesByLoginId[loginId];
+  if (
+    canonical.role !== role ||
+    canonical.displayName !== displayName ||
+    !sameRoutes(canonical.allowedRoutes, allowedRoutes) ||
+    !isDemoRouteAllowed(canonical.defaultRoute, allowedRoutes)
   ) {
     return undefined;
   }

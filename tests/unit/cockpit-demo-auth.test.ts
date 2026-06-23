@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createSignedDemoSessionValue,
+  demoSessionFromSupabaseRecord,
   demoProfiles,
   isDemoRouteAllowed,
   roleAllowedRoutes,
@@ -11,12 +12,12 @@ import {
 describe("cockpit demo auth helpers", () => {
   it("exports the canonical demo profiles used by login and session validation", () => {
     expect(demoProfiles.map((profile) => profile.loginId)).toEqual(["Maya", "david", "CFO"]);
-    expect(demoProfiles.map((profile) => profile.defaultRoute)).toEqual(["/forensics", "/credit", "/cfo"]);
+    expect(demoProfiles.map((profile) => profile.defaultRoute)).toEqual(["/forensics/shadcn", "/credit", "/cfo"]);
     expect(demoProfiles.map((profile) => profile.displayName)).toEqual(["Maya Patel", "David Kim", "CFO"]);
   });
 
   it("maps each demo role to the expected default route and route allowlist", () => {
-    expect(roleHomeRoute("maya")).toBe("/forensics");
+    expect(roleHomeRoute("maya")).toBe("/forensics/shadcn");
     expect(roleHomeRoute("david")).toBe("/credit");
     expect(roleHomeRoute("cfo")).toBe("/cfo");
 
@@ -36,6 +37,7 @@ describe("cockpit demo auth helpers", () => {
     const cfoRoutes = roleAllowedRoutes("cfo");
 
     expect(isDemoRouteAllowed("/forensics", mayaRoutes)).toBe(true);
+    expect(isDemoRouteAllowed("/forensics/shadcn", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/forensics/line/S2", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/run/replay", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/credit", mayaRoutes)).toBe(false);
@@ -77,5 +79,23 @@ describe("cockpit demo auth helpers", () => {
 
     expect(verifyDemoSessionValue(malformed, "test-secret")).toBeUndefined();
     expect(verifyDemoSessionValue("not-json.not-a-signature", "test-secret")).toBeUndefined();
+  });
+
+  it("normalizes verified Supabase demo records to the canonical local route contract", () => {
+    expect(
+      demoSessionFromSupabaseRecord({
+        allowed_routes: ["/forensics", "/run"],
+        default_route: "/forensics",
+        display_name: "Maya Patel",
+        login_id: "Maya",
+        role: "maya"
+      })
+    ).toEqual({
+      allowedRoutes: ["/forensics", "/run"],
+      defaultRoute: "/forensics/shadcn",
+      displayName: "Maya Patel",
+      loginId: "Maya",
+      role: "maya"
+    });
   });
 });

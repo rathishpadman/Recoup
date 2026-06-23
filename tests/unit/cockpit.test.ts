@@ -89,7 +89,7 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.personas.map((persona) => persona.loginId)).toEqual(["Maya", "david", "CFO"]);
     expect(model.personas.map((persona) => persona.role)).toEqual(["maya", "david", "cfo"]);
     expect(model.personas.map((persona) => persona.displayName)).toEqual(["Maya Patel", "David Kim", "CFO"]);
-    expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics", "/credit", "/cfo"]);
+    expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics/shadcn", "/credit", "/cfo"]);
     expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([2, 1, 5]);
     expect(new Set(model.personas.map((persona) => persona.sourceMode))).toEqual(new Set(["deterministic_demo_profile"]));
     expect(model.personas.find((persona) => persona.loginId === "Maya")).toMatchObject({

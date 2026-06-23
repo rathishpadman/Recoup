@@ -111,6 +111,11 @@ None. No agent loop is currently active.
 
 ## Open Items
 
+- Beat 2 focused rebuild pass is implemented for the morning-run landing view. Maya routes to `/forensics/shadcn`; the page fetches `/forensics` and `/connectors`, renders the KPI strip and source readiness across the full workbench width, then splits into a table-led worklist plus right-side workspace starter.
+- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. Final-polish self-assessment against `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png`: `4.0/5` acceptance candidate. User approval is still required before treating Beat 2 as accepted release evidence.
+- Beat 2 work-item pane behavior: the landing pane starts with a shadcn Empty workspace starter (`Select a deduction to open its work item`). Clicking a worklist row opens a shallow work-item summary using only that already-fetched `worklist[]` row. This is client-side UI state over real fetched records, not a backend row-switch contract.
+- Backend contract caveat for Beat 2: only the fixed `model.selected` evidence packet exists. The pane shows a contract note when the clicked worklist row does not correspond to `model.selected.lineId`; no evidence tabs, approval dialog, or deep case flow were rebuilt in Beat 2.
+- Beat 2 verification in the focused rebuild pass: `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts`, `npm.cmd run test -- tests/unit/cockpit-demo-auth.test.ts`, `npm.cmd run typecheck`, and `npm.cmd run test:e2e -- --maya-shadcn-only` all passed.
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full E2E was not rerun after the previous debug path because the current gate is Beat 1 screenshot/review.
@@ -119,16 +124,24 @@ None. No agent loop is currently active.
 
 ## Blockers
 
-- Beat 1 is not user-approved yet.
+- Prior Beat 1 approval blocker is superseded for this Beat 2 build pass by the user's 2026-06-23 approval to proceed.
 - Supabase live-data caveat: `recoup_src_sap` has been observed as `404`. Do not mutate the external Supabase database or any external DB to fix this without explicit human approval.
 - No external action, ERP write-back, approval dispatch, term/limit change, hold/freeze, Billing route, or correspondence may occur without the human approval gate.
 
 ## Next Actions
 
-1. Wait for user approval or change requests for Beat 1 login.
-2. After approval only, build Beat 2 mini-dashboard as its own beat.
-3. Keep Beat 2 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, or evidence.
-4. Run Beat 2 screenshot capture and a subagent review gate before moving onward.
+1. Review the refreshed Beat 2 screenshot and work-item pane interaction.
+2. Keep Beat 2 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, or evidence.
+3. Do not proceed into Beat 3 deep case/evidence flows until that beat is explicitly approved.
+4. Run a visual reviewer gate before treating Beat 2 as accepted.
+
+## Beat 2 Remaining Deltas
+
+- The Recoup sidebar mark is still a lucide/code-native approximation rather than the exact ImageGen lockup geometry.
+- Header date uses the connector refresh label (`Refreshed 08:24 AM`) instead of a fabricated calendar date because no backend date field exists for the mockup's `May 15, 2025` copy.
+- High-priority remains a visible unavailable KPI slot (`--`, `Needs priority field`) because the `/forensics` read model still has no priority field.
+- Worklist columns use fetched scenario/line/customer/queue fields rather than mockup-only priority, owner, age, and status fields.
+- Source readiness uses backend connector marks and status labels; icon metaphors are intentionally not invented beyond the fetched source marks.
 
 ## ETA Bands
 

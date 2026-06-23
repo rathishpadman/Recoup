@@ -24,6 +24,7 @@ export type MayaEvidencePack = ForensicsCockpitModel["selected"]["evidencePack"]
 export type MayaJourneyItem = ForensicsCockpitModel["mayaJourney"][number];
 export type MayaKpiItem = ForensicsCockpitModel["kpiStrip"][number];
 export type MayaMultimodalDock = ForensicsCockpitModel["multimodalDock"];
+export type MayaRecoveryTracker = ForensicsCockpitModel["recoveryTracker"];
 export type MayaSelectedCase = ForensicsCockpitModel["selected"];
 export type MayaSourceTile = ConnectorReadinessCockpitModel["sourceTiles"][number];
 export type MayaSubAgent = ForensicsCockpitModel["multimodalDock"]["subAgents"][number];

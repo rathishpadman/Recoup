@@ -85,7 +85,7 @@ const demoSessions = {
   },
   maya: {
     allowedRoutes: ["/forensics", "/run"],
-    defaultRoute: "/forensics",
+    defaultRoute: "/forensics/shadcn",
     displayName: "Maya Patel",
     loginId: "Maya",
     role: "maya"
@@ -116,10 +116,13 @@ const screenshotTargets = [
 if (process.argv.includes("--fixture-api")) {
   await runFixtureApi();
 } else {
-  await main({ mayaLoginOnly: process.argv.includes("--maya-login-only") });
+  await main({
+    mayaLoginOnly: process.argv.includes("--maya-login-only"),
+    mayaShadcnOnly: process.argv.includes("--maya-shadcn-only")
+  });
 }
 
-async function main(options: { mayaLoginOnly: boolean }): Promise<void> {
+async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }): Promise<void> {
   const managedProcesses: ManagedProcess[] = [];
   let browser: Browser | undefined;
 
@@ -140,6 +143,11 @@ async function main(options: { mayaLoginOnly: boolean }): Promise<void> {
     if (options.mayaLoginOnly) {
       await captureMayaLoginBeatScreenshot(browser);
       console.log(`Maya Beat 1 login screenshot written to ${outputDir}/maya-beat-01-login.png`);
+      return;
+    }
+    if (options.mayaShadcnOnly) {
+      await captureMayaBeat2LandingScreenshot(browser);
+      console.log(`Maya Beat 2 dashboard screenshot written to ${outputDir}/maya-beat-02-dashboard.png`);
       return;
     }
 
@@ -225,8 +233,8 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
   const mayaContext = await newRoleContext(browser, "maya", 1440, 900);
   const mayaPage = await mayaContext.newPage();
   await mayaPage.goto(`${appUrl}/credit`, { waitUntil: "domcontentloaded" });
-  await mayaPage.waitForURL("**/forensics", { timeout: 15_000 });
-  assert(mayaPage.url().endsWith("/forensics"), "Maya must be redirected away from /credit");
+  await mayaPage.waitForURL("**/forensics/shadcn", { timeout: 15_000 });
+  assert(mayaPage.url().endsWith("/forensics/shadcn"), "Maya must be redirected away from /credit");
   await expectText(mayaPage, "Deduction Forensics");
   await expectText(mayaPage, "Forensics");
   await expectText(mayaPage, "Run trace");
@@ -246,6 +254,31 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
   await expectText(cfoPage, "Connector readiness");
   await expectText(cfoPage, "Source mode");
   await cfoContext.close();
+}
+
+async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void> {
+  for (const target of [
+    { height: 1024, label: "", width: 1600 },
+    { height: 900, label: "-1440", width: 1440 },
+    { height: 900, label: "-1280", width: 1280 }
+  ]) {
+    const context = await newRoleContext(browser, "maya", target.width, target.height);
+    const page = await context.newPage();
+
+    try {
+      await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+      await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+      await expectVisibleText(page, "Source Readiness");
+      await expectVisibleText(page, "Deduction Worklist");
+      await expectVisibleText(page, "Select a deduction to open its work item");
+      await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
+      await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
+      await page.getByTestId("maya-worklist-row").first().click();
+      await expectVisibleLocator(page, '[data-testid="maya-selected-work-item"]', "Maya selected work-item pane");
+    } finally {
+      await context.close();
+    }
+  }
 }
 
 async function assertPremiumSurfaces(browser: Browser): Promise<void> {
@@ -527,6 +560,45 @@ async function expectVisibleText(page: Page, text: string): Promise<void> {
   }
 
   throw new Error(`E2E assertion failed: expected visible text: ${text}`);
+}
+
+async function assertNoHorizontalOverflow(page: Page, label: string): Promise<void> {
+  const overflow = await page.evaluate(() => {
+    const documentElement = document.documentElement;
+    const body = document.body;
+    const tableContainers = [...document.querySelectorAll('[data-slot="table-container"]')].map((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth
+    }));
+
+    return {
+      bodyClientWidth: body.clientWidth,
+      bodyScrollWidth: body.scrollWidth,
+      documentClientWidth: documentElement.clientWidth,
+      documentScrollWidth: documentElement.scrollWidth,
+      tableContainers
+    };
+  });
+
+  assert(
+    overflow.documentScrollWidth <= overflow.documentClientWidth + 1,
+    `${label} document must not horizontally overflow: ${String(overflow.documentScrollWidth)} > ${String(
+      overflow.documentClientWidth
+    )}`
+  );
+  assert(
+    overflow.bodyScrollWidth <= overflow.bodyClientWidth + 1,
+    `${label} body must not horizontally overflow: ${String(overflow.bodyScrollWidth)} > ${String(overflow.bodyClientWidth)}`
+  );
+
+  for (const [index, tableContainer] of overflow.tableContainers.entries()) {
+    assert(
+      tableContainer.scrollWidth <= tableContainer.clientWidth + 1,
+      `${label} table container ${String(index)} must not horizontally overflow: ${String(tableContainer.scrollWidth)} > ${String(
+        tableContainer.clientWidth
+      )}`
+    );
+  }
 }
 
 async function expectLoginIdValue(page: Page, expectedValue: string): Promise<void> {

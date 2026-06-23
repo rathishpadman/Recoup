@@ -15,7 +15,7 @@ export interface CockpitDemoProfile {
 export const cockpitDemoProfiles = [
   {
     allowedRoutes: ["/forensics", "/run"],
-    defaultRoute: "/forensics",
+    defaultRoute: "/forensics/shadcn",
     displayName: "Maya Patel",
     loginId: "Maya",
     persona: "Forensics analyst",
