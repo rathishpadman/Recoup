@@ -43,22 +43,26 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: these paths are evidence of the rejected state, not acceptance evidence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. The other beat screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
-Status: revised in the login-only review fixer pass on 2026-06-23, then cleaned up in the Beat 1 naming pass after commit `927cfa0`. This is not user-accepted yet.
+Status: implemented and committed at `9c26a7d` (`Rename Maya login capability label`). Beat 1 is awaiting user approval. Do not proceed to Beat 2 until the user approves Beat 1.
 
-Current reviewer-facing assessment: Beat 1 login remains approximately `4.0/5` pending user acceptance. This is a reviewer/fixer estimate, not a user acceptance score.
+Current reviewer-facing assessment: final read-only review agent Averroes scored Beat 1 visual fidelity `4.1/5` with no blockers. Treat this as an acceptance candidate, not final user acceptance.
 
 Screenshot path:
 
 - `output/playwright/e2e/maya-beat-01-login.png`
 
+Mockup reference:
+
+- `mockups/imagegen/maya-12-beat-storyboard/01-login-maya-enters-recoup.png`
+
 Implemented scope:
 
 - `/login` now targets the Beat 1 mockup with a near-white full-screen scene, low-contrast technical line-art, one centered access panel, centered Recoup/Deduction Forensics lockup, and a shadcn-only form flow.
-- Product naming decision for the login lockup: the title is `RECOUP`, the subtitle is `Deduction Forensics`, and `Maya` appears only in the persona selector or user/persona context.
+- Product naming decision for the login lockup: the poor `Maya Forensics` wording was replaced with `Deduction Forensics`; `Maya` remains persona/user context only.
 - The login form preserves `input[name="loginId"]`, the password input, `/api/demo-login`, and navigation via the returned `defaultRoute`.
 - The Recoup lockup now uses a code-native angular SVG mark beside `RECOUP`; no raster screenshot is used in the UI.
 - The submit button visible copy is `Open Forensics Workspace`, and the focused e2e accepts the mockup copy while preserving login behavior.
@@ -66,7 +70,7 @@ Implemented scope:
 - `Remember user ID` now has local-only persistence through versioned localStorage keys for the selected `loginId`.
 - `Forgot password?` is disabled with an accessible unavailable explanation because no password-recovery backend route exists in the demo login contract.
 - Footer separators are centered dots, and the alert/button treatments are softer and closer to the mockup without reintroducing legacy or purple styling.
-- Focused check for this naming pass refreshes `output/playwright/e2e/maya-beat-01-login.png` through `npm run test:e2e -- --maya-login-only`.
+- Focused check for this naming pass refreshed `output/playwright/e2e/maya-beat-01-login.png` through `npm run test:e2e -- --maya-login-only`.
 
 Remaining deltas:
 
@@ -74,7 +78,7 @@ Remaining deltas:
 - The line-art background is implemented with CSS primitives and remains an approximation of the mockup's drafted technical paths.
 - The User ID field displays the selected model `loginId` (`Maya`) to satisfy the backend contract; the mockup shows an empty placeholder state.
 - The type scale and logo spacing are constrained by the cockpit typography rules and are less letter-spaced than the imagegen mockup.
-- Final user acceptance and visual score are pending; do not treat this screenshot as accepted release evidence.
+- Final user approval or change requests are pending; do not treat this screenshot as accepted release evidence until the user approves Beat 1.
 
 ## Mockup Paths
 
@@ -101,38 +105,30 @@ Master direction:
 - `mockups/imagegen/maya-12-beat-storyboard/11-audit-confirmation.png`
 - `mockups/imagegen/maya-12-beat-storyboard/12-return-to-worklist-next-case.png`
 
-## Active Or Recent Subagents
+## Active Subagents
 
-No active or recent Maya shadcn UI subagent statuses were provided in this prompt.
-
-Known related historical names from existing planning/status docs are not authoritative for this active rebaseline unless a future handoff explicitly restarts them. Do not wait indefinitely on stale or unknown subagents; replace them with a fresh implementer/reviewer loop if implementation resumes.
+None. No agent loop is currently active.
 
 ## Open Items
 
-- Rebuild the first viewport so it no longer resembles the legacy cockpit.
-- Use a persistent Maya command shell/sidebar, compact KPI/source readiness, dense worklist, and selected-case workspace in the first working screen.
-- Make the evidence, query, draft, approval, audit, and return-to-worklist states match the 12-beat intent and hierarchy.
-- Keep all displayed business truth backend/read-model sourced.
+- User approval or change requests for Beat 1 login.
+- Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
+- Broad full E2E was not rerun after the previous debug path because the current gate is Beat 1 screenshot/review.
+- Keep all displayed business truth backend/read-model sourced in future beats.
 - Preserve visible cited record IDs, deterministic basis, evidence support, and HITL approval wherever decisions, answers, drafts, or audit states appear.
-- Refresh responsive screenshots at 375, 768, 1024, and 1440 widths.
-- Refresh all 12 beat screenshots.
-- Update `docs/storyboards/maya-12-beat-fidelity-review.md` only after new screenshots exist and a fresh visual audit is performed.
 
 ## Blockers
 
-- Current screenshots are rejected and must not be used as acceptance evidence.
-- Current visual score is below the pass threshold; the active user rating is below `1/5`.
+- Beat 1 is not user-approved yet.
 - Supabase live-data caveat: `recoup_src_sap` has been observed as `404`. Do not mutate the external Supabase database or any external DB to fix this without explicit human approval.
 - No external action, ERP write-back, approval dispatch, term/limit change, hold/freeze, Billing route, or correspondence may occur without the human approval gate.
 
 ## Next Actions
 
-1. Start a fresh Maya shadcn implementation pass scoped to UI files named by the approved brief.
-2. Treat the current `/forensics/shadcn` screenshots as failed baseline evidence.
-3. Rework the route toward the storyboard mockups, with special focus on first-viewport layout, sidebar shell, dense table-led worklist, selected-case evidence pane, query sheet, human approval dialog, audit confirmation, and return-to-worklist continuity.
-4. Run focused invariant/type checks for Maya shadcn boundaries after code changes.
-5. Run Playwright/E2E screenshot capture for responsive and 12-beat evidence.
-6. Perform a fresh visual audit. Do not mark pass unless every required beat is at least `4/5`.
+1. Wait for user approval or change requests for Beat 1 login.
+2. After approval only, build Beat 2 mini-dashboard as its own beat.
+3. Keep Beat 2 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, or evidence.
+4. Run Beat 2 screenshot capture and a subagent review gate before moving onward.
 
 ## ETA Bands
 
