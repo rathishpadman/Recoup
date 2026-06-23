@@ -45,6 +45,26 @@ Current runtime screenshots:
 
 Current screenshot caveat: these paths are evidence of the rejected state, not acceptance evidence.
 
+## Beat 1 Login Pass
+
+Status: refreshed in the login-only fixer pass on 2026-06-23. This is not user-accepted yet.
+
+Screenshot path:
+
+- `output/playwright/e2e/maya-beat-01-login.png`
+
+Implemented scope:
+
+- `/login` now targets the Beat 1 mockup with a near-white full-screen scene, low-contrast technical line-art, one centered access panel, centered Recoup/Maya lockup, and a shadcn-only form flow.
+- The login form preserves `input[name="loginId"]`, the password input, `/api/demo-login`, and navigation via the returned `defaultRoute`.
+- The submit button visible copy is `Open workspace` to match the focused e2e role-name check.
+
+Remaining deltas:
+
+- The Recoup mark is still a component-rendered lockup rather than the exact imagegen symbol geometry.
+- The line-art background is implemented with CSS primitives and remains an approximation of the mockup's drafted technical paths.
+- Final user acceptance and visual score are pending; do not treat this screenshot as accepted release evidence.
+
 ## Mockup Paths
 
 Master direction:

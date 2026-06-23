@@ -116,10 +116,10 @@ const screenshotTargets = [
 if (process.argv.includes("--fixture-api")) {
   await runFixtureApi();
 } else {
-  await main();
+  await main({ mayaLoginOnly: process.argv.includes("--maya-login-only") });
 }
 
-async function main(): Promise<void> {
+async function main(options: { mayaLoginOnly: boolean }): Promise<void> {
   const managedProcesses: ManagedProcess[] = [];
   let browser: Browser | undefined;
 
@@ -137,6 +137,12 @@ async function main(): Promise<void> {
 
     browser = await chromium.launch({ headless: true });
     await assertApiHealth();
+    if (options.mayaLoginOnly) {
+      await captureMayaLoginBeatScreenshot(browser);
+      console.log(`Maya Beat 1 login screenshot written to ${outputDir}/maya-beat-01-login.png`);
+      return;
+    }
+
     await assertRoleRouting(browser);
     await assertPremiumSurfaces(browser);
     await captureResponsiveScreenshots(browser);
@@ -359,14 +365,7 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
 }
 
 async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise<void> {
-  const loginContext = await browser.newContext({
-    deviceScaleFactor: 1,
-    viewport: { height: 900, width: 1440 }
-  });
-  const loginPage = await loginContext.newPage();
-  await loginPage.goto(`${appUrl}/login`, { waitUntil: "networkidle" });
-  await loginPage.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-01-login.png` });
-  await loginContext.close();
+  await captureMayaLoginBeatScreenshot(browser);
 
   const context = await newRoleContext(browser, "maya", 1440, 900);
   const page = await context.newPage();
@@ -412,6 +411,36 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-12-return-worklist.png` });
   } finally {
     await context.close();
+  }
+}
+
+async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
+  const loginContext = await browser.newContext({
+    deviceScaleFactor: 1,
+    viewport: { height: 900, width: 1440 }
+  });
+  const loginPage = await loginContext.newPage();
+
+  try {
+    await loginPage.goto(`${appUrl}/login?error=demo-login`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(loginPage, '[data-testid="maya-login-beat"]', "Maya Beat 1 login scene");
+    await expectVisibleLocator(loginPage, 'input[name="loginId"]', "Maya login ID input");
+    await expectVisibleLocator(loginPage, 'input[name="password"]', "Maya password input");
+    await expectVisibleText(loginPage, "Open workspace");
+    await expectVisibleText(loginPage, "Invalid session");
+
+    const legacyLoginNodes = await loginPage
+      .locator(".state-shell, .login-workstation, .login-rail, .login-source-rack, .login-form, .login-fields")
+      .count();
+    assert(legacyLoginNodes === 0, "Maya Beat 1 login must not render legacy cockpit login classes");
+
+    await loginPage.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-01-login.png` });
+    await loginPage.locator('input[name="loginId"]').fill(demoSessions.maya.loginId);
+    await loginPage.locator('input[name="password"]').fill(demoPassword);
+    await loginPage.getByRole("button", { name: /Open workspace/u }).click();
+    await loginPage.waitForURL(`**${demoSessions.maya.defaultRoute}`, { timeout: 20_000 });
+  } finally {
+    await loginContext.close();
   }
 }
 
