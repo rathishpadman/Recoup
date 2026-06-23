@@ -3,6 +3,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { ConnectorReadinessCockpitModel } from "../../app/cockpit-data.ts";
 import type { MayaSourceTile } from "./types.ts";
 
@@ -58,6 +59,37 @@ function sourceStatusIcon(statusTone: MayaSourceTile["statusTone"]) {
   return <FlaskConicalIcon aria-hidden="true" data-icon="source-status" />;
 }
 
+function displaySourceLabel(label: string): string {
+  const [primaryLabel] = label.split("/").map((part) => part.trim());
+
+  return primaryLabel === undefined || primaryLabel.length === 0 ? label : primaryLabel;
+}
+
+function displaySourceMode(modeLabel: string): string {
+  const normalizedMode = modeLabel.toLocaleLowerCase();
+  if (normalizedMode.includes("synthetic table")) {
+    return "Table";
+  }
+
+  if (normalizedMode.includes("synthetic evidence")) {
+    return "Proof";
+  }
+
+  if (normalizedMode.includes("synthetic")) {
+    return "Synthetic";
+  }
+
+  if (normalizedMode.includes("read-only")) {
+    return "Read";
+  }
+
+  if (normalizedMode.includes("live")) {
+    return "Live";
+  }
+
+  return modeLabel;
+}
+
 export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) {
   if (connectors.sourceTiles.length === 0) {
     return (
@@ -74,60 +106,68 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
     <Card className="rounded-lg py-0 shadow-none" size="sm">
       <CardContent
         aria-label={connectors.lastRefreshedLabel}
-        className="grid min-h-[72px] min-w-0 items-center gap-3 px-3 py-2 xl:grid-cols-[220px_repeat(5,minmax(88px,1fr))]"
+        className="grid min-h-[58px] min-w-0 items-center gap-3 px-3 py-1 lg:grid-cols-[214px_minmax(0,1fr)]"
         data-testid="maya-source-readiness-strip"
       >
         <div className="grid min-w-0 gap-1">
           <CardTitle>Source Readiness</CardTitle>
-          <CardDescription className="truncate text-xs">System connectivity and data freshness</CardDescription>
+          <CardDescription className="truncate text-xs leading-3">System connectivity and data freshness</CardDescription>
         </div>
-        {visibleSources.map((source) => (
-          <Tooltip key={source.key}>
-            <TooltipTrigger asChild>
-              <div
-                aria-label={`${source.label}: ${source.stateLabel}; ${source.modeLabel}`}
-                className={`grid min-h-12 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-md border px-2 py-1.5 ${sourceTileClass(
-                  source.statusTone
-                )}`}
-                data-status-tone={source.statusTone}
-                data-testid="maya-source-tile"
-              >
-                <div className="flex size-7 items-center justify-center rounded-md border bg-background/70 text-xs font-semibold text-muted-foreground">
-                  {source.mark}
-                </div>
-                <div className="grid min-w-0 gap-0.5">
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-xs font-medium leading-4" title={source.label}>
-                      {source.label}
-                    </p>
-                    <span className={`flex shrink-0 items-center ${sourceStatusClass(source.statusTone)}`}>
-                      {sourceStatusIcon(source.statusTone)}
-                    </span>
+        <div className="grid min-w-0 gap-2 md:grid-cols-5">
+          {visibleSources.map((source) => {
+            const displayLabel = displaySourceLabel(source.label);
+            const displayMode = displaySourceMode(source.modeLabel);
+
+            return (
+              <Tooltip key={source.key}>
+                <TooltipTrigger asChild>
+                  <div
+                    aria-label={`${source.label}: ${source.stateLabel}; ${source.modeLabel}`}
+                    className={cn(
+                      "grid min-h-10 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-md border px-2 py-0.5",
+                      sourceTileClass(source.statusTone)
+                    )}
+                    data-status-tone={source.statusTone}
+                    data-testid="maya-source-tile"
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-md border bg-background/70 text-xs font-semibold text-muted-foreground">
+                      {source.mark}
+                    </div>
+                    <div className="grid min-w-0 gap-0.5">
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <p className="min-w-0 text-xs font-medium leading-4" title={source.label}>
+                          {displayLabel}
+                        </p>
+                        <span className={cn("flex shrink-0 items-center", sourceStatusClass(source.statusTone))}>
+                          {sourceStatusIcon(source.statusTone)}
+                        </span>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <Badge
+                          className="h-4 max-w-full shrink-0 justify-start px-1.5 text-[10px]"
+                          data-testid="maya-source-status"
+                          title={source.stateLabel}
+                          variant={sourceToneVariant(source.statusTone)}
+                        >
+                          <span>{source.stateLabel}</span>
+                        </Badge>
+                        <p className="min-w-0 text-[10px] leading-3 text-muted-foreground" title={source.modeLabel}>
+                          {displayMode}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <Badge
-                      className="h-5 max-w-full shrink-0 justify-start truncate px-1.5 text-[10px]"
-                      data-testid="maya-source-status"
-                      title={source.stateLabel}
-                      variant={sourceToneVariant(source.statusTone)}
-                    >
-                      <span className="min-w-0 truncate">{source.stateLabel}</span>
-                    </Badge>
-                    <p className="hidden min-w-0 truncate text-xs leading-4 text-muted-foreground 2xl:block" title={source.modeLabel}>
-                      {source.modeLabel}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-72">
-              <span>{source.detail}</span>
-              {source.proofItems.map((proof) => (
-                <span key={`${source.key}-${proof}`}>{proof}</span>
-              ))}
-            </TooltipContent>
-          </Tooltip>
-        ))}
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72">
+                  <span>{source.detail}</span>
+                  {source.proofItems.map((proof) => (
+                    <span key={`${source.key}-${proof}`}>{proof}</span>
+                  ))}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );

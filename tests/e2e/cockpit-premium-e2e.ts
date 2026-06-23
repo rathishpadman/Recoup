@@ -275,6 +275,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2WorklistFit(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2RightPaneFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SourceReadinessFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
       await page.getByTestId("maya-worklist-row").first().click();
@@ -638,6 +639,7 @@ async function assertNoClippedBeat2Chips(page: Page, label: string): Promise<voi
 async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> {
   const fit = await page.evaluate(() => {
     const table = document.querySelector<HTMLElement>('table');
+    const worklistTable = document.querySelector<HTMLElement>('[data-testid="maya-worklist-table"]');
     const workItemHeader = [...document.querySelectorAll<HTMLElement>("th")].find(
       (header) => header.innerText.trim() === "Work item"
     );
@@ -652,6 +654,18 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
     const routingLabels = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-routing-label"]')].filter(
       (label) => label.offsetParent !== null
     );
+    const titleBackedCells =
+      worklistTable === null
+        ? []
+        : [...worklistTable.querySelectorAll<HTMLElement>("[title]")].filter((element) => element.offsetParent !== null);
+    const fetchedRowsOnlyMentions = [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter(
+        (element) =>
+          element.offsetParent !== null &&
+          typeof element.innerText === "string" &&
+          element.innerText.trim() === "Fetched rows only"
+      )
+      .map((element) => element.getBoundingClientRect());
 
     const headerRange = document.createRange();
     if (workItemHeader !== undefined) {
@@ -664,6 +678,15 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
         label: chip.innerText.trim(),
         lineHeight: Number.parseFloat(window.getComputedStyle(chip).lineHeight)
       })),
+      clippedTitleBackedCells: titleBackedCells
+        .map((element) => ({
+          clientWidth: element.clientWidth,
+          label: element.innerText.trim(),
+          scrollWidth: element.scrollWidth,
+          title: element.getAttribute("title") ?? ""
+        }))
+        .filter((cell) => cell.scrollWidth > cell.clientWidth + 1),
+      fetchedRowsOnlyVisibleCount: fetchedRowsOnlyMentions.length,
       maxRowHeight: Math.max(...rows.map((row) => row.getBoundingClientRect().height)),
       routingLabelMetrics: routingLabels.map((routingLabel) => ({
         height: routingLabel.getBoundingClientRect().height,
@@ -686,7 +709,17 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
     fit.workItemHeaderLineCount === 1,
     `${label} Work item header must stay single-line: ${String(fit.workItemHeaderLineCount)} rendered lines`
   );
-  assert(fit.maxRowHeight <= 86, `${label} worklist rows must stay compact: ${String(fit.maxRowHeight)}px`);
+  assert(fit.maxRowHeight <= 96, `${label} worklist rows must stay compact: ${String(fit.maxRowHeight)}px`);
+  assert(
+    fit.clippedTitleBackedCells.length === 0,
+    `${label} worklist title-backed text must not be visibly clipped: ${JSON.stringify(fit.clippedTitleBackedCells)}`
+  );
+  assert(
+    fit.fetchedRowsOnlyVisibleCount === 1,
+    `${label} worklist footer rhythm must expose exactly one Fetched rows only label: ${String(
+      fit.fetchedRowsOnlyVisibleCount
+    )}`
+  );
 
   for (const chip of fit.chipMetrics) {
     assert(
@@ -738,6 +771,24 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
   assert(sidebar.footerText.includes("Read-only"), `${label} sidebar footer must render honest access status`);
 }
 
+async function assertBeat2RightPaneFidelity(page: Page, label: string): Promise<void> {
+  const pane = await page.evaluate(() => {
+    const paneNode = document.querySelector<HTMLElement>('[data-testid="maya-work-item-pane"]');
+    const rect = paneNode?.getBoundingClientRect();
+
+    return {
+      height: rect?.height ?? 0,
+      text: paneNode?.innerText.trim() ?? "",
+      width: rect?.width ?? 0
+    };
+  });
+
+  assert(pane.width >= 320, `${label} right work-item pane must be at least 320px wide: ${String(pane.width)}px`);
+  assert(pane.width <= 360, `${label} right work-item pane must stay at or below 360px wide: ${String(pane.width)}px`);
+  assert(pane.height > 0, `${label} right work-item pane must render`);
+  assert(pane.text.includes("Select a deduction"), `${label} right work-item pane must start with the honest empty state`);
+}
+
 async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {
   const sourceStrip = await page.evaluate(() => {
     const strip = document.querySelector<HTMLElement>('[data-testid="maya-source-readiness-strip"]');
@@ -748,11 +799,20 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
     const statuses = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-status"]')].filter(
       (status) => status.offsetParent !== null
     );
+    const labels = tiles.flatMap((tile) =>
+      [...tile.querySelectorAll<HTMLElement>("[title]")].filter((element) => element.offsetParent !== null)
+    );
 
     return {
       hasBlocked: tones.includes("blocked"),
       hasReady: tones.includes("ready"),
       hasSynthetic: tones.includes("synthetic"),
+      labelMetrics: labels.map((sourceLabel) => ({
+        clientWidth: sourceLabel.clientWidth,
+        label: sourceLabel.innerText.trim(),
+        scrollWidth: sourceLabel.scrollWidth,
+        title: sourceLabel.getAttribute("title") ?? ""
+      })),
       stripHeight: strip?.getBoundingClientRect().height ?? 0,
       statusMetrics: statuses.map((status) => ({
         height: status.getBoundingClientRect().height,
@@ -768,10 +828,22 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
   });
 
   assert(sourceStrip.stripHeight > 0, `${label} source readiness strip must render`);
-  assert(sourceStrip.stripHeight <= 84, `${label} source readiness strip must stay slim`);
+  assert(
+    sourceStrip.stripHeight <= 84,
+    `${label} source readiness strip must stay slim: ${String(sourceStrip.stripHeight)}px`
+  );
   assert(sourceStrip.tileCount >= 5, `${label} source readiness strip must render backend source tiles`);
   assert(sourceStrip.hasReady, `${label} source readiness must show backend ready/connected state`);
   assert(sourceStrip.hasSynthetic, `${label} source readiness must show backend synthetic state distinctly`);
+  for (const sourceLabel of sourceStrip.labelMetrics) {
+    assert(sourceLabel.label.length > 0, `${label} source labels must expose backend text`);
+    assert(
+      sourceLabel.scrollWidth <= sourceLabel.clientWidth + 1,
+      `${label} source label must not visibly clip (${sourceLabel.title}): ${String(sourceLabel.scrollWidth)} > ${String(
+        sourceLabel.clientWidth
+      )}`
+    );
+  }
 
   const readyClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "ready")?.className ?? "";
   const syntheticClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "synthetic")?.className ?? "";

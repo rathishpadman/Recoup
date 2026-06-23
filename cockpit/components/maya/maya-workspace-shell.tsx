@@ -3,7 +3,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   BellIcon,
-  CalendarIcon,
   ChevronDownIcon,
   ClipboardListIcon,
   FileCheck2Icon,
@@ -13,7 +12,6 @@ import {
   LayoutDashboardIcon,
   PieChartIcon,
   RefreshCwIcon,
-  RotateCcwIcon,
   SlidersHorizontalIcon,
   UserRoundIcon
 } from "lucide-react";
@@ -35,6 +33,7 @@ import {
   SidebarSeparator,
   SidebarTrigger
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 import type { DemoSession } from "../../app/demo-auth.ts";
 
 interface MayaWorkspaceShellProps {
@@ -57,6 +56,28 @@ const navItems = [
   { icon: SlidersHorizontalIcon, label: "Configuration" }
 ] as const;
 
+function RecoupBrandMark() {
+  return (
+    <svg aria-hidden="true" className="size-10 shrink-0 text-sidebar-foreground" viewBox="0 0 40 40">
+      <path
+        d="M29.2 12.4A12.2 12.2 0 1 0 31 25.6"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="3.1"
+      />
+      <path
+        d="M29.6 5.8v8.3h-8.3"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="3.1"
+      />
+    </svg>
+  );
+}
+
 export function MayaWorkspaceShell({
   children,
   pendingActionCount,
@@ -69,18 +90,13 @@ export function MayaWorkspaceShell({
   return (
     <SidebarProvider defaultOpen style={{ "--sidebar-width": "15rem" } as CSSProperties}>
       <Sidebar className="min-h-svh border-sidebar-border bg-sidebar" collapsible="none" data-testid="maya-sidebar">
-        <SidebarHeader className="gap-3 p-4 pb-3">
-          <div className="flex min-w-0 items-start justify-between gap-2" data-testid="maya-sidebar-brand">
+        <SidebarHeader className="gap-4 p-4 pb-4">
+          <div className="flex min-h-16 min-w-0 items-center justify-between gap-2" data-testid="maya-sidebar-brand">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-sidebar-accent-foreground">
-                <RotateCcwIcon aria-hidden="true" data-icon="sidebar-brand" />
-              </div>
-              <div className="grid min-w-0 gap-1">
-                <strong className="truncate text-xl font-semibold leading-none">Recoup</strong>
-                <span className="truncate text-xs text-sidebar-foreground/75">Deduction Forensics</span>
-                <Badge className="h-5 w-fit px-1.5 text-[10px]" variant="outline">
-                  Maya workspace
-                </Badge>
+              <RecoupBrandMark />
+              <div className="grid min-w-0 gap-1.5">
+                <strong className="truncate text-[22px] font-semibold leading-none">Recoup</strong>
+                <span className="truncate text-xs font-medium text-sidebar-foreground/75">Deduction Forensics</span>
               </div>
             </div>
           </div>
@@ -113,7 +129,10 @@ export function MayaWorkspaceShell({
                   return (
                     <SidebarMenuItem data-testid="maya-sidebar-nav-item" key={item.label}>
                       <SidebarMenuButton
-                        className="h-9 px-3"
+                        className={cn(
+                          "h-9 px-3",
+                          "data-[active=true]:bg-sidebar-primary/25 data-[active=true]:text-sidebar-primary-foreground data-[active=true]:shadow-sm"
+                        )}
                         isActive={"isActive" in item}
                         tooltip={item.label}
                         type="button"
@@ -166,7 +185,7 @@ export function MayaWorkspaceShell({
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="inline-flex h-8 items-center gap-2 text-sm text-muted-foreground">
-              <CalendarIcon aria-hidden="true" data-icon="inline-start" />
+              <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
               {refreshedLabel}
             </span>
             <span

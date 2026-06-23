@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
@@ -127,12 +127,12 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
             <Table className="w-[calc(100%-8px)] table-fixed text-xs" data-testid="maya-worklist-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[11%] whitespace-nowrap px-1.5 leading-4">Work item</TableHead>
-                  <TableHead className="w-[20%] whitespace-nowrap px-1.5 leading-4">Case / Customer</TableHead>
-                  <TableHead className="w-[29%] whitespace-nowrap px-1.5 leading-4">Forensics state</TableHead>
-                  <TableHead className="w-[12%] whitespace-nowrap px-1.5 leading-4">Amount</TableHead>
-                  <TableHead className="w-[9%] whitespace-nowrap px-1.5 leading-4">Evidence</TableHead>
-                  <TableHead className="w-[19%] whitespace-nowrap px-1.5 leading-4">Queue</TableHead>
+                  <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
+                  <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Case / Customer</TableHead>
+                  <TableHead className="w-[28%] whitespace-nowrap px-2 leading-4">Forensics state</TableHead>
+                  <TableHead className="w-[13%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
+                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
+                  <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -153,7 +153,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                     }}
                     tabIndex={0}
                   >
-                    <TableCell className="whitespace-normal px-1.5 py-2">
+                    <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate font-medium">{item.lineId}</p>
                         <div className="flex min-w-0 items-center gap-1" aria-label={`${item.lineId} line IDs`}>
@@ -174,19 +174,19 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-2">
+                    <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <div className="min-w-0">
-                          <p className="truncate font-medium leading-4" title={item.scenarioLabel}>
+                          <p className="break-words font-medium leading-4" title={item.scenarioLabel}>
                             {item.scenarioLabel}
                           </p>
-                          <p className="truncate text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
+                          <p className="break-words text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
                             {item.customerLabel}
                           </p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-2" data-testid="maya-worklist-recommended-action">
+                    <TableCell className="whitespace-normal px-2 py-2" data-testid="maya-worklist-recommended-action">
                       <div className="flex min-w-0 flex-col items-start gap-1.5">
                         <Badge
                           className="h-6 max-w-full justify-start truncate px-2 text-[11px] leading-none"
@@ -199,23 +199,23 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                         <RecommendedActionCell item={item} />
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap px-1.5 py-2 tabular-nums">{item.amount}</TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-2">
+                    <TableCell className="whitespace-nowrap px-2 py-2 tabular-nums">{item.amount}</TableCell>
+                    <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex flex-col gap-0.5">
                         <span>{item.evidenceScoreLabel}</span>
-                        <span className="truncate text-xs text-muted-foreground" title={item.evidenceLabel}>
+                        <span className="break-words text-xs leading-4 text-muted-foreground" title={item.evidenceLabel}>
                           {item.evidenceLabel}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-2">
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1">
+                    <TableCell className="whitespace-normal px-2 py-2">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1.5">
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className="truncate" title={item.queueLabel}>
+                          <span className="break-words" title={item.queueLabel}>
                             {item.queueLabel}
                           </span>
                           <span
-                            className="text-[11px] leading-3 text-muted-foreground"
+                            className="break-words text-[11px] leading-3 text-muted-foreground"
                             data-testid="maya-routing-label"
                             title={item.routingLabel}
                           >
@@ -236,16 +236,6 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                   </TableRow>
                 ))}
               </TableBody>
-              <TableFooter>
-                <TableRow>
-                  <TableCell className="px-1.5 py-2 text-xs text-muted-foreground" colSpan={3}>
-                    Showing {filteredItems.length.toString()} of {items.length.toString()} fetched rows
-                  </TableCell>
-                  <TableCell className="px-1.5 py-2 text-right text-xs text-muted-foreground" colSpan={3}>
-                    Fetched rows only
-                  </TableCell>
-                </TableRow>
-              </TableFooter>
             </Table>
           </ScrollArea>
         )}
