@@ -93,13 +93,49 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(sheet).toContain("overlayClassName?: string");
     expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
     expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
-    expect(queryDock).toContain('data-[side=right]:sm:max-w-[456px]');
-    expect(queryDock).toContain('style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}');
+    expect(queryDock).toContain('data-answer-mode={canShowCitedAnswer ? "review" : "drawer"}');
+    expect(queryDock).toContain('data-[side=right]:sm:max-w-[var(--maya-query-dock-max-width)]');
+    expect(queryDock).toContain('"--maya-query-dock-max-width": canShowCitedAnswer');
+    expect(queryDock).toContain('"min(936px, calc(100vw - 280px))"');
+    expect(queryDock).toContain('"456px"');
+    expect(queryDock).toContain('animation: "none"');
+    expect(queryDock).toContain('backgroundColor: "var(--bg-surface)"');
+    expect(queryDock).toContain("opacity: 1");
     expect(queryDock).toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
     expect(queryDock).toContain("submittedQuestion");
     expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
     expect(queryDock).toContain('data-testid="maya-submitted-query"');
+    expect(queryDock).toContain("evidencePack: MayaEvidencePack");
+    expect(queryDock).toContain("evidencePack,");
+    expect(queryDock).toContain("evidencePack={evidencePack}");
+    const citedAnswer = readFileSync("cockpit/components/maya/cited-answer-card.tsx", "utf8");
+    expect(citedAnswer).toContain('response.status === "answered"');
+    expect(citedAnswer).toContain("response.answer !== undefined");
+    expect(citedAnswer).toContain("response.answer.trim().length > 0");
+    expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
+    expect(citedAnswer).toContain("response.deterministicBasis.trim().length > 0");
+    expect(citedAnswer).toContain("response.recordIds.length > 0");
+    expect(citedAnswer).toContain('data-testid="maya-cited-answer-text"');
+    expect(citedAnswer).toContain('data-testid="maya-cited-answer-basis"');
+    expect(citedAnswer).toContain('data-testid="maya-cited-record-row"');
+    expect(citedAnswer).toContain('data-metadata-gap={metadata === undefined ? "true" : undefined}');
+    expect(citedAnswer).toContain("evidencePack: MayaEvidencePack");
+    expect(citedAnswer).toContain("findEvidenceDocumentForRecordId");
+    expect(citedAnswer).toContain("document.documentId === recordId");
+    expect(citedAnswer).toContain("document.citationId === recordId");
+    expect(citedAnswer).toContain("evidencePack.documents.length");
+    expect(citedAnswer).toContain('data-metadata-join={metadata === undefined ? undefined : "exact"}');
+    expect(citedAnswer).toContain('data-testid="maya-cited-record-metadata"');
+    expect(citedAnswer).toContain("response.recordIds.map");
+    expect(citedAnswer).toContain("Metadata unavailable");
+    expect(citedAnswer).not.toContain("fallbackRecordIds.map");
+    expect(citedAnswer).not.toMatch(
+      /\b(?:Shortage Deduction Recoverability|shortage deduction is recoverable|INV-100245|POD-77421|CLAIM-8821|Partial \/ Blocked|Review Draft)\b/iu
+    );
+    expect(citedAnswer).not.toMatch(
+      /\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu
+    );
     expect(queryDock).not.toContain("/api/query/realtime-tool");
     expect(queryDock).not.toContain("2000");
     expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu);
@@ -142,6 +178,7 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("queryDockOpen");
     expect(caseWorkspace).toContain("setQueryDockOpen");
     expect(caseWorkspace).toContain("recordIds={selected.evidencePack.recordIds}");
+    expect(caseWorkspace).toContain("evidencePack={selected.evidencePack}");
     expect(caseWorkspace).toContain('data-testid="maya-case-primary-draft-facts"');
     expect(caseWorkspace).toContain('data-testid="maya-case-draft-readonly-status"');
     expect(caseWorkspace).toContain("<RecoveryDraftReview");

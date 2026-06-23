@@ -227,8 +227,14 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(sheet).toContain("overlayClassName");
     expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
     expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
-    expect(queryDock).toContain('data-[side=right]:sm:max-w-[456px]');
-    expect(queryDock).toContain('style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}');
+    expect(queryDock).toContain('data-answer-mode={canShowCitedAnswer ? "review" : "drawer"}');
+    expect(queryDock).toContain('data-[side=right]:sm:max-w-[var(--maya-query-dock-max-width)]');
+    expect(queryDock).toContain('"--maya-query-dock-max-width": canShowCitedAnswer');
+    expect(queryDock).toContain('"min(936px, calc(100vw - 280px))"');
+    expect(queryDock).toContain('"456px"');
+    expect(queryDock).toContain('animation: "none"');
+    expect(queryDock).toContain('backgroundColor: "var(--bg-surface)"');
+    expect(queryDock).toContain("opacity: 1");
     expect(queryDock).toContain("<FieldGroup");
     expect(queryDock).toContain("<InputGroup");
     expect(queryDock).toContain("<InputGroupTextarea");
@@ -246,21 +252,45 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
     expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
-    expect(queryDock).toContain("isRunning ? (");
-    expect(queryDock).toContain("<AgentTracePanel response={snapshot} subAgents={dock.subAgents} />");
+    expect(queryDock).toContain("isRunning ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null");
     expect(queryDock).toContain("submittedQuestion");
     expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
     expect(queryDock).toContain('data-testid="maya-submitted-query"');
     expect(queryDock).toContain("recordIds");
+    expect(queryDock).toContain("evidencePack: MayaEvidencePack");
+    expect(queryDock).toContain("evidencePack,");
+    expect(queryDock).toContain("evidencePack={evidencePack}");
     expect(queryDock).toContain("signal: abortController.signal");
     expect(queryDock).toContain("selectedLineId: selectedLine");
     expect(queryDock).toContain("onChange=");
-    expect(queryDock).toContain("disabled={isRunning || question.trim().length === 0}");
+    expect(queryDock).toContain("disabled={isRunning || canShowCitedAnswer || question.trim().length === 0}");
     expect(queryDock).not.toContain("2000");
     expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu);
     expect(citedAnswer).toContain("response.answer !== undefined");
     expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
     expect(citedAnswer).toContain("response.recordIds.length > 0");
+    expect(citedAnswer).toContain("response.answer.trim().length > 0");
+    expect(citedAnswer).toContain("response.deterministicBasis.trim().length > 0");
+    expect(citedAnswer).toContain('data-testid="maya-cited-answer-text"');
+    expect(citedAnswer).toContain('data-testid="maya-cited-answer-basis"');
+    expect(citedAnswer).toContain('data-testid="maya-cited-record-row"');
+    expect(citedAnswer).toContain('data-metadata-gap={metadata === undefined ? "true" : undefined}');
+    expect(citedAnswer).toContain("evidencePack: MayaEvidencePack");
+    expect(citedAnswer).toContain("findEvidenceDocumentForRecordId");
+    expect(citedAnswer).toContain("document.documentId === recordId");
+    expect(citedAnswer).toContain("document.citationId === recordId");
+    expect(citedAnswer).toContain("evidencePack.documents.length");
+    expect(citedAnswer).toContain('data-metadata-join={metadata === undefined ? undefined : "exact"}');
+    expect(citedAnswer).toContain('data-testid="maya-cited-record-metadata"');
+    expect(citedAnswer).toContain("response.recordIds.map");
+    expect(citedAnswer).toContain("Metadata unavailable");
+    expect(citedAnswer).not.toContain("fallbackRecordIds.map");
+    expect(citedAnswer).not.toMatch(
+      /\b(?:Shortage Deduction Recoverability|shortage deduction is recoverable|INV-100245|POD-77421|CLAIM-8821|Partial \/ Blocked|Review Draft)\b/iu
+    );
+    expect(citedAnswer).not.toMatch(
+      /\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu
+    );
   });
 
   it("keeps Beat 7 agent trace in-progress state session-level and read-model honest", () => {
@@ -283,8 +313,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(agentTrace).not.toMatch(/agent\.statusLabel\s*===/u);
     expect(agentTrace).not.toContain("statusLabel.toLowerCase");
     expect(agentTrace).not.toMatch(/\b(?:Query Agent accepted|Forensics context attached|Delivery proof retriever|Evidence reader|Citation and action guard)\b/u);
-    expect(queryDock).toContain("isRunning ? (");
-    expect(queryDock).toContain("<AgentTracePanel response={snapshot} subAgents={dock.subAgents} />");
+    expect(queryDock).toContain("isRunning ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null");
     expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
     expect(mayaSources).not.toContain("/trace");
     expect(traceAndDock).not.toMatch(/\b(?:POD_2025|312 KB|SHA-256|Custodian|Proof of Delivery|fake five-step|fake trace)\b/u);
@@ -304,6 +333,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).toContain("queryDockOpen");
     expect(workspace).toContain("setQueryDockOpen");
     expect(workspace).toContain("recordIds={selected.evidencePack.recordIds}");
+    expect(workspace).toContain("evidencePack={selected.evidencePack}");
     expect(workspace).toContain("selectedLine={selected.lineId}");
     expect(workspace).toContain("onResponse={() => undefined}");
     expect(workspace).not.toContain("queryResponse");

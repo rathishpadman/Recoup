@@ -15,12 +15,13 @@ import {
 } from "../../app/realtime-browser-session.ts";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { CitedAnswerCard } from "./cited-answer-card.tsx";
-import type { MayaMultimodalDock, QueryEvidenceResponse } from "./types.ts";
+import type { MayaEvidencePack, MayaMultimodalDock, QueryEvidenceResponse } from "./types.ts";
 
 const QUERY_QUESTION_CHARACTER_LIMIT = 500;
 
 interface QueryEvidenceDockProps {
   dock: MayaMultimodalDock;
+  evidencePack: MayaEvidencePack;
   onOpenChange: (open: boolean) => void;
   onResponse: (response: QueryEvidenceResponse) => void;
   open: boolean;
@@ -30,6 +31,7 @@ interface QueryEvidenceDockProps {
 
 export function QueryEvidenceDock({
   dock,
+  evidencePack,
   onOpenChange,
   onResponse,
   open,
@@ -52,8 +54,11 @@ export function QueryEvidenceDock({
     snapshot !== undefined &&
     snapshot.status === "answered" &&
     snapshot.answer !== undefined &&
+    snapshot.answer.trim().length > 0 &&
     snapshot.deterministicBasis !== undefined &&
+    snapshot.deterministicBasis.trim().length > 0 &&
     snapshot.recordIds.length > 0;
+  const shouldShowComposer = !isRunning && !canShowCitedAnswer;
 
   const closeActiveSession = React.useCallback((clearLocalState = true) => {
     sessionTokenRef.current += 1;
@@ -166,16 +171,26 @@ export function QueryEvidenceDock({
   return (
     <Sheet onOpenChange={handleOpenChange} open={open}>
       <SheetContent
-        className="gap-0 data-[side=right]:sm:max-w-[456px]"
+        className="gap-0 data-[side=right]:sm:max-w-[var(--maya-query-dock-max-width)]"
+        data-answer-mode={canShowCitedAnswer ? "review" : "drawer"}
         data-testid="maya-query-dock"
         overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"
         side="right"
-        style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}
+        style={
+          {
+            "--maya-query-dock-max-width": canShowCitedAnswer ? "min(936px, calc(100vw - 280px))" : "456px",
+            animation: "none",
+            backgroundColor: "var(--bg-surface)",
+            opacity: 1
+          } as React.CSSProperties
+        }
       >
         <SheetHeader className="gap-3">
-          <SheetTitle>Query Evidence</SheetTitle>
+          <SheetTitle>{canShowCitedAnswer ? "Answer review" : "Query Evidence"}</SheetTitle>
           <SheetDescription>
-            Ask from the current evidence packet; selected IDs are included as client context.
+            {canShowCitedAnswer
+              ? "Accepted answer, deterministic basis, and cited records from the current evidence packet."
+              : "Ask from the current evidence packet; selected IDs are included as client context."}
           </SheetDescription>
           <div className="flex flex-wrap gap-2" aria-label="Query policy and modes">
             <Badge variant="secondary">Selected evidence context</Badge>
@@ -222,7 +237,7 @@ export function QueryEvidenceDock({
               </div>
             </AlertDescription>
           </Alert>
-          {isRunning ? null : (
+          {shouldShowComposer ? (
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
@@ -249,7 +264,7 @@ export function QueryEvidenceDock({
                 </FieldDescription>
               </Field>
             </FieldGroup>
-          )}
+          ) : null}
           {submittedQuestion.length > 0 ? (
             <div className="grid min-w-0 gap-1 rounded-lg border bg-muted/25 p-3" data-testid="maya-submitted-query">
               <span className="text-sm font-medium">Submitted query</span>
@@ -257,7 +272,7 @@ export function QueryEvidenceDock({
             </div>
           ) : null}
           <div id={statusId} aria-live="polite">
-            {error !== undefined ? (
+            {canShowCitedAnswer ? null : error !== undefined ? (
               <Alert variant="destructive">
                 <AlertTitle>Query error</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
@@ -311,18 +326,14 @@ export function QueryEvidenceDock({
               </Alert>
             )}
           </div>
-          {isRunning ? (
-            <AgentTracePanel response={snapshot} subAgents={dock.subAgents} />
-          ) : canShowCitedAnswer ? (
-            <AgentTracePanel response={snapshot} subAgents={dock.subAgents} />
-          ) : null}
-          {canShowCitedAnswer ? <CitedAnswerCard fallbackRecordIds={recordIds} response={snapshot} /> : null}
+          {canShowCitedAnswer ? <CitedAnswerCard evidencePack={evidencePack} response={snapshot} /> : null}
+          {isRunning ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null}
         </div>
         <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">Read-only query. Citations required before answer display.</p>
           <Button
             className="sm:w-auto"
-            disabled={isRunning || question.trim().length === 0}
+            disabled={isRunning || canShowCitedAnswer || question.trim().length === 0}
             onClick={() => {
               void startQuery();
             }}

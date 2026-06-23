@@ -1,4 +1,4 @@
-import { ActivityIcon, CircleAlertIcon, CircleDashedIcon } from "lucide-react";
+import { ActivityIcon, CheckCircle2Icon, CircleAlertIcon, CircleDashedIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,6 +15,7 @@ interface AgentTracePanelProps {
 
 export function AgentTracePanel({ response, subAgents }: AgentTracePanelProps) {
   const isTraceRunning = response?.status === "connecting" || response?.status === "connected";
+  const isAnswered = response?.status === "answered";
   const isBlocked = response?.status === "blocked" || response?.status === "blocked_uncited_output";
   const isError = response?.status === "error";
 
@@ -66,6 +67,20 @@ export function AgentTracePanel({ response, subAgents }: AgentTracePanelProps) {
             <AlertTitle>Query error</AlertTitle>
             <AlertDescription>{response.message}</AlertDescription>
           </Alert>
+        ) : isAnswered ? (
+          <Alert data-testid="maya-trace-answered-session">
+            <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+            <AlertTitle>{response.message}</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-wrap gap-1.5">
+                {response.recordIds.map((recordId) => (
+                  <Badge key={recordId} variant="secondary">
+                    {recordId}
+                  </Badge>
+                ))}
+              </div>
+            </AlertDescription>
+          </Alert>
         ) : response !== undefined ? (
           <Alert>
             <AlertTitle>{response.message}</AlertTitle>
@@ -80,58 +95,62 @@ export function AgentTracePanel({ response, subAgents }: AgentTracePanelProps) {
             </AlertDescription>
           </Alert>
         ) : null}
-        {subAgents.length === 0 ? (
-          <MayaEmptyState description="The read model returned no trace rows." title="Trace unavailable" />
-        ) : (
-          <div className="flex min-w-0 flex-col gap-2" data-testid="maya-static-context-table">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium">Read-model context rows</span>
-              <Badge variant="outline">Static evidence context</Badge>
-            </div>
-            <Separator />
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Context</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Backend label</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {subAgents.map((agent) => (
-                  <TableRow data-testid="maya-static-context-row" key={traceContextValue(agent)}>
-                    <TableCell className="w-[46%] whitespace-normal align-top">
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span className="font-medium">{agent.name}</span>
-                          <Badge variant="outline">Read-model evidence context</Badge>
-                        </div>
-                        <span className="text-sm text-muted-foreground">{agent.query}</span>
-                        <span className="text-sm text-muted-foreground">{agent.artifacts}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="w-[30%] whitespace-normal align-top">
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span>{agent.source}</span>
-                        <span className="text-sm text-muted-foreground">{agent.keyArtifact}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="w-[24%] whitespace-normal align-top">
-                      <Badge variant="outline">{agent.statusLabel}</Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+        {isAnswered ? null : (
+          <>
+            {subAgents.length === 0 ? (
+              <MayaEmptyState description="The read model returned no trace rows." title="Trace unavailable" />
+            ) : (
+              <div className="flex min-w-0 flex-col gap-2" data-testid="maya-static-context-table">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">Read-model context rows</span>
+                  <Badge variant="outline">Static evidence context</Badge>
+                </div>
+                <Separator />
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Context</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Backend label</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {subAgents.map((agent) => (
+                      <TableRow data-testid="maya-static-context-row" key={traceContextValue(agent)}>
+                        <TableCell className="w-[46%] whitespace-normal align-top">
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <span className="font-medium">{agent.name}</span>
+                              <Badge variant="outline">Read-model evidence context</Badge>
+                            </div>
+                            <span className="text-sm text-muted-foreground">{agent.query}</span>
+                            <span className="text-sm text-muted-foreground">{agent.artifacts}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-[30%] whitespace-normal align-top">
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span>{agent.source}</span>
+                            <span className="text-sm text-muted-foreground">{agent.keyArtifact}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-[24%] whitespace-normal align-top">
+                          <Badge variant="outline">{agent.statusLabel}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            <Alert>
+              <CircleDashedIcon aria-hidden="true" data-icon="inline-start" />
+              <AlertTitle>Backend trace-step contract gap</AlertTitle>
+              <AlertDescription>
+                Per-step progress is unavailable in the current read model; rows above are static evidence context.
+              </AlertDescription>
+            </Alert>
+          </>
         )}
-        <Alert>
-          <CircleDashedIcon aria-hidden="true" data-icon="inline-start" />
-          <AlertTitle>Backend trace-step contract gap</AlertTitle>
-          <AlertDescription>
-            Per-step progress is unavailable in the current read model; rows above are static evidence context.
-          </AlertDescription>
-        </Alert>
       </CardContent>
     </Card>
   );

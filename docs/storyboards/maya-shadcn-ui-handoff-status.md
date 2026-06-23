@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. Beat 8+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. Beat 9+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -138,6 +138,11 @@ None. No agent loop is currently active.
 - Beat 7 stops before Beat 8: no `CitedAnswerCard`, cited answer, fake five-step trace, pending guard row, fake PDF/POD viewer, custody/hash/footer metadata, external action, approval dispatch, SAP read, ERP write-back, Billing route, correspondence, or data mutation is introduced.
 - Beat 7 visual-gate fix: the query rail now promotes a compact `Selected evidence packet` block from the selected line and backend record IDs, the running state uses the submitted-query card instead of keeping the full composer open, and `AgentTracePanel` renders `multimodalDock.subAgents[]` as a compact shadcn table labeled as static read-model evidence context. This keeps evidence adjacency readable and moves multiple context rows into the first viewport without inventing per-step progress.
 - Beat 7 verification in this pass: RED invariants first failed for the missing selected-evidence packet hook and trace-rail/table semantics. Current checks pass: `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 39 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-07-agent-trace.png`, full `npm.cmd run verify` passed, and `git diff --check` passed with only LF-to-CRLF warnings.
+- Beat 8 cited-answer-returned state is implemented for `/forensics/shadcn` only. The focused e2e chain now continues Beat 1 -> Beat 8, opens the backend-selected case, switches to Evidence, opens the query dock, submits a local query, drives the existing `startRealtimeBrowserSession` helper through local browser WebRTC fakes, fulfills `query.answer` through `/api/query/realtime-tool`, and captures `output/playwright/e2e/maya-beat-08-cited-answer.png`.
+- Beat 8 remains contract-honest: `CitedAnswerCard` renders only when `status === "answered"`, non-empty `answer`, non-empty `deterministicBasis`, and non-empty `recordIds` exist. The answer text, deterministic basis, and cited record IDs are displayed from the accepted realtime/query response. No mockup answer prose, mockup citation IDs, warning/caution block, approval, recovery, Billing route, ERP write-back, correspondence, or external action dispatch is introduced.
+- Beat 8 metadata handling now passes the selected backend `evidencePack` into `QueryEvidenceDock` and `CitedAnswerCard`. Citation rows match response record IDs exactly against loaded evidence `documentId` or `citationId`; exact matches render backend document metadata, and non-matches keep `Metadata unavailable` without inventing document dates, titles, or types.
+- Beat 8 answered layout fix: after an accepted answer, the dock switches from the 456px query drawer to a wider answer-review sheet, hides the composer, suppresses duplicate answered status alerts, promotes exact metadata joins before unavailable rows, removes the Beat 7 trace rail from answered mode, and disables the query button. This keeps Beat 6 start and Beat 7 running screenshots behavior intact while making Beat 8 read as a review composition.
+- Beat 8 verification in this pass: RED invariants first failed on missing evidence-pack props/wide answered mode, RED e2e then failed on unavailable-row ordering and answered trace crowding, focused checks then passed with `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` (2 files / 39 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-01-login.png`, `output/playwright/e2e/maya-beat-06-query-start.png`, `output/playwright/e2e/maya-beat-07-agent-trace.png`, and `output/playwright/e2e/maya-beat-08-cited-answer.png`, and full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 596 tests, dependency-cruiser, release readiness).
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -152,10 +157,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Review the refreshed Beat 7 trace-in-progress screenshot against `mockups/imagegen/maya-12-beat-storyboard/07-agent-trace-in-progress.png` using the honest-current-data target from `docs/storyboards/maya-beat-07-shadcn-spec.md`.
-2. Run or record an independent visual reviewer gate before treating Beat 7 as accepted; every Beat 7 component and overall score must be `>=4.5/5` where backend contract gaps do not block parity.
-3. Keep Beat 7 wired to backend/read-model data only; do not invent answers, dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, evidence, trace completion, custody, hashes, or source counts.
-4. Do not proceed into Beat 8 cited-answer work until the Beat 7 build, chained browser/storyline test, and independent reviewer gate pass.
+1. Review the refreshed Beat 8 cited-answer screenshot against `mockups/imagegen/maya-12-beat-storyboard/08-cited-answer-returned.png` using the honest-current-data target from `docs/storyboards/maya-beat-08-shadcn-spec.md`.
+2. Record user or independent visual approval before treating Beat 8 as accepted; this pass self-scores Beat 8 at `4.6/5` overall, above the `>=4.5/5` target where backend contract gaps do not block parity.
+3. Keep Beat 8 wired to backend/read-model/query response data only; do not invent answers, dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, document metadata, evidence sufficiency, warnings, or source counts.
+4. Do not proceed into Beat 9 draft-review work until Beat 8 visual review and user approval are recorded.
 
 ## Beat 2 Remaining Deltas
 
@@ -277,6 +282,35 @@ Fresh evidence:
 | Overall Beat 7 composition | 4.6/5 | The screen now meets the honest trace-in-progress target with current data: evidence remains adjacent and readable, selected record IDs are promoted, and static context rows read as an operational rail; exact mockup parity is limited by missing evidence asset and active trace-step contracts. |
 
 Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+
+## Beat 8 Remaining Deltas
+
+- The current backend/query response returns five cited record IDs, while only two loaded evidence documents have exact `documentId` or `citationId` matches. The remaining line/POD/invoice IDs correctly render `Metadata unavailable`.
+- The mockup's separate `Evidence in this Case` table, business dates, warning/caution block, `Open in Evidence`, and `Review Draft` controls are intentionally absent because the current read model/query response does not expose those exact fields or because the controls would risk implying external-action state.
+- The answered mode remains implemented as a shadcn `Sheet`, but it widens only after `canShowCitedAnswer` is true so Beat 6 and Beat 7 retain the established right-drawer behavior.
+- The background opened-case workspace remains visible behind the answer-review sheet rather than becoming the mockup's dedicated evidence-route shell; exact route-level parity needs a future navigation/read-model contract.
+
+## Beat 8 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/08-cited-answer-returned.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-08-cited-answer.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Answer-review sheet width/composition | 4.7/5 | Answered mode now expands to a wide review surface while Beat 6 and Beat 7 keep the narrow query drawer; it still remains a right-side sheet over the opened case rather than a dedicated evidence route. |
+| Answer summary and deterministic basis | 4.7/5 | Answer text and deterministic basis are rendered only from the accepted realtime/query response, with compact status/readout chips and no authored rationale bullets or mockup answer prose. |
+| Citation metadata table | 4.6/5 | Every response record ID renders; exact backend document/citation matches show citation, document ID, type, relevance, source, verification, and summary, while unmatched IDs stay explicitly unavailable. |
+| Backend evidence readout | 4.6/5 | The loaded-document count comes from `selected.evidencePack.documents.length`; no fake evidence count, dates, or case-document table rows are introduced. |
+| Beat 6/7 preservation | 4.7/5 | The width switch is gated by `canShowCitedAnswer`, the composer/start state and running trace state remain e2e-covered, and the Beat 8 view no longer carries the Beat 7 trace rail. |
+| Action/HITL safety | 4.8/5 | No approval, recovery, Billing route, ERP write-back, correspondence, or external-action buttons are added; the only visible button is the disabled read-only query control after answer. |
+| Overall Beat 8 visual fidelity | 4.6/5 | The screen now reads as an answer-review composition rather than a narrow query drawer. Remaining deltas are backend-contract limits and the retained sheet-over-workspace route shape. |
+
+Gate result: self-assessed component-level target met (`>=4.5/5`) with focused invariants, typecheck, chained Beat 6-8 e2e, and full `npm.cmd run verify` green. User or independent visual approval is still required before final acceptance.
 
 ## ETA Bands
 

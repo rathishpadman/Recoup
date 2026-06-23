@@ -288,6 +288,7 @@ export function DeductionCaseWorkspace({
       {canShowBackendDetail ? (
         <QueryEvidenceDock
           dock={multimodalDock}
+          evidencePack={selected.evidencePack}
           onOpenChange={setQueryDockOpen}
           onResponse={() => undefined}
           open={queryDockOpen}

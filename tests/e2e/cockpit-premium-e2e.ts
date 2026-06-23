@@ -191,8 +191,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       }
       await captureMayaBeat6QueryStartScreenshot(browser);
       await captureMayaBeat7AgentTraceScreenshot(browser);
+      await captureMayaBeat8CitedAnswerScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 7 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png`
+        `Maya Beat 1 through Beat 8 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png`
       );
       return;
     }
@@ -522,6 +523,268 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
     await page.unroute("**/api/query/realtime-client-secret");
     await context.close();
   }
+}
+
+async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const connectors = await loadConnectorE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  await installBeat8RealtimeFakes(context);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+  const localQuestion = "Which selected evidence records support this deduction review?";
+  const acceptedAnswer = "E2E accepted cited answer from the realtime helper boundary.";
+  const acceptedBasis = "E2E deterministic basis from the query.answer tool response.";
+  let clientSecretRequestCount = 0;
+  let realtimeSdpRequestCount = 0;
+  let realtimeToolRequestCount = 0;
+  let browserRuntimeProbe: unknown;
+  const browserErrors: string[] = [];
+  const browserWarnings: string[] = [];
+
+  await page.route("**/api/query/realtime-client-secret", async (route) => {
+    clientSecretRequestCount += 1;
+    await route.fulfill({
+      body: JSON.stringify({
+        auditPolicy: {
+          externalActions: "none",
+          recordIds: model.selected.evidencePack.recordIds,
+          retention: "e2e-beat-8"
+        },
+        clientSecret: { value: "ek_e2e_cited_answer" },
+        deterministicBasis: "E2E credential gate issued by cockpit proxy.",
+        model: "gpt-realtime-2",
+        status: "issued",
+        transport: "webrtc"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+  await page.route("https://api.openai.com/v1/realtime/calls", async (route) => {
+    realtimeSdpRequestCount += 1;
+    await route.fulfill({
+      body: "v=0\r\ns=e2e-answer",
+      contentType: "application/sdp",
+      status: 200
+    });
+  });
+  await page.route("**/api/query/realtime-tool", async (route) => {
+    realtimeToolRequestCount += 1;
+    const payload = (await route.request().postDataJSON()) as { name?: string };
+    await route.fulfill({
+      body: JSON.stringify({
+        deterministicBasis: acceptedBasis,
+        output: {
+          answer: acceptedAnswer,
+          citationParity: {
+            parity: "same_record_ids",
+            textRecordIds: model.selected.evidencePack.recordIds,
+            voiceRecordIds: model.selected.evidencePack.recordIds
+          },
+          deterministicBasis: acceptedBasis,
+          recordIds: model.selected.evidencePack.recordIds
+        },
+        recordIds: model.selected.evidencePack.recordIds,
+        status: "ok",
+        toolName: payload.name ?? "query.answer"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat8ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  page.on("pageerror", (error) => {
+    browserErrors.push(error.message);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      browserWarnings.push(message.text());
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    browserRuntimeProbe = await page.evaluate(() => ({
+      mediaGetUserMediaType: typeof navigator.mediaDevices.getUserMedia,
+      rtcType: typeof RTCPeerConnection,
+      rtcValue: String(RTCPeerConnection).slice(0, 80)
+    }));
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 8 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Evidence/u }).click();
+    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
+    await page.getByRole("button", { name: /^Query evidence$/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 8 query dock");
+    await page.getByTestId("maya-query-input").fill(localQuestion);
+    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await page.getByRole("button", { name: /^Run query$/u }).click();
+    try {
+      await page.locator('[data-testid="maya-cited-answer"]').waitFor({ state: "visible", timeout: 15_000 });
+    } catch (error) {
+      const beat8State = await page.evaluate(() => {
+        const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
+        const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
+        const alerts = [...document.querySelectorAll<HTMLElement>('[role="alert"]')].map((alert) => alert.innerText);
+
+        return {
+          alerts,
+          dockText: dock?.innerText ?? "",
+          traceText: trace?.innerText ?? ""
+        };
+      });
+      console.error(
+        JSON.stringify(
+          {
+            browserErrors,
+            browserRuntimeProbe,
+            browserWarnings,
+            beat8State,
+            clientSecretRequestCount,
+            forbiddenRequests,
+            realtimeSdpRequestCount,
+            realtimeToolRequestCount
+          },
+          null,
+          2
+        )
+      );
+      throw error;
+    }
+    await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', "Maya Beat 8 cited answer");
+    await assertBeat8CitedAnswerFidelity(page, model, {
+      acceptedAnswer,
+      acceptedBasis,
+      clientSecretRequestCount,
+      forbiddenRequests,
+      localQuestion,
+      realtimeSdpRequestCount
+    });
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-08-cited-answer.png` });
+  } finally {
+    await page.unroute("**/api/query/realtime-client-secret");
+    await page.unroute("https://api.openai.com/v1/realtime/calls");
+    await page.unroute("**/api/query/realtime-tool");
+    await context.close();
+  }
+}
+
+async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void> {
+  await context.addInitScript({
+    content: String.raw`
+(() => {
+  class E2EDataChannel extends EventTarget {
+    constructor() {
+      super();
+      this.sentMessages = [];
+      this.sentResponseCreate = false;
+    }
+
+    close() {
+      this.dispatchEvent(new Event("close"));
+    }
+
+    openSoon() {
+      window.setTimeout(() => {
+        this.dispatchEvent(new Event("open"));
+      }, 0);
+    }
+
+    send(message) {
+      this.sentMessages.push(message);
+      let parsed;
+      try {
+        parsed = JSON.parse(message);
+      } catch {
+        return;
+      }
+      if (!isE2ERecord(parsed) || parsed.type !== "response.create" || this.sentResponseCreate) {
+        return;
+      }
+      this.sentResponseCreate = true;
+      window.setTimeout(() => {
+        this.dispatchEvent(
+          new MessageEvent("message", {
+            data: JSON.stringify({
+              item: {
+                arguments: JSON.stringify({ question: "e2e accepted cited answer" }),
+                call_id: "call-e2e-beat-8",
+                name: "query.answer",
+                type: "function_call"
+              },
+              type: "response.output_item.done"
+            })
+          })
+        );
+      }, 0);
+    }
+  }
+
+  class E2EPeerConnection extends EventTarget {
+    constructor() {
+      super();
+      this.dataChannel = new E2EDataChannel();
+      this.ontrack = null;
+    }
+
+    addTrack() {}
+
+    close() {}
+
+    createDataChannel() {
+      return this.dataChannel;
+    }
+
+    createOffer() {
+      return Promise.resolve({ sdp: "v=0\r\ns=e2e-offer", type: "offer" });
+    }
+
+    setLocalDescription() {
+      return Promise.resolve();
+    }
+
+    setRemoteDescription() {
+      this.dataChannel.openSoon();
+      return Promise.resolve();
+    }
+  }
+
+  function isE2ERecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  const mediaDevices = {
+    getUserMedia: () =>
+      Promise.resolve({
+        getTracks: () => [
+          {
+            stop: () => undefined
+          }
+        ]
+      })
+  };
+
+  Object.defineProperty(window.navigator, "mediaDevices", {
+    configurable: true,
+    value: mediaDevices
+  });
+  Object.defineProperty(window, "RTCPeerConnection", {
+    configurable: true,
+    value: E2EPeerConnection
+  });
+})();
+`
+  });
 }
 
 async function assertPremiumSurfaces(browser: Browser): Promise<void> {
@@ -1564,6 +1827,142 @@ async function assertBeat7AgentTraceInProgressFidelity(
   );
 }
 
+async function assertBeat8CitedAnswerFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  {
+    acceptedAnswer,
+    acceptedBasis,
+    clientSecretRequestCount,
+    forbiddenRequests,
+    localQuestion,
+    realtimeSdpRequestCount
+  }: {
+    acceptedAnswer: string;
+    acceptedBasis: string;
+    clientSecretRequestCount: number;
+    forbiddenRequests: string[];
+    localQuestion: string;
+    realtimeSdpRequestCount: number;
+  }
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 8 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 8 query dock");
+  await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', "Maya Beat 8 cited answer");
+  await expectVisibleLocator(page, '[data-testid="maya-cited-answer-text"]', "Maya Beat 8 cited answer text");
+  await expectVisibleLocator(page, '[data-testid="maya-cited-answer-basis"]', "Maya Beat 8 deterministic basis");
+  await expectVisibleLocator(page, '[data-testid="maya-cited-record-row"]', "Maya Beat 8 citation rows");
+  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
+
+  const result = await page.evaluate(() => {
+    const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
+    const answer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
+    const answerText = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer-text"]')?.innerText ?? "";
+    const basis = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer-basis"]')?.innerText ?? "";
+    const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
+    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const submittedQuery = document.querySelector<HTMLElement>('[data-testid="maya-submitted-query"]')?.innerText ?? "";
+    const blockedAlerts = answer?.querySelectorAll<HTMLElement>('[data-testid="maya-cited-answer-blocked"]') ?? [];
+    const citationRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-cited-record-row"]')].map((row) => ({
+      metadataGap: row.getAttribute("data-metadata-gap") ?? "",
+      metadataJoin: row.getAttribute("data-metadata-join") ?? "",
+      metadataText: row.querySelector<HTMLElement>('[data-testid="maya-cited-record-metadata"]')?.innerText ?? "",
+      recordId: row.getAttribute("data-record-id") ?? "",
+      text: row.innerText
+    }));
+    const buttons = [...(dock?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => button.innerText);
+    const dockRect = dock?.getBoundingClientRect();
+
+    return {
+      answerText,
+      basis,
+      blockedCount: blockedAlerts.length,
+      buttons,
+      citationRows,
+      dockMode: dock?.dataset.answerMode ?? "",
+      dockText: dock?.innerText ?? "",
+      dockWidth: dockRect?.width ?? 0,
+      dossierText: dossier?.innerText ?? "",
+      submittedQuery,
+      text: answer?.innerText ?? "",
+      traceText: trace?.innerText ?? ""
+    };
+  });
+
+  assert(clientSecretRequestCount === 1, "Beat 8 must request exactly one realtime client secret");
+  assert(realtimeSdpRequestCount === 1, "Beat 8 must complete exactly one local SDP exchange");
+  assert(result.answerText.includes(acceptedAnswer), "Beat 8 must render the backend/test accepted answer text");
+  assert(result.basis.includes(acceptedBasis), "Beat 8 must render the backend/test deterministic basis");
+  assert(result.submittedQuery.includes(localQuestion), "Beat 8 must preserve the local submitted query context");
+  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 8 must keep adjacent evidence context visible");
+  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 8 must keep backend evidence summaries visible");
+  assert(result.dockMode === "review", "Beat 8 answered state must promote the sheet into answer-review mode");
+  assert(result.dockWidth >= 760, `Beat 8 answer-review mode must be wider than the query drawer: ${String(result.dockWidth)}px`);
+  assert(result.text.includes("Answered"), "Beat 8 must label the accepted answered state");
+  assert(
+    result.text.includes(`${String(model.selected.evidencePack.documents.length)} loaded documents`),
+    "Beat 8 answer card must show a backend-document readout from the loaded evidence packet"
+  );
+  assert(!result.text.includes("No cited answer returned"), "Beat 8 must not show the blocked/no-answer state");
+  assert(result.blockedCount === 0, "Beat 8 accepted answer must not render blocked-state content");
+  assert(!result.text.includes("Partial / Blocked"), "Beat 8 must not invent a warning/caution block");
+  assert(!result.text.includes("Shortage Deduction Recoverability"), "Beat 8 must not render mockup-only query title");
+  assert(!result.text.includes("The shortage deduction is recoverable."), "Beat 8 must not render mockup-only answer prose");
+  assert(!result.text.includes("INV-100245"), "Beat 8 must not render mockup-only citation IDs");
+  assert(!result.text.includes("POD-77421"), "Beat 8 must not render mockup-only citation IDs");
+  assert(!result.text.includes("CLAIM-8821"), "Beat 8 must not render mockup-only citation IDs");
+  assert(!result.dockText.includes("Trace rail"), "Beat 8 answered view must not keep the Beat 7 trace rail in the first viewport");
+  assert(result.traceText.length === 0, "Beat 8 answered view must focus on answer review instead of agent trace");
+  assert(result.citationRows.length === model.selected.evidencePack.recordIds.length, "Beat 8 must render every cited record ID");
+  for (const recordId of model.selected.evidencePack.recordIds) {
+    assert(result.text.includes(recordId), `Beat 8 cited answer must show ${recordId}`);
+  }
+  const exactJoinedDocuments = model.selected.evidencePack.documents.filter(
+    (document) =>
+      model.selected.evidencePack.recordIds.includes(document.documentId) ||
+      model.selected.evidencePack.recordIds.includes(document.citationId)
+  );
+  assert(exactJoinedDocuments.length > 0, "Beat 8 fixture must include at least one exact document metadata join");
+  const firstJoinedRowIndex = result.citationRows.findIndex((row) => row.metadataJoin === "exact");
+  const firstGapRowIndex = result.citationRows.findIndex((row) => row.metadataGap === "true");
+  assert(firstJoinedRowIndex >= 0, "Beat 8 must render at least one exact metadata join row");
+  assert(
+    firstGapRowIndex === -1 || firstJoinedRowIndex < firstGapRowIndex,
+    "Beat 8 must promote exact backend document metadata rows before unavailable metadata rows"
+  );
+  for (const document of exactJoinedDocuments) {
+    const joinedRow = result.citationRows.find((row) => row.recordId === document.documentId || row.recordId === document.citationId);
+    assert(joinedRow !== undefined, `Beat 8 must render a citation row for exact document ${document.documentId}`);
+    assert(joinedRow.metadataJoin === "exact", `Beat 8 must mark ${document.documentId} as an exact metadata join`);
+    assert(joinedRow.metadataGap !== "true", `Beat 8 must not mark ${document.documentId} as unavailable when metadata is exact`);
+    assert(joinedRow.metadataText.includes(document.citationId), `Beat 8 joined metadata must show citation ${document.citationId}`);
+    assert(joinedRow.metadataText.includes(document.documentId), `Beat 8 joined metadata must show document ${document.documentId}`);
+    assert(joinedRow.metadataText.includes(document.documentType), `Beat 8 joined metadata must show type ${document.documentType}`);
+    assert(joinedRow.metadataText.includes(document.sourceLabel), `Beat 8 joined metadata must show source ${document.sourceLabel}`);
+    assert(joinedRow.metadataText.includes(document.verifiedLabel), `Beat 8 joined metadata must show verification ${document.verifiedLabel}`);
+  }
+  for (const row of result.citationRows) {
+    const hasExactDocument = exactJoinedDocuments.some(
+      (document) => row.recordId === document.documentId || row.recordId === document.citationId
+    );
+    if (hasExactDocument) {
+      continue;
+    }
+    assert(row.metadataGap === "true", "Beat 8 citation rows without exact joins must honestly mark unavailable metadata");
+    assert(row.text.includes("Metadata unavailable"), "Beat 8 citation rows without exact joins must expose the metadata gap");
+  }
+  assert(
+    !/\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu.test(
+      [...result.buttons, result.dockText].join("\n")
+    ),
+    "Beat 8 dock must not render external-action copy"
+  );
+  assert(
+    forbiddenRequests.length === 0,
+    `Beat 8 must not dispatch external action routes or OpenAI network calls: ${forbiddenRequests.join(", ")}`
+  );
+}
+
 function isForbiddenBeat5Request(request: PlaywrightRequest): boolean {
   const url = new URL(request.url());
   const pathname = url.pathname.toLowerCase();
@@ -1607,6 +2006,24 @@ function isForbiddenBeat7ExternalActionRequest(request: PlaywrightRequest): bool
     segments.includes("sap") ||
     pathname === "/api/query/realtime-tool" ||
     (segments.includes("query") && !isRealtimeClientSecret)
+  );
+}
+
+function isForbiddenBeat8ExternalActionRequest(request: PlaywrightRequest): boolean {
+  const url = new URL(request.url());
+  const pathname = url.pathname.toLowerCase();
+  const segments = pathname.split("/").filter(Boolean);
+  const isRealtimeClientSecret = pathname === "/api/query/realtime-client-secret";
+  const isRealtimeTool = pathname === "/api/query/realtime-tool";
+  const isLocalRealtimeSdp = url.hostname === "api.openai.com" && pathname === "/v1/realtime/calls";
+
+  return (
+    (url.hostname === "api.openai.com" && !isLocalRealtimeSdp) ||
+    pathname === "/run" ||
+    pathname.startsWith("/run/") ||
+    segments.includes("approval") ||
+    segments.includes("sap") ||
+    (segments.includes("query") && !isRealtimeClientSecret && !isRealtimeTool)
   );
 }
 
