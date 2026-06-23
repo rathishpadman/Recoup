@@ -37,12 +37,20 @@ Visual contract:
 - The first viewport stays inside Maya's case workspace, not a standalone chat page.
 - Left navigation remains persistent and visually integrated with the Maya forensics shell.
 - Case header remains visible with case title, open state, and selected-case facts sourced from the read model.
-- Evidence/content pane stays adjacent to the query dock. The dock is not allowed to replace the evidence context.
-- Evidence tab/dossier remains the left-side working surface with a dense table-led layout. The mockup table rows are visual direction only; runtime rows must come from backend/read-model fields.
-- Query dock opens as a right-side panel or sheet with a restrained white surface, clear title, close affordance, policy chips, question label, multiline input, character/help text if supported, bottom-aligned primary query button, and compact no-external-action/citation policy support.
+- Evidence/content pane stays adjacent to the query dock. The dock is not allowed to replace the evidence context. On desktop, keep the evidence pane as the wider primary work area and place the dock on the right edge as a bounded operational sheet/rail.
+- Evidence tab/dossier remains the left-side working surface with a dense table-led layout. The mockup table rows are visual direction only; runtime rows must come from backend/read-model fields. The table anatomy must keep search/filter controls above the table, column labels in a stable header, row density compact enough to show multiple cited documents, and pagination/count controls below or aligned with the table footer without crowding the query dock.
+- Query dock opens as a right-side panel or sheet with a restrained white surface, clear title, close affordance, policy chips, question label, multiline input, character/help text if supported, bottom-aligned primary query button, and compact no-external-action/citation policy support. On desktop, target the mockup's narrow right panel proportion rather than a half-screen chat surface; on smaller viewports, the sheet may take most of the width but must preserve title, close control, selected scope, input, and submit footer without overlap.
 - Input start state shows the user's typed question or an empty prompt state. It must not show an answer card until the realtime/query contract returns a cited answer with deterministic basis.
 - Evidence/context adjacency must remain obvious: visible selected line, cited record IDs, and/or evidence pack scope must sit near the input so the user understands the query is case-bound.
 - Visual tone must remain light-first, dense, premium B2B SaaS. Avoid card-everything composition, decorative gradients, purple/blue generated UI language, fake hero copy, and legacy premium-component styling.
+
+Beat 6 placement and alignment details:
+
+- The right sheet must be visually anchored to the viewport/workspace right edge with no floating-card treatment around it.
+- `SheetContent` must reserve a persistent footer area for the submit action and help/policy text. The primary query button aligns to the footer's right edge; compact citation/read-only help text aligns left or above the footer action, matching the mockup's bottom button/help anatomy.
+- The input field and counter/help line must sit directly above the footer. The help line must not drift into the evidence table area or wrap under the button on desktop.
+- Evidence table controls must stay inside the evidence pane: filter/search controls in the table toolbar, pagination/count controls in the table footer, and no table controls duplicated inside the query sheet.
+- The sheet must not cover the selected row, selected record badge strip, or table footer on the primary desktop review viewport used for `06-query-dock-start.png` comparison.
 
 ## 3. Backend Data Contract Mapping
 
@@ -70,7 +78,8 @@ Current data transport:
 | Scoped record IDs | `ForensicsCockpitModel.selected.evidencePack.recordIds`; `QueryEvidenceDock.recordIds`; realtime snapshots `recordIds` | Render record IDs as badges without editing, truncating meaning, or inventing extra IDs | The dock cannot query arbitrary evidence table rows until a row-selection backend contract exists. |
 | Evidence adjacency | `selected.evidencePack.documents[]` and future evidence pane props | Show document metadata already in the read model; use table/dossier layout | Current Beat 6 dock component itself does not own the evidence table. Future build must preserve the surrounding evidence surface from prior beats. |
 | Question value | Local controlled input state `question` | Trim only for submission; preserve visible typed text while editing | No backend draft-question persistence. Do not store raw questions outside current component unless a future contract names retention. |
-| Submit request | Browser helper `startRealtimeBrowserSession({ question, recordIds, selectedLineId })` | Disable when empty or already running | `POST /query/realtime-client-secret` schema currently validates only `question`; forwarded `recordIds`/`selectedLineId` are not validated server-side in `realtimeClientSecretRequestSchema`. Treat this as a contract gap for strict scope enforcement. |
+| Question length | `src/services/serviceLayer.ts` and `src/services/realtimeSession.ts` currently cap `query.answer.question` at 500 characters | If a visible counter is implemented, show the actual 500-character limit or derive the value from a shared schema constant if one is added later | The mockup's 2000-style counter is not valid for runtime today. Do not render `2000` or any larger limit unless the backend/tool schema changes first. |
+| Submit request | Browser helper `startRealtimeBrowserSession({ question, recordIds, selectedLineId })` | Disable when empty or already running. UI may pass local selected scope as context, but must label it as selected evidence context until the server validates it. | `POST /query/realtime-client-secret` schema currently validates only `question`; forwarded `recordIds`/`selectedLineId` are not validated server-side in `realtimeClientSecretRequestSchema`. Treat this as a contract gap for strict scope enforcement. |
 | Client secret route | Next `POST /api/query/realtime-client-secret` to API `POST /query/realtime-client-secret` | Surface blocked/unavailable state through `Alert`; never show server API key | Requires verified human cockpit auth and runtime OpenAI credentials. Missing credentials must stay blocked/unavailable. |
 | Tool route | Next `POST /api/query/realtime-tool` to API `POST /query/realtime-tool` | Display blocked tool state with deterministic basis when returned | Allowed Realtime tools are only `audit.read` and `query.answer`; no action tools. |
 | Pending/connecting status | `RealtimeBrowserSessionSnapshot.status` values `connecting` and `connected`; `message`; `recordIds` | Use `Alert` plus `Skeleton` rows; `aria-live="polite"` | No answer yet. Do not render `CitedAnswerCard` as successful during pending states. |
@@ -85,6 +94,7 @@ Preferred future backend gaps to close before a stricter Beat 6 implementation:
 - Add an explicit query-scope response field that echoes allowed case/line/record IDs.
 - Add a policy-chip read model if chips must be backend-owned rather than static product policy labels.
 - Add evidence-row selection contract before making the dock query an arbitrary evidence table row.
+- Until server-side scope validation exists, the UI must not claim strict scoped enforcement. Allowed copy should be visibly honest, such as `Selected evidence context` or `Using current case context`; disallowed copy includes `Server-enforced scope`, `Locked to these records`, or equivalent claims unless the backend echo/validation contract exists.
 
 ## 4. Interaction Contract
 
@@ -100,7 +110,7 @@ Input behavior:
 - Submit is disabled when the trimmed question is empty.
 - Submit is disabled while `connecting` or `connected`.
 - The visible value may show the typed question from the current session only; do not persist it as audit/memory without a named backend contract.
-- If a character counter is implemented, it must be UI-only and must not conflict with the current server question validation. The current `query.answer` tool schema allows max 500 characters, while the mockup shows a 2000-style counter; this mismatch must be resolved before implementation or shown as a spec gap.
+- If a character counter is implemented, it must enforce and display the current backend/tool limit of 500 characters. Do not show the mockup's 2000-style counter unless `query.answer` and the realtime/client-secret contracts are changed first.
 
 Submission behavior:
 
@@ -157,11 +167,14 @@ Composition rules:
 - Forms use `FieldGroup` and `Field`; no raw form stacks.
 - Buttons inside or attached to inputs use `InputGroupAddon`.
 - Use `InputGroupTextarea` inside `InputGroup`; never raw `Textarea` inside `InputGroup`.
+- `SheetContent` must include `SheetHeader` and `SheetTitle` for accessibility. If the title is visually replaced by a custom header, keep `SheetTitle` present with `sr-only`; do not ship a title-less sheet.
+- If `SheetDescription` is used, it must describe the selected evidence/query policy without introducing backend claims the route does not support.
 - Use `Skeleton` instead of custom pulse markup.
 - Use `Alert` for guardrail, blocked, unavailable, and error states.
 - Use `Badge` for record IDs and policy chips.
 - Use semantic tokens and shadcn variants; no raw ad hoc status colors.
-- Icons in buttons must use `data-icon` and the project's configured icon library conventions.
+- Icons in buttons must use `data-icon="inline-start"` or `data-icon="inline-end"` and the project's configured icon library conventions. Do not add explicit icon sizing classes inside shadcn `Button`; the component owns icon sizing. Do not use emoji icons.
+- Button loading/running states must be composed with `disabled`, text, and an approved spinner/icon pattern; shadcn `Button` has no `isLoading` or `isPending` prop.
 - Do not show raw backend enum names as primary business copy.
 
 ## 6. No Fake Answer, Citation, Or Autonomous Action Rules
@@ -192,10 +205,14 @@ Checklist:
 - Runtime screenshot path is `output/playwright/e2e/maya-beat-06-query-start.png`.
 - View matches the Beat 6 anatomy: case/evidence workspace on the left, query dock open on the right.
 - Query dock is a dense operational panel, not a chat landing page or decorative card.
+- Right sheet width, edge anchoring, table toolbar/footer placement, and bottom submit/help alignment match `06-query-dock-start.png` closely enough for a `>=4/5` review.
 - Title, close affordance, policy chips, question label, multiline input, submit button, and citation/no-action support are visible.
+- `SheetTitle` exists for accessibility, even if visually hidden.
 - Evidence/context adjacency is clear through visible selected line and cited record IDs.
 - Input state is start/pending-ready only; no returned cited answer appears in Beat 6 screenshot.
 - Submit state is honest: disabled for empty/running, enabled only for non-empty local question.
+- Visible counter/help text uses the actual 500-character backend/tool limit or omits the numeric counter; no 2000-character counter appears.
+- Scope copy is honest about current client-side selected evidence context unless server-side scope validation has been added and tested.
 - Pending state uses `Skeleton`/status copy, not fake answer text.
 - Guardrail copy states cited answers/read-only/no external actions without marketing filler.
 - Evidence rows, case facts, record IDs, and dollars come from backend/read-model fields or are shown as unavailable/contract gaps.
@@ -228,5 +245,5 @@ Future Beat 6 implementation verification:
 
 - Invariants touched by future implementation: I-1, I-7, I-17, I-20, I-23, I-26, I-29, and I-30.
 - Current server-side `POST /query/realtime-client-secret` accepts `question` but does not validate submitted `recordIds` or `selectedLineId`; this spec treats that as a gap rather than assuming strict backend scope enforcement.
-- The mockup character counter and current tool schema max length appear inconsistent. Do not implement a numeric counter until the limit is confirmed or derived from a shared schema.
+- The mockup character counter conflicts with the current 500-character `query.answer`/realtime tool limit. Runtime must use 500 or omit the numeric counter unless the backend/tool schema changes.
 - Beat 6 must stop before Beat 7 agent-trace-in-progress and Beat 8 cited-answer-returned states.

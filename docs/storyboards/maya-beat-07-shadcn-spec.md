@@ -51,6 +51,12 @@ Visual status vocabulary:
 
 Mockup copy is visual-only. Runtime text, labels, record IDs, and evidence facts must come from backend/read-model fields.
 
+Exact-mockup implementation gate:
+
+- The current backend/read model does not expose enough fields to implement the mockup exactly. A build worker must not ship a pixel-exact POD viewer, five live trace rows, live per-step status timeline, custody footer, toolbar metadata, hashes, collected timestamps, or pending guard row unless the backend/read-model contract below is added first.
+- Until that contract exists, the honest current-data visual target is: Maya workspace shell, selected evidence document metadata/table or summary, selected record ID badges, a right query sheet/rail with the submitted local question while the session is open, a session-level running/blocked/error state from `RealtimeBrowserSessionSnapshot`, and static `multimodalDock.subAgents[]` displayed only as evidence context rows, not live trace progress.
+- Any visual comparison against `07-agent-trace-in-progress.png` must score layout/anatomy against this honest target and list backend-contract deltas explicitly. The future build cannot fill those deltas with static React text or mockup literals.
+
 ## 3. Backend Data Contract Mapping
 
 Current route and data surfaces:
@@ -83,6 +89,26 @@ Current route and data surfaces:
 Preferred future backend/read-model contract for Beat 7:
 
 ```ts
+interface MayaEvidenceAsset {
+  assetId: string;
+  documentId: string;
+  renderUrl: string;
+  renderType: "pdf" | "image" | "text";
+  fileName?: string;
+  fileSizeLabel?: string;
+  pageCount?: number;
+  toolbarActions: Array<"zoom-in" | "zoom-out" | "download" | "open-source">;
+}
+
+interface MayaEvidenceCustody {
+  collectedAtLabel: string;
+  sourceSystemLabel: string;
+  custodianLabel?: string;
+  retentionLabel?: string;
+  sha256?: string;
+  entryHash?: string;
+}
+
 interface MayaEvidenceTraceStep {
   stepId: string;
   label: string;
@@ -91,8 +117,10 @@ interface MayaEvidenceTraceStep {
   recordIds: string[];
   deterministicBasis?: string;
   sourceLabel?: string;
+  citations: Array<{ recordId: string; documentId?: string; citationId?: string; deterministicBasis?: string }>;
   startedAtLabel?: string;
   completedAtLabel?: string;
+  statusUpdatedAtLabel?: string;
 }
 
 interface MayaActiveEvidenceQuery {
@@ -100,10 +128,20 @@ interface MayaActiveEvidenceQuery {
   selectedLineId: string;
   status: "idle" | "running" | "answered" | "blocked" | "error";
   steps: MayaEvidenceTraceStep[];
+  evidenceAsset?: MayaEvidenceAsset;
+  custody?: MayaEvidenceCustody;
 }
 ```
 
 Until a contract like this exists, Beat 7 must use session-level running state and static sub-agent rows honestly, with visible gaps where per-step progress is unavailable.
+
+Required future contract semantics:
+
+- `activeQuery.steps[]` must be backend/read-model owned and ordered. React may only map the provided enum to visual variants.
+- `evidenceAsset.renderUrl` and `evidenceAsset.renderType` are required before rendering a PDF/image viewer. A document summary alone is not a viewer asset.
+- Custody/hash metadata must be backend/read-model fields. Do not invent collected timestamps, file sizes, custodians, source-system codes, SHA values, entry hashes, or previous hashes in UI.
+- Per-agent or per-step status timestamps must come from `startedAtLabel`, `completedAtLabel`, or `statusUpdatedAtLabel`.
+- Step citations must be explicit per step; do not reuse global selected record IDs as proof that each step is cited unless the backend maps them.
 
 ## 4. Interaction Contract
 
@@ -130,6 +168,8 @@ Trace step behavior:
 - Running steps may show skeleton detail placeholders only for fields that are genuinely loading.
 - Pending steps must not show fabricated detail rows.
 - Blocked steps must show the backend block reason and record IDs if provided.
+- Do not name a running step from the mockup, such as `Evidence reader`, unless the current backend step row contains that label and status.
+- Do not render a pending `Citation and action guard` row unless a backend step or guard status exposes it. Citation blocking may appear as a session-level `Alert` from the realtime snapshot instead.
 
 Cited evidence basis:
 
@@ -146,6 +186,8 @@ Use installed shadcn components from `cockpit/components/ui` only unless a later
 | Workspace shell/sidebar | `Sidebar`, `ScrollArea`, `Separator`, `Tooltip`, `Button` |
 | Evidence artifact header | `Card`, `Badge`, `Button`, `Separator`, `Tooltip` |
 | Evidence document metadata | `Table`, `Badge`, `Separator`, `ScrollArea` |
+| PDF/image viewer when asset exists | `ScrollArea`, `Button`, `Tooltip`, `Separator`, `Badge`; use the browser's PDF/image rendering or approved viewer component only when `evidenceAsset.renderUrl` exists |
+| Viewer fallback when no asset exists | `Alert` or `Empty` plus `Table` for available document metadata and `Badge` for record IDs |
 | Query evidence sheet/rail | `Sheet` or fixed rail layout, `Card`, `ScrollArea`, `Separator` |
 | Trace timeline rows | `Card`, `Badge`, `Collapsible` or `Accordion`, `Separator`, `Skeleton` |
 | Running progress | `Skeleton`, `Badge`, optional `Alert` for blocked/auth states |
@@ -160,11 +202,15 @@ Composition rules:
 - Use `Table` for document metadata and trace detail rows when the content is comparative or row-based.
 - Use `ScrollArea` for the evidence list/viewer and trace rail when content exceeds viewport height.
 - Use `Alert` for blocked, unavailable, or contract-gap states.
+- Use `Empty` for no document asset/no trace rows states when absence is expected; use `Alert` when a backend/auth/guardrail condition blocks the view.
 - Use `Skeleton` for the active running trace detail only, not decorative shimmer.
 - Use `Separator` for anatomy breaks instead of hand-rolled border dividers.
 - Use `Badge` for statuses and record IDs, not custom styled spans.
 - Use semantic tokens and variants; no raw ad hoc status color ramps or purple/blue AI gradients.
 - Use lucide icons inside shadcn `Button` or status affordances according to existing icon conventions.
+- If the right rail uses `Sheet`, it must include `SheetHeader` and `SheetTitle` for accessibility. If the visual design uses a custom header, keep a visually hidden `SheetTitle`.
+- Button icons must follow the project's shadcn icon rule: icon element with `data-icon`, no manual icon sizing classes, and no emoji/status glyphs in buttons.
+- Viewer toolbar controls must be icon buttons with `Tooltip` labels and disabled/unavailable states derived from `evidenceAsset.toolbarActions`; do not show download/open/zoom controls when no renderable asset contract exists.
 
 ## 6. No Fake Agent Trace Or Autonomous Action Rules
 
@@ -178,6 +224,7 @@ Beat 7 must preserve Recoup invariants:
 - No UI-generated step completion. React may map backend states to visual variants; it must not decide that a step is complete, running, or pending from labels unless the backend gives a stable enum.
 - No use of `/trace` Risk Mesh audit events to imply live Maya evidence-query progress.
 - No chatbot gimmicks: no assistant avatar thread, fake typing, generated persona messages, or "AI is thinking" copy.
+- No fake POD content, signatures, barcode text, collected metadata, file size, custody footer, hashes, running step names, step timestamps, or pending guard rows. These must be omitted, shown as unavailable, or sourced from a future backend/read-model contract.
 
 ## 7. Screenshot Comparison Checklist
 
@@ -192,11 +239,12 @@ Checklist:
 - First viewport matches the Beat 7 anatomy: evidence viewer left/center, query trace rail right.
 - Persistent sidebar and case context remain visible and integrated.
 - Trace rail reads as an operational progress timeline, not a chat transcript.
-- Complete, running, and pending states are visually distinct and calm.
+- Complete, running, and pending states are visually distinct and calm only when backend-owned per-step statuses exist. With current data, the screenshot must show session-level running state plus honest static evidence context rows or contract gaps.
 - Running state uses `Skeleton` or equivalent loading affordance only where data is genuinely pending.
-- Evidence/document area is the primary object; the trace does not crowd it into a generic dashboard.
+- Evidence/document area is the primary object; the trace does not crowd it into a generic dashboard. If no renderable asset exists, the fallback metadata/table state must be intentional and visibly honest rather than a fake PDF.
 - Record IDs and deterministic basis are displayed when available and blocked/unavailable when absent.
 - Backend/read-model gaps are called out honestly instead of filled with mockup text.
+- Mockup-only POD content, collected timestamp, file size, custody/hash footer, five trace rows, running step names, per-step timestamps, and pending guard rows are absent unless the new backend contract provides them.
 - No fake autonomous action, send, approve, recover, route, or write-back copy appears.
 - No old Maya premium/custom UI language dominates the screen.
 - No generated UI tells from `AGENTS.md` section 5.1 dominate: card-everything layout, purple gradients, giant hero, decorative AI badges, or raw enum copy.
@@ -228,7 +276,9 @@ Later Beat 7 implementation verification:
 Known inconsistencies/gaps to resolve before implementation:
 
 - The mockup shows a renderable POD PDF, but the current Forensics read model exposes document metadata and summaries, not a PDF asset or page-render contract.
+- The mockup shows evidence toolbar/custody footer fields, collected metadata, file size, and hashes, but the current Forensics read model does not expose those fields.
 - The mockup shows five ordered trace steps with complete/running/pending status, but the current Forensics model exposes three static `multimodalDock.subAgents[]` rows and a session-level Realtime snapshot.
+- The current backend/read model does not expose `activeQuery.steps[]`, live per-step statuses, per-agent status timestamps, or step-level citations.
 - The mockup shows a pending `Citation and action guard` row, but the current Maya query surface exposes citation parity/blocking through `RealtimeBrowserSessionSnapshot`, not as a named per-step guard.
 - The `/trace` model is a Risk Mesh audit trace and should not be repurposed as Maya evidence-query progress without a backend contract change.
-- A future build can approximate layout with current data only if it labels missing backend capabilities as gaps and does not fabricate trace progress.
+- A future build can approximate layout with current data only if it labels missing backend capabilities as gaps and does not fabricate trace progress, document content, custody metadata, or hash/audit rows.
