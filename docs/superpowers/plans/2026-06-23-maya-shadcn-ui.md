@@ -111,6 +111,44 @@ Backend/read-model gap rule:
 - Do not substitute a hard-coded label in the component while waiting for backend support.
 - Do not derive business meaning from IDs or enum names in React. Human-readable labels belong in the read model.
 
+## 12 Mockup Fidelity Standard
+
+The implementation target is high-fidelity state equivalence, not pixel-copying. The 12 ImageGen mockups are the visual north star for hierarchy, density, state progression, and interaction feel. shadcn components, semantic tokens, real backend data, and responsive constraints are allowed to change exact pixels.
+
+Must match each mockup:
+
+- The beat's user intent and narrative state.
+- The primary information hierarchy.
+- The placement relationship between navigation, KPI/readiness area, worklist, case workspace, evidence/provenance, query/agent trace, approval, and audit states.
+- The interaction model: table-led worklist, progressive case workspace, right-side or sheet-style query affordance, modal approval gate, and return-to-queue continuity.
+- The data provenance posture: cited record IDs, deterministic basis, backend labels, and HITL state visible where the mockup shows them.
+- The operational density: compact premium B2B command surface, not a marketing-style dashboard.
+
+May adapt from the mockups:
+
+- Exact text, counts, dollar strings, labels, and rows because backend/read-model data wins.
+- Exact icon artwork because lucide/shadcn primitives are the implementation standard.
+- Exact spacing, border, and radius values where shadcn tokens produce the same hierarchy.
+- Exact desktop/mobile arrangement when responsive behavior requires reflow.
+- Exact dark/light tone if contrast or semantic token requirements require adjustment.
+
+Fidelity scoring before cutover:
+
+| Score | Meaning | Release decision |
+| --- | --- | --- |
+| `5/5` | Beat is functionally and visually very close; differences are only token/data adaptations. | Pass. |
+| `4/5` | Beat clearly reflects the mockup; minor layout or visual deltas remain but do not change the UX. | Pass with noted deltas. |
+| `3/5` | Beat is recognizable but key hierarchy, density, or interaction details are off. | Fail. |
+| `2/5` | Beat only partially exists or feels like a generic dashboard state. | Fail. |
+| `1/5` | Beat is missing or misleading. | Fail. |
+
+Cutover rule:
+
+- Every beat must score at least `4/5`.
+- Target average across all 12 beats is `4.5/5` or better.
+- Any `3/5` or below blocks `/forensics` cutover.
+- Fidelity review must be recorded in `docs/storyboards/maya-12-beat-fidelity-review.md` with screenshot paths and deltas.
+
 ## Component Install Set
 
 Use the local shadcn registry command:
@@ -542,6 +580,8 @@ git commit -m "Wire Maya shadcn query and approval states"
 - [ ] Add a Playwright interaction that opens query sheet.
 - [ ] Add a Playwright interaction that opens approval dialog.
 - [ ] Capture screenshots at 375, 768, 1024, and 1440 widths.
+- [ ] Add a 12-state Maya storyboard capture helper that records the implemented UI states corresponding to all 12 mockups.
+- [ ] Create `docs/storyboards/maya-12-beat-fidelity-review.md` with a per-beat score, screenshot path, mockup path, and visual/UX deltas.
 
 E2E code shape:
 
@@ -581,6 +621,60 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
 }
 ```
 
+12-state screenshot capture shape:
+
+```ts
+async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise<void> {
+  const context = await newRoleContext(browser, "maya", 1440, 900);
+  const page = await context.newPage();
+
+  await page.goto(`${appUrl}/login`, { waitUntil: "networkidle" });
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-01-login.png` });
+
+  await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard.png` });
+
+  await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-03-recommended-action.png` });
+
+  await page.getByTestId("maya-worklist-row").first().click();
+  await expectLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
+
+  await page.getByRole("tab", { name: /Evidence/u }).click();
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-05-evidence-dossier.png` });
+
+  await page.getByRole("button", { name: /Ask|Query/u }).click();
+  await expectLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-06-query-start.png` });
+
+  await page.getByTestId("maya-query-input").fill("Show the cited POD and TPM basis for this shortage.");
+  await page.getByRole("button", { name: /Run query|Ask/u }).click();
+  await expectLocator(page, '[data-testid="maya-agent-trace"]', "Maya agent trace");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-07-agent-trace.png` });
+
+  await expectLocator(page, '[data-testid="maya-cited-answer"]', "Maya cited answer");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-08-cited-answer.png` });
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: /Draft|Decision/u }).click();
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-09-draft-review.png` });
+
+  await page.getByRole("button", { name: /Review|Approve|Human approval/u }).click();
+  await expectLocator(page, '[role="alertdialog"]', "Maya approval dialog");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-10-human-approval.png` });
+
+  await page.getByRole("button", { name: /Approve/u }).click();
+  await expectLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
+
+  await page.getByRole("button", { name: /Back to worklist|Return to worklist/u }).click();
+  await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-12-return-worklist.png` });
+
+  await context.close();
+}
+```
+
 `assertPremiumSurfaces` should call the new function without replacing the existing `/forensics` checks until Phase 8:
 
 ```ts
@@ -610,6 +704,7 @@ Expected result:
 - E2E exits with code 0.
 - Screenshots are written under `output/playwright/e2e`.
 - New screenshot names include `maya-shadcn-forensics-375.png`, `maya-shadcn-forensics-768.png`, `maya-shadcn-forensics-1024.png`, and `maya-shadcn-forensics-1440.png`.
+- Storyboard state screenshots include `maya-beat-01-login.png` through `maya-beat-12-return-worklist.png`.
 - Existing screenshot names continue to be produced for login, Maya run, David credit, David command, CFO, and governance routes.
 
 Visual comparison checklist:
@@ -621,12 +716,35 @@ Visual comparison checklist:
 - Beat 7: supervisor/agent trace is compact and procedural, not decorative.
 - Beat 10: approval dialog clearly indicates human approval before dispatch.
 - Beat 12: return-to-worklist state preserves operational queue context.
-- Score must be at least 4/5 against the cockpit anti-slop standard before cutover.
+- Score every beat against the 12 Mockup Fidelity Standard.
+- Every beat must score at least `4/5`; the target average is `4.5/5` or better.
+- Any `3/5` or below blocks cutover.
+
+Fidelity review document shape:
+
+```markdown
+# Maya 12-Beat Fidelity Review
+
+| Beat | Mockup | Runtime screenshot | Score | Must-fix deltas |
+| --- | --- | --- | --- | --- |
+| 1 | `mockups/imagegen/maya-12-beat-storyboard/01-login-maya-enters-recoup.png` | `output/playwright/e2e/maya-beat-01-login.png` | `/5` |  |
+| 2 | `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png` | `output/playwright/e2e/maya-beat-02-dashboard.png` | `/5` |  |
+| 3 | `mockups/imagegen/maya-12-beat-storyboard/03-worklist-recommended-action.png` | `output/playwright/e2e/maya-beat-03-recommended-action.png` | `/5` |  |
+| 4 | `mockups/imagegen/maya-12-beat-storyboard/04-case-overview-crestline-opens.png` | `output/playwright/e2e/maya-beat-04-case-overview.png` | `/5` |  |
+| 5 | `mockups/imagegen/maya-12-beat-storyboard/05-evidence-dossier-pod-reviewed.png` | `output/playwright/e2e/maya-beat-05-evidence-dossier.png` | `/5` |  |
+| 6 | `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png` | `output/playwright/e2e/maya-beat-06-query-start.png` | `/5` |  |
+| 7 | `mockups/imagegen/maya-12-beat-storyboard/07-agent-trace-in-progress.png` | `output/playwright/e2e/maya-beat-07-agent-trace.png` | `/5` |  |
+| 8 | `mockups/imagegen/maya-12-beat-storyboard/08-cited-answer-returned.png` | `output/playwright/e2e/maya-beat-08-cited-answer.png` | `/5` |  |
+| 9 | `mockups/imagegen/maya-12-beat-storyboard/09-draft-review-recovery-packet.png` | `output/playwright/e2e/maya-beat-09-draft-review.png` | `/5` |  |
+| 10 | `mockups/imagegen/maya-12-beat-storyboard/10-human-approval-dialog.png` | `output/playwright/e2e/maya-beat-10-human-approval.png` | `/5` |  |
+| 11 | `mockups/imagegen/maya-12-beat-storyboard/11-audit-confirmation.png` | `output/playwright/e2e/maya-beat-11-audit-confirmation.png` | `/5` |  |
+| 12 | `mockups/imagegen/maya-12-beat-storyboard/12-return-to-worklist-next-case.png` | `output/playwright/e2e/maya-beat-12-return-worklist.png` | `/5` |  |
+```
 
 Commit:
 
 ```powershell
-git add tests/e2e/cockpit-premium-e2e.ts
+git add tests/e2e/cockpit-premium-e2e.ts docs/storyboards/maya-12-beat-fidelity-review.md
 git commit -m "Add Maya shadcn visual checks"
 ```
 
