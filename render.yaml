@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: recoup-api
+    runtime: node
+    buildCommand: npm run build:api
+    startCommand: npm run start:api
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: PORT
+        value: 4317
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: RECOUP_SUPABASE_MEMORY_TABLE
+        sync: false
+      - key: RECOUP_COCKPIT_ALLOWED_ORIGINS
+        sync: false
+      - key: RECOUP_COCKPIT_AUTH_TOKEN
+        sync: false
+      - key: RECOUP_DEMO_SESSION_SECRET
+        sync: false
+      - key: RECOUP_MCP_AUTH_TOKEN
+        sync: false
+      - key: SAP_ODATA_BASE_URL
+        sync: false
+      - key: SAP_ODATA_CLIENT_ID
+        sync: false
+      - key: SAP_ODATA_CLIENT
+        sync: false
+      - key: SAP_ODATA_USERID
+        sync: false
+      - key: SAP_ODATA_TOKEN_URL
+        sync: false
+      - key: SAP_ODATA_SCOPE
+        sync: false
+      - key: SAP_ODATA_TENANT
+        sync: false
+      - key: SAP_ODATA_CLIENT_SECRET
+        sync: false

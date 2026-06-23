@@ -28,8 +28,90 @@ describe("I-9 hash-chain tamper detection", () => {
     expect(first.entryHash).toMatch(/^[a-f0-9]{64}$/);
     expect(trail.verify()).toBe(true);
 
-    first.payload = { ...first.payload, decision: "modify" };
+    expect(() => {
+      first.payload = { ...first.payload, decision: "modify" };
+    }).toThrow();
+    expect(trail.verify()).toBe(true);
+  });
 
-    expect(trail.verify()).toBe(false);
+  it("returns immutable audit entry snapshots from append and entries", () => {
+    const trail = createAuditTrail();
+    const payload = {
+      approval: {
+        decision: "approve"
+      }
+    };
+    const recordIds = ["draft-rebill:S3-L1", "S3-L1"];
+    const first = trail.append({
+      entryType: "approval.decision",
+      payload,
+      recordIds
+    });
+
+    payload.approval.decision = "modify";
+    recordIds.push("MUTATED-OUTSIDE");
+
+    expect(trail.verify()).toBe(true);
+    expect(first.payload).toEqual({
+      approval: {
+        decision: "approve"
+      }
+    });
+    expect(first.recordIds).toEqual(["draft-rebill:S3-L1", "S3-L1"]);
+
+    expect(() => {
+      first.payload = { approval: { decision: "reject" } };
+    }).toThrow();
+    expect(() => {
+      (first.payload.approval as { decision: string }).decision = "reject";
+    }).toThrow();
+
+    const [snapshot] = trail.entries();
+    if (snapshot === undefined) {
+      throw new Error("Expected audit entry snapshot.");
+    }
+
+    expect(() => {
+      snapshot.recordIds.push("MUTATED-SNAPSHOT");
+    }).toThrow();
+    expect(trail.verify()).toBe(true);
+  });
+
+  it("rejects non-JSON audit payload values that JSON.stringify would hide", () => {
+    const trail = createAuditTrail();
+    const arrayWithExtraProperty = ["approve"] as string[] & { extra?: string };
+    arrayWithExtraProperty.extra = "hidden";
+
+    expect(() =>
+      trail.append({
+        entryType: "approval.decision",
+        payload: {
+          evidence: new Map([["decision", "approve"]])
+        },
+        recordIds: ["draft-rebill:S3-L1", "S3-L1"]
+      })
+    ).toThrow("Audit payload must be JSON-serializable.");
+
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() =>
+        trail.append({
+          entryType: "approval.decision",
+          payload: {
+            score: value
+          },
+          recordIds: ["draft-rebill:S3-L1", "S3-L1"]
+        })
+      ).toThrow("Audit payload must be JSON-serializable.");
+    }
+
+    expect(() =>
+      trail.append({
+        entryType: "approval.decision",
+        payload: {
+          decisions: arrayWithExtraProperty
+        },
+        recordIds: ["draft-rebill:S3-L1", "S3-L1"]
+      })
+    ).toThrow("Audit payload must be JSON-serializable.");
   });
 });

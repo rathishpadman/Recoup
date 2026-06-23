@@ -8,6 +8,7 @@ import {
   type EnterpriseReadRequestPlan,
   type EnterpriseSourceContract
 } from "./enterpriseReadOnly.js";
+import type { SupabaseSyntheticSourceReader, SyntheticSourceEvidence } from "./supabaseSyntheticSource.js";
 
 export const BureauSourceContractSchema = createEnterpriseSourceContractSchema("bureau");
 export type BureauSourceContract = EnterpriseSourceContract & { connectorName: "bureau" };
@@ -15,7 +16,8 @@ export type BureauSourceContract = EnterpriseSourceContract & { connectorName: "
 export class BureauReadOnlyAdapter {
   constructor(
     private readonly contract?: BureauSourceContract,
-    private readonly availableCredentialEnvNames: readonly string[] = []
+    private readonly availableCredentialEnvNames: readonly string[] = [],
+    private readonly syntheticSourceReader?: SupabaseSyntheticSourceReader
   ) {}
 
   describeReadiness(): EnterpriseConnectorReadiness {
@@ -27,5 +29,13 @@ export class BureauReadOnlyAdapter {
 
   buildReadRequestPlan(line: DeductionLine): EnterpriseReadRequestPlan {
     return buildEnterpriseReadRequestPlan(line, this.contract, "Bureau", this.availableCredentialEnvNames);
+  }
+
+  async retrieveSyntheticEvidence(line: DeductionLine): Promise<SyntheticSourceEvidence[]> {
+    if (this.syntheticSourceReader === undefined) {
+      throw new Error("Bureau synthetic Supabase reader is not configured.");
+    }
+
+    return this.syntheticSourceReader.readEvidence("bureau", line);
   }
 }

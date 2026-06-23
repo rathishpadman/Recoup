@@ -7,6 +7,7 @@ describe("runtime model config", () => {
       reasoning: "gpt-5.5",
       fast: "gpt-5.4",
       fastMini: "gpt-5.4-mini",
+      fastNano: "gpt-5.4-nano",
       realtime: "gpt-realtime-2"
     });
   });

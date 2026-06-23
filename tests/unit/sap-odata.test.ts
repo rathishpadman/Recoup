@@ -55,10 +55,12 @@ describe("SAP OData read-only query mapping", () => {
       "ZAPI_SALES_ORDER_SRV_0001",
       "ZUI_ACCRUALS_MANAGE_0001",
       "ZUI_BILLINGDOCUMENTFS_0001",
-      "ZUI_CREDITACCOUNT_DISPLAY_0001"
+      "ZUI_CREDITACCOUNT_DISPLAY_0001",
+      "ZUI_CREDITEXPOSURE_DISPLAY_0001",
+      "ZUI_DISPUTECASE_MANAGE_0001"
     ]);
     expect(proof.ready).toBe(true);
-    expect(proof.services).toHaveLength(4);
+    expect(proof.services).toHaveLength(6);
     expect(proof.mappings).toContainEqual({
       entitySet: "C_BillingDocumentFs",
       keyNames: ["BillingDocument"],
@@ -69,9 +71,23 @@ describe("SAP OData read-only query mapping", () => {
     expect(proof.mappings).toContainEqual({
       entitySet: "CreditAccountSummary",
       keyNames: ["BusinessPartner", "CreditSegment"],
-      purpose: "reference-document",
+      purpose: "credit-account-dso",
       ready: true,
       serviceName: "ZUI_CREDITACCOUNT_DISPLAY_0001"
+    });
+    expect(proof.mappings).toContainEqual({
+      entitySet: "CreditExposure",
+      keyNames: ["BusinessPartner"],
+      purpose: "credit-exposure",
+      ready: true,
+      serviceName: "ZUI_CREDITEXPOSURE_DISPLAY_0001"
+    });
+    expect(proof.mappings).toContainEqual({
+      entitySet: "DisputeCase",
+      keyNames: ["DisputeCaseID"],
+      purpose: "dispute-case",
+      ready: true,
+      serviceName: "ZUI_DISPUTECASE_MANAGE_0001"
     });
     expect(proof.mappings.every((mapping) => mapping.ready)).toBe(true);
     expect(JSON.stringify(proof)).not.toContain("sap.example.test");
@@ -191,11 +207,9 @@ describe("SAP OData read-only query mapping", () => {
 
     expect(payload).toEqual({ d: { results: [{ Document: "INV-1" }] } });
     expect(calls.map((call) => call.method)).toEqual(["GET", "GET"]);
-    expect(calls[0]?.url).toBe(
-      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
-    );
+    expect(calls[0]?.url).toBe("https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/$metadata?sap-client=100");
     expect(calls[1]?.url).toBe(
-      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&%24select=BillingDocument&sap-client=100"
+      "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&%24select=BillingDocument&sap-client=100"
     );
     expect(JSON.stringify(calls)).not.toContain("clientSecret");
   });
@@ -249,11 +263,9 @@ describe("SAP OData read-only query mapping", () => {
       clientSecretSubmitted: true,
       url: "https://sap.example.test/oauth/token"
     });
-    expect(calls[1]?.url).toBe(
-      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
-    );
+    expect(calls[1]?.url).toBe("https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/$metadata?sap-client=100");
     expect(calls[2]?.url).toBe(
-      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&sap-client=100"
+      "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')?%24format=json&sap-client=100"
     );
     expect(calls[1]?.headers).toMatchObject({ Accept: "application/xml", Authorization: "Bearer sap-access-token" });
     expect(calls[2]?.headers).toMatchObject({ Accept: "application/json", Authorization: "Bearer sap-access-token" });
@@ -285,7 +297,7 @@ describe("SAP OData read-only query mapping", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       method: "GET",
-      url: "https://sap.example.test:44300/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/$metadata?sap-client=100"
+      url: "https://sap.example.test:44300/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/$metadata?sap-client=100"
     });
     expect(calls[0]?.headers).toMatchObject({
       Accept: "application/xml",
@@ -321,7 +333,12 @@ describe("SAP OData read-only query mapping", () => {
         if (init?.method === "POST") {
           return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
         }
-        expect(requestUrl).toContain("ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')");
+        if (requestUrl.includes("C_BillingDocumentItemFs")) {
+          const body = { d: { results: [{ BillingDocument: "90000002", BillingDocumentItem: "10" }] } };
+
+          return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
+        }
+        expect(requestUrl).toContain("UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')");
         expect(requestUrl).toContain("sap-client=100");
         expect(requestUrl).toContain("%24format=json");
         const body = { d: { BillingDocument: "90000002" } };
@@ -332,10 +349,13 @@ describe("SAP OData read-only query mapping", () => {
 
     const documents = await adapter.retrieveDeductionCaseLive(line, metadata, client);
     const invoice = documents.find((document) => document.documentId === "90000002");
+    const items = documents.find((document) => document.documentId === "C_BillingDocumentItemFs:90000002");
 
     expect(invoice).toMatchObject({ documentId: "90000002", documentType: "invoice", source: "sap" });
     expect(invoice?.recordIds).toContain(line.lineId);
-    expect(documents).toHaveLength(1);
+    expect(items).toMatchObject({ documentId: "C_BillingDocumentItemFs:90000002", documentType: "invoice", source: "sap" });
+    expect(items?.recordIds).toContain(line.lineId);
+    expect(documents).toHaveLength(2);
     expect(JSON.stringify(documents)).not.toContain("client-secret");
   });
 
@@ -368,8 +388,10 @@ describe("SAP OData read-only query mapping", () => {
         if (init?.method === "POST") {
           return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
         }
-        expect(requestUrl).toContain("ZUI_BILLINGDOCUMENTFS_0001");
-        const body = { d: { BillingDocument: "90000002" } };
+        expect(requestUrl).toContain("UI_BILLINGDOCUMENTFS");
+        const body = requestUrl.includes("C_BillingDocumentItemFs")
+          ? { d: { results: [{ BillingDocument: "90000002", BillingDocumentItem: "10" }] } }
+          : { d: { BillingDocument: "90000002" } };
 
         return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
       }
@@ -377,8 +399,11 @@ describe("SAP OData read-only query mapping", () => {
 
     const documents = await adapter.retrieveDeductionCaseLive(line, metadataByService, client);
 
-    expect(documents).toHaveLength(1);
+    expect(documents).toHaveLength(2);
     expect(documents.some((document) => document.documentId === "90000002" && document.documentType === "invoice")).toBe(true);
+    expect(
+      documents.some((document) => document.documentId === "C_BillingDocumentItemFs:90000002" && document.documentType === "invoice")
+    ).toBe(true);
   });
 
   it("validates read-request mapping against parsed metadata before building real SAP paths", () => {
@@ -400,12 +425,318 @@ describe("SAP OData read-only query mapping", () => {
     if (!plan.configured) {
       throw new Error("Expected configured metadata-validated SAP plan.");
     }
-    expect(plan.requests).toHaveLength(1);
+    expect(plan.requests).toHaveLength(2);
     expect(plan.requests[0]?.url).toBe(
-      "https://sap.example.test/sap/opu/odata/sap/ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs(BillingDocument='90000002')?sap-client=100"
+      "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')?sap-client=100"
     );
     expect(plan.requests[0]?.recordIds).toEqual([line.lineId, "INV-90000002"]);
+    expect(plan.requests[1]?.url).toBe(
+      "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentItemFs?%24filter=BillingDocument+eq+%2790000002%27&sap-client=100"
+    );
+    expect(plan.requests[1]?.recordIds).toEqual([line.lineId, "INV-90000002", "C_BillingDocumentItemFs:90000002"]);
     expect(JSON.stringify(plan)).not.toContain("clientSecret");
+  });
+
+  it("builds billing header and item collection requests from numeric Tools_data invoice record ids", () => {
+    const line = sapInvoiceLine();
+    const adapter = new SapODataReadOnlyAdapter({
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    });
+    const metadataByService = {
+      ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"))
+    };
+
+    const plan = adapter.buildMetadataValidatedReadRequestPlan(line, metadataByService);
+
+    expect(plan.configured).toBe(true);
+    if (!plan.configured) {
+      throw new Error("Expected configured metadata-validated SAP plan.");
+    }
+    expect(plan.requests).toEqual([
+      {
+        method: "GET",
+        purpose: "billing-document",
+        recordIds: [line.lineId, "INV-90000002"],
+        url: "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')?sap-client=100"
+      },
+      {
+        method: "GET",
+        purpose: "billing-document-items",
+        recordIds: [line.lineId, "INV-90000002", "C_BillingDocumentItemFs:90000002"],
+        url: "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentItemFs?%24filter=BillingDocument+eq+%2790000002%27&sap-client=100"
+      }
+    ]);
+  });
+
+  it("builds metadata-validated GET-only R1 SAP read plans for owner-confirmed primary needs", () => {
+    const adapter = new SapODataReadOnlyAdapter({
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    });
+    const metadataByService = toolsDataMetadataByService();
+
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "invoice", billingDocument: "90000002" },
+        metadataByService
+      )
+    ).toEqual({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "billing-document",
+          recordIds: ["90000002"],
+          url: "https://sap.example.test/sap/opu/odata/sap/UI_BILLINGDOCUMENTFS/C_BillingDocumentFs(BillingDocument='90000002')?sap-client=100"
+        }
+      ],
+      tenant: "northbay"
+    });
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "sales-order", salesOrder: "6534" },
+        metadataByService
+      )
+    ).toMatchObject({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "sales-order",
+          recordIds: ["6534"],
+          url: "https://sap.example.test/sap/opu/odata/sap/ZAPI_SALES_ORDER_SRV_0001/A_SalesOrder(SalesOrder='6534')?sap-client=100"
+        }
+      ]
+    });
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "credit-account-dso", businessPartner: "USCU_S04", creditSegment: "1000" },
+        metadataByService
+      )
+    ).toMatchObject({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "credit-account-dso",
+          recordIds: ["USCU_S04", "1000"],
+          url: "https://sap.example.test/sap/opu/odata/sap/ZUI_CREDITACCOUNT_DISPLAY_0001/CreditAccountSummary(BusinessPartner='USCU_S04',CreditSegment='1000')?sap-client=100"
+        }
+      ]
+    });
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "credit-exposure", businessPartner: "USCU_S04" },
+        metadataByService
+      )
+    ).toMatchObject({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "credit-exposure",
+          recordIds: ["USCU_S04"],
+          url: "https://sap.example.test/sap/opu/odata/sap/ZUI_CREDITEXPOSURE_DISPLAY_0001/CreditExposure(BusinessPartner='USCU_S04')?sap-client=100"
+        }
+      ]
+    });
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "dispute-case", disputeCaseId: "FIN-DISP-202" },
+        metadataByService
+      )
+    ).toMatchObject({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "dispute-case",
+          recordIds: ["FIN-DISP-202"],
+          url: "https://sap.example.test/sap/opu/odata/sap/ZUI_DISPUTECASE_MANAGE_0001/DisputeCase(DisputeCaseID='FIN-DISP-202')?sap-client=100"
+        }
+      ]
+    });
+    expect(
+      adapter.buildMetadataValidatedR1ReadRequestPlan(
+        { need: "accrual-cap", accrualObject: "PM_HARB_02" },
+        metadataByService
+      )
+    ).toMatchObject({
+      configured: true,
+      requests: [
+        {
+          method: "GET",
+          purpose: "accrual-cap",
+          recordIds: ["PM_HARB_02"],
+          url: "https://sap.example.test/sap/opu/odata/sap/ZUI_ACCRUALS_MANAGE_0001/PeriodicAmounts?%24filter=AccrualObject+eq+%27PM_HARB_02%27&sap-client=100"
+        }
+      ]
+    });
+  });
+
+  it("fails closed when R1 SAP metadata is missing a mapped property", () => {
+    const adapter = new SapODataReadOnlyAdapter({
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    });
+
+    const plan = adapter.buildMetadataValidatedR1ReadRequestPlan(
+      { need: "accrual-cap", accrualObject: "PM_HARB_02" },
+      {
+        ZUI_ACCRUALS_MANAGE_0001: parseSapODataMetadata(`
+          <Schema Namespace="ZUI_ACCRUALS_MANAGE_0001">
+            <EntityType Name="PeriodicAmountsType">
+              <Property Name="ActualAccrualItemType" Type="Edm.String" />
+            </EntityType>
+            <EntityContainer>
+              <EntitySet Name="PeriodicAmounts" EntityType="ZUI_ACCRUALS_MANAGE_0001.PeriodicAmountsType" />
+            </EntityContainer>
+          </Schema>
+        `)
+      }
+    );
+
+    expect(plan).toEqual({
+      configured: false,
+      reason: "SAP metadata missing property AccrualObject for mapped entity set PeriodicAmounts.",
+      requests: []
+    });
+  });
+
+  it("maps live SAP invoice item collection reads to cited invoice evidence", async () => {
+    const line = sapInvoiceLine();
+    const connection = {
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    };
+    const adapter = new SapODataReadOnlyAdapter(connection);
+    const metadataByService = {
+      ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"))
+    };
+    const client = new SapODataReadOnlyClient(connection, (url, init) => {
+      const requestUrl = stringifyRequestUrl(url);
+      if (init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
+      }
+      const body = requestUrl.includes("C_BillingDocumentItemFs")
+        ? { d: { results: [{ BillingDocument: "90000002", BillingDocumentItem: "10" }] } }
+        : { d: { BillingDocument: "90000002", BillingDocumentType: "F2" } };
+
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
+    });
+
+    const documents = await adapter.retrieveDeductionCaseLive(line, metadataByService, client);
+
+    expect(documents).toEqual([
+      {
+        documentId: "90000002",
+        documentType: "invoice",
+        recordIds: [line.lineId, "INV-90000002", "90000002"],
+        source: "sap",
+        summary: "SAP OData billing-document 90000002 retrieved through read-only mapping."
+      },
+      {
+        documentId: "C_BillingDocumentItemFs:90000002",
+        documentType: "invoice",
+        recordIds: [line.lineId, "INV-90000002", "C_BillingDocumentItemFs:90000002"],
+        source: "sap",
+        summary: "SAP OData billing-document-items C_BillingDocumentItemFs:90000002 retrieved through read-only mapping."
+      }
+    ]);
+    expect(JSON.stringify(documents)).not.toContain("client-secret");
+  });
+
+  it("suppresses empty SAP invoice item collections instead of citing positive evidence", async () => {
+    const line = sapInvoiceLine();
+    const connection = {
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    };
+    const adapter = new SapODataReadOnlyAdapter(connection);
+    const metadataByService = {
+      ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"))
+    };
+    const client = new SapODataReadOnlyClient(connection, (url, init) => {
+      const requestUrl = stringifyRequestUrl(url);
+      if (init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
+      }
+      const body = requestUrl.includes("C_BillingDocumentItemFs")
+        ? { d: { results: [] } }
+        : { d: { BillingDocument: "90000002", BillingDocumentType: "F2" } };
+
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
+    });
+
+    const documents = await adapter.retrieveDeductionCaseLive(line, metadataByService, client);
+
+    expect(documents).toEqual([
+      {
+        documentId: "90000002",
+        documentType: "invoice",
+        recordIds: [line.lineId, "INV-90000002", "90000002"],
+        source: "sap",
+        summary: "SAP OData billing-document 90000002 retrieved through read-only mapping."
+      }
+    ]);
+  });
+
+  it("suppresses malformed SAP invoice item payloads without collection rows", async () => {
+    const line = sapInvoiceLine();
+    const connection = {
+      baseUrl: "https://sap.example.test",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      sapClient: "100",
+      scope: "api.sap.read",
+      tenant: "northbay",
+      tokenUrl: "https://sap.example.test/oauth/token"
+    };
+    const adapter = new SapODataReadOnlyAdapter(connection);
+    const metadataByService = {
+      ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001"))
+    };
+    const client = new SapODataReadOnlyClient(connection, (url, init) => {
+      const requestUrl = stringifyRequestUrl(url);
+      if (init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: "sap-access-token" }), { status: 200 }));
+      }
+      const body = requestUrl.includes("C_BillingDocumentItemFs")
+        ? { d: { __metadata: { uri: "redacted" } } }
+        : { d: { BillingDocument: "90000002", BillingDocumentType: "F2" } };
+
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
+    });
+
+    const documents = await adapter.retrieveDeductionCaseLive(line, metadataByService, client);
+
+    expect(documents.map((document) => document.documentId)).toEqual(["90000002"]);
   });
 
   it("does not build live SAP read requests for non-numeric synthetic invoice record ids", () => {
@@ -555,6 +886,17 @@ function sapInvoiceLine(recordIds = ["INV-90000002"]) {
   };
 }
 
+function toolsDataMetadataByService() {
+  return {
+    ZAPI_SALES_ORDER_SRV_0001: parseSapODataMetadata(toolsDataMetadata("ZAPI_SALES_ORDER_SRV_0001")),
+    ZUI_ACCRUALS_MANAGE_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_ACCRUALS_MANAGE_0001")),
+    ZUI_BILLINGDOCUMENTFS_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_BILLINGDOCUMENTFS_0001")),
+    ZUI_CREDITACCOUNT_DISPLAY_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_CREDITACCOUNT_DISPLAY_0001")),
+    ZUI_CREDITEXPOSURE_DISPLAY_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_CREDITEXPOSURE_DISPLAY_0001")),
+    ZUI_DISPUTECASE_MANAGE_0001: parseSapODataMetadata(toolsDataMetadata("ZUI_DISPUTECASE_MANAGE_0001"))
+  };
+}
+
 function toolsDataMetadata(serviceName: string): string {
   if (serviceName === "ZUI_BILLINGDOCUMENTFS_0001") {
     return `
@@ -639,6 +981,37 @@ function toolsDataMetadata(serviceName: string): string {
         </EntityType>
         <EntityContainer>
           <EntitySet Name="PeriodicAmounts" EntityType="ZUI_ACCRUALS_MANAGE_0001.PeriodicAmountsType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  if (serviceName === "ZUI_CREDITEXPOSURE_DISPLAY_0001") {
+    return `
+      <Schema Namespace="ZUI_CREDITEXPOSURE_DISPLAY_0001">
+        <EntityType Name="CreditExposureType">
+          <Key><PropertyRef Name="BusinessPartner" /></Key>
+          <Property Name="BusinessPartner" Type="Edm.String" />
+          <Property Name="DynamicCreditExposureAmount" Type="Edm.Decimal" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="CreditExposure" EntityType="ZUI_CREDITEXPOSURE_DISPLAY_0001.CreditExposureType" />
+        </EntityContainer>
+      </Schema>
+    `;
+  }
+
+  if (serviceName === "ZUI_DISPUTECASE_MANAGE_0001") {
+    return `
+      <Schema Namespace="ZUI_DISPUTECASE_MANAGE_0001">
+        <EntityType Name="DisputeCaseType">
+          <Key><PropertyRef Name="DisputeCaseID" /></Key>
+          <Property Name="DisputeCaseID" Type="Edm.String" />
+          <Property Name="Customer" Type="Edm.String" />
+          <Property Name="Status" Type="Edm.String" />
+        </EntityType>
+        <EntityContainer>
+          <EntitySet Name="DisputeCase" EntityType="ZUI_DISPUTECASE_MANAGE_0001.DisputeCaseType" />
         </EntityContainer>
       </Schema>
     `;

@@ -1,4 +1,6 @@
 import type { Money } from "../../types/money.js";
+import { clampToComputedDelta } from "../../guardrails/tool/amountClamp.js";
+import { assertRecoveryActionDecision } from "../../guardrails/tool/actionBoundary.js";
 import type { DeductionDecisionGuardInput } from "../../guardrails/tool/explainability.js";
 
 export interface DraftRebillInput {
@@ -22,7 +24,12 @@ export interface DraftRebillAction {
 }
 
 export function draftRebill(input: DraftRebillInput): DraftRebillAction {
-  const proposedAmount = input.decision.deterministicBasis.computedDeltaAmount;
+  assertRecoveryActionDecision(input.decision);
+
+  const proposedAmount = clampToComputedDelta(
+    input.decision.deterministicBasis.computedDeltaAmount,
+    input.decision.deterministicBasis.computedDeltaAmount
+  );
 
   return {
     actionId: `draft-rebill:${input.decision.lineId}`,

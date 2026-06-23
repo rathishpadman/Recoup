@@ -1,4 +1,6 @@
 import type { Money } from "../../types/money.js";
+import { clampToComputedDelta } from "../../guardrails/tool/amountClamp.js";
+import { assertBillingActionDecision } from "../../guardrails/tool/actionBoundary.js";
 import type { DeductionDecisionGuardInput } from "../../guardrails/tool/explainability.js";
 
 export interface RouteBillingInput {
@@ -30,7 +32,12 @@ export interface RouteBillingAction {
 }
 
 export function routeBilling(input: RouteBillingInput): RouteBillingAction {
-  const proposedAmount = input.decision.deterministicBasis.computedDeltaAmount;
+  assertBillingActionDecision(input.decision);
+
+  const proposedAmount = clampToComputedDelta(
+    input.decision.deterministicBasis.computedDeltaAmount,
+    input.decision.deterministicBasis.computedDeltaAmount
+  );
 
   return {
     actionId: `route-billing:${input.decision.lineId}`,

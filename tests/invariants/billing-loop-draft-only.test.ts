@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
+const runForensics = () => runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
 
 describe("I-23 billing loop draft-only", () => {
   it("routes valid deductions to Billing as projected draft recommendations only", () => {
-    const run = runForensicsInvestigation();
+    const run = runForensics();
     const billingDrafts = run.actions.filter((action) => action.actionType === "route-billing");
 
     expect(billingDrafts).toHaveLength(7);

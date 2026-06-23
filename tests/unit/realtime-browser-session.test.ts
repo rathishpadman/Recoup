@@ -171,7 +171,7 @@ describe("Realtime browser session helper", () => {
         deterministicBasis: "query.answer + cited records",
         citationParity: {
           textRecordIds: ["CUST-HARBOR"],
-          voiceRecordIds: ["ORDER-HARBOR-640K"],
+          voiceRecordIds: ["6534"],
           parity: "same_record_ids"
         },
         recordIds: ["CUST-HARBOR"],

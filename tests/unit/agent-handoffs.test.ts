@@ -20,7 +20,7 @@ describe("agent handoff packets", () => {
       toAgent: "Sentinel",
       capability: "C",
       caseId: "ARB-HARBOR-ORDER-640K",
-      recordIds: ["CUST-HARBOR", "ORDER-HARBOR-640K"],
+      recordIds: ["CUST-HARBOR", "6534"],
       deterministicBasis: "recoupHandoffGraph + audit.read",
       intent: "request-credit-position",
       status: "created"

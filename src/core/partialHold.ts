@@ -1,5 +1,4 @@
 import { Decimal } from "decimal.js";
-import { partialHoldThresholds } from "../../config/thresholds.js";
 import type { Money } from "../types/money.js";
 
 export type PartialHoldCriterion =
@@ -13,7 +12,18 @@ export type PartialHoldCriterion =
 export type PartialHoldWeights = Record<PartialHoldCriterion, number>;
 export type PartialHoldScores = Record<PartialHoldCriterion, number>;
 
+export interface PartialHoldThresholds {
+  holdBelow: number;
+  maxPartialReleasePercent: number;
+  minPartialReleasePercent: number;
+  partialFrom: number;
+  partialThrough: number;
+  releaseStepPercent: number;
+  shipAbove: number;
+}
+
 export interface PartialHoldInput {
+  thresholds: PartialHoldThresholds;
   weights: PartialHoldWeights;
   scores: PartialHoldScores;
 }
@@ -44,7 +54,7 @@ export function computePartialHold(input: PartialHoldInput): PartialHoldResult {
 
   return {
     compositeScore,
-    releaseRatioPercent: releaseRatioForComposite(compositeScore)
+    releaseRatioPercent: releaseRatioForComposite(compositeScore, input.thresholds)
   };
 }
 
@@ -60,22 +70,22 @@ export function computePartialHoldAmountSplit(input: PartialHoldAmountSplitInput
   };
 }
 
-function releaseRatioForComposite(compositeScore: Decimal): Decimal {
-  if (compositeScore.lessThan(partialHoldThresholds.partialFrom)) {
+function releaseRatioForComposite(compositeScore: Decimal, thresholds: PartialHoldThresholds): Decimal {
+  if (compositeScore.lessThan(thresholds.partialFrom)) {
     return new Decimal(0);
   }
 
-  if (compositeScore.greaterThan(partialHoldThresholds.partialThrough)) {
+  if (compositeScore.greaterThan(thresholds.partialThrough)) {
     return new Decimal(100);
   }
 
   const stepped = compositeScore
-    .dividedBy(partialHoldThresholds.releaseStepPercent)
+    .dividedBy(thresholds.releaseStepPercent)
     .ceil()
-    .times(partialHoldThresholds.releaseStepPercent);
+    .times(thresholds.releaseStepPercent);
 
   return Decimal.min(
-    Decimal.max(stepped, partialHoldThresholds.minPartialReleasePercent),
-    partialHoldThresholds.maxPartialReleasePercent
+    Decimal.max(stepped, thresholds.minPartialReleasePercent),
+    thresholds.maxPartialReleasePercent
   );
 }

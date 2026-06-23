@@ -17,6 +17,20 @@ CREATE TABLE IF NOT EXISTS customers (
     strategic_value VARCHAR(50), -- 'High', 'Medium', 'Low'
     credit_limit NUMERIC(15, 2) DEFAULT 0.00,
     revenue_forecast_12mo NUMERIC(15, 2) DEFAULT 0.00,
+    r_score_component_scores_json JSONB CHECK (
+        r_score_component_scores_json IS NULL OR (
+            jsonb_typeof(r_score_component_scores_json) = 'object'
+            AND r_score_component_scores_json ?& ARRAY['agingConcentration', 'disputeRate', 'dsoAdp', 'overLimitFrequency']
+            AND jsonb_typeof(r_score_component_scores_json->'agingConcentration') = 'number'
+            AND jsonb_typeof(r_score_component_scores_json->'disputeRate') = 'number'
+            AND jsonb_typeof(r_score_component_scores_json->'dsoAdp') = 'number'
+            AND jsonb_typeof(r_score_component_scores_json->'overLimitFrequency') = 'number'
+            AND (r_score_component_scores_json->>'agingConcentration')::numeric BETWEEN 0 AND 100
+            AND (r_score_component_scores_json->>'disputeRate')::numeric BETWEEN 0 AND 100
+            AND (r_score_component_scores_json->>'dsoAdp')::numeric BETWEEN 0 AND 100
+            AND (r_score_component_scores_json->>'overLimitFrequency')::numeric BETWEEN 0 AND 100
+        )
+    ),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

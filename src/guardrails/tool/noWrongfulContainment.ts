@@ -9,7 +9,7 @@ export interface NoWrongfulContainmentGuardInput {
   };
 }
 
-const approvedGamingThresholdBasis = "owner-ratified-day-1-seed-present";
+const approvedGamingThresholdBasis = "governed-config-snapshot";
 
 export function assertNoWrongfulContainment(decision: NoWrongfulContainmentGuardInput): void {
   if (!decision.contained) {

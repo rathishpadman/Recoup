@@ -1,5 +1,10 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
 
 describe("named guardrail surfaces", () => {
   it("exposes the noWrongfulContainment tool guardrail as a named module", async () => {
@@ -77,13 +82,19 @@ describe("named guardrail surfaces", () => {
   });
 
   it("accepts the Crestline M6 risk-review-only candidate through named intent and containment guardrails", async () => {
-    const { assessCrestlineM6Containment } = await import("../../src/agents/containment.js");
+    const { assessCrestlineM6Containment, createCrestlineM6ContainmentReviewAction } = await import(
+      "../../src/agents/containment.js"
+    );
     const { assertIntentEvidence } = await import("../../src/guardrails/tool/intentEvidence.js");
     const { assertNoWrongfulContainment } = await import(
       "../../src/guardrails/tool/noWrongfulContainment.js"
     );
 
-    const candidate = assessCrestlineM6Containment();
+    const candidate = assessCrestlineM6Containment({
+      deductionLines: source.loadSettlementRun().deductionLines,
+      gamingGate: governedConfig.gamingGate
+    });
+    const reviewAction = createCrestlineM6ContainmentReviewAction(candidate);
 
     expect(candidate).toMatchObject({
       customerId: "CUST-CRESTLINE",
@@ -92,7 +103,7 @@ describe("named guardrail surfaces", () => {
       posture: "hitl-risk-review-only",
       actionPosture: "no-external-action-staged",
       deterministicBasis: {
-        gamingThresholds: "owner-ratified-day-1-seed-present",
+        gamingThresholds: "governed-config-snapshot",
         noWrongfulContainment: true
       }
     });
@@ -109,5 +120,20 @@ describe("named guardrail surfaces", () => {
     expect(() => {
       assertNoWrongfulContainment(candidate);
     }).not.toThrow();
+    expect(reviewAction).toMatchObject({
+      actionType: "containment-review",
+      actionPosture: "no-external-action-staged",
+      customerId: "CUST-CRESTLINE",
+      dispatchedExternally: false,
+      intentLabel: "gaming",
+      proposedBy: "agent:containment",
+      requiresHumanApproval: true,
+      status: "pending_human"
+    });
+    expect(reviewAction.actionId).toMatch(/^containment-review:CUST-CRESTLINE:[a-f0-9]{12}$/u);
+    expect(reviewAction.recordIds).toEqual(expect.arrayContaining(candidate.recordIds));
+    expect(reviewAction.behavioralEvidenceIds).toEqual(expect.arrayContaining(candidate.behavioralEvidenceIds));
+    expect(reviewAction.deterministicBasis.rScoreComponents).toEqual(candidate.deterministicBasis.rScoreComponents);
+    expect(reviewAction.deterministicBasis.noWrongfulContainment).toBe(true);
   });
 });

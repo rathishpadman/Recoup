@@ -43,7 +43,7 @@
   - Maya Patel: Deduction Forensics analyst.
   - David Kim: Credit / Arbitration lead.
   - CFO Summary: read-only executive close, not a third operating persona.
-- [x] Update README/docs to say expert constants are now owner-ratified Day-1 tunables, and non-SAP connector strategy is supplied for synthetic Supabase static tables with Day-1 readiness implemented in Workflow 2.
+- [x] Update README/docs to say expert constants are now owner-ratified Day-1 tunables, and non-SAP connector strategy is supplied for synthetic Supabase source tables with Day-1 readiness implemented in Workflow 2.
 - [x] Run `npm.cmd run test -- tests/invariants/readme-contract.test.ts tests/invariants/named-guardrail-surfaces.test.ts tests/invariants/risk-mesh-service-boundary.test.ts`.
 - [x] Run a spec review subagent for Workflow 1.
 - [x] Run a code/docs quality review subagent for Workflow 1.
@@ -62,7 +62,7 @@
   - `tests/invariants/core-no-memory-input.test.ts`.
 - [x] Add `recoup_config` and `recoup_audit_chain` SQL to `docs/supabase-memory-schema.sql`.
 - [x] Ensure audit chain is insert-only in the SQL artifact.
-- [x] Add synthetic Supabase static table definitions for:
+- [x] Add synthetic Supabase source table definitions for:
   - `recoup_src_bureau`,
   - `recoup_src_docs`,
   - `recoup_src_remittance`,

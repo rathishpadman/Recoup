@@ -1,25 +1,31 @@
 import { runtimeModels } from "../../config/models.js";
-import { SyntheticSource } from "../adapters/synthetic.js";
+import type { GovernedConfigValues } from "../../config/governed.js";
+import type { DecisionConfidenceThreshold } from "../../config/releaseOwnerInputs.js";
+import type { SourcePort } from "../adapters/source.js";
 import type { RuleFinding, RuleInput } from "../core/rules/index.js";
 import { redactPiiForModelContext } from "../guardrails/input/pii.js";
 import { assertFinalAgentOutput } from "../guardrails/output/final.js";
 import { s4AgentBoundary } from "./agentRuntime.js";
-import { invokeServiceTool, type ServiceToolName } from "../services/serviceLayer.js";
+import { invokeServiceTool, type ServiceInvocationContext, type ServiceToolName } from "../services/serviceLayer.js";
 import { clearDecisionStore, registerDecision } from "../services/decisionStore.js";
-import { money } from "../types/money.js";
+import { CoreRuleInputSchema } from "../types/decision.js";
+import type { DecisionConfidence } from "../types/decision.js";
 import type { DeductionLine, DeductionRouting, DeductionVerdict } from "../types/entities.js";
+import type { Money } from "../types/money.js";
 import type { RuleId } from "../core/rules/types.js";
 import { writeAgentHandoffPacket, writeSessionState, writeTransactionState } from "../memory/session.js";
 import type { MemoryStore } from "../memory/store.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
-import type { EvidenceDocument } from "../tools/retrieval/docs.js";
+import { mergeEvidenceDocuments, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { draftRecovery } from "./recoveryDrafter.js";
 import type { DraftRebillAction } from "../tools/actions/draftRebill.js";
 import { createAgentHandoffPacket } from "./messages.js";
 import {
   assessCrestlineM6Containment,
+  createCrestlineM6ContainmentReviewAction,
   toContainmentDecision,
   type ContainmentDecision,
+  type ContainmentReviewAction,
   type CrestlineM6ContainmentAssessment
 } from "./containment.js";
 
@@ -59,19 +65,20 @@ export interface DeductionDecision {
   basis: string;
   deterministicBasis: {
     ruleId: RuleId;
-    computedDeltaAmount: ReturnType<typeof money>;
+    computedDeltaAmount: Money;
     amountSource: "core-rule-delta";
   };
   evidenceDocumentIds: string[];
   evidenceDocuments: EvidenceDocument[];
   producedBy: "agent:forensics-investigator";
   modelId: typeof runtimeModels.reasoning;
-  confidence: "blocked: decision-confidence-threshold unset";
+  confidence: DecisionConfidence;
 }
 
 export interface ForensicsRun {
   decisions: DeductionDecision[];
   actions: Array<RouteBillingAction | DraftRebillAction>;
+  containmentActions: ContainmentReviewAction[];
   containmentCandidates: CrestlineM6ContainmentAssessment[];
   containmentDecisions: ContainmentDecision[];
   recoveryDecisions: RecoveryDecision[];
@@ -87,13 +94,84 @@ export interface RecoveryDecision {
 
 export interface RunForensicsInvestigationOptions {
   analystContext?: string;
+  decisionConfidenceThreshold?: DecisionConfidenceThreshold;
+  governedConfig: GovernedConfigValues;
   memoryStore?: MemoryStore;
+  serviceContext?: ServiceInvocationContext;
   sessionId?: string;
+  source: SourcePort;
 }
 
-export function runForensicsInvestigation(options: RunForensicsInvestigationOptions = {}): ForensicsRun {
-  const source = new SyntheticSource({ seed: 42 });
-  const dataset = source.loadSettlementRun();
+type MaybePromise<T> = T | Promise<T>;
+
+export interface RunForensicsInvestigationEvidenceSources {
+  docs?: (line: DeductionLine) => MaybePromise<readonly EvidenceDocument[]>;
+}
+
+export interface RunForensicsInvestigationWithEvidenceSourcesOptions extends RunForensicsInvestigationOptions {
+  evidenceSources?: RunForensicsInvestigationEvidenceSources;
+}
+
+interface ForensicsRunState {
+  deductionLines: DeductionLine[];
+  trace: ForensicsTraceEvent[];
+}
+
+export function runForensicsInvestigation(options: RunForensicsInvestigationOptions | undefined): ForensicsRun {
+  const runOptions = requireGovernedForensicsOptions(options);
+  const state = createForensicsRunState(runOptions);
+  const serviceContext = createForensicsServiceContext(runOptions);
+  const decisions = state.deductionLines.map((line) =>
+    buildForensicsDecision(
+      line,
+      state.trace,
+      retrieveEvidenceDocuments(line, state.trace, serviceContext),
+      runOptions.decisionConfidenceThreshold
+    )
+  );
+
+  return completeForensicsRun(runOptions, state, decisions);
+}
+
+export async function runForensicsInvestigationWithEvidenceSources(
+  options: RunForensicsInvestigationWithEvidenceSourcesOptions | undefined
+): Promise<ForensicsRun> {
+  const runOptions = requireGovernedForensicsOptions(options);
+  const state = createForensicsRunState(runOptions);
+  const serviceContext = createForensicsServiceContext(runOptions);
+  const decisions: DeductionDecision[] = [];
+
+  for (const line of state.deductionLines) {
+    const injectedDocs = runOptions.evidenceSources?.docs === undefined ? [] : await runOptions.evidenceSources.docs(line);
+    decisions.push(
+      buildForensicsDecision(
+        line,
+        state.trace,
+        mergeEvidenceDocuments(line, retrieveEvidenceDocuments(line, state.trace, serviceContext), [...injectedDocs]),
+        runOptions.decisionConfidenceThreshold
+      )
+    );
+  }
+
+  return completeForensicsRun(runOptions, state, decisions);
+}
+
+function requireGovernedForensicsOptions<T extends RunForensicsInvestigationOptions>(
+  options: T | undefined
+): T {
+  const maybeOptions = options as Partial<RunForensicsInvestigationOptions> | undefined;
+  if (maybeOptions?.governedConfig === undefined) {
+    throw new Error("Governed runtime config snapshot required.");
+  }
+  if (maybeOptions.source === undefined) {
+    throw new Error("Forensics settlement source snapshot required.");
+  }
+
+  return maybeOptions as T;
+}
+
+function createForensicsRunState(options: RunForensicsInvestigationOptions): ForensicsRunState {
+  const dataset = options.source.loadSettlementRun();
   clearDecisionStore();
   const redactedContext = redactPiiForModelContext(
     options.analystContext ?? "Maya requested the settlement-run proof check for S1-S8."
@@ -122,47 +200,79 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
     }
   ];
 
-  const decisions = dataset.deductionLines.map((line) => {
-    const evidenceDocuments = retrieveEvidenceDocuments(line, trace);
-    const ruleId = toRuleId(line.ruleId);
-    const finding = invokeTracedTool(trace, "core.evaluateRule", buildRuleInput(line, ruleId)) as RuleFinding;
-    trace.push({
-      type: "finding",
-      payload: {
-        source: "tool",
-        lineId: line.lineId,
-        ruleId: finding.ruleId,
-        recordIds: finding.recordIds
-      }
-    });
+  return {
+    deductionLines: dataset.deductionLines,
+    trace
+  };
+}
 
-    const decision = invokeTracedTool(trace, "decisions.deductionVerdict", {
+function createForensicsServiceContext(options: RunForensicsInvestigationOptions): ServiceInvocationContext {
+  return {
+    ...(options.serviceContext ?? {}),
+    governedConfig: options.governedConfig,
+    source: options.source
+  };
+}
+
+function buildForensicsDecision(
+  line: DeductionLine,
+  trace: ForensicsTraceEvent[],
+  evidenceDocuments: EvidenceDocument[],
+  decisionConfidenceThreshold: DecisionConfidenceThreshold | undefined
+): DeductionDecision {
+  const ruleId = toRuleId(line.ruleId);
+  const finding = invokeTracedTool(trace, "core.evaluateRule", buildRuleInput(line, ruleId)) as RuleFinding;
+  trace.push({
+    type: "finding",
+    payload: {
+      source: "tool",
       lineId: line.lineId,
-      ruleId,
-      finding,
-      evidenceDocuments,
-      producedBy: "agent:forensics-investigator",
-      modelId: runtimeModels.reasoning
-    }) as DeductionDecision;
-    registerDecision(decision);
-    trace.push({
-      type: "verdict",
-      payload: {
-        deterministicBasis: {
-          amountSource: decision.deterministicBasis.amountSource,
-          computedDeltaAmount: decision.deterministicBasis.computedDeltaAmount.toFixed(2),
-          ruleId: decision.deterministicBasis.ruleId
-        },
-        lineId: decision.lineId,
-        recordIds: decision.recordIds,
-        verdict: decision.verdict,
-        routing: decision.routing
-      }
-    });
-
-    return decision;
+      ruleId: finding.ruleId,
+      recordIds: finding.recordIds
+    }
   });
-  const containmentCandidate = assessCrestlineM6Containment(dataset.deductionLines);
+
+  const decision = invokeTracedTool(trace, "decisions.deductionVerdict", {
+    lineId: line.lineId,
+    ruleId,
+    finding,
+    evidenceDocuments,
+    ...(decisionConfidenceThreshold === undefined
+      ? {}
+      : { decisionConfidenceThreshold: { threshold: decisionConfidenceThreshold.threshold } }),
+    producedBy: "agent:forensics-investigator",
+    modelId: runtimeModels.reasoning
+  }) as DeductionDecision;
+  registerDecision(decision);
+  trace.push({
+    type: "verdict",
+    payload: {
+      deterministicBasis: {
+        amountSource: decision.deterministicBasis.amountSource,
+        computedDeltaAmount: decision.deterministicBasis.computedDeltaAmount.toFixed(2),
+        ruleId: decision.deterministicBasis.ruleId
+      },
+      lineId: decision.lineId,
+      recordIds: decision.recordIds,
+      verdict: decision.verdict,
+      routing: decision.routing
+    }
+  });
+
+  return decision;
+}
+
+function completeForensicsRun(
+  options: RunForensicsInvestigationOptions,
+  state: ForensicsRunState,
+  decisions: DeductionDecision[]
+): ForensicsRun {
+  const trace = state.trace;
+  const containmentCandidate = assessCrestlineM6Containment({
+    deductionLines: state.deductionLines,
+    gamingGate: options.governedConfig.gamingGate
+  });
+  const containmentAction = createCrestlineM6ContainmentReviewAction(containmentCandidate);
   assertFinalAgentOutput({ deductionDecisions: decisions });
   assertFinalAgentOutput({
     containmentDecisions: [containmentCandidate],
@@ -193,18 +303,14 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
   return {
     decisions,
     actions,
+    containmentActions: [containmentAction],
     containmentCandidates: [containmentCandidate],
     containmentDecisions: [toContainmentDecision(containmentCandidate)],
     recoveryDecisions: decisions.map((decision) => ({
       lineId: decision.lineId,
       pursueRecovery: decision.routing === "recovery"
     })),
-    openDependencies: [
-      "decision-confidence-threshold",
-      "run-control-token-budget",
-      "run-control-step-budget",
-      "run-control-retry-cap"
-    ],
+    openDependencies: options.decisionConfidenceThreshold === undefined ? ["decision-confidence-threshold"] : [],
     agentBoundary: s4AgentBoundary,
     trace
   };
@@ -276,11 +382,15 @@ function uniqueRecordIds(recordIds: string[]): string[] {
   return [...new Set(recordIds)];
 }
 
-function retrieveEvidenceDocuments(line: DeductionLine, trace: ForensicsTraceEvent[]): EvidenceDocument[] {
+function retrieveEvidenceDocuments(
+  line: DeductionLine,
+  trace: ForensicsTraceEvent[],
+  serviceContext: ServiceInvocationContext
+): EvidenceDocument[] {
   const documents = [
-    ...(invokeTracedTool(trace, "retrieval.sap", line) as EvidenceDocument[]),
-    ...(invokeTracedTool(trace, "retrieval.docs", line) as EvidenceDocument[]),
-    ...(invokeTracedTool(trace, "retrieval.tpm", line) as EvidenceDocument[])
+    ...(invokeTracedTool(trace, "retrieval.sap", line, serviceContext) as EvidenceDocument[]),
+    ...(invokeTracedTool(trace, "retrieval.docs", line, serviceContext) as EvidenceDocument[]),
+    ...(invokeTracedTool(trace, "retrieval.tpm", line, serviceContext) as EvidenceDocument[])
   ];
   const documentsById = new Map<string, EvidenceDocument>();
 
@@ -293,7 +403,12 @@ function retrieveEvidenceDocuments(line: DeductionLine, trace: ForensicsTraceEve
   return [...documentsById.values()];
 }
 
-function invokeTracedTool(trace: ForensicsTraceEvent[], toolName: ServiceToolName, input: unknown): unknown {
+function invokeTracedTool(
+  trace: ForensicsTraceEvent[],
+  toolName: ServiceToolName,
+  input: unknown,
+  context: ServiceInvocationContext = {}
+): unknown {
   trace.push({
     type: "status",
     payload: {
@@ -302,86 +417,20 @@ function invokeTracedTool(trace: ForensicsTraceEvent[], toolName: ServiceToolNam
     }
   });
 
-  return invokeServiceTool(toolName, input);
+  return invokeServiceTool(toolName, input, context);
 }
 
 function buildRuleInput(line: DeductionLine, ruleId: RuleId): RuleInput {
-  const base = {
-    lineId: line.lineId,
-    period: line.period,
-    recordIds: line.recordIds,
-    claimedAmount: line.amount
-  };
-
-  switch (ruleId) {
-    case "damage-evidence-valid":
-      return {
-        ...base,
-        ruleId,
-        damagedGoodsAmount: line.amount,
-        salvageCreditAmount: money("0.00"),
-        photoEvidenceReceived: true,
-        carrierReportReceived: true
-      };
-    case "promo-not-captured":
-      return {
-        ...base,
-        ruleId,
-        approvedPromoAccrual: line.amount,
-        capturedPromoCredit: money("0.00"),
-        approvedPromoExists: true,
-        invoiceBilledAtList: true
-      };
-    case "shortage-pod-mismatch":
-      return {
-        ...base,
-        ruleId,
-        allowedShortageAmount: money("0.00"),
-        claimedShortage: true,
-        podSignedFullDelivery: true
-      };
-    case "otif-fine-valid":
-      return {
-        ...base,
-        ruleId,
-        allowedFineAmount: line.amount,
-        contractSlaAllowsFine: true,
-        slaBreachConfirmed: true
-      };
-    case "otif-timestamp-mismatch":
-      return {
-        ...base,
-        ruleId,
-        allowedFineAmount: money("0.00"),
-        otifFineAssessed: true,
-        podTimestampOnTime: true
-      };
-    case "pricing-below-contract":
-      return {
-        ...base,
-        ruleId,
-        contractedUnitPrice: line.amount,
-        deliveredQuantity: "1",
-        actualPaidAmount: money("0.00"),
-        deductedBelowContractPrice: true,
-        contractPriceAvailable: true
-      };
-    case "promo-overclaim":
-      return {
-        ...base,
-        ruleId,
-        claimedAllowance: line.amount,
-        approvedAccrual: money("0.00"),
-        approvedAccrualExceeded: true
-      };
-    case "duplicate-credit":
-      return {
-        ...base,
-        ruleId,
-        priorCreditAmount: line.amount,
-        alreadyCredited: true
-      };
+  if (line.ruleInput === undefined) {
+    throw new Error(`Supabase rule_input_json required for ${line.lineId}.`);
   }
+
+  const parsed = CoreRuleInputSchema.parse(line.ruleInput) as RuleInput;
+  if (parsed.lineId !== line.lineId || parsed.ruleId !== ruleId || parsed.period !== line.period) {
+    throw new Error(`Supabase rule_input_json does not match settlement line ${line.lineId}.`);
+  }
+
+  return parsed;
 }
 
 function toRuleId(ruleId: string): RuleId {

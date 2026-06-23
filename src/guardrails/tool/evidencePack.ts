@@ -1,11 +1,14 @@
 import type { DeductionDecisionGuardInput } from "./explainability.js";
 
 export function assertDeductionEvidencePack(decision: DeductionDecisionGuardInput): void {
-  if ((decision.verdict === "invalid" || decision.verdict === "partial") && decision.evidenceDocumentIds.length === 0) {
+  const requiresSupportingDocuments =
+    decision.routing === "recovery" || decision.verdict === "invalid" || decision.verdict === "partial";
+
+  if (requiresSupportingDocuments && decision.evidenceDocumentIds.length === 0) {
     throw new Error("Invalid or partial deduction decisions require supporting documents.");
   }
 
-  if (decision.verdict !== "invalid" && decision.verdict !== "partial") {
+  if (!requiresSupportingDocuments) {
     return;
   }
 

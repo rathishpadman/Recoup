@@ -8,6 +8,8 @@ Verification command for the current proof pack:
 npm.cmd run verify
 ```
 
+This command includes `verify:release`, which now reads owner-approved run-control and eval-label rows from Supabase `recoup_config`. The current proof pack passes end to end when `.env.local` has the Supabase service credentials; the latest run passed ESLint, TypeScript, Vitest (`80` files / `578` tests), Dependency Cruiser (`109` modules / `333` dependencies), and live `verify:release`.
+
 ## Audit Summary
 
 | Audit Area | Reviewer Mode | Key Findings | Status | Evidence |
@@ -15,11 +17,13 @@ npm.cmd run verify
 | Architecture and harness | Independent architecture review | Memory, skills, handoffs, permission metadata, run control, audit replay, and launch gates needed clearer implementation status. | Partially resolved | `docs/architecture-review-and-recommendations.md`, `src/memory/`, `src/agents/handoffGraph.ts`, `src/services/conductor.ts`, `tests/invariants/memory-contract.test.ts`, `tests/invariants/run-control.test.ts` |
 | Supabase memory | Independent memory/Supabase audit | Supabase must be the primary shared memory path; live Postgres timestamps must round-trip into Recoup's ISO memory contract. | Resolved baseline | `src/memory/supabaseStore.ts`, `docs/supabase-memory-schema.sql`, `tests/unit/supabase-memory.test.ts`, `tests/unit/runtime-memory.test.ts` |
 | SQLite memory | Independent memory audit | Runtime memory needed durable SQLite-backed records and cockpit visibility. | Resolved baseline | `src/memory/sqliteStore.ts`, `src/memory/runtime.ts`, `src/services/cockpitApi.ts`, `tests/unit/sqlite-memory.test.ts`, `tests/unit/cockpit-api.test.ts` |
-| SAP OData | Independent SAP connector audit | SAP must stay read-only, protect credentials, support OAuth or Gateway Basic auth, and map `docs/Tools_data` invoice IDs through `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` with `sap-client`. | Resolved invoice baseline; broader O2C service depth remains open | `src/adapters/sapOData.ts`, `src/tools/retrieval/sap.ts`, `skills/sap-odata-access/SKILL.md`, `tests/unit/sap-odata.test.ts`, `tests/invariants/no-erp-writeback.test.ts` |
+| SAP OData | Independent SAP connector audit | SAP must stay read-only, protect credentials, support OAuth or Gateway Basic auth, map `docs/Tools_data` invoice IDs through `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs`, retrieve billing items only through metadata-validated GET collection filters, and expose the owner-locked R1 SAP-primary needs as metadata-validated GET request plans. Owner R2-5 locks the broader R1 SAP-primary/Supabase-fallback source set; live expansion beyond R1 remains deferred. | Resolved invoice header/item baseline; R1 source-read contract implemented | `src/adapters/sapOData.ts`, `src/services/serviceLayer.ts`, `src/services/cockpitApi.ts`, `src/tools/retrieval/sap.ts`, `skills/sap-odata-access/SKILL.md`, `tests/unit/sap-odata.test.ts`, `tests/unit/r1-source-read.test.ts`, `tests/unit/cockpit-api.test.ts`, `tests/invariants/no-erp-writeback.test.ts` |
 | Cockpit auth and Realtime | Independent security audit | Cockpit approval and Realtime secret endpoints allowed forged human context. Service approval path hard-coded a human approver. Realtime credential gating was coupled to unrelated connector config. | Resolved hackathon guard; live client-secret proof captured | `src/services/cockpitApi.ts`, `src/services/realtimeSession.ts`, `src/services/serviceLayer.ts`, `cockpit/app/approval-controls.tsx`, `cockpit/app/realtime-query-controls.tsx`, `tests/unit/cockpit-api.test.ts`, `tests/unit/realtime-session.test.ts`, `tests/invariants/integration-contract.test.ts` |
-| MCP and tool permissions | Independent MCP/RBAC audit | Production MCP endpoint and helper facade needed auth; MCP calls needed actor capability checks; internal approval/core tools must remain hidden. | Resolved hackathon guard | `src/mcp/server.ts`, `src/services/permissionEngine.ts`, `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibility.test.ts`, `tests/invariants/tool-permissions.test.ts` |
+| MCP and tool permissions | Independent MCP/RBAC audit | Production MCP endpoint and helper facade needed auth; MCP calls needed actor capability checks; internal approval/core tools must remain hidden. The authenticated StreamableHTTP `tools/list` path now proves the bounded advisory agent-to-agent tools are visible while `approvals.decide` stays hidden. | Resolved hackathon guard plus MCP agent-to-agent transport proof | `src/mcp/server.ts`, `src/services/permissionEngine.ts`, `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibility.test.ts`, `tests/invariants/tool-permissions.test.ts` |
 | UI/UX against O2C Design System | Independent visual audit | Cockpit needed restrained operational framing, a desktop hero workflow, and mobile table ergonomics. | Resolved first-viewport QA baseline | `cockpit/app/page.tsx`, `cockpit/app/styles.css`, `tests/invariants/cockpit-no-business-logic.test.ts`, `O2C Design System v3.1.dc.html` |
-| Connector readiness | Independent connector/security audit | SAP stays live read-only; bureau, remittance/EDI, document repository, and TPM use synthetic Supabase static table readiness for Day 1, but only after a schema probe verifies the `docs/Tools_data` tables and no unsafe shadow action statuses are present. | Foundation implemented; live contracts deferred; seed SQL remains human-approval only | `src/adapters/connectorRegistry.ts`, `src/adapters/bureau.ts`, `src/adapters/remittance.ts`, `src/adapters/ediRemittance.ts`, `src/adapters/docRepo.ts`, `src/adapters/tpm.ts`, `src/memory/supabaseStore.ts`, `docs/supabase-memory-schema.sql`, `tests/invariants/connector-readiness.test.ts` |
+| Connector readiness | Independent connector/security audit | SAP stays live read-only; SAP/docs/TPM/bureau runtime evidence now comes from Supabase source tables, while bureau, remittance/EDI, document repository, and TPM use synthetic Supabase source-table readiness for Day 1 after a schema probe verifies the `docs/Tools_data` tables and no unsafe shadow action statuses are present. Production `/run` and MCP SAP/docs/TPM/bureau retrieval now consume Supabase `recoup_src_*` rows and fail closed when required source context is unavailable. | Foundation implemented; live contracts deferred; seed SQL remains human-approval only | `src/adapters/connectorRegistry.ts`, `src/adapters/bureau.ts`, `src/adapters/remittance.ts`, `src/adapters/ediRemittance.ts`, `src/adapters/docRepo.ts`, `src/adapters/tpm.ts`, `src/services/serviceLayer.ts`, `src/mcp/server.ts`, `src/memory/supabaseStore.ts`, `docs/supabase-memory-schema.sql`, `tests/unit/retrieval-tools.test.ts`, `tests/invariants/connector-readiness.test.ts` |
+| OpenAI evidence vector store | Independent vector-store/source audit | Vector-store hits must enforce citation metadata and the seed corpus must be provisioned without committing secrets. The owner-approved seed-42 lifecycle is exposed as the manual `npm run provision:openai-evidence-vector-store` command for first provisioning or deterministic seed regeneration. | Resolved seed lifecycle; broader production corpus expansion deferred | `src/adapters/openAiVectorStore.ts`, `scripts/provisionOpenAiEvidenceVectorStore.ts`, `package.json`, `tests/unit/enterprise-connectors.test.ts` |
+| R1 source-read surface | Independent source/API audit | Frontend and MCP callers need bounded source retrieval without static code values or SAP mutation. `sources.r1Read` and `GET /sources/r1/:need` now accept only owner-locked R1 source needs, return SAP metadata-validated GET read plans for SAP-primary needs, and return Supabase authoritative read-plan envelopes for locked fallback needs. Reviewer findings closed an unused import, pre-validation SAP metadata fetches, and silent extra-query-key stripping. | Implemented; production expansion beyond locked R1 remains deferred | `src/services/serviceLayer.ts`, `src/services/cockpitApi.ts`, `src/adapters/sapOData.ts`, `tests/unit/r1-source-read.test.ts`, `tests/unit/cockpit-api.test.ts`, `tests/invariants/mcp-visibility.test.ts`, `tests/invariants/integration-contract.test.ts` |
 
 ## Resolved Findings
 
@@ -40,7 +44,9 @@ Evidence: `tests/unit/cockpit-api.test.ts`, `tests/unit/realtime-session.test.ts
 - Production MCP uses `StreamableHTTPServerTransport` on `/mcp`.
 - `/mcp` rejects unauthenticated requests when MCP auth is configured.
 - The legacy helper facade routes are protected by the same auth middleware when mounted.
-- Read-only MCP clients are denied draft action calls before tool handler execution.
+- Read-only MCP clients and clients with omitted capabilities are denied draft action calls before tool handler execution; `draft_action` must be explicit for MCP draft-only artifacts.
+- Authenticated StreamableHTTP `tools/list` exposes the bounded read-only advisory tools `agent_tool_sentinel_position` and `agent_tool_containment_intent_position` for MCP agent-to-agent use, while `approvals.decide`, core compute tools, and decision tools remain hidden.
+- Post-fix reviewer `Kierkegaard` found no Critical or Important owner-free MCP/backend code gap after the Supabase-required context repair; docs now distinguish absent source context from present-but-empty evidence rows.
 - `approvals.decide`, core compute tools, and decision tools remain absent from MCP visibility.
 
 Evidence: `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibility.test.ts`, `tests/invariants/tool-permissions.test.ts`.
@@ -50,10 +56,18 @@ Evidence: `tests/invariants/mcp-transport.test.ts`, `tests/invariants/mcp-visibi
 - SAP OData adapter exposes read and request-planning methods only.
 - The local SAP OData skill guides metadata-first, read-only Gateway access and blocks SAP mutation paths inside Recoup.
 - OAuth client-credentials token retrieval is isolated from SAP business reads, and Gateway Basic auth is supported when `SAP_ODATA_USERID` plus the configured secret are present.
-- The `docs/Tools_data` invoice mapping uses `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` and requires `SAP_ODATA_CLIENT` so read URLs include `sap-client`.
+- The `docs/Tools_data` invoice header mapping uses `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` and requires `SAP_ODATA_CLIENT` so read URLs include `sap-client`.
+- Numeric `INV-*` record IDs also build a read-only `C_BillingDocumentItemFs` collection GET filtered by `BillingDocument`; this avoids inventing a `BillingDocumentItem` key when the line only cites an invoice number.
+- Empty or malformed item collection payloads are suppressed and do not become cited evidence.
 - Synthetic `INV-*` IDs without a numeric SAP suffix fail closed and do not become live SAP reads.
+- Production service/MCP SAP evidence retrieval consumes cached Supabase `recoup_src_sap` rows and fails closed when the required source context is unavailable; prefix-derived SAP evidence remains test/setup or legacy adapter behavior only.
 - POD, credit memo, and duplicate-claim proof are no longer attributed to SAP by the fallback path; they remain non-SAP evidence unless deterministic SAP keys are added.
+- Credit memo/reference live lookup remains owner-bound until a real SAP credit memo key/link field or accessible OData contract is supplied.
 - Secret-bearing connection details are not serialized through runtime config or adapter JSON.
+- R1 SAP-primary source reads for invoice, sales order, credit account DSO, credit exposure, dispute case, and accrual cap build metadata-validated GET plans only; unsupported or missing metadata fails closed.
+- The bounded `sources.r1Read` service/API surface returns Supabase authoritative read-plan envelopes for locked fallback needs instead of hard-coded business values.
+- R1 route validation now runs before SAP metadata context creation; malformed SAP-primary params return 400 without a SAP `$metadata` fetch.
+- R1 service schemas are strict and route queries use per-need allowlists, so unexpected/narrowing params cannot be stripped into broader read plans.
 - Live Basic-auth metadata proof on June 19, 2026 returned HTTP 200 for `FCOM_COSTCENTER_SRV/$metadata` and exposed `CostCenterSet` plus `F4_CostCenterSet` without requiring scope or tenant.
 - Live OData payload mapping to Recoup evidence is covered by unit tests.
 
@@ -65,15 +79,26 @@ Evidence: `tests/unit/sap-odata.test.ts`, `tests/invariants/no-erp-writeback.tes
 - The connector readiness model requires a Supabase schema probe for the `docs/Tools_data` tables and reports `blocked_schema_required` for 404/not-exposed tables.
 - The probe returns table/status classes only and does not return row IDs, amounts, or service-role secrets.
 - Readiness blocks if shadow action tables contain external-action statuses: `billing_requests.status=SENT_TO_SAP`, `recovery_packages.status=SUBMITTED_TO_PORTAL`, or `immutable_audit_log.action_type=SAP_STAGE_WRITE`.
+- Production `/run` and MCP SAP/docs/TPM/bureau retrieval paths preload required Supabase `recoup_src_sap`, `recoup_src_docs`, `recoup_src_tpm`, and `recoup_src_bureau` evidence rows and fail closed when that evidence context is absent.
+- Generic source `correspondence` rows are not decision evidence unless linked record IDs map them to decision-safe credit-memo evidence.
 - `docs/Tools_data/seed_data.sql` is not applied automatically because it runs `TRUNCATE ... CASCADE` and seeds action/decision/audit-like rows.
 
 Evidence: `src/memory/supabaseStore.ts`, `src/adapters/connectorRegistry.ts`, `tests/unit/supabase-memory.test.ts`, `tests/invariants/connector-readiness.test.ts`.
+
+### OpenAI Evidence Vector Store Seed Lifecycle
+
+- `src/adapters/openAiVectorStore.ts` enforces `source_table`, `record_id`, `customer_id`, `scenario_type`, and `provenance=synthetic` metadata before a hit can become cited evidence.
+- `scripts/provisionOpenAiEvidenceVectorStore.ts` creates or reuses the evidence vector store, uploads the four deterministic seed dossiers, and writes only `OPENAI_EVIDENCE_VECTOR_STORE_ID` to `.env.local`.
+- `package.json` exposes the side-effecting lifecycle as `npm run provision:openai-evidence-vector-store`; it is not part of `npm run verify` and should be run only for first provisioning or deterministic seed regeneration unless cleanup-idempotency is added later.
+- No OpenAI API key, vector-store ID, SAP credential, or Supabase service key is committed or printed in this audit log.
+
+Evidence: `src/adapters/openAiVectorStore.ts`, `scripts/provisionOpenAiEvidenceVectorStore.ts`, `package.json`, `tests/unit/enterprise-connectors.test.ts`.
 
 ### Supabase Durable Memory Baseline
 
 - Supabase/Postgres is selected ahead of SQLite when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured.
 - The generated DDL and reviewable SQL artifact stay aligned, with constrained memory categories, record IDs, indexes, RLS enablement, and service-role-only grants.
-- The same schema artifact now includes Day-1 synthetic source tables for bureau, docs, consolidated remittance/EDI, and TPM with `provenance = synthetic`.
+- The same schema artifact now includes `recoup_src_sap` with `provenance = sap-odata` and Day-1 synthetic source tables for bureau, docs, consolidated remittance/EDI, and TPM with `provenance = synthetic`.
 - Live Supabase REST table reads were verified for `recoup_memory_records`.
 - Postgres `timestamptz` rows are normalized to Recoup's internal ISO datetime memory contract before Zod validation.
 
@@ -93,10 +118,11 @@ These are intentionally visible because Recoup's contract says supplied owner de
 
 | Open Finding | Why It Is Open | Required Owner Input |
 |---|---|---|
-| Expert-owned constants | Arbitration weights, R-score weights, drift thresholds, gaming thresholds, partial-hold config, accuracy bars, and seed are owner-ratified Day-1 tunables for the demo and must not be guessed beyond that record; config-as-code bootstrap seed rows exist in repo. | DB-backed governed config runtime loader, then production VERIFY-PROD calibration before final operating use. |
-| Real SAP S/4HANA O2C query mapping | Read-only OAuth/Basic OData baseline and live Gateway metadata proof exist, but the mapped billing/outbound-delivery services still need reachable endpoints and metadata-backed entity mapping. | Reachable O2C SAP services, entity sets, key fields, and sample payloads. |
-| Bureau/remittance/EDI/docs/TPM source depth | Static table schema and readiness foundation are implemented for Day 1, but full table-reading adapters and live mappings remain deferred. | Implement synthetic retrieval adapters if needed beyond readiness; later source contracts, field dictionaries, example payloads, and reconciliation keys for VERIFY-V3 live adapters. |
-| Model/build/runtime verification flags | `CODEX_BUILD_ANSWERS.md` leaves embeddings model id, Codex build-model id, and SAP sandbox instance as `[VERIFY]`; Recoup must not assert final production identity for them until confirmed. | Owner-confirmed model IDs and SAP sandbox instance before production or published benchmark claims. |
+| Expert-owned constants | Arbitration weights, R-score weights, drift thresholds, gaming thresholds, partial-hold config, accuracy bars, Harbor Risk Mesh case facts, David credit display values, Harbor Sentinel source refs, run-control budgets, and seed are owner-ratified Day-1 tunables for the demo and must not be guessed beyond the governed Supabase/config seed rows; `CODEX_BUILD_ANSWERS.md` is referenced historically but is not present in this repo checkout. | Runtime governed config, Harbor `risk_mesh_cases`, Supabase Tools_data R-drift source rows, and run-control loading are wired; production VERIFY-PROD calibration remains required before final operating use. |
+| Real SAP S/4HANA O2C query mapping | Read-only OAuth/Basic OData baseline, live Gateway metadata proof, demo invoice header/billing-item reads, and bounded R1 SAP-primary read plans exist. Owner R2-5 locks the R1 SAP-primary/Supabase-fallback source set; live SAP expansion beyond R1 still needs reachable endpoints and metadata-backed entity mapping. | Reachable O2C SAP services, entity sets, key fields, and sample payloads beyond the locked R1 source set. |
+| Release readiness gate | `verify:release` is wired into `npm run verify`, reads owner-approved run-control, eval labels, governed values, and Harbor `risk_mesh_cases` facts/display/source-ref values from Supabase `recoup_config`, validates row hashes, compares `expectedRanking` when deterministic arbitration emits ranked options, and fails closed if the DB rows are missing or incomplete. The cockpit `/run` path also loads the same DB-backed `run_control` row, passes DB-loaded `forensics.stepBudget`/`retryCap` into the live runner, records explicit SDK usage metadata against the DB-loaded token budget, and no longer has hard-coded SDK tool/live retry defaults. | Closed for the supplied owner response and Supabase `risk_mesh_cases` migrations; future changes must be made through governed DB rows and source tables, not hardcoded runtime values. |
+| SAP/bureau/remittance/EDI/docs/TPM source depth | Supabase source-table schema, readiness foundation, and read-only table-reading adapters are implemented for Day 1; `/run` and MCP use Supabase SAP/docs/TPM/bureau rows in the R1 runtime path. Live mappings remain deferred. | Later source contracts, field dictionaries, example payloads, and reconciliation keys for VERIFY-V3 live adapters. |
+| Model/build/runtime verification flags | Embeddings model id, Codex build-model id, and SAP sandbox instance remain owner-verification flags; Recoup must not assert final production identity for them until confirmed. | Owner-confirmed model IDs and SAP sandbox instance before production or published benchmark claims. |
 | Full cockpit depth | First-viewport desktop/mobile visual QA baseline is resolved; deeper interactive drilldowns remain planned. | Final O2C design review for expanded flows beyond the first viewport. |
 | Enterprise identity | Hackathon guards use configured principal/token headers. | Production IdP/OAuth/KMS/Secure MCP Tunnel decision. |
 
@@ -105,4 +131,4 @@ These are intentionally visible because Recoup's contract says supplied owner de
 1. Start with `README.md` for the demo narrative and claim-to-code-to-test map.
 2. Open this file for the independent audit evidence trail.
 3. Open `docs/architecture-review-and-recommendations.md` for broader architecture findings and resolved/open status.
-4. Run `npm.cmd run verify` to validate invariants, unit tests, eval gates, and dependency-cruiser boundaries.
+4. Run `npm.cmd run verify` to validate invariants, unit tests, dependency-cruiser boundaries, and Supabase-backed release readiness.

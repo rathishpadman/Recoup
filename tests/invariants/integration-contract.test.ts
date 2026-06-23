@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
 import { serviceToolMetadata, serviceTools, invokeServiceTool } from "../../src/services/serviceLayer.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
+const runForensics = () => runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
 
 describe("integration contract", () => {
   it("exposes approval, audit, query, and retrieval tools through the typed whitelist", () => {
@@ -11,15 +18,19 @@ describe("integration contract", () => {
       "actions.proposeHold",
       "actions.proposeTerms",
       "actions.routeBilling",
+      "agent_tool_containment_intent_position",
+      "agent_tool_sentinel_position",
       "approvals.decide",
       "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
       "query.answer",
+      "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",
-      "retrieval.tpm"
+      "retrieval.tpm",
+      "sources.r1Read"
     ]);
   });
 
@@ -27,17 +38,13 @@ describe("integration contract", () => {
     const { answerOfflineQuery } = await import("../../src/agents/query.js");
 
     expect(
-      answerOfflineQuery({
-        question: "What changed for Harbor?"
-      })
+      answerOfflineQuery({ governedConfig, source, question: "What changed for Harbor?" })
     ).toMatchObject({
       status: "disabled_offline_safe",
       modelExecution: "blocked: offline build does not invoke live model calls"
     });
-    const answer = answerOfflineQuery({
-      question: "What changed for Harbor?"
-    });
-    expect(answer.answer).toContain("verify-runtime-config-loader-required");
+    const answer = answerOfflineQuery({ governedConfig, source, question: "What changed for Harbor?" });
+    expect(answer.answer).toContain("source-risk-observation-fields-required");
     expect(answer.answer).not.toContain("r-score-weights-unset");
     expect(answer.recordIds).toContain("CUST-HARBOR");
     expect(answer.deterministicBasis).toContain("audit.read");
@@ -53,7 +60,7 @@ describe("integration contract", () => {
   });
 
   it("reads audit entries through a bounded service tool", () => {
-    const result = invokeServiceTool("audit.read", { caseId: "ARB-HARBOR-ORDER-640K" });
+    const result = invokeServiceTool("audit.read", { caseId: "ARB-HARBOR-ORDER-640K" }, { governedConfig, source });
 
     expect(result).toMatchObject({
       caseId: "ARB-HARBOR-ORDER-640K",
@@ -67,8 +74,8 @@ describe("integration contract", () => {
     expect(JSON.stringify(result)).toContain("partial-hold.proposed");
   });
 
-  it("routes approval decisions through a bounded HITL service tool with verified human context", () => {
-    const [action] = runForensicsInvestigation().actions;
+  it("validates HITL approval decisions but requires Supabase persistence for commit", () => {
+    const [action] = runForensics().actions;
     if (action === undefined) {
       throw new Error("Forensics run must stage at least one action.");
     }
@@ -81,50 +88,33 @@ describe("integration contract", () => {
       })
     ).toThrow("Verified human service context required.");
 
-    const approval = invokeServiceTool("approvals.decide", {
-      actionId: action.actionId,
-      decision: "approve",
-      approverId: "human:spoofed-service-caller"
-    }, {
-      verifiedHumanPrincipal: "human:maya-lead"
-    }) as {
-      actionId: string;
-      auditEntryHash: string;
-      approverId: string;
-      decision: string;
-      status: string;
-    };
-
-    expect(approval).toMatchObject({
-      actionId: action.actionId,
-      decision: "approve",
-      approverId: "human:maya-lead",
-      status: "human_decided"
-    });
-    expect(approval.auditEntryHash).toMatch(/^[a-f0-9]{64}$/);
-
     expect(() =>
       invokeServiceTool("approvals.decide", {
         actionId: action.actionId,
-        decision: "reject",
-        approverId: "human:maya-lead",
-        reason: "This should not replace the already-recorded approval."
-      }, {
-        verifiedHumanPrincipal: "human:maya-lead"
+        decision: "approve",
+        approverId: "human:spoofed-service-caller"
+    }, {
+      ...fixtureForensicsServiceContext,
+      governedConfig,
+      source,
+      verifiedHumanPrincipal: "human:maya-lead"
       })
-    ).toThrow("Action already has a human decision.");
+    ).toThrow("Supabase approval persistence required for approvals.decide.");
 
     expect(() =>
       invokeServiceTool("approvals.decide", {
         actionId: action.actionId,
         decision: "approve",
         approverId: "agent:credit-lead"
-      }, {
-        verifiedHumanPrincipal: "human:maya-lead"
+    }, {
+      ...fixtureForensicsServiceContext,
+      governedConfig,
+      source,
+      verifiedHumanPrincipal: "human:maya-lead"
       })
     ).toThrow("Client approver identity must be human-scoped.");
 
-    const [, secondAction] = runForensicsInvestigation().actions;
+    const [, secondAction] = runForensics().actions;
     if (secondAction === undefined) {
       throw new Error("Forensics run must stage at least two actions.");
     }
@@ -135,8 +125,11 @@ describe("integration contract", () => {
         decision: "reject",
         approverId: "human:maya-lead",
         reason: "Contact maya@example.com before rejecting."
-      }, {
-        verifiedHumanPrincipal: "human:maya-lead"
+    }, {
+      ...fixtureForensicsServiceContext,
+      governedConfig,
+      source,
+      verifiedHumanPrincipal: "human:maya-lead"
       })
     ).toThrow("Approval reason must not contain direct PII or secrets.");
 
@@ -146,8 +139,11 @@ describe("integration contract", () => {
         decision: "reject",
         approverId: "human:maya-lead",
         reason: "        "
-      }, {
-        verifiedHumanPrincipal: "human:maya-lead"
+    }, {
+      ...fixtureForensicsServiceContext,
+      governedConfig,
+      source,
+      verifiedHumanPrincipal: "human:maya-lead"
       })
     ).toThrow("Reason required for modify or reject decisions.");
 
@@ -156,8 +152,11 @@ describe("integration contract", () => {
         actionId: "missing-action",
         decision: "approve",
         approverId: "human:maya"
-      }, {
-        verifiedHumanPrincipal: "human:maya"
+    }, {
+      ...fixtureForensicsServiceContext,
+      governedConfig,
+      source,
+      verifiedHumanPrincipal: "human:maya"
       })
     ).toThrow("Action not found.");
   });
@@ -188,7 +187,7 @@ describe("integration contract", () => {
       "retrieveReferenceDocuments"
     ]);
     expect(methodNames.some((methodName) => /create|update|delete|patch|post|write|mutate/i.test(methodName))).toBe(false);
-    expect(instanceMethodNames).toEqual(["buildMetadataValidatedReadRequestPlan"]);
+    expect(instanceMethodNames).toEqual(["buildMetadataValidatedR1ReadRequestPlan", "buildMetadataValidatedReadRequestPlan"]);
     expect(instanceMethodNames.some((methodName) => /create|update|delete|patch|post|write|mutate/i.test(methodName))).toBe(false);
     expect(clientMethodNames).toEqual(["buildServiceUrl", "constructor", "fetchJson", "fetchMetadata", "fetchReadRequest"]);
     expect(clientMethodNames.some((methodName) => /create|update|delete|patch|post|write|mutate/i.test(methodName))).toBe(false);
@@ -198,7 +197,7 @@ describe("integration contract", () => {
 
   it("exposes only whitelisted service tools through the MCP facade", async () => {
     const { createMcpToolFacade } = await import("../../src/mcp/server.js");
-    const facade = createMcpToolFacade();
+    const facade = createMcpToolFacade({ serviceContext: { governedConfig, source } });
 
     expect(facade.listTools().map((tool) => tool.name).sort()).toEqual([
       "actions.draftOutreach",
@@ -206,17 +205,34 @@ describe("integration contract", () => {
       "actions.proposeHold",
       "actions.proposeTerms",
       "actions.routeBilling",
+      "agent_tool_containment_intent_position",
+      "agent_tool_sentinel_position",
       "audit.read",
       "query.answer",
+      "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",
-      "retrieval.tpm"
+      "retrieval.tpm",
+      "sources.r1Read"
     ]);
     expect(() => facade.callTool("actions.erpWrite", {})).toThrow("Tool is not exposed through MCP.");
     expect(() => facade.callTool("core.evaluateRule", {})).toThrow("Tool is not exposed through MCP.");
     expect(() => facade.callTool("approvals.decide", {})).toThrow("Tool is not exposed through MCP.");
     expect(facade.callTool("query.answer", { question: "Show cited status" })).toMatchObject({
       status: "disabled_offline_safe"
+    });
+    expect(facade.callTool("sources.r1Read", { need: "payment-history", customerId: "USCU_S04" })).toMatchObject({
+      need: "payment-history",
+      sourceMode: "supabase_authoritative"
+    });
+    expect(facade.callTool("agent_tool_sentinel_position", { caseId: "ARB-HARBOR-ORDER-640K" })).toMatchObject({
+      customerId: "CUST-HARBOR",
+      status: "blocked"
+    });
+    expect(facade.callTool("agent_tool_containment_intent_position", { caseId: "ARB-HARBOR-ORDER-640K" })).toMatchObject({
+      contained: false,
+      customerId: "CUST-HARBOR",
+      intentLabel: "distressed-honest"
     });
   });
 });

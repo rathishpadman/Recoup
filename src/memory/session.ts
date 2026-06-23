@@ -39,7 +39,7 @@ export function writeSessionState(store: MemoryStore, input: WriteSessionStateIn
       value: input.value
     },
     recordIds: input.recordIds,
-    createdAt: new Date(0).toISOString()
+    createdAt: new Date().toISOString()
   });
 }
 
@@ -58,7 +58,7 @@ export function writeTransactionState(store: MemoryStore, input: WriteTransactio
       value: input.value
     },
     recordIds: input.recordIds,
-    createdAt: new Date(0).toISOString()
+    createdAt: new Date().toISOString()
   });
 }
 
@@ -83,7 +83,7 @@ export function writeAgentHandoffPacket(store: MemoryStore, input: WriteAgentHan
       toAgent: input.toAgent
     },
     recordIds: input.recordIds,
-    createdAt: new Date(0).toISOString()
+    createdAt: new Date().toISOString()
   });
 }
 

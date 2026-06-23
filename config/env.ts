@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { day1GovernedConfigSeed } from "./governed.js";
 import type { RuntimeEnv } from "./localRuntimeEnv.ts";
 export { loadLocalRuntimeEnv, loadLocalRuntimeEnvFiles } from "./localRuntimeEnv.ts";
 export type { RuntimeEnv } from "./localRuntimeEnv.ts";
 
 const RuntimeEnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_EVIDENCE_VECTOR_STORE_ID: z.string().min(1).optional(),
   SAP_ODATA_BASE_URL: z.string().url().optional(),
   SAP_ODATA_CLIENT: z.string().min(1).optional(),
   SAP_ODATA_CLIENT_ID: z.string().min(1).optional(),
@@ -32,6 +32,15 @@ type ParsedRuntimeEnv = z.infer<typeof RuntimeEnvSchema>;
 export interface RuntimeConfig {
   openai: {
     configured: boolean;
+    fileSearch:
+      | {
+          configured: false;
+          reason: string;
+        }
+      | {
+          configured: true;
+          redactedVectorStoreId: string;
+        };
     redactedApiKey?: string;
   };
   sap: {
@@ -61,19 +70,21 @@ export interface RuntimeConfig {
       };
   expertConstants: {
     configured: boolean;
-    configHash: string;
-    configVersion: 1;
+    configHash?: string;
+    configVersion?: 1;
     governedConfigRuntime: {
       bootstrapAvailable: boolean;
       dbBackedLoaderImplemented: boolean;
-      liveDbValidation: "requires-async-recoup-config-loader-readiness-probe";
+      liveDbValidation:
+        | "blocked-missing-supabase-recoup-config-credentials"
+        | "requires-async-recoup-config-loader-readiness-probe";
     };
     missing: string[];
     productionCalibration: {
       configured: boolean;
       verifyProdCalibration: string[];
     };
-    source: "owner-ratified-day-1";
+    source: "supabase-recoup-config";
     supplied: string[];
   };
 }
@@ -95,53 +106,87 @@ export function loadRuntimeConfig(env: RuntimeEnv = process.env): RuntimeConfig 
   const sapConfigured = isSapBasicConfigured(parsed) || isSapOAuthConfigured(parsed);
 
   return {
-    openai:
-      parsed.OPENAI_API_KEY === undefined
-        ? { configured: false }
-        : {
-            configured: true,
-            redactedApiKey: redactSecret(parsed.OPENAI_API_KEY)
-          },
+    openai: buildOpenAiConfig(parsed),
     sap: sapConfigured
       ? buildConfiguredSap(parsed)
       : { configured: false },
     memory: buildMemoryConfig(parsed),
-    expertConstants: {
-      configured: true,
-      configHash: day1GovernedConfigSeed.configHash,
-      configVersion: day1GovernedConfigSeed.configVersion,
-      governedConfigRuntime: {
-        bootstrapAvailable: true,
-        dbBackedLoaderImplemented: true,
-        liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
-      },
-      missing: [],
-      productionCalibration: {
-        configured: false,
-        verifyProdCalibration: [
-          "arbitration-weights",
-          "embeddings-model-id",
-          "codex-build-model-id",
-          "sap-sandbox-instance",
-          "verify-v3-live-non-sap-contracts"
-        ]
-      },
-      source: "owner-ratified-day-1",
-      supplied: [
+    expertConstants: buildExpertConstantsConfig(parsed)
+  };
+}
+
+function buildExpertConstantsConfig(parsed: ParsedRuntimeEnv): RuntimeConfig["expertConstants"] {
+  const hasSupabaseGovernedConfigCredentials =
+    parsed.SUPABASE_URL !== undefined && parsed.SUPABASE_SERVICE_ROLE_KEY !== undefined;
+
+  return {
+    configured: hasSupabaseGovernedConfigCredentials,
+    governedConfigRuntime: {
+      bootstrapAvailable: false,
+      dbBackedLoaderImplemented: true,
+      liveDbValidation: hasSupabaseGovernedConfigCredentials
+        ? "requires-async-recoup-config-loader-readiness-probe"
+        : "blocked-missing-supabase-recoup-config-credentials"
+    },
+    missing: hasSupabaseGovernedConfigCredentials
+      ? ["recoup_config-live-validation"]
+      : ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "recoup_config-live-validation"],
+    productionCalibration: {
+      configured: false,
+      verifyProdCalibration: [
         "arbitration-weights",
-        "r-score-weights",
-        "r-drift-trigger",
-        "gaming-gate",
-        "partial-hold",
-        "accuracy-bars",
-        "seed"
+        "embeddings-model-id",
+        "codex-build-model-id",
+        "sap-sandbox-instance",
+        "verify-v3-live-non-sap-contracts"
       ]
-    }
+    },
+    source: "supabase-recoup-config",
+    supplied: hasSupabaseGovernedConfigCredentials ? ["supabase-recoup-config-credentials"] : []
+  };
+}
+
+function buildOpenAiConfig(parsed: ParsedRuntimeEnv): RuntimeConfig["openai"] {
+  const apiKey = parsed.OPENAI_API_KEY;
+  const vectorStoreId = parsed.OPENAI_EVIDENCE_VECTOR_STORE_ID;
+
+  if (apiKey === undefined) {
+    return {
+      configured: false,
+      fileSearch: {
+        configured: false,
+        reason: "OPENAI_API_KEY and OPENAI_EVIDENCE_VECTOR_STORE_ID are required for live evidence vector-store search."
+      }
+    };
+  }
+
+  if (vectorStoreId === undefined) {
+    return {
+      configured: true,
+      fileSearch: {
+        configured: false,
+        reason: "OPENAI_EVIDENCE_VECTOR_STORE_ID is required for live evidence vector-store search."
+      },
+      redactedApiKey: redactSecret(apiKey)
+    };
+  }
+
+  return {
+    configured: true,
+    fileSearch: {
+      configured: true,
+      redactedVectorStoreId: redactSecret(vectorStoreId)
+    },
+    redactedApiKey: redactSecret(apiKey)
   };
 }
 
 function buildMemoryConfig(parsed: ParsedRuntimeEnv): RuntimeConfig["memory"] {
-  if (parsed.SUPABASE_URL !== undefined && parsed.SUPABASE_SERVICE_ROLE_KEY !== undefined) {
+  if (parsed.RECOUP_MEMORY_BACKEND === "supabase") {
+    if (parsed.SUPABASE_URL === undefined || parsed.SUPABASE_SERVICE_ROLE_KEY === undefined) {
+      return { configured: false, mode: "in_memory" };
+    }
+
     return {
       configured: true,
       mode: "supabase",
@@ -169,7 +214,7 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
 
   const clientSecret = env.SAP_ODATA_CLIENT_SECRET;
   const baseUrl = env.SAP_ODATA_BASE_URL;
-  const sapClient = env.SAP_ODATA_CLIENT;
+  const sapClient = config.sap.sapClient;
   if (baseUrl === undefined || clientSecret === undefined || sapClient === undefined) {
     throw new Error("SAP runtime config was marked configured without client credentials.");
   }
@@ -212,7 +257,7 @@ export function loadSapODataReadOnlyConnection(env: RuntimeEnv = process.env): S
 
 function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
   const baseUrl = parsed.SAP_ODATA_BASE_URL;
-  const sapClient = parsed.SAP_ODATA_CLIENT;
+  const sapClient = readSapClient(parsed);
 
   if (baseUrl === undefined || sapClient === undefined) {
     throw new Error("SAP runtime config was marked configured without the required read credentials.");
@@ -253,7 +298,7 @@ function buildConfiguredSap(parsed: ParsedRuntimeEnv): RuntimeConfig["sap"] {
 function isSapBasicConfigured(parsed: ParsedRuntimeEnv): boolean {
   return (
     parsed.SAP_ODATA_BASE_URL !== undefined &&
-    parsed.SAP_ODATA_CLIENT !== undefined &&
+    readSapClient(parsed) !== undefined &&
     parsed.SAP_ODATA_CLIENT_SECRET !== undefined &&
     parsed.SAP_ODATA_USERID !== undefined
   );
@@ -262,11 +307,23 @@ function isSapBasicConfigured(parsed: ParsedRuntimeEnv): boolean {
 function isSapOAuthConfigured(parsed: ParsedRuntimeEnv): boolean {
   return (
     parsed.SAP_ODATA_BASE_URL !== undefined &&
-    parsed.SAP_ODATA_CLIENT !== undefined &&
+    readSapClient(parsed) !== undefined &&
     parsed.SAP_ODATA_CLIENT_ID !== undefined &&
     parsed.SAP_ODATA_CLIENT_SECRET !== undefined &&
     parsed.SAP_ODATA_TOKEN_URL !== undefined
   );
+}
+
+function readSapClient(parsed: ParsedRuntimeEnv): string | undefined {
+  return parsed.SAP_ODATA_CLIENT ?? sapClientAliasFromClientId(parsed.SAP_ODATA_CLIENT_ID);
+}
+
+function sapClientAliasFromClientId(clientId: string | undefined): string | undefined {
+  if (clientId === undefined) {
+    return undefined;
+  }
+
+  return /^\d{3}$/u.test(clientId) ? clientId : undefined;
 }
 
 function redactSecret(secret: string): string {

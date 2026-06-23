@@ -3,7 +3,16 @@ import tseslint from "typescript-eslint";
 
 export default [
   {
-    ignores: ["node_modules/**", ".next/**", "**/.next/**", "design-system/**", "*.config.js", "*.config.cjs", "dependency-cruiser.config.cjs"]
+    ignores: [
+      "node_modules/**",
+      ".next/**",
+      "**/.next/**",
+      "design-system/**",
+      "*.config.js",
+      "*.config.cjs",
+      "*.config.mjs",
+      "dependency-cruiser.config.cjs"
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,

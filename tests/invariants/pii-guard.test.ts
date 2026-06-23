@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { runForensicsInvestigation, type ForensicsTraceEvent } from "../../src/agents/forensics.js";
 import { redactPiiForModelContext } from "../../src/guardrails/input/pii.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
 
 describe("I-14 PII guard", () => {
   it("redacts direct contact details before model context", () => {
@@ -18,7 +24,10 @@ describe("I-14 PII guard", () => {
 
   it("redacts the Forensics model-context trace before any model delta", () => {
     const run = runForensicsInvestigation({
-      analystContext: "Maya can be reached at maya@example.com or 555-0188."
+      analystContext: "Maya can be reached at maya@example.com or 555-0188.",
+      governedConfig,
+      serviceContext: fixtureForensicsServiceContext,
+      source
     });
     const modelContext = run.trace.find(isModelContextEvent);
 

@@ -1,102 +1,21 @@
-import { z } from "zod";
-import { Decimal } from "decimal.js";
-import type { EvidenceDocument } from "../tools/retrieval/docs.js";
-import { money } from "../types/money.js";
-import { evaluateRule, ruleIds, type RuleFinding, type RuleInput, type RuleId } from "../core/rules/index.js";
+import { evaluateRule, type RuleFinding, type RuleInput, type RuleId } from "../core/rules/index.js";
 import type { DeductionRouting, DeductionVerdict } from "../types/entities.js";
-import { assertDecisionExplainability, type DeductionDecisionGuardInput } from "../guardrails/tool/explainability.js";
+import {
+  CoreRuleInputSchema,
+  DeductionDecisionToolInputSchema,
+  type DecisionConfidenceAssessment,
+  type DeductionDecisionToolOutput
+} from "../types/decision.js";
+import { assertDecisionExplainability } from "../guardrails/tool/explainability.js";
 import { assertDeductionEvidencePack } from "../guardrails/tool/evidencePack.js";
 
-export interface DeductionDecisionToolInput {
-  lineId: string;
-  ruleId: RuleId;
-  finding: RuleFinding;
-  evidenceDocuments: EvidenceDocument[];
-  producedBy: "agent:forensics-investigator";
-  modelId: string;
-}
-
-export type DeductionDecisionToolOutput = DeductionDecisionGuardInput;
-
-const decisionMoneySchema = z.union([z.string().min(1), z.instanceof(Decimal)]).transform((value) => money(value));
-const ruleIdSchema = z.enum(ruleIds);
-const evidenceDocumentSchema = z.object({
-  documentId: z.string().min(1),
-  source: z.enum(["sap", "docs", "tpm"]),
-  documentType: z.enum(["POD", "contract", "trade-promo", "carrier-report", "credit-memo", "invoice"]),
-  summary: z.string().min(1),
-  recordIds: z.array(z.string().min(1)).min(1)
-});
-
-const ruleFindingSchema = z.object({
-  ruleId: ruleIdSchema,
-  recordIds: z.array(z.string().min(1)).min(1),
-  deltaAmount: decisionMoneySchema,
-  basis: z.string().min(1),
-  eventId: z.string().regex(/^[a-f0-9]{64}$/)
-});
-
-export const CoreRuleInputSchema = z.object({
-  ruleId: ruleIdSchema,
-  lineId: z.string().min(1),
-  period: z.string().min(1),
-  recordIds: z.array(z.string().min(1)).min(1),
-  claimedAmount: decisionMoneySchema,
-  damagedGoodsAmount: decisionMoneySchema.optional(),
-  salvageCreditAmount: decisionMoneySchema.optional(),
-  photoEvidenceReceived: z.boolean().optional(),
-  carrierReportReceived: z.boolean().optional(),
-  approvedPromoAccrual: decisionMoneySchema.optional(),
-  capturedPromoCredit: decisionMoneySchema.optional(),
-  approvedPromoExists: z.boolean().optional(),
-  invoiceBilledAtList: z.boolean().optional(),
-  allowedShortageAmount: decisionMoneySchema.optional(),
-  claimedShortage: z.boolean().optional(),
-  podSignedFullDelivery: z.boolean().optional(),
-  allowedFineAmount: decisionMoneySchema.optional(),
-  contractSlaAllowsFine: z.boolean().optional(),
-  slaBreachConfirmed: z.boolean().optional(),
-  otifFineAssessed: z.boolean().optional(),
-  podTimestampOnTime: z.boolean().optional(),
-  contractedUnitPrice: decisionMoneySchema.optional(),
-  deliveredQuantity: z.string().min(1).optional(),
-  actualPaidAmount: decisionMoneySchema.optional(),
-  deductedBelowContractPrice: z.boolean().optional(),
-  contractPriceAvailable: z.boolean().optional(),
-  claimedAllowance: decisionMoneySchema.optional(),
-  approvedAccrual: decisionMoneySchema.optional(),
-  approvedAccrualExceeded: z.boolean().optional(),
-  priorCreditAmount: decisionMoneySchema.optional(),
-  alreadyCredited: z.boolean().optional()
-});
-
-export const DeductionDecisionToolInputSchema = z.object({
-  lineId: z.string().min(1),
-  ruleId: ruleIdSchema,
-  finding: ruleFindingSchema,
-  evidenceDocuments: z.array(evidenceDocumentSchema),
-  producedBy: z.literal("agent:forensics-investigator"),
-  modelId: z.string().min(1)
-});
-
-export const DeductionDecisionGuardInputSchema = z.object({
-  decisionId: z.string().min(1),
-  lineId: z.string().min(1),
-  verdict: z.enum(["valid", "invalid", "partial"]),
-  routing: z.enum(["billing", "recovery"]),
-  recordIds: z.array(z.string().min(1)).min(1),
-  basis: z.string().min(1),
-  deterministicBasis: z.object({
-    ruleId: ruleIdSchema,
-    computedDeltaAmount: decisionMoneySchema,
-    amountSource: z.literal("core-rule-delta")
-  }),
-  evidenceDocumentIds: z.array(z.string().min(1)),
-  evidenceDocuments: z.array(evidenceDocumentSchema).optional(),
-  producedBy: z.string().min(1),
-  modelId: z.string().min(1),
-  confidence: z.literal("blocked: decision-confidence-threshold unset")
-});
+export {
+  CoreRuleInputSchema,
+  DeductionDecisionGuardInputSchema,
+  DeductionDecisionToolInputSchema,
+  type DeductionDecisionToolInput,
+  type DeductionDecisionToolOutput
+} from "../types/decision.js";
 
 export function evaluateCoreRule(input: unknown): RuleFinding {
   const parsed = CoreRuleInputSchema.parse(input) as RuleInput;
@@ -110,13 +29,20 @@ export function evaluateCoreRule(input: unknown): RuleFinding {
 
 export function buildDeductionDecision(input: unknown): DeductionDecisionToolOutput {
   const parsed = DeductionDecisionToolInputSchema.parse(input);
+  if (parsed.ruleId !== parsed.finding.ruleId) {
+    throw new Error("Decision ruleId must match finding ruleId.");
+  }
+
   const verdict = verdictForRule(parsed.ruleId);
   const decision: DeductionDecisionToolOutput = {
     decisionId: `deduction-decision:${parsed.lineId}`,
     lineId: parsed.lineId,
     verdict,
     routing: routingForVerdict(verdict),
-    recordIds: parsed.finding.recordIds,
+    recordIds: uniqueRecordIds([
+      ...parsed.finding.recordIds,
+      ...parsed.evidenceDocuments.flatMap((document) => [document.documentId, ...document.recordIds])
+    ]),
     basis: parsed.finding.basis,
     deterministicBasis: {
       ruleId: parsed.finding.ruleId,
@@ -127,13 +53,81 @@ export function buildDeductionDecision(input: unknown): DeductionDecisionToolOut
     evidenceDocuments: parsed.evidenceDocuments,
     producedBy: parsed.producedBy,
     modelId: parsed.modelId,
-    confidence: "blocked: decision-confidence-threshold unset"
+    confidence: buildDecisionConfidence(parsed)
   };
 
   assertDecisionExplainability(decision);
   assertDeductionEvidencePack(decision);
 
   return decision;
+}
+
+function buildDecisionConfidence(
+  parsed: ReturnType<typeof DeductionDecisionToolInputSchema.parse>
+): "blocked: decision-confidence-threshold unset" | DecisionConfidenceAssessment {
+  if (parsed.decisionConfidenceThreshold === undefined) {
+    return "blocked: decision-confidence-threshold unset";
+  }
+
+  const evidenceCompleteness = computeEvidenceCompleteness(parsed.ruleId, parsed.evidenceDocuments);
+  const sourceAgreement = computeSourceAgreement(parsed.evidenceDocuments);
+  const ruleMatchStrength = computeRuleMatchStrength(parsed.finding);
+  const score = evidenceCompleteness * 0.4 + sourceAgreement * 0.3 + ruleMatchStrength * 0.3;
+  const threshold = parsed.decisionConfidenceThreshold.threshold;
+
+  return {
+    deterministicBasis: {
+      evidenceCompleteness: toScoreString(evidenceCompleteness),
+      formula: "0.40*evidenceCompleteness + 0.30*sourceAgreement + 0.30*ruleMatchStrength",
+      ruleMatchStrength: toScoreString(ruleMatchStrength),
+      scoreSource: "deterministic-decision-confidence",
+      sourceAgreement: toScoreString(sourceAgreement),
+      thresholdSource: "recoup_config.decision_confidence_threshold"
+    },
+    route: score >= threshold ? "standard_draft_stage" : "enhanced_human_review",
+    score: toScoreString(score),
+    threshold: toScoreString(threshold)
+  };
+}
+
+function computeEvidenceCompleteness(
+  ruleId: RuleId,
+  evidenceDocuments: ReturnType<typeof DeductionDecisionToolInputSchema.parse>["evidenceDocuments"]
+): number {
+  const requiredTypes = requiredEvidenceTypesByRule[ruleId];
+  const presentTypes = new Set(evidenceDocuments.map((document) => document.documentType));
+  const presentCount = requiredTypes.filter((documentType) => presentTypes.has(documentType)).length;
+
+  return presentCount / requiredTypes.length;
+}
+
+function computeSourceAgreement(
+  evidenceDocuments: ReturnType<typeof DeductionDecisionToolInputSchema.parse>["evidenceDocuments"]
+): number {
+  return new Set(evidenceDocuments.map((document) => document.source)).size >= 2 ? 1 : 0;
+}
+
+function computeRuleMatchStrength(finding: ReturnType<typeof DeductionDecisionToolInputSchema.parse>["finding"]): number {
+  return finding.eventId.trim().length > 0 && finding.deltaAmount.greaterThanOrEqualTo(0) ? 1 : 0;
+}
+
+function toScoreString(value: number): string {
+  return value.toFixed(4);
+}
+
+const requiredEvidenceTypesByRule = {
+  "damage-evidence-valid": ["carrier-report"],
+  "promo-not-captured": ["trade-promo"],
+  "shortage-pod-mismatch": ["POD"],
+  "otif-fine-valid": ["contract"],
+  "otif-timestamp-mismatch": ["POD"],
+  "pricing-below-contract": ["contract"],
+  "promo-overclaim": ["trade-promo"],
+  "duplicate-credit": ["credit-memo"]
+} satisfies Record<RuleId, Array<ReturnType<typeof DeductionDecisionToolInputSchema.parse>["evidenceDocuments"][number]["documentType"]>>;
+
+function uniqueRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds)];
 }
 
 function verdictForRule(ruleId: RuleId): DeductionVerdict {

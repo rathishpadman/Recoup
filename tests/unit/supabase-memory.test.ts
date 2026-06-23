@@ -11,6 +11,8 @@ import {
   createSupabaseGovernedConfigRepositoryFromEnv,
   createSupabaseMemoryRepository,
   createSupabaseMemoryRepositoryFromEnv,
+  createSupabaseReleaseOwnerInputRepository,
+  createSupabaseReleaseOwnerInputRepositoryFromEnv,
   createSupabaseTableReadinessProbe,
   createSupabaseTableReadinessProbeFromEnv,
   type SupabaseMemoryFetch
@@ -73,6 +75,17 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("invoice_refs jsonb NOT NULL CHECK (jsonb_typeof(invoice_refs) = 'array')");
     expect(sql).toContain("deduction_refs jsonb NOT NULL CHECK (jsonb_typeof(deduction_refs) = 'array')");
 
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_src_sap");
+    expect(sql).toContain("sap_document_id text PRIMARY KEY");
+    expect(sql).toContain("document_type text NOT NULL CHECK (document_type IN ('invoice', 'credit-memo'))");
+    expect(sql).toContain("service_name text NOT NULL");
+    expect(sql).toContain("entity_set text NOT NULL");
+    expect(sql).toContain(
+      "linked_record_ids jsonb NOT NULL CHECK (jsonb_typeof(linked_record_ids) = 'array' AND jsonb_array_length(linked_record_ids) > 0)"
+    );
+    expect(sql).toContain("payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')");
+    expect(sql).toContain("provenance text NOT NULL CHECK (provenance = 'sap-odata')");
+
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_src_tpm");
     expect(sql).toContain("promo_id text PRIMARY KEY");
     expect(sql).toContain("product_scope jsonb NOT NULL CHECK (jsonb_typeof(product_scope) = 'object')");
@@ -83,6 +96,128 @@ describe("supabase memory repository", () => {
 
     for (const tableName of ["recoup_src_bureau", "recoup_src_docs", "recoup_src_remittance", "recoup_src_tpm"]) {
       expect(sql).toContain("provenance text NOT NULL CHECK (provenance = 'synthetic')");
+      expect(sql).toContain(`REVOKE ALL ON TABLE ${tableName} FROM anon, authenticated, service_role`);
+      expect(sql).toContain(`GRANT SELECT ON TABLE ${tableName} TO service_role`);
+      expect(sql).not.toMatch(
+        new RegExp(`GRANT\\s+[^;]*(?:INSERT|UPDATE|DELETE)[^;]*ON TABLE ${tableName} TO service_role`, "iu")
+      );
+      expect(sql).toContain(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
+    }
+
+    expect(sql).toContain("REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role");
+    expect(sql).toContain("GRANT SELECT ON TABLE recoup_src_sap TO service_role");
+    expect(sql).not.toMatch(/GRANT\s+[^;]*(?:INSERT|UPDATE|DELETE)[^;]*ON TABLE recoup_src_sap TO service_role/iu);
+    expect(sql).toContain("ALTER TABLE recoup_src_sap ENABLE ROW LEVEL SECURITY");
+    expect(sql).toContain("ALTER TABLE recoup_src_sap FORCE ROW LEVEL SECURITY");
+  });
+
+  it("documents Supabase Tools_data tables required by connector readiness and Sentinel risk observations", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS customers");
+    expect(sql).toContain("customer_id text PRIMARY KEY");
+    expect(sql).toContain("r_score_component_scores_json jsonb");
+    expect(sql).toContain("r_score_component_scores_json ?& ARRAY['agingConcentration', 'disputeRate', 'dsoAdp', 'overLimitFrequency']");
+    expect(sql).toContain("(r_score_component_scores_json->>'overLimitFrequency')::numeric BETWEEN 0 AND 100");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS payments");
+    expect(sql).toContain("payment_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("days_to_pay int NOT NULL CHECK (days_to_pay >= 0)");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS bureau_alerts");
+    expect(sql).toContain("alert_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("alert_type text NOT NULL");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS deductions_backlog");
+    expect(sql).toContain("deduction_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("line_ref text");
+    expect(sql).toContain("verdict text NOT NULL CHECK (verdict IN ('PENDING', 'VALID', 'INVALID', 'PARTIAL'))");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS pod_records");
+    expect(sql).toContain("pod_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("shipped_qty int NOT NULL CHECK (shipped_qty >= 0)");
+    expect(sql).toContain("signed_qty int NOT NULL CHECK (signed_qty >= 0)");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS carrier_reports");
+    expect(sql).toContain("report_status text NOT NULL DEFAULT 'SUBMITTED' CHECK (report_status IN ('SUBMITTED', 'VERIFIED', 'REJECTED'))");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS damage_photos");
+    expect(sql).toContain("photo_url text NOT NULL");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS promotions");
+    expect(sql).toContain("promo_id text PRIMARY KEY");
+    expect(sql).toContain("accrual_cap numeric NOT NULL DEFAULT 0");
+    expect(sql).toContain("CHECK (end_date >= start_date)");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS contracts");
+    expect(sql).toContain("contract_id text PRIMARY KEY");
+    expect(sql).toContain("pricing_terms jsonb CHECK (pricing_terms IS NULL OR jsonb_typeof(pricing_terms) = 'object')");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS remittance_headers");
+    expect(sql).toContain("remittance_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("total_deductions numeric NOT NULL DEFAULT 0");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS remittance_lines");
+    expect(sql).toContain("line_id text PRIMARY KEY DEFAULT gen_random_uuid()::text");
+    expect(sql).toContain("deducted_amount numeric NOT NULL");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS billing_requests");
+    expect(sql).toContain("type text NOT NULL CHECK (type IN ('CREDIT_MEMO', 'CREDIT_AND_REBILL', 'WRITE_OFF'))");
+    expect(sql).toContain("status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT_TO_SAP', 'CONFIRMED'))");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recovery_packages");
+    expect(sql).toContain("status text NOT NULL DEFAULT 'GENERATED' CHECK (status IN ('GENERATED', 'SUBMITTED_TO_PORTAL', 'PAID', 'ABANDONED'))");
+    expect(sql).toContain("follow_up_cadence_count int NOT NULL DEFAULT 0 CHECK (follow_up_cadence_count >= 0)");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS credit_decisions");
+    expect(sql).toContain("decision_verdict text NOT NULL DEFAULT 'PROPOSED' CHECK (decision_verdict IN ('PROPOSED', 'APPROVED', 'OVERRIDDEN', 'REJECTED'))");
+    expect(sql).toContain("negotiation_log jsonb CHECK (negotiation_log IS NULL OR jsonb_typeof(negotiation_log) = 'object')");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS immutable_audit_log");
+    expect(sql).toContain("action_type text NOT NULL");
+    expect(sql).toContain("payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object')");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_pod_records_invoice");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_remittance_lines_invoice_ref");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_immutable_audit_log_ref");
+
+    const toolsDataTableNames = [
+      "customers",
+      "payments",
+      "pod_records",
+      "carrier_reports",
+      "damage_photos",
+      "promotions",
+      "contracts",
+      "bureau_alerts",
+      "remittance_headers",
+      "remittance_lines",
+      "deductions_backlog",
+      "billing_requests",
+      "recovery_packages",
+      "credit_decisions",
+      "immutable_audit_log"
+    ];
+
+    for (const tableName of toolsDataTableNames) {
+      expect(sql).toContain(`REVOKE ALL ON TABLE ${tableName} FROM anon, authenticated, service_role`);
+      expect(sql).toContain(`GRANT SELECT ON TABLE ${tableName} TO service_role`);
+      expect(sql).not.toMatch(
+        new RegExp(`GRANT\\s+[^;]*(?:INSERT|UPDATE|DELETE)[^;]*ON TABLE ${tableName} TO service_role`, "iu")
+      );
+      expect(sql).toContain(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
+    }
+  });
+
+  it("documents Supabase settlement source tables required by Forensics and CFO read models", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_customers");
+    expect(sql).toContain("customer_id text PRIMARY KEY");
+    expect(sql).toContain("profile text NOT NULL");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_deduction_lines");
+    expect(sql).toContain("line_id text PRIMARY KEY");
+    expect(sql).toContain("scenario_id text NOT NULL CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'))");
+    expect(sql).toContain("customer_id text NOT NULL REFERENCES recoup_customers(customer_id)");
+    expect(sql).toContain("amount numeric NOT NULL");
+    expect(sql).toContain("verdict text NOT NULL CHECK (verdict IN ('valid', 'invalid', 'partial'))");
+    expect(sql).toContain("routing text NOT NULL CHECK (routing IN ('billing', 'recovery'))");
+    expect(sql).toContain(
+      "record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0)"
+    );
+    expect(sql).toContain("event_id text NOT NULL CHECK (event_id ~ '^[a-f0-9]{64}$')");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_customer_scenario");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_record_ids");
+
+    for (const tableName of ["recoup_customers", "recoup_deduction_lines"]) {
       expect(sql).toContain(`REVOKE ALL ON TABLE ${tableName} FROM anon, authenticated, service_role`);
       expect(sql).toContain(`GRANT SELECT ON TABLE ${tableName} TO service_role`);
       expect(sql).not.toMatch(
@@ -105,12 +240,18 @@ describe("supabase memory repository", () => {
     expect(sql).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
   });
 
-  it("adds governed config and append-only audit-chain tables with insert-only service grants", () => {
+  it("adds governed config and append-only audit-chain tables with locked RPC service grants", () => {
     const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
 
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_config");
     expect(sql).toContain("config_version int NOT NULL");
     expect(sql).toContain("key text NOT NULL CHECK (key IN");
+    expect(sql).toContain("'run_control'");
+    expect(sql).toContain("'release_eval_label_manifest'");
+    expect(sql).toContain("'intent_eval_labels'");
+    expect(sql).toContain("'arbitration_eval_labels'");
+    expect(sql).toContain("'decision_confidence_threshold'");
+    expect(sql).toContain("'decision_confidence_threshold', '{\"threshold\":0.8}'::jsonb");
     expect(sql).toContain("value_json jsonb NOT NULL CHECK (jsonb_typeof(value_json) = 'object')");
     expect(sql).toContain("config_hash text NOT NULL CHECK (config_hash ~ '^[a-f0-9]{64}$')");
     expect(sql).toContain("approved_by text NOT NULL REFERENCES recoup_app_principals(principal)");
@@ -129,8 +270,37 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("prev_hash text CHECK (prev_hash IS NULL OR prev_hash ~ '^[a-f0-9]{64}$')");
     expect(sql).toContain("payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object')");
     expect(sql).toContain("seq bigint GENERATED BY DEFAULT AS IDENTITY UNIQUE");
-    expect(sql).toContain("GRANT SELECT, INSERT ON TABLE recoup_audit_chain TO service_role");
+    expect(sql).toContain("GRANT SELECT ON TABLE recoup_audit_chain TO service_role");
+    expect(sql).not.toMatch(/GRANT\s+[^;]*INSERT[^;]*ON TABLE recoup_audit_chain/iu);
     expect(sql).not.toMatch(/GRANT\s+[^;]*(?:UPDATE|DELETE)[^;]*ON TABLE recoup_audit_chain/iu);
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION recoup_commit_approval_audit(");
+    expect(sql).toContain("IF p_memory_table_name <> 'recoup_memory_records' THEN");
+    expect(sql).toContain("LOCK TABLE recoup_audit_chain IN EXCLUSIVE MODE;");
+    expect(sql).toContain("p_expected_prev_hash IS NOT DISTINCT FROM current_tail_hash");
+    expect(sql).toContain("INSERT INTO recoup_audit_chain (entry_hash, prev_hash, payload)");
+    expect(sql).toContain("INSERT INTO %I (id, category, trust_level, scope, payload_json, record_ids_json, created_at)");
+    expect(sql).toContain(
+      "REVOKE ALL ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role"
+    );
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION recoup_commit_approval_audit");
+    expect(sql).not.toMatch(/GRANT\s+[^;]*(?:UPDATE|DELETE)[^;]*ON FUNCTION recoup_commit_approval_audit/iu);
+  });
+
+  it("seeds Round 2 source-owned R-score component values for all four Tools_data customers", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain(
+      "'USCU_S04', '{\"agingConcentration\":60,\"disputeRate\":71,\"dsoAdp\":70,\"overLimitFrequency\":70}'::jsonb"
+    );
+    expect(sql).toContain(
+      "'USCU_L10', '{\"agingConcentration\":15,\"disputeRate\":73.1,\"dsoAdp\":10,\"overLimitFrequency\":0}'::jsonb"
+    );
+    expect(sql).toContain(
+      "'USCU_S07', '{\"agingConcentration\":20,\"disputeRate\":56.4,\"dsoAdp\":15,\"overLimitFrequency\":0}'::jsonb"
+    );
+    expect(sql).toContain(
+      "'USCU_S03', '{\"agingConcentration\":25,\"disputeRate\":0,\"dsoAdp\":20,\"overLimitFrequency\":0}'::jsonb"
+    );
   });
 
   it("seeds recoup_config v1 rows for the supplied governed config values", () => {
@@ -140,7 +310,7 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("'human:owner-ratified-day-1'");
     expect(sql).toContain("INSERT INTO recoup_config");
     expect(sql).toContain("'arbitration_weights'");
-    expect(sql).toContain('{"billing":0.15,"collections":0.25,"credit":0.35,"fulfillment":0.25}');
+    expect(sql).toContain('{"billing":0.15,"collections":0.2,"credit":0.35,"fulfillment":0.3}');
     expect(sql).toContain("'r_score_weights'");
     expect(sql).toContain('{"agingConcentration":0.2,"disputeRate":0.25,"dsoAdp":0.35,"overLimitFrequency":0.2}');
     expect(sql).toContain("'r_drift'");
@@ -153,9 +323,42 @@ describe("supabase memory repository", () => {
     );
     expect(sql).toContain("'accuracy_bars'");
     expect(sql).toContain('{"arbitrationAgreement":0.85,"deductionValidityAccuracy":0.9,"intentPrecision":0.9}');
+    expect(sql).toContain("'risk_mesh_cases'");
+    expect(sql).toContain('"orderAmount":"640010.00"');
+    expect(sql).toContain('"terms":"2/10 Net-30 + 25% deposit"');
     expect(sql).toContain("'seed'");
     expect(sql).toContain('{"seed":42}');
     expect(sql).toContain("ON CONFLICT (config_version, key) DO NOTHING");
+  });
+
+  it("seeds non-secret release owner-input rows from the checked-in Supabase setup", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("'human:rathish-owner'");
+    expect(sql).toContain("'run_control'");
+    expect(sql).toContain('"forensics":{"retryCap":2,"stepBudget":80,"tokenBudget":200000}');
+    expect(sql).toContain("'release_eval_label_manifest'");
+    expect(sql).toContain('"arbitrationCaseIds":["arb:harbor-order-6534"]');
+    expect(sql).toContain("'intent_eval_labels'");
+    expect(sql).toContain('"caseId":"intent:USCU_L10"');
+    expect(sql).toContain("'arbitration_eval_labels'");
+    expect(sql).toContain('"expectedRanking":["partial_release_55","full_release_revised_terms","full_release_100","full_hold_0"]');
+    expect(sql).toContain("'77dfb2833f50f78331984258e15ec5477feb8a330a13db6f5cdc551bb980b6d5'");
+    expect(sql).toContain("'246b86ea6db527a4209956412a8e92bb1726dbc0d7124c6953712e88ede22a0d'");
+    expect(sql).toContain("'a58cd791f61e56c2679c74b0263bb7fded555caae14437b2b1e68a9690c9d697'");
+  });
+
+  it("seeds settlement source rows into Supabase instead of relying on runtime static values", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("INSERT INTO recoup_customers (customer_id, name, profile)");
+    expect(sql).toContain("('CUST-HARBOR', 'Harbor Foods', 'Foodservice distributor')");
+    expect(sql).toContain("INSERT INTO recoup_deduction_lines (");
+    expect(sql).toContain("'S1-L1', 'S1', 'CUST-GREENLEAF'");
+    expect(sql).toContain("'Damaged product, evidence received', 2700.00, 'valid', 'billing'");
+    expect(sql).toContain("'S6-L1', 'S6', 'CUST-CRESTLINE'");
+    expect(sql).toContain("ON CONFLICT (customer_id) DO NOTHING");
+    expect(sql).toContain("ON CONFLICT (line_id) DO NOTHING");
   });
 
   it("keeps the reviewable SQL artifact aligned with the generated schema", () => {
@@ -194,6 +397,9 @@ describe("supabase memory repository", () => {
     expect(`${requestUrl.origin}${requestUrl.pathname}`).toBe("https://recoup.supabase.co/rest/v1/recoup_config");
     expect(requestUrl.searchParams.get("active")).toBe("eq.true");
     expect(requestUrl.searchParams.get("config_version")).toBe("eq.1");
+    expect(requestUrl.searchParams.get("key")).toBe(
+      "in.(arbitration_weights,r_score_weights,r_drift,gaming_gate,partial_hold,accuracy_bars,risk_mesh_cases,seed)"
+    );
     expect(requestUrl.searchParams.get("select")).toBe(
       "config_version,key,value_json,config_hash,effective_from,approved_by,active"
     );
@@ -235,6 +441,164 @@ describe("supabase memory repository", () => {
       values: day1GovernedConfigSeed.values
     });
     expect(new URL(calls[0]?.url ?? "").searchParams.get("config_version")).toBe("eq.1");
+  });
+
+  it("loads release owner inputs from recoup_config without hardcoded release values", async () => {
+    const calls: Array<{ init: RequestInit; url: string }> = [];
+    const fetcher: SupabaseMemoryFetch = (url, init) => {
+      calls.push({ url, init });
+      return Promise.resolve(
+        new Response(JSON.stringify(toPostgrestReleaseOwnerInputRows()), {
+          headers: { "content-type": "application/json" },
+          status: 200
+        })
+      );
+    };
+    const repository = createSupabaseReleaseOwnerInputRepository({
+      fetcher,
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co/"
+    });
+
+    const snapshot = await repository.loadActive();
+
+    expect(snapshot.runControlConfig.phases.forensics).toEqual({
+      retryCap: 2,
+      stepBudget: 80,
+      tokenBudget: 200000
+    });
+    expect(snapshot.labelManifest.intentCaseIds).toEqual([
+      "intent:USCU_L10",
+      "intent:USCU_S04",
+      "intent:USCU_S07",
+      "intent:USCU_S03"
+    ]);
+    expect(snapshot.intentLabels.labels.map((label) => label.actual)).toEqual([
+      "gaming",
+      "distressed-honest",
+      "genuine",
+      "genuine"
+    ]);
+    expect(snapshot.arbitrationLabels.labels[0]?.actual).toBe(
+      "partial-release-55|ship=352005.50|backorder=288004.50|terms=2/10 Net-30 + 25% deposit"
+    );
+    expect(snapshot.decisionConfidenceThreshold).toBeUndefined();
+    const requestUrl = new URL(calls[0]?.url ?? "");
+    expect(`${requestUrl.origin}${requestUrl.pathname}`).toBe("https://recoup.supabase.co/rest/v1/recoup_config");
+    expect(requestUrl.searchParams.get("key")).toBe(
+      "in.(run_control,release_eval_label_manifest,intent_eval_labels,arbitration_eval_labels,decision_confidence_threshold)"
+    );
+    expect(calls[0]?.init.headers).toEqual({
+      apikey: "supabase-service-secret",
+      authorization: "Bearer supabase-service-secret"
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("supabase-service-secret");
+  });
+
+  it("parses optional release owner-input decision confidence threshold rows when present", async () => {
+    const thresholdValueJson = { threshold: 0.73 };
+    const repository = createSupabaseReleaseOwnerInputRepository({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([...toPostgrestReleaseOwnerInputRows(), toPostgrestDecisionConfidenceThresholdRow(thresholdValueJson)]),
+            {
+              headers: { "content-type": "application/json" },
+              status: 200
+            }
+          )
+        ),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    const snapshot = await repository.loadActive();
+
+    expect(snapshot.decisionConfidenceThreshold).toEqual({
+      approvedBy: "human:rathish-owner",
+      threshold: 0.73
+    });
+    expect(snapshot.rowHashes.decision_confidence_threshold).toBe(sha256CanonicalJson(thresholdValueJson));
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.decisionConfidenceThreshold)).toBe(true);
+    expect(Object.isFrozen(snapshot.rowHashes)).toBe(true);
+  });
+
+  it("rejects optional release owner-input decision confidence threshold rows whose hash is invalid", async () => {
+    const rows = [
+      ...toPostgrestReleaseOwnerInputRows(),
+      {
+        ...toPostgrestDecisionConfidenceThresholdRow({ threshold: 0.73 }),
+        config_hash: sha256CanonicalJson({ tampered: true })
+      }
+    ];
+    const repository = createSupabaseReleaseOwnerInputRepository({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(JSON.stringify(rows), {
+            headers: { "content-type": "application/json" },
+            status: 200
+          })
+        ),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.loadActive()).rejects.toThrow(/row configHash must be sha256\(canonical value_json\)/u);
+  });
+
+  it("rejects optional release owner-input decision confidence threshold rows outside the approved range", async () => {
+    const repository = createSupabaseReleaseOwnerInputRepository({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([...toPostgrestReleaseOwnerInputRows(), toPostgrestDecisionConfidenceThresholdRow({ threshold: 1.1 })]),
+            {
+              headers: { "content-type": "application/json" },
+              status: 200
+            }
+          )
+        ),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.loadActive()).rejects.toThrow(
+      /valueJson must match the release owner-input schema for decision_confidence_threshold/u
+    );
+  });
+
+  it("rejects release owner-input rows whose per-key row hash is invalid", async () => {
+    const rows = toPostgrestReleaseOwnerInputRows();
+    const firstRow = rows[0];
+
+    if (firstRow === undefined) {
+      throw new Error("release owner input rows should not be empty.");
+    }
+
+    const repository = createSupabaseReleaseOwnerInputRepository({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(JSON.stringify([{ ...firstRow, config_hash: sha256CanonicalJson({ tampered: true }) }, ...rows.slice(1)]), {
+            headers: { "content-type": "application/json" },
+            status: 200
+          })
+        ),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.loadActive()).rejects.toThrow(/row configHash must be sha256\(canonical value_json\)/u);
+  });
+
+  it("creates a release owner-input repository only when Supabase server credentials are configured", () => {
+    expect(createSupabaseReleaseOwnerInputRepositoryFromEnv({})).toBeUndefined();
+    expect(
+      createSupabaseReleaseOwnerInputRepositoryFromEnv({
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+        SUPABASE_URL: "https://recoup.supabase.co"
+      })
+    ).toBeDefined();
   });
 
   it("rejects Supabase governed config rows whose per-key row hash is invalid", async () => {
@@ -496,4 +860,111 @@ function toPostgrestGovernedConfigRows(configVersion = 1) {
     key: row.key,
     value_json: row.valueJson
   }));
+}
+
+function toPostgrestReleaseOwnerInputRows() {
+  return [
+    {
+      active: true,
+      approved_by: "human:rathish-owner",
+      config_hash: "77dfb2833f50f78331984258e15ec5477feb8a330a13db6f5cdc551bb980b6d5",
+      config_version: 1,
+      effective_from: "2026-06-22T00:00:00.000Z",
+      key: "run_control",
+      value_json: {
+        phases: {
+          containment: { retryCap: 2, stepBudget: 24, tokenBudget: 45000 },
+          forensics: { retryCap: 2, stepBudget: 80, tokenBudget: 200000 },
+          query: { retryCap: 1, stepBudget: 12, tokenBudget: 32000 },
+          recovery: { retryCap: 2, stepBudget: 40, tokenBudget: 90000 },
+          riskMesh: { retryCap: 2, stepBudget: 36, tokenBudget: 90000 },
+          sentinel: { retryCap: 2, stepBudget: 30, tokenBudget: 70000 }
+        }
+      }
+    },
+    {
+      active: true,
+      approved_by: "human:rathish-owner",
+      config_hash: "66ae8d96a0ece2964fc7283d75212098f120b24b048bcce1f0dc103913663e82",
+      config_version: 1,
+      effective_from: "2026-06-22T00:00:00.000Z",
+      key: "release_eval_label_manifest",
+      value_json: {
+        arbitrationCaseIds: ["arb:harbor-order-6534"],
+        intentCaseIds: ["intent:USCU_L10", "intent:USCU_S04", "intent:USCU_S07", "intent:USCU_S03"]
+      }
+    },
+    {
+      active: true,
+      approved_by: "human:rathish-owner",
+      config_hash: "a0038f6bcb79cade73cb5264c41c28ba1a223063ee67779fbfd196214893efc6",
+      config_version: 1,
+      effective_from: "2026-06-22T00:00:00.000Z",
+      key: "intent_eval_labels",
+      value_json: {
+        labels: [
+          {
+            actual: "gaming",
+            caseId: "intent:USCU_L10",
+            modelCustomerId: "CUST-CRESTLINE",
+            recordIds: ["S3-L1", "POD-SIGNED-1", "S6-L1", "PRICE-CLAUSE-1"],
+            sapCustomerId: "USCU_L10"
+          },
+          {
+            actual: "distressed-honest",
+            caseId: "intent:USCU_S04",
+            modelCustomerId: "CUST-HARBOR",
+            recordIds: ["FIN-DISP-202", "BUREAU-HARBOR-TAX-LIEN", "90000036", "90000085"],
+            sapCustomerId: "USCU_S04"
+          },
+          {
+            actual: "genuine",
+            caseId: "intent:USCU_S07",
+            modelCustomerId: "CUST-VALUMART",
+            recordIds: ["S4-L1", "SLA-CONTRACT-1", "S5-L1", "POD-TIMESTAMP-1"],
+            sapCustomerId: "USCU_S07"
+          },
+          {
+            actual: "genuine",
+            caseId: "intent:USCU_S03",
+            modelCustomerId: "CUST-GREENLEAF",
+            recordIds: ["S1-L1", "PHOTO-CARRIER-1", "POD-90000002"],
+            sapCustomerId: "USCU_S03"
+          }
+        ]
+      }
+    },
+    {
+      active: true,
+      approved_by: "human:rathish-owner",
+      config_hash: "246b86ea6db527a4209956412a8e92bb1726dbc0d7124c6953712e88ede22a0d",
+      config_version: 1,
+      effective_from: "2026-06-22T00:00:00.000Z",
+      key: "arbitration_eval_labels",
+      value_json: {
+        labels: [
+          {
+            actual: "partial-release-55|ship=352005.50|backorder=288004.50|terms=2/10 Net-30 + 25% deposit",
+            caseId: "arb:harbor-order-6534",
+            expectedRanking: ["partial_release_55", "full_release_revised_terms", "full_release_100", "full_hold_0"],
+            modelCaseId: "ARB-HARBOR-ORDER-640K",
+            recordIds: ["6534", "USCU_S04", "LEDGER-6-PARTIAL-HOLD"],
+            sapOrderId: "6534"
+          }
+        ]
+      }
+    }
+  ];
+}
+
+function toPostgrestDecisionConfidenceThresholdRow(valueJson: { threshold: number }) {
+  return {
+    active: true,
+    approved_by: "human:rathish-owner",
+    config_hash: sha256CanonicalJson(valueJson),
+    config_version: 1,
+    effective_from: "2026-06-22T00:00:00.000Z",
+    key: "decision_confidence_threshold",
+    value_json: valueJson
+  };
 }

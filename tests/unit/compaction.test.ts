@@ -10,8 +10,8 @@ describe("memory compaction", () => {
         category: "approval_records",
         trustLevel: "trusted",
         scope: "case:ARB-HARBOR-ORDER-640K",
-        payload: { actionId: "propose-hold:ORDER-HARBOR-640K", status: "pending_human" },
-        recordIds: ["ORDER-HARBOR-640K"],
+        payload: { actionId: "propose-hold:6534", status: "pending_human" },
+        recordIds: ["6534"],
         createdAt: "2026-06-19T00:00:00.000Z"
       }
     ];
@@ -32,7 +32,7 @@ describe("memory compaction", () => {
         preservedCategories: ["approval_records"],
         nextStep: "render trace viewer"
       },
-      recordIds: ["ORDER-HARBOR-640K"]
+      recordIds: ["6534"]
     });
   });
 

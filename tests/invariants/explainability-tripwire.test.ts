@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
 import { assertDecisionExplainability } from "../../src/guardrails/tool/explainability.js";
 import { money } from "../../src/types/money.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
+const runForensics = () => runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
 
 describe("I-17 decision explainability", () => {
   it("blocks a decision without cited records and deterministic basis", () => {
@@ -72,7 +79,7 @@ describe("I-17 decision explainability", () => {
   });
 
   it("emits explainable Forensics verdicts for every canonical line", () => {
-    const run = runForensicsInvestigation();
+    const run = runForensics();
 
     expect(run.decisions.every((decision) => decision.recordIds.length > 0 && decision.basis.length > 0)).toBe(true);
     expect(run.decisions.map((decision) => decision.deterministicBasis.amountSource)).toEqual(

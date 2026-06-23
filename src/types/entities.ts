@@ -21,7 +21,8 @@ export const DeductionLineSchema = z.object({
   recordIds: z.array(z.string().min(1)).min(1),
   ruleId: z.string().min(1),
   period: z.string().min(1),
-  eventId: z.string().regex(/^[a-f0-9]{64}$/)
+  eventId: z.string().regex(/^[a-f0-9]{64}$/),
+  ruleInput: z.record(z.unknown()).optional()
 });
 
 export const SyntheticDatasetSchema = z.object({

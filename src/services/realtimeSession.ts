@@ -112,12 +112,12 @@ export function buildRealtimeSessionPolicy(env: RuntimeEnv = process.env): Realt
 export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
   return [
     {
-      description: "Read the Harbor Risk Mesh audit trail. Input must be the canonical Harbor case id.",
+      description: "Read the governed Risk Mesh audit trail. Input must be a configured case id.",
       name: "audit.read",
       parameters: {
         additionalProperties: false,
         properties: {
-          caseId: { const: "ARB-HARBOR-ORDER-640K", type: "string" }
+          caseId: { minLength: 1, type: "string" }
         },
         required: ["caseId"],
         type: "object"

@@ -3,15 +3,16 @@ import type { DraftOutreachAction } from "../tools/actions/draftOutreach.js";
 import type { ProposedHoldAction } from "../tools/actions/proposeHold.js";
 import type { ProposedTermsAction } from "../tools/actions/proposeTerms.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
+import type { ContainmentReviewAction } from "../agents/containment.js";
 
 export type ProposedExternalAction =
+  | ContainmentReviewAction
   | DraftOutreachAction
   | DraftRebillAction
   | ProposedHoldAction
   | ProposedTermsAction
   | RouteBillingAction;
 export type ApprovalDecision = "approve" | "modify" | "reject";
-const decidedApprovalActionIds = new Set<string>();
 
 export interface ApprovableActionReference {
   actionId: string;
@@ -64,16 +65,6 @@ export function assertApprovalReasonSafe(reason: string): void {
   if (containsDirectPiiOrSecret(reason)) {
     throw new Error("Approval reason must not contain direct PII or secrets.");
   }
-}
-
-export function assertApprovalActionOpen(actionId: string): void {
-  if (decidedApprovalActionIds.has(actionId)) {
-    throw new Error("Action already has a human decision.");
-  }
-}
-
-export function recordApprovalActionDecision(actionId: string): void {
-  decidedApprovalActionIds.add(actionId);
 }
 
 function containsDirectPiiOrSecret(value: string): boolean {

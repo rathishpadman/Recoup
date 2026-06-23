@@ -65,6 +65,7 @@ describe("runtime memory store", () => {
   it("fails closed instead of silently downgrading configured Supabase memory to in-memory", () => {
     expect(() =>
       createRuntimeMemoryStore({
+        RECOUP_MEMORY_BACKEND: "supabase",
         SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key",
         SUPABASE_URL: "https://recoup.supabase.co"
       })

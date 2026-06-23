@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
 import {
   buildRealtimeSessionPolicy,
   buildRealtimeToolManifest,
   handleRealtimeToolCall,
   requestRealtimeClientSecret
 } from "../../src/services/realtimeSession.js";
-import { serviceToolMetadata } from "../../src/services/serviceLayer.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
+import { invokeServiceTool, serviceToolMetadata } from "../../src/services/serviceLayer.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
 
 describe("Realtime session policy", () => {
   it("fails closed without an OpenAI API key", async () => {
@@ -137,7 +142,7 @@ describe("Realtime session policy", () => {
     const result = handleRealtimeToolCall({
       argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
       name: "query.answer"
-    });
+    }, (name, input) => invokeServiceTool(name, input, { governedConfig, source }));
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") {
@@ -187,7 +192,7 @@ describe("Realtime session policy", () => {
       answer: "Harbor is blocked from cited deterministic state.",
       citationParity: {
         textRecordIds: ["CUST-HARBOR"],
-        voiceRecordIds: ["ORDER-HARBOR-640K"],
+        voiceRecordIds: ["6534"],
         parity: "same_record_ids"
       },
       deterministicBasis: "query.answer + cited records",

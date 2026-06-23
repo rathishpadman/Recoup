@@ -10,7 +10,11 @@ export type RuntimeMemoryStore = MemoryStore & {
 };
 
 export function createRuntimeMemoryStore(env: RuntimeEnv = process.env): RuntimeMemoryStore {
-  if (env.SUPABASE_SERVICE_ROLE_KEY !== undefined && env.SUPABASE_URL !== undefined) {
+  if (
+    env.RECOUP_MEMORY_BACKEND === "supabase" &&
+    env.SUPABASE_SERVICE_ROLE_KEY !== undefined &&
+    env.SUPABASE_URL !== undefined
+  ) {
     throw new Error("Supabase memory uses the async repository.");
   }
 

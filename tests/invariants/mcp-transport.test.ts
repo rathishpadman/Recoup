@@ -166,9 +166,12 @@ describe("production MCP transport", () => {
     try {
       await client.connect(transport as unknown as Transport);
       const tools = await client.listTools();
+      const toolNames = tools.tools.map((tool) => tool.name);
 
-      expect(tools.tools.map((tool) => tool.name).sort()).toContain("retrieval.sap");
-      expect(tools.tools.map((tool) => tool.name)).not.toContain("approvals.decide");
+      expect(toolNames).toContain("retrieval.sap");
+      expect(toolNames).toContain("agent_tool_sentinel_position");
+      expect(toolNames).toContain("agent_tool_containment_intent_position");
+      expect(toolNames).not.toContain("approvals.decide");
     } finally {
       await client.close();
       await server.close();

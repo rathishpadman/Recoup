@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
 import { buildSyntheticDataset } from "../../datagen/generate.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { runForensicsInvestigation } from "../../src/agents/forensics.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
 import {
   evaluateFalsePositiveGate,
   findValidDeductionsPursued,
@@ -9,6 +12,10 @@ import {
   type CustomerIntentLabel,
   type RecoveryDecision
 } from "../../evals/harness.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
+const runForensics = () => runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
 
 describe("decision false-positive gate", () => {
   it("does not flag valid deductions when every valid line is not pursued", () => {
@@ -71,7 +78,7 @@ describe("decision false-positive gate", () => {
 
   it("passes with the actual S4 Forensics recovery decisions", () => {
     const lines = buildSyntheticDataset({ seed: 42 }).deductionLines;
-    const run = runForensicsInvestigation();
+    const run = runForensics();
     const cases = run.decisions.map((decision) => {
       const actualLine = lines.find((line) => line.lineId === decision.lineId);
       if (actualLine === undefined) {
@@ -94,7 +101,7 @@ describe("decision false-positive gate", () => {
   });
 
   it("keeps the actual M6 containment slice risk-review-only without wrongful Harbor containment", () => {
-    const run = runForensicsInvestigation();
+    const run = runForensics();
     const riskReviewDecisions: ContainmentDecision[] = [
       ...run.containmentDecisions,
       { customerId: "CUST-HARBOR", contained: false }

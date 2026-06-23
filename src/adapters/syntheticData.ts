@@ -177,13 +177,21 @@ function buildDeductionLines(): DeductionLine[] {
         `${scenario.evidencePrefix}-${sequenceLabel}`,
         `INV-${scenario.scenarioId}-${sequenceLabel}`
       ];
+      const amountMoney = money(amount);
+      const base = {
+        lineId,
+        period: "2026-06",
+        recordIds,
+        ruleId: scenario.ruleId,
+        amount: amountMoney
+      };
 
       return {
         lineId,
         scenarioId: scenario.scenarioId,
         customerId: scenario.customerId,
         scenarioType: scenario.scenarioType,
-        amount: money(amount),
+        amount: amountMoney,
         verdict: scenario.verdict,
         routing: scenario.routing,
         recordIds,
@@ -193,10 +201,98 @@ function buildDeductionLines(): DeductionLine[] {
           ruleId: scenario.ruleId,
           recordIds,
           period: "2026-06"
-        })
+        }),
+        ruleInput: buildSyntheticRuleInput(base)
       };
     })
   );
+}
+
+export function buildSyntheticRuleInput(input: {
+  amount: Money;
+  lineId: string;
+  period: string;
+  recordIds: string[];
+  ruleId: string;
+}): Record<string, unknown> {
+  const base = {
+    lineId: input.lineId,
+    period: input.period,
+    recordIds: input.recordIds,
+    claimedAmount: input.amount.toFixed(2)
+  };
+
+  switch (input.ruleId) {
+    case "damage-evidence-valid":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        damagedGoodsAmount: input.amount.toFixed(2),
+        salvageCreditAmount: "0.00",
+        photoEvidenceReceived: true,
+        carrierReportReceived: true
+      };
+    case "promo-not-captured":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        approvedPromoAccrual: input.amount.toFixed(2),
+        capturedPromoCredit: "0.00",
+        approvedPromoExists: true,
+        invoiceBilledAtList: true
+      };
+    case "shortage-pod-mismatch":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        allowedShortageAmount: "0.00",
+        claimedShortage: true,
+        podSignedFullDelivery: true
+      };
+    case "otif-fine-valid":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        allowedFineAmount: input.amount.toFixed(2),
+        contractSlaAllowsFine: true,
+        slaBreachConfirmed: true
+      };
+    case "otif-timestamp-mismatch":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        allowedFineAmount: "0.00",
+        otifFineAssessed: true,
+        podTimestampOnTime: true
+      };
+    case "pricing-below-contract":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        contractedUnitPrice: input.amount.toFixed(2),
+        deliveredQuantity: "1",
+        actualPaidAmount: "0.00",
+        deductedBelowContractPrice: true,
+        contractPriceAvailable: true
+      };
+    case "promo-overclaim":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        claimedAllowance: input.amount.toFixed(2),
+        approvedAccrual: "0.00",
+        approvedAccrualExceeded: true
+      };
+    case "duplicate-credit":
+      return {
+        ...base,
+        ruleId: input.ruleId,
+        priorCreditAmount: input.amount.toFixed(2),
+        alreadyCredited: true
+      };
+    default:
+      throw new Error(`Unknown synthetic rule input fixture: ${input.ruleId}`);
+  }
 }
 
 function computeRollup(lines: DeductionLine[]): SyntheticDataset["rollup"] {

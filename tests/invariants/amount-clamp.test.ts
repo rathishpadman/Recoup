@@ -35,6 +35,15 @@ function buildDecision(amount: string): Parameters<typeof draftRebill>[0]["decis
       amountSource: "core-rule-delta"
     },
     evidenceDocumentIds: ["PRICE-CLAUSE-1"],
+    evidenceDocuments: [
+      {
+        documentId: "PRICE-CLAUSE-1",
+        documentType: "contract",
+        source: "docs",
+        summary: "Contracted unit price supports the recovery amount.",
+        recordIds: ["S6-L1", "PRICE-CLAUSE-1"]
+      }
+    ],
     producedBy: "agent:forensics-investigator",
     modelId: "gpt-5.5",
     confidence: "blocked: decision-confidence-threshold unset"

@@ -2,10 +2,18 @@ import { MemoryRecordSchema, memoryCategories, type MemoryRecord } from "./schem
 import type { RuntimeEnv } from "../../config/env.js";
 import {
   canonicalJson,
+  governedConfigKeys,
   governedConfigSeedRows,
   parseActiveGovernedConfigRows,
   type GovernedConfigRuntimeSnapshot
 } from "../../config/governed.js";
+import {
+  parseReleaseOwnerInputRows,
+  releaseOwnerInputQueryableConfigKeys,
+  releaseOwnerInputSeedRows,
+  type ReleaseOwnerInputSnapshot
+} from "../../config/releaseOwnerInputs.js";
+import { buildSyntheticDataset } from "../adapters/syntheticData.js";
 
 export type SupabaseMemoryFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -20,6 +28,10 @@ export interface SupabaseGovernedConfigRepository {
   loadActive(): Promise<GovernedConfigRuntimeSnapshot>;
 }
 
+export interface SupabaseReleaseOwnerInputRepository {
+  loadActive(): Promise<ReleaseOwnerInputSnapshot>;
+}
+
 export interface SupabaseMemoryRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
@@ -28,6 +40,12 @@ export interface SupabaseMemoryRepositoryOptions {
 }
 
 export interface SupabaseGovernedConfigRepositoryOptions {
+  fetcher?: SupabaseMemoryFetch;
+  serviceRoleKey: string;
+  url: string;
+}
+
+export interface SupabaseReleaseOwnerInputRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
   url: string;
@@ -118,7 +136,11 @@ export function createSupabaseMemoryRepositoryFromEnv(
   env: RuntimeEnv,
   fetcher?: SupabaseMemoryFetch
 ): SupabaseMemoryRepository | undefined {
-  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+  if (
+    env.RECOUP_MEMORY_BACKEND !== "supabase" ||
+    env.SUPABASE_SERVICE_ROLE_KEY === undefined ||
+    env.SUPABASE_URL === undefined
+  ) {
     return undefined;
   }
 
@@ -141,6 +163,7 @@ export function createSupabaseGovernedConfigRepository(
       const url = new URL(`${baseUrl}/rest/v1/recoup_config`);
       url.searchParams.set("active", "eq.true");
       url.searchParams.set("config_version", "eq.1");
+      url.searchParams.set("key", `in.(${governedConfigKeys.join(",")})`);
       url.searchParams.set(
         "select",
         "config_version,key,value_json,config_hash,effective_from,approved_by,active"
@@ -166,6 +189,49 @@ export function createSupabaseGovernedConfigRepositoryFromEnv(
   }
 
   return createSupabaseGovernedConfigRepository({
+    ...(fetcher === undefined ? {} : { fetcher }),
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    url: env.SUPABASE_URL
+  });
+}
+
+export function createSupabaseReleaseOwnerInputRepository(
+  options: SupabaseReleaseOwnerInputRepositoryOptions
+): SupabaseReleaseOwnerInputRepository {
+  const baseUrl = normalizeSupabaseUrl(options.url);
+  const fetcher = options.fetcher ?? fetch;
+
+  return {
+    async loadActive() {
+      const url = new URL(`${baseUrl}/rest/v1/recoup_config`);
+      url.searchParams.set("active", "eq.true");
+      url.searchParams.set("config_version", "eq.1");
+      url.searchParams.set("key", `in.(${releaseOwnerInputQueryableConfigKeys.join(",")})`);
+      url.searchParams.set(
+        "select",
+        "config_version,key,value_json,config_hash,effective_from,approved_by,active"
+      );
+      url.searchParams.set("order", "config_version.asc,key.asc");
+      const rows = await requestGovernedConfigRows(fetcher, {
+        method: "GET",
+        serviceRoleKey: options.serviceRoleKey,
+        url: url.href
+      });
+
+      return parseReleaseOwnerInputRows(rows);
+    }
+  };
+}
+
+export function createSupabaseReleaseOwnerInputRepositoryFromEnv(
+  env: RuntimeEnv,
+  fetcher?: SupabaseMemoryFetch
+): SupabaseReleaseOwnerInputRepository | undefined {
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  return createSupabaseReleaseOwnerInputRepository({
     ...(fetcher === undefined ? {} : { fetcher }),
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     url: env.SUPABASE_URL
@@ -220,15 +286,7 @@ export function createSupabaseTableReadinessProbeFromEnv(
 export function buildSupabaseMemorySchemaSql(tableName = defaultMemoryTableName): string {
   const safeTableName = normalizeTableName(tableName);
   const categoryValues = memoryCategories.map((category) => `'${category}'`).join(", ");
-  const governedConfigKeyValues = [
-    "arbitration_weights",
-    "r_score_weights",
-    "r_drift",
-    "gaming_gate",
-    "partial_hold",
-    "accuracy_bars",
-    "seed"
-  ]
+  const governedConfigKeyValues = [...governedConfigKeys, ...releaseOwnerInputQueryableConfigKeys]
     .map((key) => `'${key}'`)
     .join(", ");
   const governedConfigSeedValues = governedConfigSeedRows
@@ -237,7 +295,116 @@ export function buildSupabaseMemorySchemaSql(tableName = defaultMemoryTableName)
         `(${String(row.configVersion)}, '${row.key}', '${escapeSql(canonicalJson(row.valueJson))}'::jsonb, '${row.configHash}', '${row.effectiveFrom}', '${row.approvedBy}', true)`
     )
     .join(",\n  ");
+  const releaseOwnerInputSeedValues = releaseOwnerInputSeedRows
+    .map(
+      (row) =>
+        `(${String(row.configVersion)}, '${row.key}', '${escapeSql(canonicalJson(row.valueJson))}'::jsonb, '${row.configHash}', '${row.effectiveFrom}', '${row.approvedBy}', true)`
+    )
+    .join(",\n  ");
+  const settlementDataset = buildSyntheticDataset({ seed: 42 });
+  const settlementCustomerSeedValues = settlementDataset.customers
+    .map((customer) =>
+      [
+        `'${escapeSql(customer.customerId)}'`,
+        `'${escapeSql(customer.name)}'`,
+        `'${escapeSql(customer.profile)}'`
+      ].join(", ")
+    )
+    .map((row) => `(${row})`)
+    .join(",\n  ");
+  const settlementLineSeedValues = settlementDataset.deductionLines
+    .map((line) =>
+      [
+        `'${escapeSql(line.lineId)}'`,
+        `'${line.scenarioId}'`,
+        `'${escapeSql(line.customerId)}'`,
+        `'${escapeSql(line.scenarioType)}'`,
+        line.amount.toFixed(2),
+        `'${line.verdict}'`,
+        `'${line.routing}'`,
+        `'${escapeSql(canonicalJson(line.recordIds))}'::jsonb`,
+        `'${escapeSql(line.ruleId)}'`,
+        `'${escapeSql(canonicalJson(line.ruleInput ?? {}))}'::jsonb`,
+        `'${escapeSql(line.period)}'`,
+        `'${line.eventId}'`
+      ].join(", ")
+    )
+    .map((row) => `(${row})`)
+    .join(",\n  ");
+  const toolsDataCustomerRScoreSeedValues = [
+    {
+      creditLimit: "500000.0",
+      customerId: "USCU_S04",
+      customerName: "Harbor Foods",
+      revenueForecast12mo: "9000000.0",
+      rScoreComponentScores: {
+        agingConcentration: 60,
+        disputeRate: 71,
+        dsoAdp: 70,
+        overLimitFrequency: 70
+      },
+      segment: "Foodservice Distributor",
+      strategicValue: "Medium"
+    },
+    {
+      creditLimit: "10000000.0",
+      customerId: "USCU_L10",
+      customerName: "Crestline Grocery",
+      revenueForecast12mo: "48000000.0",
+      rScoreComponentScores: {
+        agingConcentration: 15,
+        disputeRate: 73.1,
+        dsoAdp: 10,
+        overLimitFrequency: 0
+      },
+      segment: "Strategic Retail",
+      strategicValue: "High"
+    },
+    {
+      creditLimit: "1500000.0",
+      customerId: "USCU_S07",
+      customerName: "ValuMart Club",
+      revenueForecast12mo: "22000000.0",
+      rScoreComponentScores: {
+        agingConcentration: 20,
+        disputeRate: 56.4,
+        dsoAdp: 15,
+        overLimitFrequency: 0
+      },
+      segment: "Club",
+      strategicValue: "High"
+    },
+    {
+      creditLimit: "50000.0",
+      customerId: "USCU_S03",
+      customerName: "Greenleaf Naturals",
+      revenueForecast12mo: "3500000.0",
+      rScoreComponentScores: {
+        agingConcentration: 25,
+        disputeRate: 0,
+        dsoAdp: 20,
+        overLimitFrequency: 0
+      },
+      segment: "Regional Wholesaler",
+      strategicValue: "Low"
+    }
+  ]
+    .map((customer) =>
+      [
+        `'${escapeSql(customer.customerId)}'`,
+        `'${escapeSql(canonicalJson(customer.rScoreComponentScores))}'::jsonb`,
+        `'${escapeSql(customer.customerName)}'`,
+        `'${escapeSql(customer.segment)}'`,
+        `'${escapeSql(customer.strategicValue)}'`,
+        customer.creditLimit,
+        customer.revenueForecast12mo
+      ].join(", ")
+    )
+    .map((row) => `(${row})`)
+    .join(",\n  ");
   return `
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS recoup_app_principals (
   principal text PRIMARY KEY,
   capabilities text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -262,6 +429,29 @@ CREATE TABLE IF NOT EXISTS recoup_audit_chain (
   prev_hash text CHECK (prev_hash IS NULL OR prev_hash ~ '^[a-f0-9]{64}$'),
   payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
   seq bigint GENERATED BY DEFAULT AS IDENTITY UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_customers (
+  customer_id text PRIMARY KEY,
+  name text NOT NULL,
+  profile text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_deduction_lines (
+  line_id text PRIMARY KEY,
+  scenario_id text NOT NULL CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8')),
+  customer_id text NOT NULL REFERENCES recoup_customers(customer_id),
+  scenario_type text NOT NULL,
+  amount numeric NOT NULL,
+  verdict text NOT NULL CHECK (verdict IN ('valid', 'invalid', 'partial')),
+  routing text NOT NULL CHECK (routing IN ('billing', 'recovery')),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  rule_id text NOT NULL,
+  rule_input_json jsonb NOT NULL CHECK (jsonb_typeof(rule_input_json) = 'object'),
+  period text NOT NULL,
+  event_id text NOT NULL CHECK (event_id ~ '^[a-f0-9]{64}$'),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -298,6 +488,19 @@ CREATE TABLE IF NOT EXISTS recoup_src_remittance (
   provenance text NOT NULL CHECK (provenance = 'synthetic')
 );
 
+CREATE TABLE IF NOT EXISTS recoup_src_sap (
+  sap_document_id text PRIMARY KEY,
+  document_type text NOT NULL CHECK (document_type IN ('invoice', 'credit-memo')),
+  customer_id text NOT NULL,
+  service_name text NOT NULL,
+  entity_set text NOT NULL,
+  linked_record_ids jsonb NOT NULL CHECK (jsonb_typeof(linked_record_ids) = 'array' AND jsonb_array_length(linked_record_ids) > 0),
+  payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
+  summary text NOT NULL,
+  retrieved_at timestamptz NOT NULL,
+  provenance text NOT NULL CHECK (provenance = 'sap-odata')
+);
+
 CREATE TABLE IF NOT EXISTS recoup_src_tpm (
   promo_id text PRIMARY KEY,
   customer_id text NOT NULL,
@@ -310,6 +513,213 @@ CREATE TABLE IF NOT EXISTS recoup_src_tpm (
   claim_refs jsonb NOT NULL CHECK (jsonb_typeof(claim_refs) = 'array'),
   provenance text NOT NULL CHECK (provenance = 'synthetic'),
   CHECK (window_end >= window_start)
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  customer_id text PRIMARY KEY,
+  customer_name text NOT NULL,
+  segment text,
+  strategic_value text,
+  credit_limit numeric NOT NULL DEFAULT 0,
+  revenue_forecast_12mo numeric NOT NULL DEFAULT 0,
+  r_score_component_scores_json jsonb CHECK (
+    r_score_component_scores_json IS NULL OR (
+      jsonb_typeof(r_score_component_scores_json) = 'object'
+      AND r_score_component_scores_json ?& ARRAY['agingConcentration', 'disputeRate', 'dsoAdp', 'overLimitFrequency']
+      AND jsonb_typeof(r_score_component_scores_json->'agingConcentration') = 'number'
+      AND jsonb_typeof(r_score_component_scores_json->'disputeRate') = 'number'
+      AND jsonb_typeof(r_score_component_scores_json->'dsoAdp') = 'number'
+      AND jsonb_typeof(r_score_component_scores_json->'overLimitFrequency') = 'number'
+      AND (r_score_component_scores_json->>'agingConcentration')::numeric BETWEEN 0 AND 100
+      AND (r_score_component_scores_json->>'disputeRate')::numeric BETWEEN 0 AND 100
+      AND (r_score_component_scores_json->>'dsoAdp')::numeric BETWEEN 0 AND 100
+      AND (r_score_component_scores_json->>'overLimitFrequency')::numeric BETWEEN 0 AND 100
+    )
+  ),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  payment_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  customer_id text NOT NULL,
+  invoice_ref text NOT NULL,
+  invoice_amount numeric NOT NULL,
+  invoice_date date NOT NULL,
+  payment_date date NOT NULL,
+  days_to_pay int NOT NULL CHECK (days_to_pay >= 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pod_records (
+  pod_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  sales_order_ref text NOT NULL,
+  delivery_ref text NOT NULL,
+  invoice_ref text NOT NULL,
+  customer_id text NOT NULL,
+  carrier_name text,
+  delivery_timestamp timestamptz,
+  target_delivery_date date,
+  shipped_qty int NOT NULL CHECK (shipped_qty >= 0),
+  signed_qty int NOT NULL CHECK (signed_qty >= 0),
+  discrepancy_note text,
+  signed_by text,
+  signature_image_url text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS promotions (
+  promo_id text PRIMARY KEY,
+  customer_id text NOT NULL,
+  sku text NOT NULL,
+  promo_rate numeric NOT NULL,
+  accrual_cap numeric NOT NULL DEFAULT 0,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  promo_description text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (end_date >= start_date)
+);
+
+CREATE TABLE IF NOT EXISTS contracts (
+  contract_id text PRIMARY KEY,
+  customer_id text NOT NULL,
+  pricing_model text,
+  otif_threshold numeric NOT NULL DEFAULT 98,
+  fine_percentage numeric NOT NULL DEFAULT 0,
+  pricing_terms jsonb CHECK (pricing_terms IS NULL OR jsonb_typeof(pricing_terms) = 'object'),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS carrier_reports (
+  report_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  invoice_ref text NOT NULL,
+  customer_id text NOT NULL,
+  carrier_name text,
+  damage_description text,
+  damaged_qty int NOT NULL CHECK (damaged_qty >= 0),
+  report_status text NOT NULL DEFAULT 'SUBMITTED' CHECK (report_status IN ('SUBMITTED', 'VERIFIED', 'REJECTED')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS damage_photos (
+  photo_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  report_id text,
+  photo_url text NOT NULL,
+  uploaded_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS bureau_alerts (
+  alert_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  customer_id text NOT NULL,
+  alert_type text NOT NULL,
+  severity text NOT NULL,
+  details text,
+  alert_date date NOT NULL,
+  resolved boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS remittance_headers (
+  remittance_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  customer_id text NOT NULL,
+  remittance_date date NOT NULL,
+  payment_reference text,
+  total_amount_paid numeric NOT NULL,
+  total_deductions numeric NOT NULL DEFAULT 0,
+  ocr_confidence numeric,
+  pdf_url text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS remittance_lines (
+  line_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  remittance_id text,
+  invoice_ref text NOT NULL,
+  deducted_amount numeric NOT NULL,
+  reason_code_raw text,
+  reason_code_mapped text,
+  disputed_sku text,
+  disputed_qty int CHECK (disputed_qty IS NULL OR disputed_qty >= 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS deductions_backlog (
+  deduction_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  line_ref text,
+  customer_id text NOT NULL,
+  invoice_ref text NOT NULL,
+  amount numeric NOT NULL DEFAULT 0,
+  scenario_type text NOT NULL,
+  verdict text NOT NULL CHECK (verdict IN ('PENDING', 'VALID', 'INVALID', 'PARTIAL')),
+  confidence numeric NOT NULL DEFAULT 0,
+  explanation text,
+  assigned_analyst text,
+  status text NOT NULL DEFAULT 'OPEN',
+  gaming_pattern_flag boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS billing_requests (
+  request_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  deduction_id text,
+  invoice_ref text NOT NULL,
+  type text NOT NULL CHECK (type IN ('CREDIT_MEMO', 'CREDIT_AND_REBILL', 'WRITE_OFF')),
+  amount numeric NOT NULL,
+  gl_code text,
+  re_bill_amount numeric NOT NULL DEFAULT 0,
+  re_bill_unit_price numeric NOT NULL DEFAULT 0,
+  supporting_evidence_urls text[] NOT NULL DEFAULT ARRAY[]::text[],
+  status text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT_TO_SAP', 'CONFIRMED')),
+  audit_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recovery_packages (
+  package_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  deduction_id text,
+  customer_id text NOT NULL,
+  invoice_ref text NOT NULL,
+  amount numeric NOT NULL,
+  correspondence_letter text,
+  evidence_package_json jsonb CHECK (evidence_package_json IS NULL OR jsonb_typeof(evidence_package_json) = 'object'),
+  status text NOT NULL DEFAULT 'GENERATED' CHECK (status IN ('GENERATED', 'SUBMITTED_TO_PORTAL', 'PAID', 'ABANDONED')),
+  follow_up_cadence_count int NOT NULL DEFAULT 0 CHECK (follow_up_cadence_count >= 0),
+  next_follow_up_date date,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS credit_decisions (
+  decision_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  customer_id text NOT NULL,
+  blocked_order_ref text NOT NULL,
+  order_amount numeric NOT NULL,
+  credit_limit_amount numeric NOT NULL,
+  dso_drift_days int NOT NULL,
+  margin_percentage numeric NOT NULL,
+  customer_strategic_segment text NOT NULL,
+  composite_release_score numeric NOT NULL,
+  release_ratio numeric NOT NULL,
+  released_amount numeric NOT NULL,
+  held_amount numeric NOT NULL,
+  proposed_terms text,
+  decision_verdict text NOT NULL DEFAULT 'PROPOSED' CHECK (decision_verdict IN ('PROPOSED', 'APPROVED', 'OVERRIDDEN', 'REJECTED')),
+  arbitrator_user text,
+  negotiation_log jsonb CHECK (negotiation_log IS NULL OR jsonb_typeof(negotiation_log) = 'object'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS immutable_audit_log (
+  audit_id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  action_type text NOT NULL,
+  ref_id text NOT NULL,
+  payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+  operator_user text NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS ${safeTableName} (
@@ -325,38 +735,157 @@ CREATE TABLE IF NOT EXISTS ${safeTableName} (
 
 CREATE INDEX IF NOT EXISTS idx_recoup_config_version ON recoup_config (config_version);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recoup_audit_chain_seq ON recoup_audit_chain (seq);
+CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_customer_scenario ON recoup_deduction_lines (customer_id, scenario_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_record_ids ON recoup_deduction_lines USING gin (record_ids_json);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_bureau_customer_date ON recoup_src_bureau (customer_id, as_of_date);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_customer ON recoup_src_docs (customer_id);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_linked_record_ids ON recoup_src_docs USING gin (linked_record_ids);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_customer_payment ON recoup_src_remittance (customer_id, payment_date);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_invoice_refs ON recoup_src_remittance USING gin (invoice_refs);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_remittance_deduction_refs ON recoup_src_remittance USING gin (deduction_refs);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_customer ON recoup_src_sap (customer_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_linked_record_ids ON recoup_src_sap USING gin (linked_record_ids);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_customer_window ON recoup_src_tpm (customer_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_claim_refs ON recoup_src_tpm USING gin (claim_refs);
+CREATE INDEX IF NOT EXISTS idx_payments_customer_invoice_ref ON payments (customer_id, invoice_ref);
+CREATE INDEX IF NOT EXISTS idx_pod_records_invoice ON pod_records (invoice_ref);
+CREATE INDEX IF NOT EXISTS idx_pod_records_delivery ON pod_records (delivery_ref);
+CREATE INDEX IF NOT EXISTS idx_promotions_customer_window ON promotions (customer_id, start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_contracts_customer ON contracts (customer_id);
+CREATE INDEX IF NOT EXISTS idx_carrier_reports_customer_invoice ON carrier_reports (customer_id, invoice_ref);
+CREATE INDEX IF NOT EXISTS idx_damage_photos_report ON damage_photos (report_id);
+CREATE INDEX IF NOT EXISTS idx_bureau_alerts_customer_type ON bureau_alerts (customer_id, alert_type, severity, resolved);
+CREATE INDEX IF NOT EXISTS idx_remittance_headers_customer_date ON remittance_headers (customer_id, remittance_date);
+CREATE INDEX IF NOT EXISTS idx_remittance_lines_invoice_ref ON remittance_lines (invoice_ref);
+CREATE INDEX IF NOT EXISTS idx_deductions_backlog_customer_verdict ON deductions_backlog (customer_id, verdict);
+CREATE INDEX IF NOT EXISTS idx_billing_requests_status ON billing_requests (status);
+CREATE INDEX IF NOT EXISTS idx_recovery_packages_status ON recovery_packages (status);
+CREATE INDEX IF NOT EXISTS idx_credit_decisions_customer_order ON credit_decisions (customer_id, blocked_order_ref);
+CREATE INDEX IF NOT EXISTS idx_immutable_audit_log_ref ON immutable_audit_log (ref_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_${safeTableName}_id ON ${safeTableName} (id);
 CREATE INDEX IF NOT EXISTS idx_${safeTableName}_scope_sequence ON ${safeTableName} (scope, sequence);
 CREATE INDEX IF NOT EXISTS idx_${safeTableName}_record_ids ON ${safeTableName} USING gin (record_ids_json);
 CREATE INDEX IF NOT EXISTS idx_recoup_app_principals_capabilities ON recoup_app_principals USING gin (capabilities);
 
+CREATE OR REPLACE FUNCTION recoup_commit_approval_audit(
+  p_expected_prev_hash text,
+  p_audit_entry_hash text,
+  p_audit_prev_hash text,
+  p_audit_payload jsonb,
+  p_memory_table_name text,
+  p_memory_id text,
+  p_memory_category text,
+  p_memory_trust_level text,
+  p_memory_scope text,
+  p_memory_payload_json jsonb,
+  p_memory_record_ids_json jsonb,
+  p_memory_created_at timestamptz
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  current_tail_hash text;
+BEGIN
+  IF p_memory_table_name <> '${safeTableName}' THEN
+    RAISE EXCEPTION 'unsafe_memory_table_name';
+  END IF;
+
+  LOCK TABLE recoup_audit_chain IN EXCLUSIVE MODE;
+
+  SELECT entry_hash
+  INTO current_tail_hash
+  FROM recoup_audit_chain
+  ORDER BY seq DESC
+  LIMIT 1;
+
+  IF NOT (p_expected_prev_hash IS NOT DISTINCT FROM current_tail_hash) THEN
+    RAISE EXCEPTION 'audit_tail_mismatch';
+  END IF;
+
+  IF p_audit_prev_hash IS DISTINCT FROM current_tail_hash THEN
+    RAISE EXCEPTION 'audit_tail_mismatch';
+  END IF;
+
+  INSERT INTO recoup_audit_chain (entry_hash, prev_hash, payload)
+  VALUES (p_audit_entry_hash, p_audit_prev_hash, p_audit_payload);
+
+  EXECUTE format(
+    'INSERT INTO %I (id, category, trust_level, scope, payload_json, record_ids_json, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    p_memory_table_name
+  )
+  USING
+    p_memory_id,
+    p_memory_category,
+    p_memory_trust_level,
+    p_memory_scope,
+    p_memory_payload_json,
+    p_memory_record_ids_json,
+    p_memory_created_at;
+END;
+$$;
+
 REVOKE ALL ON TABLE ${safeTableName} FROM anon, authenticated;
 REVOKE ALL ON TABLE recoup_app_principals FROM anon, authenticated;
 REVOKE ALL ON TABLE recoup_config FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_audit_chain FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_customers FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_deduction_lines FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_bureau FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_docs FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE promotions FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE contracts FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE carrier_reports FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE damage_photos FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE bureau_alerts FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE remittance_headers FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE remittance_lines FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE deductions_backlog FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE billing_requests FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recovery_packages FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE credit_decisions FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE immutable_audit_log FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE ${safeTableName} TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_app_principals TO service_role;
 GRANT SELECT, INSERT ON TABLE recoup_config TO service_role;
-GRANT SELECT, INSERT ON TABLE recoup_audit_chain TO service_role;
+GRANT SELECT ON TABLE recoup_audit_chain TO service_role;
+GRANT EXECUTE ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) TO service_role;
+GRANT SELECT ON TABLE recoup_customers TO service_role;
+GRANT SELECT ON TABLE recoup_deduction_lines TO service_role;
 GRANT SELECT ON TABLE recoup_src_bureau TO service_role;
 GRANT SELECT ON TABLE recoup_src_docs TO service_role;
 GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
+GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
+GRANT SELECT ON TABLE customers TO service_role;
+GRANT SELECT ON TABLE payments TO service_role;
+GRANT SELECT ON TABLE pod_records TO service_role;
+GRANT SELECT ON TABLE promotions TO service_role;
+GRANT SELECT ON TABLE contracts TO service_role;
+GRANT SELECT ON TABLE carrier_reports TO service_role;
+GRANT SELECT ON TABLE damage_photos TO service_role;
+GRANT SELECT ON TABLE bureau_alerts TO service_role;
+GRANT SELECT ON TABLE remittance_headers TO service_role;
+GRANT SELECT ON TABLE remittance_lines TO service_role;
+GRANT SELECT ON TABLE deductions_backlog TO service_role;
+GRANT SELECT ON TABLE billing_requests TO service_role;
+GRANT SELECT ON TABLE recovery_packages TO service_role;
+GRANT SELECT ON TABLE credit_decisions TO service_role;
+GRANT SELECT ON TABLE immutable_audit_log TO service_role;
 
 INSERT INTO recoup_app_principals (principal, capabilities)
-VALUES ('human:owner-ratified-day-1', ARRAY['config:approve'])
+VALUES
+  ('human:owner-ratified-day-1', ARRAY['config:approve']),
+  ('human:rathish-owner', ARRAY['config:approve', 'release:approve'])
 ON CONFLICT (principal) DO NOTHING;
 
 INSERT INTO recoup_config (config_version, key, value_json, config_hash, effective_from, approved_by, active)
@@ -364,20 +893,104 @@ VALUES
   ${governedConfigSeedValues}
 ON CONFLICT (config_version, key) DO NOTHING;
 
+INSERT INTO recoup_config (config_version, key, value_json, config_hash, effective_from, approved_by, active)
+VALUES
+  ${releaseOwnerInputSeedValues}
+ON CONFLICT (config_version, key) DO NOTHING;
+
+INSERT INTO recoup_customers (customer_id, name, profile)
+VALUES
+  ${settlementCustomerSeedValues}
+ON CONFLICT (customer_id) DO NOTHING;
+
+INSERT INTO recoup_deduction_lines (
+  line_id,
+  scenario_id,
+  customer_id,
+  scenario_type,
+  amount,
+  verdict,
+  routing,
+  record_ids_json,
+  rule_id,
+  rule_input_json,
+  period,
+  event_id
+)
+VALUES
+  ${settlementLineSeedValues}
+ON CONFLICT (line_id) DO NOTHING;
+
+INSERT INTO customers (
+  customer_id,
+  r_score_component_scores_json,
+  customer_name,
+  segment,
+  strategic_value,
+  credit_limit,
+  revenue_forecast_12mo
+)
+VALUES
+  ${toolsDataCustomerRScoreSeedValues}
+ON CONFLICT (customer_id) DO UPDATE SET
+  r_score_component_scores_json = EXCLUDED.r_score_component_scores_json,
+  customer_name = EXCLUDED.customer_name,
+  segment = EXCLUDED.segment,
+  strategic_value = EXCLUDED.strategic_value,
+  credit_limit = EXCLUDED.credit_limit,
+  revenue_forecast_12mo = EXCLUDED.revenue_forecast_12mo,
+  updated_at = now();
+
 ALTER TABLE recoup_app_principals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_app_principals FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_config FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_audit_chain ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_audit_chain FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_customers FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_deduction_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_deduction_lines FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_bureau ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_bureau FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_docs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_docs FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_remittance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_remittance FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_sap ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_src_sap FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers FORCE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments FORCE ROW LEVEL SECURITY;
+ALTER TABLE pod_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pod_records FORCE ROW LEVEL SECURITY;
+ALTER TABLE promotions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE promotions FORCE ROW LEVEL SECURITY;
+ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contracts FORCE ROW LEVEL SECURITY;
+ALTER TABLE carrier_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE carrier_reports FORCE ROW LEVEL SECURITY;
+ALTER TABLE damage_photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE damage_photos FORCE ROW LEVEL SECURITY;
+ALTER TABLE bureau_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bureau_alerts FORCE ROW LEVEL SECURITY;
+ALTER TABLE remittance_headers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE remittance_headers FORCE ROW LEVEL SECURITY;
+ALTER TABLE remittance_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE remittance_lines FORCE ROW LEVEL SECURITY;
+ALTER TABLE deductions_backlog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deductions_backlog FORCE ROW LEVEL SECURITY;
+ALTER TABLE billing_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_requests FORCE ROW LEVEL SECURITY;
+ALTER TABLE recovery_packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recovery_packages FORCE ROW LEVEL SECURITY;
+ALTER TABLE credit_decisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_decisions FORCE ROW LEVEL SECURITY;
+ALTER TABLE immutable_audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE immutable_audit_log FORCE ROW LEVEL SECURITY;
 ALTER TABLE ${safeTableName} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ${safeTableName} FORCE ROW LEVEL SECURITY;
 `.trim();

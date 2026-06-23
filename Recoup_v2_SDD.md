@@ -108,7 +108,7 @@ src/
   middleware/    errors.ts logging.ts(Winston+correlationId) budgets.ts
   types/         money.ts(Decimal) entities.ts(Zod) variance.ts decision.ts
 config/          models.ts thresholds.ts(Appendix G) weights.ts
-datagen/         generate.py (seed 42)  gold/  manifests/
+datagen/         generate.ts (seed 42)  gold/  manifests/
 tests/           invariants/ evals/ adapters/ unit/
 ```
 
@@ -135,7 +135,7 @@ All monetary fields use `Money` (Decimal, I-3). All carry `recordIds: string[]` 
 ### 4.3 Volume parameters (demo scale — full run in seconds, NFR-1)
 4 customers (Crestline, Harbor, ValuMart, Greenleaf); 20 deduction lines / $112,400 (S1–S8); ~60–120 invoices; ~24 months synthetic payment history per customer for drift; 1 over-limit order (Harbor $640K). Tunable in `datagen/`.
 
-### 4.4 Synthetic generator, gold set & labels (`datagen/generate.py`)
+### 4.4 Synthetic generator, gold set & labels (`datagen/generate.ts`)
 Deterministic (seed 42, I-13). Emits the **canonical S1–S8 gold set** (Ledger §4) as CSVs + SAP-OData-shaped JSON payloads, plus label files: per-line validity (`valid|invalid|partial`), per-customer intent (`gaming|distressed-honest|genuine`), arbitration expert labels, and a noise set (legitimate signals that must not fire — I-5, I-22). Totals asserted by `evals/gold-set-parity.test.ts` (I-27).
 
 **Canonical gold set (binding):**
@@ -303,7 +303,7 @@ Three surfaces (Decision 2): **Forensics cockpit (Maya)** — pre-triaged 8-card
 ---
 
 ## Appendix A — Python→TypeScript note
-Runtime is native TypeScript; the only Python is `datagen/generate.py` (offline, seed 42) and the design-search script. No Python in the runtime path (I-25 spirit).
+Runtime and the offline deterministic generator are native TypeScript; the design-search script may use Python outside the runtime path. No Python in the runtime path (I-25 spirit).
 
 ## Appendix B — *(reserved)* clause skills descoped
 Per BRD §4 and INVARIANTS I-10/I-11 (retired).

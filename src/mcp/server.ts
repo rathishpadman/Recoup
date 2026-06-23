@@ -7,9 +7,29 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { invokeServiceTool, serviceToolMetadata, serviceTools } from "../services/serviceLayer.js";
+import {
+  buildSupabaseServiceSapEvidenceSource,
+  buildSupabaseServiceSyntheticEvidenceSource,
+  invokeServiceTool,
+  serviceToolMetadata,
+  serviceTools,
+  type ServiceInvocationContext
+} from "../services/serviceLayer.js";
 import { evaluateToolPermission, type ToolPermissionContext } from "../services/permissionEngine.js";
 import { loadLocalRuntimeEnv, type RuntimeEnv } from "../../config/env.js";
+import type { GovernedConfigValues } from "../../config/governed.js";
+import {
+  createSupabaseGovernedConfigRepositoryFromEnv,
+  type SupabaseMemoryFetch
+} from "../memory/supabaseStore.js";
+import {
+  createSupabaseRiskObservationSnapshotReaderFromEnv,
+  createSupabaseSapEvidenceReaderFromEnv,
+  createSupabaseSettlementRunReaderFromEnv,
+  createSupabaseSyntheticSourceReaderFromEnv,
+  sourcePortFromSupabaseSnapshots,
+  type SupabaseRiskObservationSourceConfig
+} from "../adapters/supabaseSyntheticSource.js";
 
 export interface McpToolDescriptor {
   name: string;
@@ -24,7 +44,9 @@ export interface McpToolFacade {
   callTool(name: string, args: unknown): unknown;
 }
 
-export type McpToolFacadeOptions = ToolPermissionContext;
+export type McpToolFacadeOptions = ToolPermissionContext & {
+  serviceContext?: ServiceInvocationContext;
+};
 
 export interface StartMcpHttpServerInput {
   env?: RuntimeEnv;
@@ -33,10 +55,12 @@ export interface StartMcpHttpServerInput {
 
 export interface McpHttpAppOptions {
   env?: RuntimeEnv;
+  memoryFetcher?: SupabaseMemoryFetch;
 }
 
 export interface McpSdkServerOptions {
   actorContext?: ToolPermissionContext;
+  serviceContext?: ServiceInvocationContext;
 }
 
 export interface StartedMcpHttpServer {
@@ -48,6 +72,8 @@ export interface StartedMcpHttpServer {
 }
 
 export function createMcpToolFacade(options: McpToolFacadeOptions = {}): McpToolFacade {
+  const serviceContext = buildMcpServiceInvocationContext(options.serviceContext);
+
   return {
     listTools() {
       return Object.keys(serviceTools)
@@ -67,13 +93,27 @@ export function createMcpToolFacade(options: McpToolFacadeOptions = {}): McpTool
       }
 
       const metadata = serviceToolMetadata[name as keyof typeof serviceToolMetadata];
+      if (metadata.sideEffectClass === "draft_only" && !options.actorCapabilities?.includes("draft_action")) {
+        throw new Error("Actor is not permitted to create draft-only action artifacts.");
+      }
+
       const permission = evaluateToolPermission(metadata, options);
       if (permission.decision === "deny") {
         throw new Error(permission.reason ?? "Tool permission denied.");
       }
 
-      return invokeServiceTool(name, args);
+      return invokeServiceTool(name, args, serviceContext);
     }
+  };
+}
+
+function buildMcpServiceInvocationContext(
+  serviceContext: ServiceInvocationContext | undefined
+): ServiceInvocationContext {
+  return {
+    ...(serviceContext ?? {}),
+    requireSupabaseSapEvidence: serviceContext?.requireSupabaseSapEvidence ?? true,
+    requireSupabaseSyntheticEvidence: serviceContext?.requireSupabaseSyntheticEvidence ?? true
   };
 }
 
@@ -88,7 +128,8 @@ function isMcpVisible(name: string): boolean {
 export function createMcpHttpApp(options: McpHttpAppOptions = {}): Express {
   const app = express();
   const runtimeEnv = options.env ?? process.env;
-  const facade = createMcpToolFacade(buildMcpActorContext(runtimeEnv));
+  const actorContext = buildMcpActorContext(runtimeEnv);
+  const facade = createMcpToolFacade(actorContext);
 
   app.use(express.json({ limit: "1mb" }));
   app.use("/mcp", buildMcpAuthMiddleware(runtimeEnv));
@@ -97,10 +138,21 @@ export function createMcpHttpApp(options: McpHttpAppOptions = {}): Express {
     response.json({ tools: facade.listTools() });
   });
 
-  app.post("/mcp/tools/:name/call", (request, response) => {
-    response.json({
-      result: facade.callTool(request.params.name, request.body)
-    });
+  app.post("/mcp/tools/:name/call", async (request, response) => {
+    try {
+      const serviceContext = await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher);
+      const callFacade = createMcpToolFacade({
+        ...actorContext,
+        ...(serviceContext === undefined ? {} : { serviceContext })
+      });
+      response.json({
+        result: callFacade.callTool(request.params.name, request.body)
+      });
+    } catch (error) {
+      response.status(error instanceof Error && error.message === "Governed runtime config snapshot required." ? 503 : 400).json({
+        error: error instanceof Error ? error.message : "MCP tool call failed."
+      });
+    }
   });
 
   return app;
@@ -117,7 +169,10 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
         "Recoup exposes cited, deterministic O2C read and draft-only tools. Approval decisions and ERP write-back are not exposed through MCP."
     }
   );
-  const facade = createMcpToolFacade(options.actorContext);
+  const facade = createMcpToolFacade({
+    ...(options.actorContext ?? {}),
+    ...(options.serviceContext === undefined ? {} : { serviceContext: options.serviceContext })
+  });
   const passthroughInput = z.object({}).passthrough();
 
   for (const tool of facade.listTools()) {
@@ -179,9 +234,11 @@ export function createMcpStreamableHttpApp(options: McpHttpAppOptions = {}): Exp
 
       if (transport === undefined && sessionId === undefined && isInitializeRequest(request.body)) {
         transport = createSessionTransport(transports);
-        await createMcpSdkServer({ actorContext: buildMcpActorContext(runtimeEnv) }).connect(
-          transport as unknown as Transport
-        );
+        const serviceContext = await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher);
+        await createMcpSdkServer({
+          actorContext: buildMcpActorContext(runtimeEnv),
+          ...(serviceContext === undefined ? {} : { serviceContext })
+        }).connect(transport as unknown as Transport);
       }
 
       if (transport === undefined) {
@@ -246,6 +303,80 @@ function buildMcpAuthMiddleware(runtimeEnv: RuntimeEnv): express.RequestHandler 
     }
 
     next();
+  };
+}
+
+async function loadOptionalMcpServiceContext(
+  runtimeEnv: RuntimeEnv,
+  fetcher: SupabaseMemoryFetch | undefined
+): Promise<ServiceInvocationContext | undefined> {
+  const repository = createSupabaseGovernedConfigRepositoryFromEnv(runtimeEnv, fetcher);
+  if (repository === undefined) {
+    return undefined;
+  }
+
+  const governedConfig = (await repository.loadActive()).values;
+  const settlementReader = createSupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, fetcher);
+  const sapEvidenceReader = createSupabaseSapEvidenceReaderFromEnv(runtimeEnv, fetcher);
+  const syntheticEvidenceReader = createSupabaseSyntheticSourceReaderFromEnv(runtimeEnv, fetcher);
+  const riskReader = createSupabaseRiskObservationSnapshotReaderFromEnv(
+    runtimeEnv,
+    riskObservationSourcesFromGovernedConfig(governedConfig),
+    fetcher
+  );
+  if (
+    settlementReader === undefined ||
+    riskReader === undefined ||
+    sapEvidenceReader === undefined ||
+    syntheticEvidenceReader === undefined
+  ) {
+    return undefined;
+  }
+
+  const [settlementRun, riskObservationSnapshot] = await Promise.all([
+    settlementReader.loadSettlementRun(),
+    riskReader.loadRiskObservationSnapshot(governedConfig.riskMeshCases.harbor.customerId)
+  ]);
+  if (riskObservationSnapshot === undefined) {
+    return undefined;
+  }
+
+  const source = sourcePortFromSupabaseSnapshots({ riskObservationSnapshot, settlementRun });
+  const [sapEvidenceSource, syntheticEvidenceSource] = await Promise.all([
+    buildSupabaseServiceSapEvidenceSource({
+      reader: sapEvidenceReader,
+      settlementRun
+    }),
+    buildSupabaseServiceSyntheticEvidenceSource({
+      reader: syntheticEvidenceReader,
+      settlementRun
+    })
+  ]);
+
+  return {
+    governedConfig,
+    requireSupabaseSapEvidence: true,
+    requireSupabaseSyntheticEvidence: true,
+    sapEvidenceSource,
+    source,
+    syntheticEvidenceSource
+  };
+}
+
+function riskObservationSourcesFromGovernedConfig(
+  governedConfig: GovernedConfigValues
+): Record<string, SupabaseRiskObservationSourceConfig> {
+  const harbor = governedConfig.riskMeshCases.harbor;
+
+  return {
+    [harbor.customerId]: {
+      baselinePaymentRefs: [...harbor.riskObservationSource.baselinePaymentRefs],
+      criticalAlertSeverity: harbor.riskObservationSource.criticalAlertSeverity,
+      criticalAlertType: harbor.riskObservationSource.criticalAlertType,
+      citedDeductionVerdicts: [...harbor.riskObservationSource.citedDeductionVerdicts],
+      currentPaymentRef: harbor.riskObservationSource.currentPaymentRef,
+      sourceCustomerId: harbor.riskObservationSource.sourceCustomerId
+    }
   };
 }
 

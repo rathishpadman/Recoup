@@ -1,22 +1,51 @@
 import { createHash } from "node:crypto";
+import type { GovernedConfigValues } from "../../config/governed.js";
 import type { AuditEntry } from "../audit/trail.js";
 import {
   buildConnectorReadiness,
   type ConnectorReadiness,
   type SupabaseToolDataSchemaProbe
 } from "../adapters/connectorRegistry.js";
-import { buildSyntheticDataset } from "../adapters/syntheticData.js";
+import type { SourcePort } from "../adapters/source.js";
 import { recoupAgentRoster } from "../agents/agentRuntime.js";
 import { assessCrestlineM6Containment, type CrestlineM6ContainmentAssessment } from "../agents/containment.js";
 import { runForensicsInvestigation, type DeductionDecision, type ForensicsTraceEvent } from "../agents/forensics.js";
 import { recoupHandoffGraph } from "../agents/handoffGraph.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
+import type { ServiceInvocationContext } from "./serviceLayer.js";
 import { memoryCategories, type MemoryCategory, type MemoryRecord } from "../memory/schema.js";
-import type { Money } from "../types/money.js";
+import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
+import { money, type Money } from "../types/money.js";
 import { cockpitDemoProfiles } from "../../config/cockpitDemoProfiles.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
 export type ForensicsSseEvent = ForensicsTraceEvent;
+
+export interface CockpitModelGovernanceOptions {
+  governedConfig: GovernedConfigValues;
+  riskObservationSource?: SourcePort | undefined;
+  serviceContext?: ServiceInvocationContext | undefined;
+  settlementSource?: SourcePort | undefined;
+}
+
+interface SettlementDataset extends SyntheticDatasetCore {
+  manifest: {
+    eventIds: string[];
+    lineIds: string[];
+    scenarioIds: Array<DeductionLine["scenarioId"]>;
+    seed: 42;
+  };
+  rollup: {
+    billingLines: number;
+    recoveryAmount: Money;
+    recoveryLines: number;
+    totalAmount: Money;
+    totalLines: number;
+    validAmount: Money;
+    validLines: number;
+  };
+  zeroMoney: Money;
+}
 
 export interface LoginCockpitModel {
   surface: "login";
@@ -443,7 +472,8 @@ export interface MemorySummaryCockpitModel {
   surface: "memory";
   backend: "in_memory_fallback" | "sqlite" | "supabase";
   categories: MemoryCategory[];
-  provenance: "deterministic_demo_memory" | "persisted_runtime_memory";
+  provenance: "empty_runtime_memory" | "persisted_runtime_memory";
+  approvalAuditReceipts: ApprovalAuditReceipt[];
   records: Array<{
     id: string;
     category: MemoryCategory;
@@ -451,7 +481,17 @@ export interface MemorySummaryCockpitModel {
     scope: string;
     recordIds: string[];
   }>;
-  sourceMode: "deterministic_demo_fallback" | "runtime_persisted";
+  sourceMode: "runtime_empty" | "runtime_persisted";
+}
+
+export interface ApprovalAuditReceipt {
+  actionId: string;
+  approverId: string;
+  auditEntryHash: string;
+  decision: ApprovalAction;
+  reason?: string;
+  recordIds: string[];
+  status: "human_decided";
 }
 
 export interface AgentGraphCockpitModel {
@@ -483,12 +523,15 @@ export interface SourceReadinessTile {
   summary: string;
 }
 
-export function buildForensicsCockpitModel(): ForensicsCockpitModel {
-  const dataset = buildSyntheticDataset({ seed: 42 });
-  const run = runForensicsInvestigation();
+export function buildForensicsCockpitModel(options: CockpitModelGovernanceOptions | undefined): ForensicsCockpitModel {
+  const governedConfig = readGovernedCockpitConfig(options);
+  const settlementSource = readSettlementSource(options);
+  const serviceContext = readForensicsServiceContext(options);
+  const dataset = buildSettlementDataset(settlementSource);
+  const run = runForensicsInvestigation({ governedConfig, serviceContext, source: settlementSource });
   const containmentCandidate = run.containmentCandidates[0];
   if (containmentCandidate === undefined) {
-    throw new Error("Forensics cockpit requires the Crestline M6 containment candidate.");
+    throw new Error("Forensics cockpit requires a governed containment review candidate.");
   }
   const selectedDecision = run.decisions.find((decision) => decision.routing === "recovery");
   if (selectedDecision === undefined) {
@@ -508,7 +551,7 @@ export function buildForensicsCockpitModel(): ForensicsCockpitModel {
       { label: "Recovery queue", value: formatMoney(dataset.rollup.recoveryAmount), support: `${String(dataset.rollup.recoveryLines)} drafts` },
       { label: "Billing protection", value: formatMoney(dataset.rollup.validAmount), support: `${String(dataset.rollup.validLines)} route-to-Billing drafts` },
       { label: "Pending decisions", value: String(run.actions.length), support: "HITL required" },
-      { label: "Evidence sources", value: String(3), support: "SAP, Docs, TPM" }
+      { label: "Evidence sources", value: String(4), support: "SAP, Docs, TPM, Bureau" }
     ],
     worklist: buildScenarioWorklist(dataset, run.decisions),
     selected: {
@@ -556,21 +599,21 @@ export function buildForensicsCockpitModel(): ForensicsCockpitModel {
     mayaJourney: [
       {
         label: "Ingest",
-        recordIds: ["SYNTHETIC-SEED-42"],
+        recordIds: dataset.deductionLines.slice(0, 3).map((line) => line.lineId),
         status: "complete",
-        timestamp: "08:15"
+        timestamp: journeyStepLabel(0, 6)
       },
       {
         label: "POD retrieval",
         recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("POD-")),
         status: "complete",
-        timestamp: "08:18"
+        timestamp: journeyStepLabel(1, 6)
       },
       {
         label: "Contract read",
         recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("INV-")),
         status: "complete",
-        timestamp: "08:21"
+        timestamp: journeyStepLabel(2, 6)
       },
       {
         label: "TPM match",
@@ -578,19 +621,19 @@ export function buildForensicsCockpitModel(): ForensicsCockpitModel {
           .filter((document) => document.source === "tpm")
           .map((document) => document.documentId),
         status: "complete",
-        timestamp: "08:24"
+        timestamp: journeyStepLabel(3, 6)
       },
       {
         label: "Assemble",
         recordIds: selectedDecision.recordIds,
         status: "complete",
-        timestamp: "08:27"
+        timestamp: journeyStepLabel(4, 6)
       },
       {
         label: "Scored",
         recordIds: selectedDecision.recordIds,
         status: "pending human",
-        timestamp: "08:29"
+        timestamp: journeyStepLabel(5, 6)
       }
     ],
     recoveryTracker: {
@@ -603,42 +646,49 @@ export function buildForensicsCockpitModel(): ForensicsCockpitModel {
     retrievalStatus: [
       { source: "SAP", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.sap").length },
       { source: "Docs", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.docs").length },
-      { source: "TPM", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.tpm").length }
+      { source: "TPM", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.tpm").length },
+      { source: "Bureau", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.bureau").length }
     ],
     containmentPanel: buildContainmentPanel(containmentCandidate, dataset.customers),
-    whatChanged: "13 recovery drafts and 7 Billing prevention drafts are staged for human review.",
+    whatChanged: `${String(dataset.rollup.recoveryLines)} recovery drafts and ${String(dataset.rollup.validLines)} Billing prevention drafts are staged for human review.`,
     aiInsight: "Every proposed amount is bound to a deterministic decision delta; live model execution remains blocked in the offline harness."
   };
 }
 
-export function buildCreditCockpitModel(): CreditCockpitModel {
-  const run = runRiskMeshClosedLoop();
-  const context = buildHarborRiskMeshProposalContext();
-  const crestlineM6 = assessCrestlineM6Containment();
+export function buildCreditCockpitModel(options: CockpitModelGovernanceOptions | undefined): CreditCockpitModel {
+  const governedConfig = readGovernedCockpitConfig(options);
+  const riskObservationSource = readRiskObservationSource(options);
+  const settlementDataset = buildSettlementDataset(readSettlementSource(options));
+  const run = runRiskMeshClosedLoop({ governedConfig, source: riskObservationSource });
+  const context = buildHarborRiskMeshProposalContext({ governedConfig, source: riskObservationSource });
+  const crestlineM6 = assessCrestlineM6Containment({
+    deductionLines: settlementDataset.deductionLines,
+    gamingGate: governedConfig.gamingGate
+  });
   const weights = run.arbitration.deterministicBasis.weightSource;
   const signals = run.sentinel.deterministicBasis.observedSignals;
   const auditHashes = riskMeshAuditHashes(run.auditEntries);
-  const arbitrationDisplayReason = "Production calibration proof required";
+  const arbitrationReason = riskMeshArbitrationReason(run.arbitration);
+  const arbitrationDisplayReason = riskMeshArbitrationDisplayReason(run.arbitration);
+  const accountReadout = context.caseConfig.accountReadout;
+  const sentinelDisplay = context.caseConfig.sentinelDisplay;
   const accountCore = {
-    availableCreditLabel: "Pending ERP",
+    availableCreditLabel: accountReadout.availableCreditLabel,
     caseId: run.arbitration.caseId,
-    creditProgram: "Global standard",
+    creditProgram: accountReadout.creditProgram,
     customerLabel: labelFromRecordId(run.customerId),
     dso90Label: `${String(signals.currentDsoDays)} days`,
-    hqRegion: "Houston, TX / NA",
-    industry: "Maritime services",
-    legalEntity: "Harbor Holdings LLC",
-    limitLabel: "Pending ERP",
-    openArLabel: "Pending ERP",
+    hqRegion: accountReadout.hqRegion,
+    industry: accountReadout.industry,
+    legalEntity: accountReadout.legalEntity,
+    limitLabel: accountReadout.limitLabel,
+    openArLabel: accountReadout.openArLabel,
     orderAmount: formatMoney(context.orderAmount),
     orderId: context.holdProposalInput.orderId,
-    ownerLabel: "David Kim",
-    posture: "Human approval required",
+    ownerLabel: accountReadout.ownerLabel,
+    posture: accountReadout.posture,
     terms: run.termsAction.terms
   };
-  const sentinelFilingId = "UCC-1-HARBOR-PENDING";
-  const sentinelFiledLabel = "Filed: pending proof";
-  const sentinelSecuredPartyLabel = "Secured party: proof required";
   const partialHoldCore = {
     basis: run.holdAction.basis,
     compositeScore: run.partialHold.compositeScore.toFixed(2),
@@ -678,48 +728,7 @@ export function buildCreditCockpitModel(): CreditCockpitModel {
       { label: "arbitration", value: arbitrationDisplayReason }
     ]
   } satisfies CreditCockpitModel["account"];
-  const actionQueue: CreditCockpitModel["actionQueue"] = [
-    {
-      account: "Harbor",
-      age: "00h 42m",
-      item: "Bureau lien alert",
-      nextStep: "Review lien",
-      priority: "P1",
-      status: "New"
-    },
-    {
-      account: "Harbor",
-      age: "01h 15m",
-      item: "Partial-hold recommended",
-      nextStep: "Review & send",
-      priority: "P1",
-      status: "Action required"
-    },
-    {
-      account: "Harbor",
-      age: "02h 10m",
-      item: "DSO drift alert",
-      nextStep: "View DSO",
-      priority: "P2",
-      status: "Investigate"
-    },
-    {
-      account: "Harbor",
-      age: "04h 02m",
-      item: "Order exposure update",
-      nextStep: "Review exposure",
-      priority: "P3",
-      status: "Advisory"
-    },
-    {
-      account: "Harbor",
-      age: "06h 33m",
-      item: "Policy exception",
-      nextStep: "Review exception",
-      priority: "P3",
-      status: "Advisory"
-    }
-  ];
+  const actionQueue: CreditCockpitModel["actionQueue"] = context.caseConfig.actionQueue;
 
   const model = {
     surface: "credit-arbitration",
@@ -729,17 +738,17 @@ export function buildCreditCockpitModel(): CreditCockpitModel {
     sentinel: {
       status: run.sentinel.status,
       reason: run.sentinel.reason,
-      displayReason: "Bureau lien alert",
-      alertDetail: "UCC-1 filing detected and priority review required before any release.",
-      filedLabel: sentinelFiledLabel,
-      filingId: sentinelFilingId,
+      displayReason: sentinelDisplay.displayReason,
+      alertDetail: sentinelDisplay.alertDetail,
+      filedLabel: sentinelDisplay.filedLabel,
+      filingId: sentinelDisplay.filingId,
       detailRows: [
-        { label: "Filing ID", value: sentinelFilingId },
-        { label: "Filed", value: sentinelFiledLabel },
-        { label: "Secured party", value: sentinelSecuredPartyLabel }
+        { label: "Filing ID", value: sentinelDisplay.filingId },
+        { label: "Filed", value: sentinelDisplay.filedLabel },
+        { label: "Secured party", value: sentinelDisplay.securedPartyLabel }
       ],
-      recordStripLabel: "Sentinel alert record IDs",
-      securedPartyLabel: sentinelSecuredPartyLabel,
+      recordStripLabel: sentinelDisplay.recordStripLabel,
+      securedPartyLabel: sentinelDisplay.securedPartyLabel,
       signals: [
         { label: "DSO drift", value: `${String(signals.baselineDsoDays)} -> ${String(signals.currentDsoDays)} days` },
         { label: "Dispute signal", value: "observed" },
@@ -749,7 +758,7 @@ export function buildCreditCockpitModel(): CreditCockpitModel {
     },
     arbitration: {
       status: run.arbitration.status,
-      reason: run.arbitration.reason,
+      reason: arbitrationReason,
       displayReason: arbitrationDisplayReason,
       recordIds: run.arbitration.recordIds
     },
@@ -866,7 +875,7 @@ export function buildCreditCockpitModel(): CreditCockpitModel {
           recordIds: position.recordIds
         })),
         {
-          message: "Crestline M6 containment readout linked for Risk Mesh review only",
+          message: `${crestlineM6.customerId} containment readout linked for Risk Mesh review only`,
           recordIds: crestlineM6.recordIds
         }
       ]
@@ -879,17 +888,28 @@ export function buildCreditCockpitModel(): CreditCockpitModel {
   };
 }
 
-export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
-  const dataset = buildSyntheticDataset({ seed: 42 });
-  const riskRun = runRiskMeshClosedLoop();
+export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptions | undefined): CfoSummaryCockpitModel {
+  const governedConfig = readGovernedCockpitConfig(options);
+  const dataset = buildSettlementDataset(readSettlementSource(options));
+  const riskRun = runRiskMeshClosedLoop({ governedConfig, source: readRiskObservationSource(options) });
   const dependencies = cfoOpenDependencies.map((dependencyId) => dependencyView(dependencyId));
   const auditHash = riskMeshAuditHashes(riskRun.auditEntries).chainHeadHash;
-  const auditRecordIds = [
-    "SYNTHETIC-SEED-42",
-    "CUST-HARBOR",
-    "ORDER-HARBOR-640K",
-    "LEDGER-6-PARTIAL-HOLD"
-  ];
+  const recoveryRecordIds = dataset.deductionLines
+    .filter((line) => line.routing === "recovery")
+    .slice(0, 3)
+    .map((line) => line.lineId);
+  const billingRecordIds = dataset.deductionLines
+    .filter((line) => line.routing === "billing")
+    .slice(0, 3)
+    .map((line) => line.lineId);
+  const caseConfig = governedConfig.riskMeshCases.harbor;
+  const auditRecordIds = uniqueStrings([
+    "recoup_deduction_lines",
+    ...(dataset.deductionLines[0] === undefined ? [] : [dataset.deductionLines[0].lineId]),
+    caseConfig.customerId,
+    caseConfig.orderId,
+    ...caseConfig.recordIds
+  ]);
   const datasetHash = shortHash({
     eventIds: dataset.manifest.eventIds,
     lineIds: dataset.manifest.lineIds,
@@ -901,7 +921,7 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
     { label: "Recovery queue", value: formatMoney(dataset.rollup.recoveryAmount), support: `${String(dataset.rollup.recoveryLines)} recovery drafts` },
     { label: "Margin protected", value: formatMoney(dataset.rollup.validAmount), support: `${String(dataset.rollup.validLines)} prevention drafts` },
     { label: "External action posture", value: "Draft-only", support: "HITL gate required" },
-    { label: "Evidence sources", value: "3", support: "SAP, Docs, TPM" },
+    { label: "Evidence sources", value: "4", support: "SAP, Docs, TPM, Bureau" },
     { label: "Open proof dependencies", value: String(dependencies.length), support: "Owner proof required" },
     { label: "DSO / CEI", value: "Live input pending", support: "No ERP write-back" },
     { label: "Autonomy posture", value: "Governed", support: "No autonomous external action" }
@@ -911,7 +931,7 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
   }));
   const reportMetadata = [
     { label: "Board pack", value: "Recoup v2 executive readout" },
-    { label: "Dataset", value: `Synthetic seed ${String(dataset.manifest.seed)}` },
+    { label: "Dataset", value: "Supabase recoup_deduction_lines" },
     { label: "Currency", value: "USD" },
     { label: "Mode", value: "Read-only board draft" }
   ].map((item) => ({
@@ -938,25 +958,25 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
     {
       basis: "computed recovery deltas",
       label: "Recovery draft queue",
-      recordIds: ["SYNTHETIC-SEED-42"],
+      recordIds: recoveryRecordIds,
       state: `${String(dataset.rollup.recoveryLines)} drafts`
     },
     {
       basis: "valid deductions routed as draft-only Billing recommendations",
       label: "Billing prevention queue",
-      recordIds: ["SYNTHETIC-SEED-42"],
+      recordIds: billingRecordIds,
       state: `${String(dataset.rollup.validLines)} drafts`
     },
     {
-      basis: riskRun.arbitration.reason,
+      basis: riskMeshArbitrationReason(riskRun.arbitration),
       label: "Risk Mesh arbitration",
       recordIds: riskRun.arbitration.recordIds,
-      state: "Calibration proof open"
+      state: riskRun.arbitration.status === "blocked" ? "Calibration proof open" : "Ranked resolution recorded"
     },
     {
       basis: "hash-chain verification",
       label: "Audit trail integrity",
-      recordIds: ["LEDGER-6-PARTIAL-HOLD"],
+      recordIds: uniqueStrings(riskRun.auditEntries.flatMap((entry) => entry.recordIds)),
       state: riskRun.auditTrailValid ? `${String(riskRun.auditEntries.length)} entries valid` : "Blocked"
     }
   ].map((row) => ({
@@ -1000,7 +1020,7 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
     posture: "Informational only",
     title: "Deterministic evidence spine is ready; live proof remains gated"
   };
-  const sourceSystems = ["SAP OData", "Contract Repo", "TPM", "Risk Mesh", "Audit Trail"];
+  const sourceSystems = ["SAP OData", "Contract Repo", "TPM", "Bureau", "Risk Mesh", "Audit Trail"];
 
   return {
     surface: "cfo-summary",
@@ -1026,8 +1046,8 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
     provenance: {
       actionPosture: "no autonomous external action",
       auditHash,
-      dataBasis: "synthetic seed 42 plus deterministic read models",
-      dataBasisLabel: cfoExecutiveMetadataValue("Data basis", "synthetic seed 42 plus deterministic read models"),
+      dataBasis: "Supabase settlement source rows plus governed read models",
+      dataBasisLabel: cfoExecutiveMetadataValue("Data basis", "Supabase settlement source rows plus governed read models"),
       datasetHash,
       reportHash: shortHash({
         auditHash,
@@ -1052,8 +1072,12 @@ export function buildCfoSummaryCockpitModel(): CfoSummaryCockpitModel {
   };
 }
 
-export function buildForensicsSseEvents(): ForensicsSseEvent[] {
-  const run = runForensicsInvestigation();
+export function buildForensicsSseEvents(options: CockpitModelGovernanceOptions | undefined): ForensicsSseEvent[] {
+  const run = runForensicsInvestigation({
+    governedConfig: readGovernedCockpitConfig(options),
+    serviceContext: readForensicsServiceContext(options),
+    source: readSettlementSource(options)
+  });
 
   return run.trace;
 }
@@ -1076,8 +1100,11 @@ export function buildLoginModel(): LoginCockpitModel {
   };
 }
 
-export function buildTraceModel(): TraceCockpitModel {
-  const riskRun = runRiskMeshClosedLoop();
+export function buildTraceModel(options: CockpitModelGovernanceOptions | undefined): TraceCockpitModel {
+  const riskRun = runRiskMeshClosedLoop({
+    governedConfig: readGovernedCockpitConfig(options),
+    source: readRiskObservationSource(options)
+  });
 
   return {
     surface: "trace",
@@ -1099,15 +1126,15 @@ export function buildTraceModel(): TraceCockpitModel {
 }
 
 export function buildMemorySummaryModel(
-  records?: MemoryRecord[],
+  records: MemoryRecord[] = [],
   options?: { backend: "sqlite" | "supabase" }
 ): MemorySummaryCockpitModel {
   const metadata =
     options === undefined
       ? {
           backend: "in_memory_fallback" as const,
-          provenance: "deterministic_demo_memory" as const,
-          sourceMode: "deterministic_demo_fallback" as const
+          provenance: "empty_runtime_memory" as const,
+          sourceMode: "runtime_empty" as const
         }
       : {
           backend: options.backend,
@@ -1115,56 +1142,71 @@ export function buildMemorySummaryModel(
           sourceMode: "runtime_persisted" as const
         };
 
-  if (records !== undefined) {
-    return {
-      ...metadata,
-      surface: "memory",
-      categories: [...memoryCategories],
-      records: records.map((record) => ({
-        id: record.id,
-        category: record.category,
-        trustLevel: record.trustLevel,
-        scope: record.scope,
-        recordIds: record.recordIds
-      }))
-    };
-  }
-
   return {
     ...metadata,
     surface: "memory",
     categories: [...memoryCategories],
-    records: [
-      {
-        id: "memory-session-active-case",
-        category: "session_state",
-        trustLevel: "trusted",
-        scope: "session:demo",
-        recordIds: ["ARB-HARBOR-ORDER-640K"]
-      },
-      {
-        id: "memory-approval-harbor",
-        category: "approval_records",
-        trustLevel: "trusted",
-        scope: "case:ARB-HARBOR-ORDER-640K",
-        recordIds: ["ORDER-HARBOR-640K", "propose-hold:ORDER-HARBOR-640K"]
-      },
-      {
-        id: "memory-handoff-riskmesh-sentinel",
-        category: "agent_handoff_packets",
-        trustLevel: "trusted",
-        scope: "case:ARB-HARBOR-ORDER-640K",
-        recordIds: ["CUST-HARBOR", "ORDER-HARBOR-640K"]
-      },
-      {
-        id: "memory-compaction-demo",
-        category: "compaction_summaries",
-        trustLevel: "trusted",
-        scope: "case:ARB-HARBOR-ORDER-640K",
-        recordIds: ["ARB-HARBOR-ORDER-640K"]
-      }
-    ]
+    approvalAuditReceipts: buildApprovalAuditReceipts(records),
+    records: records.map((record) => ({
+      id: record.id,
+      category: record.category,
+      trustLevel: record.trustLevel,
+      scope: record.scope,
+      recordIds: record.recordIds
+    }))
   };
+}
+
+function buildApprovalAuditReceipts(records: readonly MemoryRecord[]): ApprovalAuditReceipt[] {
+  return records.flatMap((record) => {
+    const receipt = toApprovalAuditReceipt(record);
+    return receipt === undefined ? [] : [receipt];
+  });
+}
+
+function toApprovalAuditReceipt(record: MemoryRecord): ApprovalAuditReceipt | undefined {
+  if (record.category !== "approval_records" || record.trustLevel !== "trusted") {
+    return undefined;
+  }
+
+  const actionId = readPayloadString(record, "actionId");
+  const approverId = readPayloadString(record, "approverId");
+  const auditEntryHash = readPayloadString(record, "auditEntryHash");
+  const decision = readPayloadString(record, "decision");
+  const reason = readPayloadString(record, "reason");
+  const status = readPayloadString(record, "status");
+
+  if (
+    actionId === undefined ||
+    approverId === undefined ||
+    !approverId.startsWith("human:") ||
+    auditEntryHash === undefined ||
+    !/^[a-f0-9]{64}$/u.test(auditEntryHash) ||
+    !isApprovalAction(decision) ||
+    status !== "human_decided" ||
+    !record.recordIds.includes(actionId)
+  ) {
+    return undefined;
+  }
+
+  return {
+    actionId,
+    approverId,
+    auditEntryHash,
+    decision,
+    ...(reason === undefined ? {} : { reason }),
+    recordIds: [...record.recordIds],
+    status
+  };
+}
+
+function readPayloadString(record: MemoryRecord, key: string): string | undefined {
+  const value = record.payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function isApprovalAction(value: string | undefined): value is ApprovalAction {
+  return value === "approve" || value === "modify" || value === "reject";
 }
 
 export function buildAgentGraphModel(): AgentGraphCockpitModel {
@@ -1194,7 +1236,7 @@ export function buildConnectorReadinessModel(
 }
 
 function buildScenarioWorklist(
-  dataset: ReturnType<typeof buildSyntheticDataset>,
+  dataset: SettlementDataset,
   decisions: DeductionDecision[]
 ): WorklistItem[] {
   const decisionsByLineId = new Map(decisions.map((decision) => [decision.lineId, decision]));
@@ -1231,7 +1273,7 @@ function buildScenarioWorklist(
       verdictLabel: verdictLabel(firstDecision.verdict),
       routing: firstDecision.routing,
       routingLabel: routingLabel(firstDecision.routing),
-      confidence: firstDecision.confidence,
+      confidence: confidenceDisplayValue(firstDecision.confidence),
       confidenceLabel: confidenceLabel(firstDecision.confidence),
       evidenceScoreLabel: String(recordIds.length),
       evidenceLabel: `${String(recordIds.length)} artifacts`,
@@ -1441,7 +1483,7 @@ function buildCreditCommandCenter(model: Omit<CreditCockpitModel, "commandCenter
 
 function buildContainmentPanel(
   candidate: CrestlineM6ContainmentAssessment,
-  customers: ReturnType<typeof buildSyntheticDataset>["customers"]
+  customers: SettlementDataset["customers"]
 ): ForensicsCockpitModel["containmentPanel"] {
   const customer = customers.find((item) => item.customerId === candidate.customerId);
   const components = candidate.deterministicBasis.rScoreComponents;
@@ -1468,8 +1510,67 @@ function buildContainmentPanel(
     intentLabel: candidate.intentLabel,
     postureLabel: "HITL risk review only",
     recordIds: candidate.recordIds,
-    recordStripLabel: "M6 containment record IDs",
-    statusLabel: "M6 containment candidate"
+    recordStripLabel: "Containment review record IDs",
+    statusLabel: "Gaming-gate review candidate"
+  };
+}
+
+function readGovernedCockpitConfig(options: CockpitModelGovernanceOptions | undefined): GovernedConfigValues {
+  if (options?.governedConfig === undefined) {
+    throw new Error("Governed runtime config snapshot required.");
+  }
+
+  return options.governedConfig;
+}
+
+function readSettlementSource(options: CockpitModelGovernanceOptions | undefined): SourcePort {
+  if (options?.settlementSource === undefined) {
+    throw new Error("Supabase settlement source snapshot required.");
+  }
+
+  return options.settlementSource;
+}
+
+function readRiskObservationSource(options: CockpitModelGovernanceOptions | undefined): SourcePort {
+  if (options?.riskObservationSource === undefined) {
+    throw new Error("Supabase Tools_data risk observation source snapshot required.");
+  }
+
+  return options.riskObservationSource;
+}
+
+function readForensicsServiceContext(options: CockpitModelGovernanceOptions | undefined): ServiceInvocationContext {
+  if (options?.serviceContext === undefined) {
+    throw new Error("Supabase synthetic evidence service context required.");
+  }
+
+  return options.serviceContext;
+}
+
+function buildSettlementDataset(source: SourcePort): SettlementDataset {
+  const settlementRun = source.loadSettlementRun();
+  const zeroMoney = money("0.00");
+  const recoveryLines = settlementRun.deductionLines.filter((line) => line.routing === "recovery");
+  const validLines = settlementRun.deductionLines.filter((line) => line.routing === "billing");
+
+  return {
+    ...settlementRun,
+    manifest: {
+      eventIds: settlementRun.deductionLines.map((line) => line.eventId),
+      lineIds: settlementRun.deductionLines.map((line) => line.lineId),
+      scenarioIds: uniqueStrings(settlementRun.deductionLines.map((line) => line.scenarioId)) as Array<DeductionLine["scenarioId"]>,
+      seed: settlementRun.seed
+    },
+    rollup: {
+      billingLines: validLines.length,
+      recoveryAmount: recoveryLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
+      recoveryLines: recoveryLines.length,
+      totalAmount: settlementRun.deductionLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
+      totalLines: settlementRun.deductionLines.length,
+      validAmount: validLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
+      validLines: validLines.length
+    },
+    zeroMoney
   };
 }
 
@@ -1644,8 +1745,11 @@ const connectorDisplay: Record<ConnectorReadiness["name"], { key: string; label:
 };
 
 const evidenceSourceLabels: Record<DeductionDecision["evidenceDocuments"][number]["source"], string> = {
+  bureau: "Bureau",
   docs: "Contract Repo",
+  remittance: "Remittance",
   sap: "SAP OData",
+  supabase: "Supabase fallback",
   tpm: "TPM"
 };
 
@@ -1678,7 +1782,6 @@ const traceAuditLabels: Record<string, string> = {
 
 const cfoOpenDependencies = [
   "verify-prod-calibration",
-  "verify-runtime-config-loader",
   "verify-embeddings-model-id",
   "verify-codex-build-model-id",
   "verify-sap-sandbox-instance",
@@ -1700,11 +1803,6 @@ const cfoDependencyLabels: Record<(typeof cfoOpenDependencies)[number], { impact
     impact: "Blocks public arbitration proof",
     label: "Production calibration proof",
     owner: "Finance proof owner"
-  },
-  "verify-runtime-config-loader": {
-    impact: "Blocks live model execution",
-    label: "Runtime config loader",
-    owner: "Platform proof owner"
   },
   "verify-sap-sandbox-instance": {
     impact: "Blocks live SAP read validation",
@@ -1766,12 +1864,12 @@ function cfoRecordCountLabel(count: number): string {
 function cfoExecutiveMetadataValue(label: string, value: string): string {
   const lowerValue = value.toLowerCase();
 
-  if (lowerValue.includes("synthetic seed 42 plus")) {
-    return "Deterministic demo dataset plus governed read models";
+  if (lowerValue.includes("supabase settlement source rows")) {
+    return "Supabase settlement source rows plus governed read models";
   }
 
-  if (label === "Dataset" || lowerValue.includes("synthetic seed")) {
-    return "Deterministic demo dataset";
+  if (label === "Dataset" || lowerValue.includes("recoup_deduction_lines")) {
+    return "Supabase settlement source";
   }
 
   if (value.includes("HITL")) {
@@ -1789,8 +1887,13 @@ function actionLabel(actionType: string): string {
   return actionLabels[actionType] ?? labelFromRecordId(actionType);
 }
 
-function confidenceLabel(confidence: string): string {
-  return confidence.toLowerCase().includes("threshold") ? "Threshold required" : confidence;
+function confidenceDisplayValue(confidence: DeductionDecision["confidence"]): string {
+  return typeof confidence === "string" ? confidence : confidence.score;
+}
+
+function confidenceLabel(confidence: DeductionDecision["confidence"]): string {
+  const displayValue = confidenceDisplayValue(confidence);
+  return displayValue.toLowerCase().includes("threshold") ? "Threshold required" : displayValue;
 }
 
 function operationalValue(value: string): string {
@@ -1798,7 +1901,15 @@ function operationalValue(value: string): string {
 }
 
 function citationId(source: DeductionDecision["evidenceDocuments"][number]["source"], index: number): string {
-  const prefix = source === "sap" ? "S" : source === "tpm" ? "T" : "P";
+  const prefixBySource = {
+    bureau: "B",
+    docs: "P",
+    remittance: "R",
+    sap: "S",
+    supabase: "U",
+    tpm: "T"
+  } satisfies Record<DeductionDecision["evidenceDocuments"][number]["source"], string>;
+  const prefix = prefixBySource[source];
 
   return `${prefix}${String(index + 1)}`;
 }
@@ -1849,8 +1960,12 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function journeyStepLabel(index: number, total: number): string {
+  return `Step ${String(index + 1)}/${String(total)}`;
+}
+
 function riskMeshAuditHashes(auditEntries: AuditEntry[]) {
-  const arbitrationEntry = auditEntries.find((entry) => entry.entryType === "arbitration.blocked");
+  const arbitrationEntry = auditEntries.find((entry) => entry.entryType === "arbitration.blocked" || entry.entryType === "arbitration.ranked");
   const chainHeadEntry = auditEntries.at(-1);
   if (arbitrationEntry === undefined || chainHeadEntry === undefined) {
     throw new Error("Risk Mesh audit trail requires arbitration and chain-head entries.");
@@ -1861,6 +1976,25 @@ function riskMeshAuditHashes(auditEntries: AuditEntry[]) {
     chainHeadHash: chainHeadEntry.entryHash,
     entryHashes: auditEntries.map((entry) => entry.entryHash)
   };
+}
+
+function riskMeshArbitrationReason(arbitration: { reason?: string; resolution?: string; status: string }): string {
+  if (arbitration.status === "blocked" && arbitration.reason !== undefined) {
+    return arbitration.reason;
+  }
+  if (arbitration.status === "ranked" && arbitration.resolution !== undefined) {
+    return `ranked-resolution:${arbitration.resolution}`;
+  }
+
+  return arbitration.status;
+}
+
+function riskMeshArbitrationDisplayReason(arbitration: { resolution?: string; status: string }): string {
+  if (arbitration.status === "ranked" && arbitration.resolution !== undefined) {
+    return `Ranked resolution: ${labelFromRecordId(arbitration.resolution)}`;
+  }
+
+  return "Production calibration proof required";
 }
 
 function verdictLabel(verdict: string): string {

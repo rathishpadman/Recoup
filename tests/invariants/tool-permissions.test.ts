@@ -10,15 +10,19 @@ describe("tool permissions", () => {
       "actions.proposeHold",
       "actions.proposeTerms",
       "actions.routeBilling",
+      "agent_tool_containment_intent_position",
+      "agent_tool_sentinel_position",
       "approvals.decide",
       "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
       "query.answer",
+      "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",
-      "retrieval.tpm"
+      "retrieval.tpm",
+      "sources.r1Read"
     ]);
   });
 
@@ -28,6 +32,18 @@ describe("tool permissions", () => {
       riskClass: "financial"
     });
     expect(evaluateToolPermission(serviceToolMetadata["retrieval.sap"])).toMatchObject({
+      decision: "allow",
+      riskClass: "read_only"
+    });
+    expect(evaluateToolPermission(serviceToolMetadata["agent_tool_sentinel_position"])).toMatchObject({
+      decision: "allow",
+      riskClass: "read_only"
+    });
+    expect(evaluateToolPermission(serviceToolMetadata["agent_tool_containment_intent_position"])).toMatchObject({
+      decision: "allow",
+      riskClass: "read_only"
+    });
+    expect(evaluateToolPermission(serviceToolMetadata["sources.r1Read"])).toMatchObject({
       decision: "allow",
       riskClass: "read_only"
     });

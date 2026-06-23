@@ -1,8 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { assertFinalAgentOutput } from "../../src/guardrails/output/final.js";
 import { money } from "../../src/types/money.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
 
 describe("final output guardrail", () => {
   it("blocks final deduction outputs that bypass evidence or explainability guards", () => {
@@ -79,7 +84,7 @@ describe("final output guardrail", () => {
       contained: false,
       recordIds: ["CUST-RISK"],
       deterministicBasis: {
-        gamingThresholds: "owner-ratified-day-1-seed-present",
+        gamingThresholds: "governed-config-snapshot",
         noWrongfulContainment: true,
         rScoreComponents: {}
       }
@@ -111,7 +116,10 @@ describe("final output guardrail", () => {
 
   it("allows the Crestline M6 candidate when it carries behavioral evidence and no-action posture", async () => {
     const { assessCrestlineM6Containment } = await import("../../src/agents/containment.js");
-    const candidate = assessCrestlineM6Containment();
+    const candidate = assessCrestlineM6Containment({
+      deductionLines: source.loadSettlementRun().deductionLines,
+      gamingGate: governedConfig.gamingGate
+    });
 
     expect(() => {
       assertFinalAgentOutput({

@@ -5,13 +5,14 @@ import { decisionEvalBars, partialHoldThresholds, seed } from "./thresholds.js";
 
 const hashPattern = /^[a-f0-9]{64}$/u;
 const sumTolerance = 0.000000001;
-const governedConfigKeys = [
+export const governedConfigKeys = [
   "arbitration_weights",
   "r_score_weights",
   "r_drift",
   "gaming_gate",
   "partial_hold",
   "accuracy_bars",
+  "risk_mesh_cases",
   "seed"
 ] as const;
 
@@ -28,15 +29,22 @@ export const day1PartialHoldWeights = deepFreeze({
   paymentPattern: 0.15
 } as const);
 
+export const day1ArbitrationPnlWeights = deepFreeze({
+  billing: 0.15,
+  collections: 0.2,
+  credit: 0.35,
+  fulfillment: 0.3
+} as const);
+
 export const GovernedConfigKeySchema = z.enum(governedConfigKeys);
 export type GovernedConfigKey = z.infer<typeof GovernedConfigKeySchema>;
 
 export const ArbitrationPnlWeightsSchema = z
   .object({
-    billing: weightBand(0.15, 0.1, 0.05),
-    collections: weightBand(0.25, 0.1, 0.15),
-    credit: weightBand(0.35, 0.1, 0.2),
-    fulfillment: weightBand(0.25, 0.1, 0.1)
+    billing: governedRatio("billing"),
+    collections: governedRatio("collections"),
+    credit: governedRatio("credit"),
+    fulfillment: governedRatio("fulfillment")
   })
   .strict()
   .superRefine(requireSumToOne("arbitration P&L weights"));
@@ -44,10 +52,10 @@ export type ArbitrationPnlWeights = z.infer<typeof ArbitrationPnlWeightsSchema>;
 
 export const RScoreWeightsSchema = z
   .object({
-    agingConcentration: weightBand(0.2, 0.1, 0.1),
-    disputeRate: weightBand(0.25, 0.1, 0.1),
-    dsoAdp: weightBand(0.35, 0.1, 0.1),
-    overLimitFrequency: weightBand(0.2, 0.1, 0.1)
+    agingConcentration: governedRatio("agingConcentration"),
+    disputeRate: governedRatio("disputeRate"),
+    dsoAdp: governedRatio("dsoAdp"),
+    overLimitFrequency: governedRatio("overLimitFrequency")
   })
   .strict()
   .superRefine(requireSumToOne("R-score weights"));
@@ -55,9 +63,9 @@ export type RScoreWeights = z.infer<typeof RScoreWeightsSchema>;
 
 export const RDriftTriggerSchema = z
   .object({
-    cooldownDays: z.number().int().min(30),
-    disputeRateRelativeIncrease: z.number().finite().min(0.5),
-    dsoIncreaseDays: z.number().int().min(10),
+    cooldownDays: z.number().int().min(1),
+    disputeRateRelativeIncrease: z.number().finite().positive(),
+    dsoIncreaseDays: z.number().int().min(1),
     riskTierDowngrade: z.number().int().min(1)
   })
   .strict();
@@ -65,27 +73,27 @@ export type RDriftTrigger = z.infer<typeof RDriftTriggerSchema>;
 
 export const GamingGateSchema = z
   .object({
-    invalidLineCount: z.number().int().min(2),
+    invalidLineCount: z.number().int().min(1),
     invalidValueFloor: z
       .string()
       .regex(/^\d+\.\d{2}$/u)
-      .refine((value) => new Decimal(value).greaterThanOrEqualTo("10000.00"), {
-        message: "invalidValueFloor must meet the governed materiality floor."
+      .refine((value) => new Decimal(value).greaterThan(0), {
+        message: "invalidValueFloor must be a positive fixed-precision decimal string."
       }),
     promoCorrelationCount: z.number().int().min(1),
-    windowDays: z.number().int().min(90)
+    windowDays: z.number().int().min(1)
   })
   .strict();
 export type GamingGate = z.infer<typeof GamingGateSchema>;
 
 export const PartialHoldWeightsSchema = z
   .object({
-    customerStrategicValue: lockedNumber(day1PartialHoldWeights.customerStrategicValue, "customerStrategicValue"),
-    dsoPaymentDrift: lockedNumber(day1PartialHoldWeights.dsoPaymentDrift, "dsoPaymentDrift"),
-    orderMargin: lockedNumber(day1PartialHoldWeights.orderMargin, "orderMargin"),
-    orderValueVsExposure: lockedNumber(day1PartialHoldWeights.orderValueVsExposure, "orderValueVsExposure"),
-    paymentPattern: lockedNumber(day1PartialHoldWeights.paymentPattern, "paymentPattern"),
-    revenueForecast: lockedNumber(day1PartialHoldWeights.revenueForecast, "revenueForecast")
+    customerStrategicValue: governedRatio("customerStrategicValue"),
+    dsoPaymentDrift: governedRatio("dsoPaymentDrift"),
+    orderMargin: governedRatio("orderMargin"),
+    orderValueVsExposure: governedRatio("orderValueVsExposure"),
+    paymentPattern: governedRatio("paymentPattern"),
+    revenueForecast: governedRatio("revenueForecast")
   })
   .strict()
   .superRefine(requireSumToOne("partial-hold weights"));
@@ -93,15 +101,45 @@ export type GovernedPartialHoldWeights = z.infer<typeof PartialHoldWeightsSchema
 
 export const PartialHoldThresholdsSchema = z
   .object({
-    holdBelow: lockedNumber(partialHoldThresholds.holdBelow, "holdBelow"),
-    maxPartialReleasePercent: lockedNumber(partialHoldThresholds.maxPartialReleasePercent, "maxPartialReleasePercent"),
-    minPartialReleasePercent: lockedNumber(partialHoldThresholds.minPartialReleasePercent, "minPartialReleasePercent"),
-    partialFrom: lockedNumber(partialHoldThresholds.partialFrom, "partialFrom"),
-    partialThrough: lockedNumber(partialHoldThresholds.partialThrough, "partialThrough"),
-    releaseStepPercent: lockedNumber(partialHoldThresholds.releaseStepPercent, "releaseStepPercent"),
-    shipAbove: lockedNumber(partialHoldThresholds.shipAbove, "shipAbove")
+    holdBelow: governedPercent("holdBelow"),
+    maxPartialReleasePercent: governedPercent("maxPartialReleasePercent"),
+    minPartialReleasePercent: governedPercent("minPartialReleasePercent"),
+    partialFrom: governedPercent("partialFrom"),
+    partialThrough: governedPercent("partialThrough"),
+    releaseStepPercent: governedPercent("releaseStepPercent").positive(),
+    shipAbove: governedPercent("shipAbove")
   })
-  .strict();
+  .strict()
+  .superRefine((thresholds, context) => {
+    if (thresholds.holdBelow > thresholds.partialFrom) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "holdBelow must be less than or equal to partialFrom.",
+        path: ["holdBelow"]
+      });
+    }
+    if (thresholds.partialFrom > thresholds.partialThrough) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "partialFrom must be less than or equal to partialThrough.",
+        path: ["partialFrom"]
+      });
+    }
+    if (thresholds.partialThrough > thresholds.shipAbove) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "partialThrough must be less than or equal to shipAbove.",
+        path: ["partialThrough"]
+      });
+    }
+    if (thresholds.minPartialReleasePercent > thresholds.maxPartialReleasePercent) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "minPartialReleasePercent must be less than or equal to maxPartialReleasePercent.",
+        path: ["minPartialReleasePercent"]
+      });
+    }
+  });
 export type GovernedPartialHoldThresholds = z.infer<typeof PartialHoldThresholdsSchema>;
 
 export const PartialHoldConfigSchema = z
@@ -114,12 +152,119 @@ export type GovernedPartialHoldConfig = z.infer<typeof PartialHoldConfigSchema>;
 
 export const DecisionEvalBarsSchema = z
   .object({
-    arbitrationAgreement: accuracyBar(decisionEvalBars.arbitrationAgreement, "arbitrationAgreement"),
-    deductionValidityAccuracy: accuracyBar(decisionEvalBars.deductionValidityAccuracy, "deductionValidityAccuracy"),
-    intentPrecision: accuracyBar(decisionEvalBars.intentPrecision, "intentPrecision")
+    arbitrationAgreement: governedRatio("arbitrationAgreement"),
+    deductionValidityAccuracy: governedRatio("deductionValidityAccuracy"),
+    intentPrecision: governedRatio("intentPrecision")
   })
   .strict();
 export type GovernedDecisionEvalBars = z.infer<typeof DecisionEvalBarsSchema>;
+
+const RiskMeshRecordIdsSchema = z.array(z.string().trim().min(1)).min(1);
+const RiskMeshScoreSchema = z.number().finite().min(0).max(100);
+const RiskMeshDisplayTextSchema = z.string().trim().min(1);
+const RiskMeshOptionValueSchema = z
+  .string()
+  .regex(/^-?\d+(\.\d+)?$/u)
+  .refine((value) => new Decimal(value).isFinite(), {
+    message: "optionValue must be a finite decimal string."
+  });
+
+export const RiskMeshCaseConfigSchema = z
+  .object({
+    accountReadout: z
+      .object({
+        availableCreditLabel: RiskMeshDisplayTextSchema,
+        creditProgram: RiskMeshDisplayTextSchema,
+        hqRegion: RiskMeshDisplayTextSchema,
+        industry: RiskMeshDisplayTextSchema,
+        legalEntity: RiskMeshDisplayTextSchema,
+        limitLabel: RiskMeshDisplayTextSchema,
+        openArLabel: RiskMeshDisplayTextSchema,
+        ownerLabel: RiskMeshDisplayTextSchema,
+        posture: RiskMeshDisplayTextSchema
+      })
+      .strict(),
+    actionQueue: z
+      .array(
+        z
+          .object({
+            account: RiskMeshDisplayTextSchema,
+            age: RiskMeshDisplayTextSchema,
+            item: RiskMeshDisplayTextSchema,
+            nextStep: RiskMeshDisplayTextSchema,
+            priority: RiskMeshDisplayTextSchema,
+            status: RiskMeshDisplayTextSchema
+          })
+          .strict()
+      )
+      .min(1),
+    arbitrationPositions: z
+      .array(
+        z
+          .object({
+            functionName: z.enum(["billing", "collections", "credit", "fulfillment"]),
+            optionId: z.string().trim().min(1),
+            optionValue: RiskMeshOptionValueSchema.optional(),
+            position: z.string().trim().min(1),
+            recordIds: RiskMeshRecordIdsSchema
+          })
+          .strict()
+      )
+      .min(1),
+    caseId: z.string().trim().min(1),
+    containmentIntentLabel: RiskMeshDisplayTextSchema,
+    customerId: z.string().trim().min(1),
+    holdBasis: z.string().trim().min(1),
+    orderAmount: z
+      .string()
+      .regex(/^\d+\.\d{2}$/u)
+      .refine((value) => new Decimal(value).isFinite() && new Decimal(value).greaterThan(0), {
+        message: "orderAmount must be a positive fixed-precision decimal string."
+      }),
+    orderId: z.string().trim().min(1),
+    partialHoldScores: z
+      .object({
+        customerStrategicValue: RiskMeshScoreSchema,
+        dsoPaymentDrift: RiskMeshScoreSchema,
+        orderMargin: RiskMeshScoreSchema,
+        orderValueVsExposure: RiskMeshScoreSchema,
+        paymentPattern: RiskMeshScoreSchema,
+        revenueForecast: RiskMeshScoreSchema
+      })
+      .strict(),
+    recordIds: RiskMeshRecordIdsSchema,
+    riskObservationSource: z
+      .object({
+        baselinePaymentRefs: RiskMeshRecordIdsSchema,
+        criticalAlertSeverity: RiskMeshDisplayTextSchema,
+        criticalAlertType: RiskMeshDisplayTextSchema,
+        citedDeductionVerdicts: z.array(RiskMeshDisplayTextSchema).min(1),
+        currentPaymentRef: z.string().trim().min(1),
+        sourceCustomerId: z.string().trim().min(1)
+      })
+      .strict(),
+    sentinelDisplay: z
+      .object({
+        alertDetail: RiskMeshDisplayTextSchema,
+        displayReason: RiskMeshDisplayTextSchema,
+        filedLabel: RiskMeshDisplayTextSchema,
+        filingId: RiskMeshDisplayTextSchema,
+        recordStripLabel: RiskMeshDisplayTextSchema,
+        securedPartyLabel: RiskMeshDisplayTextSchema
+      })
+      .strict(),
+    terms: z.string().trim().min(1),
+    termsBasis: z.string().trim().min(1)
+  })
+  .strict();
+export type GovernedRiskMeshCaseConfig = z.infer<typeof RiskMeshCaseConfigSchema>;
+
+export const RiskMeshCasesSchema = z
+  .object({
+    harbor: RiskMeshCaseConfigSchema
+  })
+  .strict();
+export type GovernedRiskMeshCases = z.infer<typeof RiskMeshCasesSchema>;
 
 export const GovernedConfigValuesSchema = z
   .object({
@@ -129,6 +274,7 @@ export const GovernedConfigValuesSchema = z
     partialHold: PartialHoldConfigSchema,
     rDriftTrigger: RDriftTriggerSchema,
     rScoreWeights: RScoreWeightsSchema,
+    riskMeshCases: RiskMeshCasesSchema,
     seed: z.literal(seed)
   })
   .strict();
@@ -224,6 +370,7 @@ export function parseActiveGovernedConfigRows(rows: readonly unknown[]): Governe
     partialHold: rowForKey("partial_hold").valueJson,
     rDriftTrigger: rowForKey("r_drift").valueJson,
     rScoreWeights: rowForKey("r_score_weights").valueJson,
+    riskMeshCases: rowForKey("risk_mesh_cases").valueJson,
     seed: z.object({ seed: z.literal(seed) }).strict().parse(rowForKey("seed").valueJson).seed
   });
   const rowHashes = Object.fromEntries(
@@ -249,20 +396,77 @@ export function normalizeGovernedConfigRow(row: unknown): GovernedConfigSeedRow 
     approvedBy: record.approvedBy ?? record.approved_by,
     configHash: record.configHash ?? record.config_hash,
     configVersion: record.configVersion ?? record.config_version,
-    effectiveFrom: record.effectiveFrom ?? record.effective_from,
+    effectiveFrom: normalizeDateTimeCell(record.effectiveFrom ?? record.effective_from),
     key: record.key,
     valueJson: parseConfigJsonCell(record.valueJson ?? record.value_json)
   });
 }
 
+function buildHarborRound2ArbitrationPositions(): GovernedRiskMeshCaseConfig["arbitrationPositions"] {
+  const recordIds = ["CUST-HARBOR", "USCU_S04", "6534", "LEDGER-6-PARTIAL-HOLD"];
+  const options = [
+    {
+      optionId: "partial_release_55",
+      label: "Partial release 55% + revised terms",
+      values: {
+        billing: "0.75",
+        collections: "0.85",
+        credit: "0.80",
+        fulfillment: "0.65"
+      }
+    },
+    {
+      optionId: "full_release_revised_terms",
+      label: "Full release on revised terms",
+      values: {
+        billing: "0.85",
+        collections: "0.70",
+        credit: "0.35",
+        fulfillment: "0.90"
+      }
+    },
+    {
+      optionId: "full_release_100",
+      label: "Full release 100% current terms",
+      values: {
+        billing: "0.90",
+        collections: "0.30",
+        credit: "0.20",
+        fulfillment: "0.95"
+      }
+    },
+    {
+      optionId: "full_hold_0",
+      label: "Full hold 0% release",
+      values: {
+        billing: "0.20",
+        collections: "0.50",
+        credit: "0.95",
+        fulfillment: "0.10"
+      }
+    }
+  ] as const;
+  const functionBasis = {
+    billing: "relationship / strategic continuity",
+    collections: "collections recoverability",
+    credit: "credit-risk / loss avoidance",
+    fulfillment: "revenue / fulfilment"
+  } as const;
+
+  return options.flatMap((option) =>
+    (["credit", "fulfillment", "collections", "billing"] as const).map((functionName) => ({
+      functionName,
+      optionId: option.optionId,
+      optionValue: option.values[functionName],
+      position: `${option.label}: owner-supplied ${functionBasis[functionName]} option value.`,
+      recordIds
+    }))
+  );
+}
+
 const governedConfigValues = GovernedConfigValuesSchema.parse({
   accuracyBars: decisionEvalBars,
-  arbitrationWeights: {
-    billing: 0.15,
-    collections: 0.25,
-    credit: 0.35,
-    fulfillment: 0.25
-  },
+  arbitrationWeights: day1ArbitrationPnlWeights,
   gamingGate: {
     invalidLineCount: 2,
     invalidValueFloor: "10000.00",
@@ -285,6 +489,97 @@ const governedConfigValues = GovernedConfigValuesSchema.parse({
     dsoAdp: 0.35,
     overLimitFrequency: 0.2
   },
+  riskMeshCases: {
+    harbor: {
+      accountReadout: {
+        availableCreditLabel: "Pending ERP",
+        creditProgram: "Global standard",
+        hqRegion: "Houston, TX / NA",
+        industry: "Maritime services",
+        legalEntity: "Harbor Holdings LLC",
+        limitLabel: "Pending ERP",
+        openArLabel: "Pending ERP",
+        ownerLabel: "David Kim",
+        posture: "Human approval required"
+      },
+      actionQueue: [
+        {
+          account: "Harbor",
+          age: "00h 42m",
+          item: "Bureau lien alert",
+          nextStep: "Review lien",
+          priority: "P1",
+          status: "New"
+        },
+        {
+          account: "Harbor",
+          age: "01h 15m",
+          item: "Partial-hold recommended",
+          nextStep: "Review & send",
+          priority: "P1",
+          status: "Action required"
+        },
+        {
+          account: "Harbor",
+          age: "02h 10m",
+          item: "DSO drift alert",
+          nextStep: "View DSO",
+          priority: "P2",
+          status: "Investigate"
+        },
+        {
+          account: "Harbor",
+          age: "04h 02m",
+          item: "Order exposure update",
+          nextStep: "Review exposure",
+          priority: "P3",
+          status: "Advisory"
+        },
+        {
+          account: "Harbor",
+          age: "06h 33m",
+          item: "Policy exception",
+          nextStep: "Review exception",
+          priority: "P3",
+          status: "Advisory"
+        }
+      ],
+      arbitrationPositions: buildHarborRound2ArbitrationPositions(),
+      caseId: "ARB-HARBOR-ORDER-640K",
+      containmentIntentLabel: "distressed-honest",
+      customerId: "CUST-HARBOR",
+      holdBasis: "Harbor worked example computes a 55% controlled release from the deterministic partial-hold core.",
+      orderAmount: "640010.00",
+      orderId: "6534",
+      partialHoldScores: {
+        customerStrategicValue: 60,
+        dsoPaymentDrift: 30,
+        orderMargin: 80,
+        orderValueVsExposure: 35,
+        paymentPattern: 50,
+        revenueForecast: 65
+      },
+      recordIds: ["CUST-HARBOR", "USCU_S04", "6534", "LEDGER-6-PARTIAL-HOLD"],
+      riskObservationSource: {
+        baselinePaymentRefs: ["90000036", "90000060", "INV-HARB-003"],
+        criticalAlertSeverity: "CRITICAL",
+        criticalAlertType: "TAX_LIEN",
+        citedDeductionVerdicts: ["PARTIAL", "INVALID"],
+        currentPaymentRef: "90000085",
+        sourceCustomerId: "USCU_S04"
+      },
+      sentinelDisplay: {
+        alertDetail: "UCC-1 filing detected and priority review required before any release.",
+        displayReason: "Bureau lien alert",
+        filedLabel: "Filed: pending proof",
+        filingId: "UCC-1-HARBOR-PENDING",
+        recordStripLabel: "Sentinel alert record IDs",
+        securedPartyLabel: "Secured party: proof required"
+      },
+      terms: "2/10 Net-30 + 25% deposit",
+      termsBasis: "Sentinel drift observation routes revised terms to HITL without self-applying terms."
+    }
+  },
   seed
 });
 
@@ -303,6 +598,7 @@ export const governedConfigSeedRows = deepFreeze([
   buildSeedRow("gaming_gate", day1GovernedConfigSeed.values.gamingGate),
   buildSeedRow("partial_hold", day1GovernedConfigSeed.values.partialHold),
   buildSeedRow("accuracy_bars", day1GovernedConfigSeed.values.accuracyBars),
+  buildSeedRow("risk_mesh_cases", day1GovernedConfigSeed.values.riskMeshCases),
   buildSeedRow("seed", { seed: day1GovernedConfigSeed.values.seed })
 ] satisfies GovernedConfigSeedRow[]);
 
@@ -338,6 +634,15 @@ function buildSeedRow(key: GovernedConfigKey, valueJson: Record<string, unknown>
   });
 }
 
+function normalizeDateTimeCell(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : value;
+}
+
 function schemaForConfigKey(key: GovernedConfigKey): z.ZodType<unknown> {
   if (key === "arbitration_weights") {
     return ArbitrationPnlWeightsSchema;
@@ -357,16 +662,27 @@ function schemaForConfigKey(key: GovernedConfigKey): z.ZodType<unknown> {
   if (key === "accuracy_bars") {
     return DecisionEvalBarsSchema;
   }
+  if (key === "risk_mesh_cases") {
+    return RiskMeshCasesSchema;
+  }
 
   return z.object({ seed: z.literal(seed) }).strict();
 }
 
-function weightBand(defaultValue: number, adjustmentBand: number, hardFloor: number): z.ZodNumber {
+function governedRatio(label: string): z.ZodNumber {
   return z
     .number()
     .finite()
-    .min(Math.max(hardFloor, defaultValue - adjustmentBand))
-    .max(defaultValue + adjustmentBand);
+    .min(0, { message: `${label} must be greater than or equal to 0.` })
+    .max(1, { message: `${label} must be less than or equal to 1.` });
+}
+
+function governedPercent(label: string): z.ZodNumber {
+  return z
+    .number()
+    .finite()
+    .min(0, { message: `${label} must be greater than or equal to 0.` })
+    .max(100, { message: `${label} must be less than or equal to 100.` });
 }
 
 function requireSumToOne(label: string) {
@@ -379,23 +695,6 @@ function requireSumToOne(label: string) {
       });
     }
   };
-}
-
-function lockedNumber(expectedValue: number, label: string) {
-  return z
-    .number()
-    .finite()
-    .refine((value) => value === expectedValue, {
-      message: `${label} must match the owner-ratified Day-1 value ${String(expectedValue)}.`
-    });
-}
-
-function accuracyBar(lowerBound: number, label: string) {
-  return z
-    .number()
-    .finite()
-    .min(lowerBound, { message: `${label} must meet the owner-ratified release-blocking floor.` })
-    .max(1, { message: `${label} must be less than or equal to 1.` });
 }
 
 function parseConfigJsonCell(value: unknown): unknown {

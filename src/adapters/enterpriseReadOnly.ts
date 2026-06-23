@@ -93,7 +93,7 @@ export type EnterpriseConnectorReadiness =
       connectorName: EnterpriseConnectorName;
       liveContractStatus: "deferred_verify_v3";
       missingCredentialEnvNames: string[];
-      mode: "synthetic-static-table-credentials-required";
+      mode: "synthetic-source-table-credentials-required";
       reason: string;
       sourceTableName: string;
     }
@@ -101,7 +101,7 @@ export type EnterpriseConnectorReadiness =
       configured: true;
       connectorName: EnterpriseConnectorName;
       liveContractStatus: "deferred_verify_v3";
-      mode: "synthetic-static-table";
+      mode: "synthetic-source-table";
       sourceTableName: string;
     }
   | {
@@ -109,7 +109,7 @@ export type EnterpriseConnectorReadiness =
       connectorName: EnterpriseConnectorName;
       liveContractStatus: "deferred_verify_v3";
       missingCredentialEnvNames: [];
-      mode: "synthetic-static-table-schema-required";
+      mode: "synthetic-source-table-schema-required";
       reason: string;
       sourceTableName: string;
     };
@@ -131,7 +131,7 @@ export function describeEnterpriseConnectorReadiness(
         connectorName: syntheticSource.connectorName,
         liveContractStatus: "deferred_verify_v3",
         missingCredentialEnvNames,
-        mode: "synthetic-static-table-credentials-required",
+        mode: "synthetic-source-table-credentials-required",
         reason: `${displayName} synthetic source table ${syntheticSource.sourceTableName} requires Supabase source-table credentials.`,
         sourceTableName: syntheticSource.sourceTableName
       };
@@ -142,7 +142,7 @@ export function describeEnterpriseConnectorReadiness(
       connectorName: syntheticSource.connectorName,
       liveContractStatus: "deferred_verify_v3",
       missingCredentialEnvNames: [],
-      mode: "synthetic-static-table-schema-required",
+      mode: "synthetic-source-table-schema-required",
       reason: `${displayName} synthetic source table ${syntheticSource.sourceTableName} requires a Supabase schema readiness probe.`,
       sourceTableName: syntheticSource.sourceTableName
     };
@@ -190,7 +190,7 @@ export function buildEnterpriseReadRequestPlan(
 
   return {
     configured: false,
-    reason: `${displayName} live source reads are deferred to VERIFY-V3; Day-1 source readiness uses synthetic Supabase static table ${SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR[contract.connectorName]}.`,
+    reason: `${displayName} live source reads are deferred to VERIFY-V3; Day-1 source readiness uses synthetic Supabase source table ${SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR[contract.connectorName]}.`,
     requests: []
   };
 }

@@ -243,7 +243,7 @@ describe("Realtime Next proxy routes", () => {
 
     const response = await postApproval(
       new Request("http://localhost/api/approval", {
-        body: JSON.stringify({ actionId: "propose-hold:ORDER-HARBOR-640K", decision: "approve" }),
+        body: JSON.stringify({ actionId: "propose-hold:6534", decision: "approve" }),
         headers: {
           "content-type": "application/json",
           cookie: `${demoSessionCookieName}=${signedSession}`
@@ -288,7 +288,7 @@ describe("Realtime Next proxy routes", () => {
 
     const response = await postApproval(
       new Request("http://localhost/api/approval", {
-        body: JSON.stringify({ actionId: "propose-hold:ORDER-HARBOR-640K", decision: "approve" }),
+        body: JSON.stringify({ actionId: "propose-hold:6534", decision: "approve" }),
         headers: {
           "content-type": "application/json",
           cookie: `${demoSessionCookieName}=${signedSession}`
@@ -328,7 +328,7 @@ describe("Realtime Next proxy routes", () => {
 
     const response = await postApproval(
       new Request("http://localhost/api/approval", {
-        body: JSON.stringify({ actionId: "propose-hold:ORDER-HARBOR-640K", decision: "approve" }),
+        body: JSON.stringify({ actionId: "propose-hold:6534", decision: "approve" }),
         headers: {
           "content-type": "application/json",
           cookie: `${demoSessionCookieName}=${signedSession}`
@@ -358,7 +358,7 @@ describe("Realtime Next proxy routes", () => {
 
     const response = await postApproval(
       new Request("http://localhost/api/approval", {
-        body: JSON.stringify({ actionId: "propose-hold:ORDER-HARBOR-640K", decision: "approve" }),
+        body: JSON.stringify({ actionId: "propose-hold:6534", decision: "approve" }),
         headers: {
           "content-type": "application/json",
           cookie: `${demoSessionCookieName}=${signedSession}`

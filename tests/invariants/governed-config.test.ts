@@ -13,11 +13,13 @@ import {
   RScoreWeightsSchema,
   day1GovernedConfigSeed,
   governedConfigSeedRows,
+  normalizeGovernedConfigRow,
   parseActiveGovernedConfigRows,
   sha256CanonicalJson
 } from "../../config/governed.js";
 import { decisionEvalBars, partialHoldThresholds, seed } from "../../config/thresholds.js";
-import { partialHoldWeights } from "../../config/weights.js";
+
+const partialHoldWeights = day1GovernedConfigSeed.values.partialHold.weights;
 
 describe("governed Day-1 config", () => {
   it("exports the owner-ratified v1 values with a deterministic canonical hash", () => {
@@ -27,9 +29,9 @@ describe("governed Day-1 config", () => {
     expect(parsed.configVersion).toBe(1);
     expect(parsed.values.arbitrationWeights).toEqual({
       billing: 0.15,
-      collections: 0.25,
+      collections: 0.2,
       credit: 0.35,
-      fulfillment: 0.25
+      fulfillment: 0.3
     });
     expect(parsed.values.rScoreWeights).toEqual({
       agingConcentration: 0.2,
@@ -54,6 +56,13 @@ describe("governed Day-1 config", () => {
       weights: partialHoldWeights
     });
     expect(parsed.values.accuracyBars).toEqual(decisionEvalBars);
+    expect(parsed.values.riskMeshCases.harbor).toMatchObject({
+      caseId: "ARB-HARBOR-ORDER-640K",
+      customerId: "CUST-HARBOR",
+      orderAmount: "640010.00",
+      orderId: "6534",
+      terms: "2/10 Net-30 + 25% deposit"
+    });
     expect(parsed.values.seed).toBe(seed);
     expect(typeof parsed.values.gamingGate.invalidValueFloor).toBe("string");
     expect(typeof parsed.values.gamingGate.invalidValueFloor).not.toBe("number");
@@ -61,7 +70,29 @@ describe("governed Day-1 config", () => {
     expect(parsed.configHash).toBe(sha256Canonical(parsed.values));
   });
 
-  it("enforces supplied weight sums, floors, and HITL adjustment bands", () => {
+  it("enforces the SDD Risk Mesh function set as credit, fulfillment, billing, and collections", () => {
+    const functionNames = new Set(
+      day1GovernedConfigSeed.values.riskMeshCases.harbor.arbitrationPositions.map((position) => position.functionName)
+    );
+
+    expect(Object.keys(day1GovernedConfigSeed.values.arbitrationWeights).sort()).toEqual([
+      "billing",
+      "collections",
+      "credit",
+      "fulfillment"
+    ]);
+    expect([...functionNames].sort()).toEqual(["billing", "collections", "credit", "fulfillment"]);
+    expect(() =>
+      ArbitrationPnlWeightsSchema.parse({
+        collections: 0.2,
+        credit: 0.35,
+        fulfillment: 0.3,
+        relationship: 0.15
+      })
+    ).toThrow();
+  });
+
+  it("enforces governed weight shapes and sums without locking runtime rows to Day-1 seed values", () => {
     expect(ArbitrationPnlWeightsSchema.parse(day1GovernedConfigSeed.values.arbitrationWeights)).toEqual(
       day1GovernedConfigSeed.values.arbitrationWeights
     );
@@ -69,21 +100,30 @@ describe("governed Day-1 config", () => {
       day1GovernedConfigSeed.values.rScoreWeights
     );
 
+    expect(ArbitrationPnlWeightsSchema.parse({ billing: 0.1, collections: 0.25, credit: 0.4, fulfillment: 0.25 })).toEqual({
+      billing: 0.1,
+      collections: 0.25,
+      credit: 0.4,
+      fulfillment: 0.25
+    });
+    expect(RScoreWeightsSchema.parse({ agingConcentration: 0.25, disputeRate: 0.25, dsoAdp: 0.3, overLimitFrequency: 0.2 })).toEqual({
+      agingConcentration: 0.25,
+      disputeRate: 0.25,
+      dsoAdp: 0.3,
+      overLimitFrequency: 0.2
+    });
     expect(() =>
-      ArbitrationPnlWeightsSchema.parse({ billing: 0.1, collections: 0.24, credit: 0.46, fulfillment: 0.2 })
+      ArbitrationPnlWeightsSchema.parse({ billing: 0.1, collections: 0.2, credit: 0.35, fulfillment: 0.3 })
     ).toThrow();
     expect(() =>
-      ArbitrationPnlWeightsSchema.parse({ billing: 0.04, collections: 0.25, credit: 0.36, fulfillment: 0.35 })
-    ).toThrow();
-    expect(() =>
-      ArbitrationPnlWeightsSchema.parse({ billing: 0.15, collections: 0.25, credit: 0.35, fulfillment: 0.2 })
+      ArbitrationPnlWeightsSchema.parse({ collections: 0.2, credit: 0.35, fulfillment: 0.3 })
     ).toThrow();
     expect(() =>
       RScoreWeightsSchema.parse({
-        agingConcentration: 0.17,
-        disputeRate: 0.2,
-        dsoAdp: 0.46,
-        overLimitFrequency: 0.17
+        agingConcentration: -0.1,
+        disputeRate: 0.25,
+        dsoAdp: 0.45,
+        overLimitFrequency: 0.4
       })
     ).toThrow();
     expect(() =>
@@ -96,7 +136,7 @@ describe("governed Day-1 config", () => {
     ).toThrow();
   });
 
-  it("enforces Day-1 trigger and gaming-gate floors without representing money as a number", () => {
+  it("enforces trigger and gaming-gate structure without representing money as a number", () => {
     expect(RDriftTriggerSchema.parse(day1GovernedConfigSeed.values.rDriftTrigger)).toEqual(
       day1GovernedConfigSeed.values.rDriftTrigger
     );
@@ -104,9 +144,35 @@ describe("governed Day-1 config", () => {
       day1GovernedConfigSeed.values.gamingGate
     );
 
+    expect(
+      RDriftTriggerSchema.parse({
+        cooldownDays: 7,
+        disputeRateRelativeIncrease: 0.25,
+        dsoIncreaseDays: 5,
+        riskTierDowngrade: 2
+      })
+    ).toEqual({
+      cooldownDays: 7,
+      disputeRateRelativeIncrease: 0.25,
+      dsoIncreaseDays: 5,
+      riskTierDowngrade: 2
+    });
+    expect(
+      GamingGateSchema.parse({
+        invalidLineCount: 1,
+        invalidValueFloor: "5000.00",
+        promoCorrelationCount: 1,
+        windowDays: 30
+      })
+    ).toEqual({
+      invalidLineCount: 1,
+      invalidValueFloor: "5000.00",
+      promoCorrelationCount: 1,
+      windowDays: 30
+    });
     expect(() =>
       RDriftTriggerSchema.parse({
-        cooldownDays: 29,
+        cooldownDays: 0,
         disputeRateRelativeIncrease: 0.5,
         dsoIncreaseDays: 10,
         riskTierDowngrade: 1
@@ -119,7 +185,7 @@ describe("governed Day-1 config", () => {
         promoCorrelationCount: 1,
         windowDays: 90
       })
-    ).toThrow();
+    ).not.toThrow();
     expect(() =>
       GamingGateSchema.parse({
         invalidLineCount: 2,
@@ -131,61 +197,95 @@ describe("governed Day-1 config", () => {
     expect(() =>
       GamingGateSchema.parse({
         invalidLineCount: 2,
-        invalidValueFloor: "9999.99",
+        invalidValueFloor: "0.00",
         promoCorrelationCount: 1,
         windowDays: 90
       })
     ).toThrow();
   });
 
-  it("rejects partial-hold weights that do not match the locked Day-1 contract", () => {
+  it("accepts runtime partial-hold weights from governed rows while rejecting invalid sums", () => {
     expect(PartialHoldWeightsSchema.parse(partialHoldWeights)).toEqual(partialHoldWeights);
 
+    expect(
+      PartialHoldWeightsSchema.parse({
+        customerStrategicValue: 0.1,
+        dsoPaymentDrift: 0.25,
+        orderMargin: 0.15,
+        orderValueVsExposure: 0.25,
+        paymentPattern: 0.1,
+        revenueForecast: 0.15
+      })
+    ).toEqual({
+      customerStrategicValue: 0.1,
+      dsoPaymentDrift: 0.25,
+      orderMargin: 0.15,
+      orderValueVsExposure: 0.25,
+      paymentPattern: 0.1,
+      revenueForecast: 0.15
+    });
     expect(() =>
       PartialHoldWeightsSchema.parse({
         ...partialHoldWeights,
-        customerStrategicValue: 0.16,
-        orderValueVsExposure: 0.19
+        customerStrategicValue: 0.16
       })
     ).toThrow();
     expect(() =>
       PartialHoldWeightsSchema.parse({
         ...partialHoldWeights,
-        dsoPaymentDrift: 0.15,
-        paymentPattern: 0.2
+        dsoPaymentDrift: -0.05,
+        paymentPattern: 0.4
       })
     ).toThrow();
   });
 
-  it("rejects partial-hold thresholds that drift from the locked bands, step, floor, or ceiling", () => {
+  it("accepts runtime partial-hold thresholds from governed rows while enforcing logical bands", () => {
     expect(PartialHoldThresholdsSchema.parse(partialHoldThresholds)).toEqual(partialHoldThresholds);
 
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, holdBelow: 39 })).toThrow();
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, partialFrom: 41 })).toThrow();
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, partialThrough: 61 })).toThrow();
+    expect(
+      PartialHoldThresholdsSchema.parse({
+        holdBelow: 35,
+        partialFrom: 35,
+        partialThrough: 65,
+        shipAbove: 65,
+        releaseStepPercent: 10,
+        minPartialReleasePercent: 30,
+        maxPartialReleasePercent: 80
+      })
+    ).toEqual({
+      holdBelow: 35,
+      partialFrom: 35,
+      partialThrough: 65,
+      shipAbove: 65,
+      releaseStepPercent: 10,
+      minPartialReleasePercent: 30,
+      maxPartialReleasePercent: 80
+    });
+    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, holdBelow: 101 })).toThrow();
+    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, partialFrom: 39 })).toThrow();
+    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, partialThrough: 39 })).toThrow();
     expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, shipAbove: 59 })).toThrow();
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, releaseStepPercent: 10 })).toThrow();
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, minPartialReleasePercent: 35 })).toThrow();
-    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, maxPartialReleasePercent: 75 })).toThrow();
+    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, releaseStepPercent: 0 })).toThrow();
+    expect(() => PartialHoldThresholdsSchema.parse({ ...partialHoldThresholds, minPartialReleasePercent: 75 })).toThrow();
   });
 
-  it("rejects accuracy bars below locked release-blocking floors or above one", () => {
+  it("accepts runtime accuracy bars from governed rows while rejecting impossible ratios", () => {
     expect(DecisionEvalBarsSchema.parse(decisionEvalBars)).toEqual(decisionEvalBars);
     expect(
       DecisionEvalBarsSchema.parse({
-        arbitrationAgreement: 0.95,
-        deductionValidityAccuracy: 0.95,
-        intentPrecision: 0.95
+        arbitrationAgreement: 0.8,
+        deductionValidityAccuracy: 0.88,
+        intentPrecision: 0.86
       })
     ).toEqual({
-      arbitrationAgreement: 0.95,
-      deductionValidityAccuracy: 0.95,
-      intentPrecision: 0.95
+      arbitrationAgreement: 0.8,
+      deductionValidityAccuracy: 0.88,
+      intentPrecision: 0.86
     });
 
-    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, deductionValidityAccuracy: 0.89 })).toThrow();
-    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, intentPrecision: 0.89 })).toThrow();
-    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, arbitrationAgreement: 0.84 })).toThrow();
+    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, deductionValidityAccuracy: -0.01 })).toThrow();
+    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, intentPrecision: -0.01 })).toThrow();
+    expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, arbitrationAgreement: -0.01 })).toThrow();
     expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, deductionValidityAccuracy: 1.01 })).toThrow();
     expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, intentPrecision: 1.01 })).toThrow();
     expect(() => DecisionEvalBarsSchema.parse({ ...decisionEvalBars, arbitrationAgreement: 1.01 })).toThrow();
@@ -199,6 +299,7 @@ describe("governed Day-1 config", () => {
       "gaming_gate",
       "partial_hold",
       "accuracy_bars",
+      "risk_mesh_cases",
       "seed"
     ]);
     expect(governedConfigSeedRows.map((row) => row.key)).toEqual([
@@ -208,6 +309,7 @@ describe("governed Day-1 config", () => {
       "gaming_gate",
       "partial_hold",
       "accuracy_bars",
+      "risk_mesh_cases",
       "seed"
     ]);
 
@@ -225,6 +327,9 @@ describe("governed Day-1 config", () => {
       weights: partialHoldWeights
     });
     expect(governedConfigSeedRows.find((row) => row.key === "accuracy_bars")?.valueJson).toEqual(decisionEvalBars);
+    expect(governedConfigSeedRows.find((row) => row.key === "risk_mesh_cases")?.valueJson).toEqual(
+      day1GovernedConfigSeed.values.riskMeshCases
+    );
     expect(governedConfigSeedRows.find((row) => row.key === "seed")?.valueJson).toEqual({ seed });
   });
 
@@ -262,9 +367,82 @@ describe("governed Day-1 config", () => {
     expect(Object.isFrozen(snapshot.values.partialHold.thresholds)).toBe(true);
   });
 
+  it("uses active Supabase row values as runtime authority when hashes and schemas are valid", () => {
+    const runtimeOverrides = {
+      accuracy_bars: {
+        arbitrationAgreement: 0.8,
+        deductionValidityAccuracy: 0.88,
+        intentPrecision: 0.86
+      },
+      arbitration_weights: {
+        billing: 0.1,
+        collections: 0.25,
+        credit: 0.4,
+        fulfillment: 0.25
+      },
+      gaming_gate: {
+        invalidLineCount: 1,
+        invalidValueFloor: "5000.00",
+        promoCorrelationCount: 1,
+        windowDays: 30
+      },
+      partial_hold: {
+        thresholds: {
+          holdBelow: 35,
+          maxPartialReleasePercent: 80,
+          minPartialReleasePercent: 30,
+          partialFrom: 35,
+          partialThrough: 65,
+          releaseStepPercent: 10,
+          shipAbove: 65
+        },
+        weights: {
+          customerStrategicValue: 0.1,
+          dsoPaymentDrift: 0.25,
+          orderMargin: 0.15,
+          orderValueVsExposure: 0.25,
+          paymentPattern: 0.1,
+          revenueForecast: 0.15
+        }
+      },
+      r_drift: {
+        cooldownDays: 7,
+        disputeRateRelativeIncrease: 0.25,
+        dsoIncreaseDays: 5,
+        riskTierDowngrade: 2
+      },
+      r_score_weights: {
+        agingConcentration: 0.25,
+        disputeRate: 0.25,
+        dsoAdp: 0.3,
+        overLimitFrequency: 0.2
+      }
+    };
+    const snapshot = parseActiveGovernedConfigRows(toPostgrestRows(runtimeOverrides));
+
+    expect(snapshot.values.accuracyBars).toEqual(runtimeOverrides.accuracy_bars);
+    expect(snapshot.values.arbitrationWeights).toEqual(runtimeOverrides.arbitration_weights);
+    expect(snapshot.values.gamingGate).toEqual(runtimeOverrides.gaming_gate);
+    expect(snapshot.values.partialHold).toEqual(runtimeOverrides.partial_hold);
+    expect(snapshot.values.rDriftTrigger).toEqual(runtimeOverrides.r_drift);
+    expect(snapshot.values.rScoreWeights).toEqual(runtimeOverrides.r_score_weights);
+    expect(snapshot.configHash).toBe(sha256CanonicalJson(snapshot.values));
+  });
+
   it("normalizes snake_case PostgREST rows and camelCase test rows to the same snapshot", () => {
     expect(parseActiveGovernedConfigRows(toPostgrestRows())).toEqual(
       parseActiveGovernedConfigRows(governedConfigSeedRows)
+    );
+  });
+
+  it("normalizes Supabase timestamptz offsets before strict datetime validation", () => {
+    const [row] = toPostgrestRows();
+    if (row === undefined) {
+      throw new Error("governed config seed rows should not be empty.");
+    }
+
+    expect(normalizeGovernedConfigRow({ ...row, effective_from: "2026-06-20 00:00:00+00" }).effectiveFrom).toBe(
+      "2026-06-20T00:00:00.000Z"
     );
   });
 
@@ -307,14 +485,14 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function toPostgrestRows() {
+function toPostgrestRows(overrides: Partial<Record<string, unknown>> = {}) {
   return governedConfigSeedRows.map((row) => ({
     active: row.active,
     approved_by: row.approvedBy,
-    config_hash: row.configHash,
+    config_hash: sha256CanonicalJson(overrides[row.key] ?? row.valueJson),
     config_version: row.configVersion,
     effective_from: row.effectiveFrom,
     key: row.key,
-    value_json: row.valueJson
+    value_json: overrides[row.key] ?? row.valueJson
   }));
 }

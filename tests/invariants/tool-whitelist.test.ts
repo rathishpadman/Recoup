@@ -1,23 +1,33 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { invokeServiceTool, serviceTools } from "../../src/services/serviceLayer.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
 
 describe("I-15 whitelisted typed tools", () => {
-  it("exposes only bounded retrieval and draft action tools", () => {
+  it("exposes only bounded retrieval, advisory, and draft action tools", () => {
     expect(Object.keys(serviceTools).sort()).toEqual([
       "actions.draftOutreach",
       "actions.draftRebill",
       "actions.proposeHold",
       "actions.proposeTerms",
       "actions.routeBilling",
+      "agent_tool_containment_intent_position",
+      "agent_tool_sentinel_position",
       "approvals.decide",
       "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
       "query.answer",
+      "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",
-      "retrieval.tpm"
+      "retrieval.tpm",
+      "sources.r1Read"
     ]);
   });
 
@@ -56,14 +66,14 @@ describe("I-15 whitelisted typed tools", () => {
     expect(() =>
       invokeServiceTool("actions.proposeHold", {
         customerId: "CUST-HARBOR",
-        releaseAmount: "352000.00"
+        releaseAmount: "352005.50"
       })
     ).toThrow();
   });
 
   it("records service-boundary tool invocations in the S4 trace", async () => {
     const { runForensicsInvestigation } = await import("../../src/agents/forensics.js");
-    const run = runForensicsInvestigation();
+    const run = runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
 
     expect(run.trace.some((event) => event.type === "status" && event.payload.kind === "service-tool")).toBe(true);
     expect(run.trace.some((event) => event.type === "status" && event.payload.toolName === "core.evaluateRule")).toBe(true);

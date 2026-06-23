@@ -13,9 +13,21 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./cockpit/*"]
+    },
     "jsx": "react-jsx",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "evals/**/*.ts", "config/**/*.ts", "cockpit/**/*.ts", "cockpit/**/*.tsx"],
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "evals/**/*.ts",
+    "config/**/*.ts",
+    "scripts/**/*.ts",
+    "cockpit/**/*.ts",
+    "cockpit/**/*.tsx"
+  ],
   "exclude": ["node_modules"]
 }

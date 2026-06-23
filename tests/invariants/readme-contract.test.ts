@@ -23,7 +23,8 @@ describe("judge README contract", () => {
     expect(readme).toContain("read-only executive close");
     expect(readme).toContain("owner-ratified Day-1 tunables");
     expect(readme).toContain("governed config loader");
-    expect(readme).toContain("synthetic Supabase static tables");
+    expect(readme).toContain("synthetic Supabase source tables");
+    expect(readme).toContain("Production `/run` and MCP SAP/docs/TPM/bureau retrieval load Supabase `recoup_src_sap`, `recoup_src_docs`, `recoup_src_tpm`, and `recoup_src_bureau` evidence rows");
     expect(readme).toContain("VERIFY-PROD calibration");
     expect(readme).toContain("embeddings model id");
     expect(readme).toContain("Codex build-model id");

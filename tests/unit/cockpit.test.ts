@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  day1BootstrapSeedApprovedBy,
+  day1GovernedConfigSeed,
+  governedConfigSeedRows,
+  parseActiveGovernedConfigRows,
+  sha256CanonicalJson
+} from "../../config/governed.js";
+import {
   ALL_TOOLS_DATA_TABLE_NAMES,
   type SupabaseToolDataSchemaProbe
 } from "../../src/adapters/connectorRegistry.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import {
   buildAgentGraphModel,
   buildConnectorReadinessModel,
@@ -16,13 +24,64 @@ import {
   buildMemorySummaryModel,
   buildTraceModel
 } from "../../src/services/cockpitModel.js";
+import type {
+  ServiceInvocationContext,
+  ServiceSapEvidenceSource,
+  ServiceSyntheticEvidenceSource
+} from "../../src/services/serviceLayer.js";
 import { runRiskMeshClosedLoop } from "../../src/agents/riskMesh.js";
 import type { MemoryRecord } from "../../src/memory/schema.js";
+import { retrieveBureau } from "../../src/tools/retrieval/bureau.js";
+import { retrieveDocs } from "../../src/tools/retrieval/docs.js";
+import { retrieveTpm } from "../../src/tools/retrieval/tpm.js";
 import { ToolStatusRail } from "../../cockpit/app/premium-components.tsx";
 
 const realAuditEntryHashPattern = /^[a-f0-9]{64}$/u;
+const governedConfig = day1GovernedConfigSeed.values;
+const source = new SyntheticSource({ seed: 42 });
+const fixtureSyntheticEvidenceSource: ServiceSyntheticEvidenceSource = {
+  readEvidence(connectorName, line) {
+    if (connectorName === "bureau") {
+      return retrieveBureau(line);
+    }
+    if (connectorName === "docs-repo") {
+      return retrieveDocs(line);
+    }
+
+    return retrieveTpm(line);
+  }
+};
+const fixtureSapEvidenceSource: ServiceSapEvidenceSource = {
+  readEvidence(line) {
+    return line.recordIds
+      .filter((recordId) => recordId.startsWith("INV-"))
+      .map((recordId) => ({
+        documentId: `SAP-${recordId}`,
+        documentType: "invoice",
+        recordIds: [line.lineId, recordId, `SAP-${recordId}`],
+        source: "sap",
+        summary: `Supabase SAP source row for ${recordId}.`
+      }));
+  }
+};
+const fixtureServiceContext: ServiceInvocationContext = {
+  governedConfig,
+  requireSupabaseSapEvidence: true,
+  requireSupabaseSyntheticEvidence: true,
+  sapEvidenceSource: fixtureSapEvidenceSource,
+  source,
+  syntheticEvidenceSource: fixtureSyntheticEvidenceSource
+};
+const sourceOptions = { riskObservationSource: source, serviceContext: fixtureServiceContext, settlementSource: source } as const;
 
 describe("S5 Forensics cockpit model", () => {
+  it("fails closed when governed runtime config is not injected into read-model builders", () => {
+    expect(() => buildForensicsCockpitModel(undefined)).toThrow("Governed runtime config snapshot required.");
+    expect(() => buildCreditCockpitModel(undefined)).toThrow("Governed runtime config snapshot required.");
+    expect(() => buildCfoSummaryCockpitModel(undefined)).toThrow("Governed runtime config snapshot required.");
+    expect(() => buildTraceModel(undefined)).toThrow("Governed runtime config snapshot required.");
+  });
+
   it("builds login personas from the canonical deterministic demo profiles", () => {
     const model = buildLoginModel();
 
@@ -51,7 +110,7 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("builds a pre-triaged 8-card worklist with evidence, draft, and approval actions", () => {
-    const model = buildForensicsCockpitModel();
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions });
 
     expect(model.surface).toBe("forensics-analyst");
     expect(model.worklist).toHaveLength(8);
@@ -59,11 +118,18 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.worklist.every((item) => item.lineCount >= 1)).toBe(true);
     expect(model.worklist.every((item) => Number.parseInt(item.evidenceScoreLabel, 10) > 0)).toBe(true);
     expect(model.worklist.every((item) => item.queueLabel.length > 0)).toBe(true);
+    expect(model.kpiStrip).toContainEqual({
+      label: "Evidence sources",
+      value: "4",
+      support: "SAP, Docs, TPM, Bureau"
+    });
     expect(model.selected.evidencePack.documents.length).toBeGreaterThan(0);
+    expect(model.selected.evidencePack.documents.every((document) => /^[BPRST]\d+$/u.test(document.citationId))).toBe(true);
     expect(model.selected.draft.status).toBe("pending_human");
     expect(model.selected.draft.actionLabel).toBe("Recovery draft staged");
     expect(model.selected.approvalActions.map((action) => action.decision)).toEqual(["approve", "modify", "reject"]);
     expect(model.multimodalDock.policyLabel).toBe("voice/text citation parity");
+    expect(model.retrievalStatus.map((status) => status.source)).toEqual(["SAP", "Docs", "TPM", "Bureau"]);
     expect(model.multimodalDock.subAgents.map((agent) => agent.name)).toEqual(["POD-Retriever", "Contract-Reader", "TPM-Matcher"]);
     expect(model.mayaJourney.map((step) => step.label)).toEqual([
       "Ingest",
@@ -80,8 +146,8 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("surfaces Crestline M6 as a risk-review-only containment read model", () => {
-    const model = buildForensicsCockpitModel();
-    const credit = buildCreditCockpitModel();
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions });
+    const credit = buildCreditCockpitModel({ governedConfig, ...sourceOptions });
 
     expect(model.containmentPanel).toMatchObject({
       actionPostureLabel: "No hold or freeze action staged",
@@ -89,7 +155,7 @@ describe("S5 Forensics cockpit model", () => {
       customerLabel: "Crestline Grocery",
       intentLabel: "gaming",
       postureLabel: "HITL risk review only",
-      statusLabel: "M6 containment candidate"
+      statusLabel: "Gaming-gate review candidate"
     });
     expect(model.containmentPanel.recordIds).toEqual(
       expect.arrayContaining(["S3-L1", "POD-SIGNED-1", "S6-L1", "PRICE-CLAUSE-1"])
@@ -99,18 +165,18 @@ describe("S5 Forensics cockpit model", () => {
     );
     expect(model.containmentPanel.basisRows).toContainEqual({
       label: "Gaming gate",
-      value: "owner-ratified-day-1-seed-present"
+      value: "governed-config-snapshot"
     });
     expect(model.containmentPanel.handoff).toMatchObject({
       label: "David / Risk Mesh reference",
       status: "review-only handoff"
     });
     expect(model.actionInbox.every((action) => action.actionType !== "propose-hold")).toBe(true);
-    expect(credit.negotiation.timeline.some((item) => item.message.includes("Crestline M6"))).toBe(true);
+    expect(credit.negotiation.timeline.some((item) => item.message.includes("CUST-CRESTLINE"))).toBe(true);
   });
 
   it("formats money from service Decimal values, not cockpit arithmetic", () => {
-    const model = buildForensicsCockpitModel();
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions });
 
     expect(model.recoveryTracker.totalExposure).toBe("$112,400.00");
     expect(model.recoveryTracker.projectedRecovery).toBe("$79,800.00");
@@ -119,7 +185,7 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("exposes an SSE envelope sequence with finding, verdict, and status events", () => {
-    const events = buildForensicsSseEvents();
+    const events = buildForensicsSseEvents({ governedConfig, ...sourceOptions });
     const eventTypes = events.map((event) => event.type as string);
 
     expect(eventTypes.includes("finding")).toBe(true);
@@ -129,10 +195,10 @@ describe("S5 Forensics cockpit model", () => {
     expect(events.every((event) => "payload" in event)).toBe(true);
   });
 
-  it("builds the David credit and arbitration read model without activating expert-owned constants", () => {
-    const model = buildCreditCockpitModel();
-    const riskRun = runRiskMeshClosedLoop();
-    const arbitrationEntry = riskRun.auditEntries.find((entry) => entry.entryType === "arbitration.blocked");
+  it("builds the David credit and arbitration read model from owner-supplied governed values", () => {
+    const model = buildCreditCockpitModel({ governedConfig, ...sourceOptions });
+    const riskRun = runRiskMeshClosedLoop({ governedConfig, source });
+    const arbitrationEntry = riskRun.auditEntries.find((entry) => entry.entryType === "arbitration.ranked");
     const chainHeadEntry = riskRun.auditEntries.at(-1);
     if (arbitrationEntry === undefined || chainHeadEntry === undefined) {
       throw new Error("Risk Mesh run must expose arbitration and chain-head audit entries.");
@@ -143,22 +209,22 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.account).toMatchObject({
       caseId: "ARB-HARBOR-ORDER-640K",
       customerLabel: "Harbor",
-      orderAmount: "$640,000.00",
-      orderId: "ORDER-HARBOR-640K",
+      orderAmount: "$640,010.00",
+      orderId: "6534",
       posture: "Human approval required"
     });
-    expect(model.sentinel.reason).toBe("verify-runtime-config-loader-required");
+    expect(model.sentinel.reason).toBe("source-risk-observation-fields-required");
     expect(model.sentinel.displayReason).toBe("Bureau lien alert");
     expect(model.sentinel.signals).toContainEqual({ label: "Lien signal", value: "observed" });
     expect(model.sentinel.alertDetail).toContain("UCC-1 filing detected");
     expect(model.actionQueue.map((item) => item.item)).toContain("Bureau lien alert");
     expect(model.actionQueue).toHaveLength(5);
     expect(model.partialHold.releaseRatioPercent).toBe("55%");
-    expect(model.partialHold.proposedReleaseAmount).toBe("$352,000.00");
+    expect(model.partialHold.proposedReleaseAmount).toBe("$352,005.50");
     expect(model.partialHold.criteria.map((criterion) => criterion.label)).toContain("Order exposure");
-    expect(model.arbitration.status).toBe("blocked");
-    expect(model.arbitration.reason).toBe("verify-prod-calibration-required");
-    expect(model.arbitration.displayReason).toBe("Production calibration proof required");
+    expect(model.arbitration.status).toBe("ranked");
+    expect(model.arbitration.reason).toBe("ranked-resolution:partial_release_55");
+    expect(model.arbitration.displayReason).toBe("Ranked resolution: partial_release_55");
     expect(model.termProposal.status).toBe("pending_human");
     expect(model.termProposal.statusLabel).toBe("Awaiting David approval");
     expect(model.approvalInbox.some((item) => item.actionType === "propose-hold")).toBe(true);
@@ -177,23 +243,76 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.audit.entryHashes).toEqual(riskRun.auditEntries.map((entry) => entry.entryHash));
     expect(model.audit.entryHashes.every((entryHash) => realAuditEntryHashPattern.test(entryHash))).toBe(true);
     expect(model.negotiation.provenance).toBe("deterministic_read_model");
-    expect(model.negotiation.nodes.map((node) => node.functionName)).toEqual([
-      "credit",
-      "fulfillment",
-      "billing",
-      "collections"
-    ]);
-    expect(model.negotiation.nodes.map((node) => node.displayName)).toEqual([
-      "Credit",
-      "Fulfillment",
-      "Billing",
-      "Collections"
-    ]);
+    expect(model.negotiation.nodes).toHaveLength(governedConfig.riskMeshCases.harbor.arbitrationPositions.length);
+    expect(new Set(model.negotiation.nodes.map((node) => node.functionName))).toEqual(
+      new Set(["billing", "collections", "credit", "fulfillment"])
+    );
+    expect(new Set(model.negotiation.nodes.map((node) => node.displayName))).toEqual(
+      new Set(["Billing", "Collections", "Credit", "Fulfillment"])
+    );
     expect(model.negotiation.nodes.every((node) => node.recordIds.length > 0)).toBe(true);
   });
 
+  it("renders ranked Risk Mesh arbitration from runtime governed option values", () => {
+    const runtimeGovernedConfig = parseActiveGovernedConfigRows(
+      buildSupabaseGovernedConfigRows({
+        harbor: {
+          ...governedConfig.riskMeshCases.harbor,
+          arbitrationPositions: [
+            {
+              functionName: "credit",
+              optionId: "partial-hold",
+              optionValue: "100.00",
+              position: "Owner-supplied credit value for controlled release.",
+              recordIds: ["CUST-HARBOR", "6534", "DB-RANKED-CREDIT"]
+            },
+            {
+              functionName: "fulfillment",
+              optionId: "ship-now",
+              optionValue: "80.00",
+              position: "Owner-supplied fulfillment value for immediate shipment.",
+              recordIds: ["6534", "DB-RANKED-FULFILLMENT"]
+            },
+            {
+              functionName: "billing",
+              optionId: "revised-terms",
+              optionValue: "120.00",
+              position: "Owner-supplied billing value for revised terms.",
+              recordIds: ["CUST-HARBOR", "DB-RANKED-BILLING"]
+            },
+            {
+              functionName: "collections",
+              optionId: "sentinel-checkpoint",
+              optionValue: "70.00",
+              position: "Owner-supplied collections value for checkpoint handling.",
+              recordIds: ["CUST-HARBOR", "DB-RANKED-COLLECTIONS"]
+            }
+          ]
+        }
+      })
+    ).values;
+    const riskRun = runRiskMeshClosedLoop({ governedConfig: runtimeGovernedConfig, source });
+    const arbitrationEntry = riskRun.auditEntries.find((entry) => entry.entryType === "arbitration.ranked");
+    if (arbitrationEntry === undefined) {
+      throw new Error("Ranked Risk Mesh run must expose a ranked arbitration audit entry.");
+    }
+
+    const model = buildCreditCockpitModel({ governedConfig: runtimeGovernedConfig, ...sourceOptions });
+
+    expect(model.arbitration.status).toBe("ranked");
+    expect(model.arbitration.reason).toBe("ranked-resolution:partial-hold");
+    expect(model.arbitration.displayReason).toBe("Ranked resolution: partial hold");
+    expect(model.audit.arbitrationHash).toBe(arbitrationEntry.entryHash);
+    expect(model.commandCenter.statusRail[0]).toMatchObject({ label: "Harbor", tone: "healthy", value: "ok" });
+    expect(model.commandCenter.auditRows).toContainEqual({
+      label: "Arbitration basis",
+      state: "clear",
+      value: `${String(model.arbitration.recordIds.length)} records`
+    });
+  });
+
   it("exposes David command-centre rows from the canonical credit read model", () => {
-    const model = buildCreditCockpitModel();
+    const model = buildCreditCockpitModel({ governedConfig, ...sourceOptions });
     const urgentCount = model.actionQueue.filter((item) => item.priority === "P1").length;
     const firstCriterion = model.partialHold.criteria[0];
     if (firstCriterion === undefined) {
@@ -204,8 +323,8 @@ describe("S5 Forensics cockpit model", () => {
       {
         detail: model.account.posture,
         label: "Harbor",
-        tone: "blocked",
-        value: "review"
+        tone: "healthy",
+        value: "ok"
       },
       {
         detail: model.sentinel.alertDetail,
@@ -262,10 +381,10 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(model.commandCenter.signalRows).toHaveLength(model.partialHold.criteria.length);
     expect(model.commandCenter.signalRows[0]).toMatchObject({
-      detail: `20% weight; ${firstCriterion.contribution} impact`,
+      detail: `${weightLabel(firstCriterion.weight)} weight; ${firstCriterion.contribution} impact`,
       label: firstCriterion.label,
       score: firstCriterion.score,
-      tone: "blocked"
+      tone: Number(firstCriterion.score) >= 50 ? "warning" : "blocked"
     });
     expect(model.commandCenter.auditRows).toContainEqual({
       label: "External writes",
@@ -279,8 +398,81 @@ describe("S5 Forensics cockpit model", () => {
     });
   });
 
+  it("loads David account, Sentinel, and queue business display values from Supabase-backed risk_mesh_cases", () => {
+    const runtimeGovernedConfig = parseActiveGovernedConfigRows(
+      buildSupabaseGovernedConfigRows({
+        harbor: {
+          ...governedConfig.riskMeshCases.harbor,
+          accountReadout: {
+            availableCreditLabel: "DB available",
+            creditProgram: "DB program",
+            hqRegion: "DB region",
+            industry: "DB industry",
+            legalEntity: "DB Harbor LLC",
+            limitLabel: "DB limit",
+            openArLabel: "DB open AR",
+            ownerLabel: "DB David",
+            posture: "DB human gate"
+          },
+          actionQueue: [
+            {
+              account: "DB Harbor",
+              age: "09h 00m",
+              item: "DB queue item",
+              nextStep: "DB next step",
+              priority: "P0",
+              status: "DB status"
+            }
+          ],
+          sentinelDisplay: {
+            alertDetail: "DB alert detail",
+            displayReason: "DB display reason",
+            filedLabel: "DB filed label",
+            filingId: "DB-FILING-1",
+            recordStripLabel: "DB Sentinel records",
+            securedPartyLabel: "DB secured party"
+          }
+        }
+      })
+    ).values;
+
+    const model = buildCreditCockpitModel({ governedConfig: runtimeGovernedConfig, ...sourceOptions });
+
+    expect(model.account).toMatchObject({
+      availableCreditLabel: "DB available",
+      creditProgram: "DB program",
+      hqRegion: "DB region",
+      industry: "DB industry",
+      legalEntity: "DB Harbor LLC",
+      limitLabel: "DB limit",
+      openArLabel: "DB open AR",
+      ownerLabel: "DB David",
+      posture: "DB human gate"
+    });
+    expect(model.sentinel).toMatchObject({
+      alertDetail: "DB alert detail",
+      displayReason: "DB display reason",
+      filedLabel: "DB filed label",
+      filingId: "DB-FILING-1",
+      recordStripLabel: "DB Sentinel records",
+      securedPartyLabel: "DB secured party"
+    });
+    expect(model.sentinel.detailRows).toContainEqual({ label: "Secured party", value: "DB secured party" });
+    expect(model.actionQueue).toEqual([
+      {
+        account: "DB Harbor",
+        age: "09h 00m",
+        item: "DB queue item",
+        nextStep: "DB next step",
+        priority: "P0",
+        status: "DB status"
+      }
+    ]);
+    expect(model.actionQueueSummaryLabel).toBe("1 governed items");
+  });
+
   it("owns David credit route display labels in the canonical read model", () => {
-    const model = buildCreditCockpitModel();
+    const model = buildCreditCockpitModel({ governedConfig, ...sourceOptions });
 
     expect(model.readoutStatusLabels).toEqual([
       "Draft-only",
@@ -363,8 +555,8 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("builds the CFO summary read model from deterministic read models", () => {
-    const model = buildCfoSummaryCockpitModel();
-    const riskRun = runRiskMeshClosedLoop();
+    const model = buildCfoSummaryCockpitModel({ governedConfig, ...sourceOptions });
+    const riskRun = runRiskMeshClosedLoop({ governedConfig, source });
     const chainHeadEntry = riskRun.auditEntries.at(-1);
     if (chainHeadEntry === undefined) {
       throw new Error("Risk Mesh run must expose a chain-head audit entry.");
@@ -377,7 +569,7 @@ describe("S5 Forensics cockpit model", () => {
       { label: "DSO / CEI", value: "requires live ERP inputs" },
       { label: "Leakage position", value: "$79,800.00 recovery queue" }
     ]);
-    expect(model.readoutStatusLabels).toEqual(["Read-only", "Draft actions only", "6 open proofs"]);
+    expect(model.readoutStatusLabels).toEqual(["Read-only", "Draft actions only", "5 open proofs"]);
     expect(model.boardMetrics).toHaveLength(8);
     expect(model.boardMetrics).toContainEqual({
       label: "External action posture",
@@ -387,7 +579,7 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(model.reportMetadata).toEqual([
       { label: "Board pack", value: "Recoup v2 executive readout", valueLabel: "Recoup v2 executive readout" },
-      { label: "Dataset", value: "Synthetic seed 42", valueLabel: "Deterministic demo dataset" },
+      { label: "Dataset", value: "Supabase recoup_deduction_lines", valueLabel: "Supabase settlement source" },
       { label: "Currency", value: "USD", valueLabel: "USD" },
       { label: "Mode", value: "Read-only board draft", valueLabel: "Read-only board draft" }
     ]);
@@ -406,16 +598,17 @@ describe("S5 Forensics cockpit model", () => {
       "Audit trail integrity"
     ]);
     expect(model.auditPosture.recordIds).toEqual([
-      "SYNTHETIC-SEED-42",
+      "recoup_deduction_lines",
+      "S1-L1",
       "CUST-HARBOR",
-      "ORDER-HARBOR-640K",
+      "6534",
+      "USCU_S04",
       "LEDGER-6-PARTIAL-HOLD"
     ]);
     expect(model.dependencies.map((dependency) => dependency.label)).toContain("Production calibration proof");
     expect(model.dependencies.every((dependency) => dependency.status === "Open proof")).toBe(true);
     expect(model.dependencies.map((dependency) => dependency.owner)).toEqual([
       "Finance proof owner",
-      "Platform proof owner",
       "AI provenance owner",
       "Build provenance owner",
       "SAP integration owner",
@@ -437,10 +630,10 @@ describe("S5 Forensics cockpit model", () => {
     expect(provenanceWithoutHashes).toEqual({
       actionPosture: "no autonomous external action",
       auditHash: chainHeadEntry.entryHash,
-      dataBasis: "synthetic seed 42 plus deterministic read models",
-      dataBasisLabel: "Deterministic demo dataset plus governed read models",
-      sourceSystems: ["SAP OData", "Contract Repo", "TPM", "Risk Mesh", "Audit Trail"],
-      sourceSystemCountLabel: "5 source systems",
+      dataBasis: "Supabase settlement source rows plus governed read models",
+      dataBasisLabel: "Supabase settlement source rows plus governed read models",
+      sourceSystems: ["SAP OData", "Contract Repo", "TPM", "Bureau", "Risk Mesh", "Audit Trail"],
+      sourceSystemCountLabel: "6 source systems",
       source: "deterministic_read_model",
       sourceLabel: "Deterministic Read Model"
     });
@@ -448,24 +641,28 @@ describe("S5 Forensics cockpit model", () => {
     expect(reportHash).toMatch(/^[a-f0-9]{12}$/u);
     expect(model.provenance.auditHash).toMatch(realAuditEntryHashPattern);
     expect(model.openDependencies).toContain("verify-prod-calibration");
-    expect(model.openDependencies).toContain("verify-runtime-config-loader");
     expect(model.openDependencies).toContain("verify-embeddings-model-id");
     expect(model.openDependencies).toContain("verify-codex-build-model-id");
     expect(model.openDependencies).toContain("verify-sap-sandbox-instance");
     expect(model.openDependencies).toContain("verify-v3-live-non-sap-contracts");
+    expect(model.openDependencies).not.toContain("verify-runtime-config-loader");
     expect(model.openDependencies).not.toContain("r-score-weights");
     expect(model.openDependencies).not.toContain("r-drift-threshold");
     expect(model.openDependencies).not.toContain("gaming-thresholds");
   });
 
   it("owns CFO executive display labels in the read model", () => {
-    const model = buildCfoSummaryCockpitModel();
-    const riskRun = runRiskMeshClosedLoop();
-
+    const model = buildCfoSummaryCockpitModel({ governedConfig, ...sourceOptions });
+    const riskRun = runRiskMeshClosedLoop({ governedConfig, source });
+    const expectedRecoveryRecordIds = source
+      .loadSettlementRun()
+      .deductionLines.filter((line) => line.routing === "recovery")
+      .slice(0, 3)
+      .map((line) => line.lineId);
     expect(model.reportMetadata).toContainEqual({
       label: "Dataset",
-      value: "Synthetic seed 42",
-      valueLabel: "Deterministic demo dataset"
+      value: "Supabase recoup_deduction_lines",
+      valueLabel: "Supabase settlement source"
     });
     expect(model.boardMetrics).toContainEqual({
       label: "External action posture",
@@ -480,27 +677,27 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(model.auditPosture.controls).toContainEqual({
       label: "Evidence spine",
-      support: "4 record IDs",
-      supportLabel: "4 citations",
+      support: "6 record IDs",
+      supportLabel: "6 citations",
       value: "Cited"
     });
     expect(model.auditPosture.evidenceRows).toContainEqual({
       basis: "computed recovery deltas",
       basisLabel: "Computed recovery deltas",
       label: "Recovery draft queue",
-      recordCountLabel: "1 citation",
-      recordIds: ["SYNTHETIC-SEED-42"],
+      recordCountLabel: "3 citations",
+      recordIds: expectedRecoveryRecordIds,
       state: "13 drafts"
     });
     expect(model.auditPosture.evidenceRows).toContainEqual({
-      basis: riskRun.arbitration.reason,
-      basisLabel: "Calibration proof required",
+      basis: "ranked-resolution:partial_release_55",
+      basisLabel: "ranked-resolution:partial_release_55",
       label: "Risk Mesh arbitration",
       recordCountLabel: `${String(riskRun.arbitration.recordIds.length)} citations`,
       recordIds: riskRun.arbitration.recordIds,
-      state: "Calibration proof open"
+      state: "Ranked resolution recorded"
     });
-    expect(model.auditPosture.recordCountLabel).toBe("4 citations");
+    expect(model.auditPosture.recordCountLabel).toBe("6 citations");
     expect(model.changeLedger).toContainEqual({
       label: "External writes",
       posture: "Blocked by HITL",
@@ -516,11 +713,11 @@ describe("S5 Forensics cockpit model", () => {
       title: "Deterministic evidence spine is ready; live proof remains gated"
     });
     expect(model.provenance).toMatchObject({
-      dataBasis: "synthetic seed 42 plus deterministic read models",
-      dataBasisLabel: "Deterministic demo dataset plus governed read models",
+      dataBasis: "Supabase settlement source rows plus governed read models",
+      dataBasisLabel: "Supabase settlement source rows plus governed read models",
       source: "deterministic_read_model",
       sourceLabel: "Deterministic Read Model",
-      sourceSystemCountLabel: "5 source systems"
+      sourceSystemCountLabel: "6 source systems"
     });
     expect(model.assurance).toEqual({
       basis: "hash-chain verification",
@@ -531,7 +728,7 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("builds trace, memory, and agent graph read models", () => {
-    const trace = buildTraceModel();
+    const trace = buildTraceModel({ governedConfig, ...sourceOptions });
     const firstTraceEvent = trace.events[0];
     if (firstTraceEvent === undefined) {
       throw new Error("Trace model must expose at least one event.");
@@ -543,11 +740,11 @@ describe("S5 Forensics cockpit model", () => {
     expect(trace.events.every((event) => event.kind === "audit")).toBe(true);
     expect(new Set(trace.events.map((event) => event.sourceMode))).toEqual(new Set(["deterministic_demo_audit"]));
     expect(buildMemorySummaryModel().categories).toContain("approval_records");
-    expect(buildMemorySummaryModel().records.some((record) => record.category === "agent_handoff_packets")).toBe(true);
+    expect(buildMemorySummaryModel().records).toEqual([]);
     expect(buildAgentGraphModel().edges.some((edge) => edge.mode === "agents-as-tools")).toBe(true);
   });
 
-  it("labels deterministic fallback and persisted memory provenance in the memory read model", () => {
+  it("labels empty fallback and persisted memory provenance in the memory read model", () => {
     const fallback = buildMemorySummaryModel();
     const persistedRecord: MemoryRecord = {
       category: "approval_records",
@@ -566,9 +763,10 @@ describe("S5 Forensics cockpit model", () => {
 
     expect(fallback).toMatchObject({
       backend: "in_memory_fallback",
-      provenance: "deterministic_demo_memory",
-      sourceMode: "deterministic_demo_fallback"
+      provenance: "empty_runtime_memory",
+      sourceMode: "runtime_empty"
     });
+    expect(fallback.records).toEqual([]);
     expect(persisted).toMatchObject({
       backend: "sqlite",
       provenance: "persisted_runtime_memory",
@@ -585,9 +783,81 @@ describe("S5 Forensics cockpit model", () => {
     ]);
   });
 
+  it("projects persisted approval records into sanitized audit receipts", () => {
+    const approvalRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: new Date(0).toISOString(),
+      id: "approval:route-billing:S1-L2",
+      payload: {
+        actionId: "route-billing:S1-L2",
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        reason: "Supporting POD was validated before approving the draft.",
+        status: "human_decided"
+      },
+      recordIds: ["route-billing:S1-L2", "S1-L2"],
+      scope: "approval:route-billing:S1-L2",
+      trustLevel: "trusted"
+    };
+    const nonApprovalRecord: MemoryRecord = {
+      category: "session_state",
+      createdAt: new Date(0).toISOString(),
+      id: "session:demo",
+      payload: { arbitraryPayload: "not exposed" },
+      recordIds: ["session:demo"],
+      scope: "session:demo",
+      trustLevel: "trusted"
+    };
+    const model = buildMemorySummaryModel([approvalRecord, nonApprovalRecord], { backend: "sqlite" });
+
+    expect(model.approvalAuditReceipts).toEqual([
+      {
+        actionId: "route-billing:S1-L2",
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        reason: "Supporting POD was validated before approving the draft.",
+        recordIds: ["route-billing:S1-L2", "S1-L2"],
+        status: "human_decided"
+      }
+    ]);
+    expect(JSON.stringify(model.approvalAuditReceipts)).not.toContain("arbitraryPayload");
+  });
+
+  it("filters malformed persisted approval records out of audit receipts", () => {
+    const baseRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: new Date(0).toISOString(),
+      id: "approval:route-billing:S1-L2",
+      payload: {
+        actionId: "route-billing:S1-L2",
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      recordIds: ["route-billing:S1-L2", "S1-L2"],
+      scope: "approval:route-billing:S1-L2",
+      trustLevel: "trusted"
+    };
+    const malformedRecords: MemoryRecord[] = [
+      { ...baseRecord, id: "approval:untrusted", trustLevel: "semi_trusted" },
+      { ...baseRecord, id: "approval:system", payload: { ...baseRecord.payload, approverId: "agent:forensics" } },
+      { ...baseRecord, id: "approval:bad-hash", payload: { ...baseRecord.payload, auditEntryHash: "not-a-hash" } },
+      { ...baseRecord, id: "approval:bad-decision", payload: { ...baseRecord.payload, decision: "dispatch" } },
+      { ...baseRecord, id: "approval:bad-status", payload: { ...baseRecord.payload, status: "pending_human" } },
+      { ...baseRecord, id: "approval:missing-action-record", recordIds: ["S1-L2"] }
+    ];
+
+    const model = buildMemorySummaryModel(malformedRecords, { backend: "sqlite" });
+
+    expect(model.approvalAuditReceipts).toEqual([]);
+  });
+
   it("derives trace audit rows from deterministic Risk Mesh audit entries", () => {
-    const riskRun = runRiskMeshClosedLoop();
-    const trace = buildTraceModel();
+    const riskRun = runRiskMeshClosedLoop({ governedConfig, source });
+    const trace = buildTraceModel({ governedConfig, ...sourceOptions });
     const auditTraceEvents = trace.events.filter(
       (
         event
@@ -607,7 +877,7 @@ describe("S5 Forensics cockpit model", () => {
     expect(auditTraceEvents.map((event) => event.entryType)).toEqual(
       expect.arrayContaining([
         "sentinel.blocked-risk",
-        "arbitration.blocked",
+        "arbitration.ranked",
         "partial-hold.proposed",
         "terms.proposed"
       ])
@@ -708,4 +978,37 @@ function allTablesAvailableProbe(): SupabaseToolDataSchemaProbe {
     ),
     unsafeShadowActions: []
   };
+}
+
+function buildSupabaseGovernedConfigRows(riskMeshCases: Record<string, unknown>): unknown[] {
+  const rows = governedConfigSeedRows.filter((row) => row.key !== "risk_mesh_cases");
+  return [
+    ...rows.map((row) => ({
+      active: row.active,
+      approved_by: row.approvedBy,
+      config_hash: row.configHash,
+      config_version: row.configVersion,
+      effective_from: row.effectiveFrom,
+      key: row.key,
+      value_json: row.valueJson
+    })),
+    {
+      active: true,
+      approved_by: day1BootstrapSeedApprovedBy,
+      config_hash: sha256CanonicalJson(riskMeshCases),
+      config_version: 1,
+      effective_from: "2026-06-20T00:00:00.000Z",
+      key: "risk_mesh_cases",
+      value_json: riskMeshCases
+    }
+  ];
+}
+
+function weightLabel(weight: string): string {
+  const numericWeight = Number(weight);
+  if (Number.isNaN(numericWeight)) {
+    return weight;
+  }
+
+  return `${String(Math.round(numericWeight * 100))}%`;
 }

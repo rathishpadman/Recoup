@@ -1,3 +1,4 @@
+import { assertRecoveryActionDecision } from "../../guardrails/tool/actionBoundary.js";
 import type { DeductionDecisionGuardInput } from "../../guardrails/tool/explainability.js";
 
 export interface DraftOutreachInput {
@@ -18,6 +19,8 @@ export interface DraftOutreachAction {
 }
 
 export function draftOutreach(input: DraftOutreachInput): DraftOutreachAction {
+  assertRecoveryActionDecision(input.decision);
+
   return {
     actionId: `draft-outreach:${input.decision.lineId}`,
     actionType: "draft-outreach",

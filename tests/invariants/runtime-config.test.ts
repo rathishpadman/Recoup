@@ -8,7 +8,6 @@ import {
   loadRuntimeConfig,
   loadSapODataReadOnlyConnection
 } from "../../config/env.js";
-import { day1GovernedConfigSeed } from "../../config/governed.js";
 
 describe("runtime credential and expert config gates", () => {
   it("documents local-only credential names without real secrets", () => {
@@ -16,6 +15,7 @@ describe("runtime credential and expert config gates", () => {
     const example = readFileSync(".env.example", "utf8");
 
     expect(example).toContain("OPENAI_API_KEY=");
+    expect(example).toContain("OPENAI_EVIDENCE_VECTOR_STORE_ID=");
     expect(example).toContain("SAP_ODATA_BASE_URL=");
     expect(example).toContain("SAP_ODATA_CLIENT_ID=");
     expect(example).toContain("SAP_ODATA_CLIENT_SECRET=");
@@ -42,22 +42,26 @@ describe("runtime credential and expert config gates", () => {
     expect(example).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./u);
   });
 
-  it("fails closed when runtime credentials are absent while keeping owner-supplied Day-1 tunables available", () => {
+  it("fails closed when runtime credentials and Supabase governed config credentials are absent", () => {
     expect(loadRuntimeConfig({})).toMatchObject({
-      openai: { configured: false },
+      openai: {
+        configured: false,
+        fileSearch: {
+          configured: false,
+          reason: "OPENAI_API_KEY and OPENAI_EVIDENCE_VECTOR_STORE_ID are required for live evidence vector-store search."
+        }
+      },
       sap: { configured: false },
       memory: { configured: false, mode: "in_memory" },
       expertConstants: {
-        configured: true,
-        configHash: day1GovernedConfigSeed.configHash,
-        configVersion: 1,
+        configured: false,
         governedConfigRuntime: {
-          bootstrapAvailable: true,
+          bootstrapAvailable: false,
           dbBackedLoaderImplemented: true,
-          liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
+          liveDbValidation: "blocked-missing-supabase-recoup-config-credentials"
         },
-        missing: [],
-        source: "owner-ratified-day-1",
+        missing: ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "recoup_config-live-validation"],
+        source: "supabase-recoup-config",
         productionCalibration: {
           configured: false,
           verifyProdCalibration: [
@@ -72,25 +76,24 @@ describe("runtime credential and expert config gates", () => {
     });
   });
 
-  it("does not require legacy RECOUP approval flags for supplied Day-1 tunables", () => {
-    const config = loadRuntimeConfig({});
+  it("reports governed runtime values as Supabase recoup_config-backed when credentials are present", () => {
+    const config = loadRuntimeConfig({
+      SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+      SUPABASE_URL: "https://recoup.supabase.co"
+    });
 
     expect(config.expertConstants.governedConfigRuntime).toEqual({
-      bootstrapAvailable: true,
+      bootstrapAvailable: false,
       dbBackedLoaderImplemented: true,
       liveDbValidation: "requires-async-recoup-config-loader-readiness-probe"
     });
-    expect(config.expertConstants.missing).toEqual([]);
+    expect(config.expertConstants.configured).toBe(true);
+    expect(config.expertConstants.configHash).toBeUndefined();
+    expect(config.expertConstants.configVersion).toBeUndefined();
+    expect(config.expertConstants.missing).toEqual(["recoup_config-live-validation"]);
     expect(config.expertConstants.missing).not.toContain("db-backed-governed-config-loader");
-    expect(config.expertConstants.supplied).toEqual([
-      "arbitration-weights",
-      "r-score-weights",
-      "r-drift-trigger",
-      "gaming-gate",
-      "partial-hold",
-      "accuracy-bars",
-      "seed"
-    ]);
+    expect(config.expertConstants.source).toBe("supabase-recoup-config");
+    expect(config.expertConstants.supplied).toEqual(["supabase-recoup-config-credentials"]);
     expect(config.expertConstants.productionCalibration.configured).toBe(false);
     expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("arbitration-weights");
     expect(config.expertConstants.productionCalibration.verifyProdCalibration).not.toContain(
@@ -116,7 +119,14 @@ describe("runtime credential and expert config gates", () => {
       SAP_ODATA_TENANT: "northbay"
     });
 
-    expect(config.openai).toEqual({ configured: true, redactedApiKey: "sk-...cted" });
+    expect(config.openai).toEqual({
+      configured: true,
+      fileSearch: {
+        configured: false,
+        reason: "OPENAI_EVIDENCE_VECTOR_STORE_ID is required for live evidence vector-store search."
+      },
+      redactedApiKey: "sk-...cted"
+    });
     expect(config.sap).toMatchObject({
       baseUrl: "https://sap.example.test",
       configured: true,
@@ -124,6 +134,25 @@ describe("runtime credential and expert config gates", () => {
       tenant: "northbay"
     });
     expect(JSON.stringify(config)).not.toContain("client-secret");
+  });
+
+  it("recognizes configured OpenAI evidence vector-store search without exposing identifiers or embedding model claims", () => {
+    const config = loadRuntimeConfig({
+      OPENAI_API_KEY: "sk-test-redacted",
+      OPENAI_EVIDENCE_VECTOR_STORE_ID: "vs_recoup_evidence_123456"
+    });
+
+    expect(config.openai).toEqual({
+      configured: true,
+      fileSearch: {
+        configured: true,
+        redactedVectorStoreId: "vs_...3456"
+      },
+      redactedApiKey: "sk-...cted"
+    });
+    expect(config.expertConstants.productionCalibration.verifyProdCalibration).toContain("embeddings-model-id");
+    expect(JSON.stringify(config)).not.toContain("sk-test-redacted");
+    expect(JSON.stringify(config)).not.toContain("vs_recoup_evidence_123456");
   });
 
   it("loads secret-bearing SAP read-only connection separately from JSON-safe runtime config", () => {
@@ -179,6 +208,30 @@ describe("runtime credential and expert config gates", () => {
     });
   });
 
+  it("uses a numeric SAP_ODATA_CLIENT_ID as the Gateway sap-client for Basic auth runtime envs", () => {
+    const env = {
+      SAP_ODATA_BASE_URL: "https://sap.example.test:44300",
+      SAP_ODATA_CLIENT_ID: "100",
+      SAP_ODATA_CLIENT_SECRET: "sap-password",
+      SAP_ODATA_USERID: "sap-user"
+    };
+
+    expect(loadRuntimeConfig(env).sap).toMatchObject({
+      authMode: "basic",
+      baseUrl: "https://sap.example.test:44300",
+      configured: true,
+      sapClient: "100"
+    });
+    expect(loadSapODataReadOnlyConnection(env)).toMatchObject({
+      authMode: "basic",
+      baseUrl: "https://sap.example.test:44300",
+      clientSecret: "sap-password",
+      sapClient: "100",
+      tokenUrl: "",
+      userId: "sap-user"
+    });
+  });
+
   it("recognizes a configured SQLite memory path without exposing unrelated secrets", () => {
     const config = loadRuntimeConfig({
       OPENAI_API_KEY: "sk-test-redacted",
@@ -195,6 +248,7 @@ describe("runtime credential and expert config gates", () => {
 
   it("recognizes configured Supabase memory without exposing the service role key", () => {
     const config = loadRuntimeConfig({
+      RECOUP_MEMORY_BACKEND: "supabase",
       RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records",
       SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
       SUPABASE_URL: "https://recoup.supabase.co"
@@ -209,8 +263,9 @@ describe("runtime credential and expert config gates", () => {
     expect(JSON.stringify(config)).not.toContain("supabase-service-secret");
   });
 
-  it("prefers Supabase memory over SQLite when shared database credentials are available", () => {
+  it("prefers Supabase memory over SQLite only when the backend flag selects Supabase", () => {
     const config = loadRuntimeConfig({
+      RECOUP_MEMORY_BACKEND: "supabase",
       RECOUP_MEMORY_DB_PATH: "C:/tmp/recoup-memory.sqlite",
       SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
       SUPABASE_URL: "https://recoup.supabase.co"
@@ -221,6 +276,20 @@ describe("runtime credential and expert config gates", () => {
       mode: "supabase",
       tableName: "recoup_memory_records",
       url: "https://recoup.supabase.co"
+    });
+  });
+
+  it("does not switch memory mode merely because governed Supabase config credentials are present", () => {
+    const config = loadRuntimeConfig({
+      RECOUP_MEMORY_DB_PATH: "C:/tmp/recoup-memory.sqlite",
+      SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+      SUPABASE_URL: "https://recoup.supabase.co"
+    });
+
+    expect(config.memory).toEqual({
+      configured: true,
+      dbPath: "C:/tmp/recoup-memory.sqlite",
+      mode: "sqlite"
     });
   });
 
@@ -281,7 +350,14 @@ describe("runtime credential and expert config gates", () => {
       const env = loadLocalRuntimeEnv(envPath, {});
 
       expect(env.OPENAI_API_KEY).toBe("sk-bom-secret");
-      expect(loadRuntimeConfig(env).openai).toEqual({ configured: true, redactedApiKey: "sk-...cret" });
+      expect(loadRuntimeConfig(env).openai).toEqual({
+        configured: true,
+        fileSearch: {
+          configured: false,
+          reason: "OPENAI_EVIDENCE_VECTOR_STORE_ID is required for live evidence vector-store search."
+        },
+        redactedApiKey: "sk-...cret"
+      });
       expect(JSON.stringify(loadRuntimeConfig(env))).not.toContain("sk-bom-secret");
     } finally {
       rmSync(dir, { recursive: true, force: true });
