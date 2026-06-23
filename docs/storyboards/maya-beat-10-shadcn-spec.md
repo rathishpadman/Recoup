@@ -14,11 +14,9 @@ Current implementation reference, read-only for this pass:
 - `cockpit/components/maya/types.ts`
 - `cockpit/components/maya/recovery-draft-review.tsx`
 
-Beat 09 note: `docs/storyboards/maya-beat-09-shadcn-spec.md` was not present during this spec pass, so this file treats Beat 10 as the approval overlay over the existing draft-review/read-model contract rather than inheriting a Beat 09 file.
-
 ## 1. Purpose And Gate
 
-Beat 10 proves the Recoup HITL boundary at the moment Maya chooses whether a recovery draft may advance. The user sees a deliberate approval dialog over the draft-review screen. Opening the dialog does not dispatch, post, route, send, write, approve, reject, or modify anything.
+Beat 10 proves the Recoup HITL boundary at the moment a verified human reviewer chooses whether a recovery draft may advance. The user sees a deliberate approval dialog over the Maya draft-review screen. Opening the dialog does not dispatch, post, route, send, write, approve, reject, or modify anything.
 
 Success check for a future implementation pass:
 
@@ -38,7 +36,7 @@ The mockup anatomy:
 - Close affordance is visible in the modal header; closing does not post anything.
 - Header copy explicitly says opening the dialog does not dispatch anything.
 - The body is compact and ledger-like, with horizontal separators between decision facts.
-- Approver row shows Maya as the designated human approver with a small avatar/initial.
+- Approver row shows the designated human approver only when backed by session/approval actor data.
 - Action row names the draft action being approved and gives a one-line draft basis.
 - Evidence reviewed row shows a positive reviewed state only when the implementation has a real reviewed-state source.
 - Cited records appear as visible record IDs, not hidden in a tooltip.
@@ -53,6 +51,7 @@ Visual implementation requirements:
 - Avoid generated-UI tells from `AGENTS.md`: no purple/blue gradients, no oversized icon tiles, no card-everything redesign, no raw enum copy as business language, no fake stats, and no autonomous-action copy.
 - Keep button labels short and action-specific: `Approve`, `Reject`, `Request changes`, `Cancel`.
 - Use icon buttons/icons only as support: check for approve, x for reject, pencil or rotate arrow for request changes, close for dismiss.
+- Header close must compose installed shadcn primitives: `AlertDialogCancel asChild` wrapping a `Button` with an icon-only affordance, accessible label, and the configured icon library close icon using shadcn icon composition rules. Do not build a custom/hand-rolled close control.
 
 ## 3. Backend Mapping
 
@@ -67,7 +66,7 @@ Current data transport:
 | UI element | Field/source | Allowed transformation | Missing/gap |
 |---|---|---|---|
 | Dialog open state | Client interaction state only | Open/close modal. Do not post on open or close. | None. |
-| Approver identity | `DemoSession` and verified cockpit auth principal; backend reads `verifiedHumanPrincipal` | Display Maya as the logged-in human. Do not let the UI edit or submit approver identity. | If the displayed session principal and verified backend principal diverge, backend wins and UI must show an auth error. |
+| Approver identity | `DemoSession` and verified cockpit auth principal; backend reads `verifiedHumanPrincipal` | Display the logged-in human only when backed by session/approval actor data. Do not let the UI edit or submit approver identity. | If actor data is missing, show `Unavailable` or omit the visual identity. If the displayed session principal and verified backend principal diverge, backend wins and UI must show an auth error. |
 | Action ID | `model.selected.draft.actionId` | Display as technical provenance. POST exactly this action ID. | Do not synthesize action IDs from labels. |
 | Action label | `model.selected.draft.actionLabel` | Display as the draft action name. | Do not rewrite into a stronger dispatch verb. |
 | Draft basis | `model.selected.draft.basis` | Display as deterministic basis text. | UI must not create a new basis. |
@@ -83,8 +82,9 @@ Current data transport:
 
 Initial state:
 
-- Beat 10 starts from draft review, after Maya has reviewed evidence and opened the human approval gate.
+- Beat 10 starts from draft review after the verified human reviewer opens the human approval gate.
 - If evidence-reviewed state is unavailable, show a blocked `Alert` and disable all submit buttons. The dialog may still explain why approval cannot proceed.
+- Submit buttons stay disabled whenever the reviewed-state source is unavailable. Do not infer approval eligibility from visible documents, record IDs, or local interaction alone.
 
 Open and cancel:
 
@@ -120,11 +120,11 @@ Use existing installed shadcn components first. Current `cockpit/components/ui` 
 | Human decision modal | `AlertDialog` | Preferred for Beat 10 because this is a deliberate confirmation gate. Must include `AlertDialogTitle` and `AlertDialogDescription`. |
 | Passive/non-decision modal alternative | `Dialog` | Do not add unless a future brief explicitly approves adding the component. If used later, it is only for passive review, not the final approval decision. |
 | Header warning | `Alert` | Use semantic warning/blocking copy. Do not create custom callout markup. |
-| Approver/action/evidence rows | `Separator`, structured flex/grid rows | Use separators for row boundaries, not nested cards. |
+| Approver/action/evidence rows | `Separator`, structured flex/grid rows | Use separators for row boundaries, not nested cards. For approver visuals, `Avatar` is not installed; use a non-interactive `Badge` or Button/Badge-style initial only when backed by session/approval actor data, otherwise omit or show `Unavailable`. Do not require `Avatar` unless a future approved shadcn add installs it. |
 | Cited records and status | `Badge` | Record IDs remain visible and readable. Avoid raw enum labels as primary copy. |
 | Note/reason input | `FieldGroup`, `Field`, `FieldLabel`, `FieldDescription`, `Textarea` | Use `data-invalid` on `Field` and `aria-invalid` on `Textarea` when reason validation fails. |
 | Decision buttons | `Button` | Use existing variants. Icons use `data-icon="inline-start"`; no manual icon sizing classes. |
-| Close/cancel | `AlertDialogCancel` and close affordance if supported | Must not submit. |
+| Close/cancel | `AlertDialogCancel`, `Button` | Must not submit. Header close uses `AlertDialogCancel asChild` with an icon-only `Button`; footer cancel may use `AlertDialogCancel` text. No custom close button, raw clickable div, or hand-rolled overlay dismiss control. |
 | Optional explanations | `Tooltip` | Only for compact icon affordances; do not hide required evidence/record IDs in tooltips. |
 
 ## 6. HITL Approval Constraints
@@ -143,6 +143,7 @@ Hard constraints:
 - Amounts are display-only backend strings. React must never compute or alter them.
 - The human note/reason is governance evidence, not model instruction text. Do not interpolate it into tool instructions.
 - If the backend returns `401`, `400`, `404`, `409`, or `503`, the UI shows the blocked state and does not create a local success state.
+- No fake case IDs, approver names, reviewed counts, approval eligibility, audit hashes, dispatch status, or external action may be invented in React, fixture text, screenshot-only state, or spec copy.
 
 Copy constraints:
 
@@ -157,9 +158,11 @@ A future Beat 10 screenshot is passable only if all are true:
 - The modal anatomy clearly matches the reference: centered approval gate, dimmed draft review behind it, compact rows, cited records, note area, and four footer actions.
 - The visible header makes HITL unmistakable.
 - The draft-review background remains recognizable but subordinate.
-- Maya is visibly the human approver, not an agent.
+- The visible approver identity is backed by session/approval actor data and is clearly human, not an agent.
 - Action, draft basis, status, amount if present, and record IDs come from backend/read-model fields.
 - Evidence reviewed state is honest. If no real reviewed-state source exists, the screenshot shows a blocked/unavailable state instead of fake `3 of 3 reviewed`.
+- Screenshots with a blocked reviewed-state are acceptable deltas from the reference mockup unless the backend/read model adds a real `reviewedCount`, approval eligibility, or reviewed-state source.
+- Submit buttons remain disabled in screenshots when reviewed-state source is unavailable.
 - Approve/reject/request changes controls are visually distinct and deliberate.
 - Reason validation for modify/reject is visible in the interaction path.
 - No business value, amount, threshold, approval state, audit hash, or dispatch status is invented in React.
