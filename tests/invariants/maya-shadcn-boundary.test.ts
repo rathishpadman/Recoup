@@ -237,7 +237,6 @@ describe("Maya shadcn cockpit boundary", () => {
   it("wires approval dialog through supplied actions and the existing HITL API", () => {
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
-    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
     expect(approvalDialog).toContain("/api/approval");
@@ -336,6 +335,13 @@ describe("Maya shadcn cockpit boundary", () => {
 
       for (const iconName of lucideImports) {
         const iconUsages = [...source.matchAll(new RegExp(`<${iconName}\\b([^>]*)>`, "gu"))];
+        if (iconUsages.length === 0 && source.includes(`icon: ${iconName}`)) {
+          expect(
+            source,
+            `${path} maps ${iconName} through an icon object and must render it through the shared NavIcon control.`
+          ).toMatch(/<NavIcon\b[^>]*data-icon=/u);
+          continue;
+        }
         expect(iconUsages.length, `${path} imports ${iconName} but does not render it.`).toBeGreaterThan(0);
         for (const usage of iconUsages) {
           const attributes = usage[1] ?? "";

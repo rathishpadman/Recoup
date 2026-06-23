@@ -64,7 +64,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
-    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
     const realtimeHelper = readFileSync("cockpit/app/realtime-browser-session.ts", "utf8");
 
     expect(mayaSources).toContain("model: ForensicsCockpitModel");
@@ -76,7 +76,9 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("sessionTokenRef");
     expect(queryDock).toContain("closeActiveSession");
     expect(queryDock).toContain("onOpenChange={handleOpenChange}");
+    expect(queryDock).toContain("onResponse: (response: QueryEvidenceResponse) => void");
     expect(queryDock).toContain("publishForToken");
+    expect(queryDock).toContain("onResponse(next)");
     expect(queryDock).toContain("question:");
     expect(queryDock).toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
@@ -92,10 +94,13 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalDialog).toContain("auditEntryHash");
     expect(approvalDialog).toContain("result.actionId !== actionId");
     expect(approvalDialog).toContain('result.status !== "human_decided"');
+    expect(approvalDialog).toContain("onResponse: (response: ApprovalGateResponse) => void");
     expect(approvalDialog).toContain("onResponse");
-    expect(surface).toContain("setQueryResponse");
-    expect(surface).toContain("setApprovalResponse");
-    expect(surface).toContain("approvalResponse === undefined ? {} : { approvalResponse }");
+    expect(approvalDialog).toContain("onResponse(approvalResponse)");
+    expect(caseWorkspace).toContain("queryResponse?: QueryEvidenceResponse");
+    expect(caseWorkspace).toContain("approvalResponse?: ApprovalGateResponse");
+    expect(caseWorkspace).toContain("CitedAnswerCard fallbackRecordIds={selected.evidencePack.recordIds} response={queryResponse}");
+    expect(caseWorkspace).toContain("AuditConfirmationPanel journey={journey} response={approvalResponse}");
     expect(mayaSources).not.toContain("cockpit-shell");
     expect(mayaSources).not.toContain("premium-components");
     expect(mayaSources).not.toContain("@phosphor-icons");

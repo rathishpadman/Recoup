@@ -112,10 +112,10 @@ None. No agent loop is currently active.
 ## Open Items
 
 - Beat 2 focused rebuild pass is implemented for the morning-run landing view. Maya routes to `/forensics/shadcn`; the page fetches `/forensics` and `/connectors`, renders the KPI strip and source readiness across the full workbench width, then splits into a table-led worklist plus right-side workspace starter.
-- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. Final-polish self-assessment against `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png`: `4.0/5` acceptance candidate. User approval is still required before treating Beat 2 as accepted release evidence.
+- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. The stale whole-page `4.0/5` acceptance-candidate claim from the prior pass is superseded by the 2026-06-23 partial-edit trim: Beat 2 now has a fresh component-level self-assessment at `>=4.5/5` for every component and overall, with no clipping/overlap/horizontal scroll found by the focused e2e at 1440 or 1280. This is an implementation-gate pass, pending independent visual review and user approval; it is not final user acceptance.
 - Beat 2 work-item pane behavior: the landing pane starts with a shadcn Empty workspace starter (`Select a deduction to open its work item`). Clicking a worklist row opens a shallow work-item summary using only that already-fetched `worklist[]` row. This is client-side UI state over real fetched records, not a backend row-switch contract.
 - Backend contract caveat for Beat 2: only the fixed `model.selected` evidence packet exists. The pane shows a contract note when the clicked worklist row does not correspond to `model.selected.lineId`; no evidence tabs, approval dialog, or deep case flow were rebuilt in Beat 2.
-- Beat 2 verification in the focused rebuild pass: `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts`, `npm.cmd run test -- tests/unit/cockpit-demo-auth.test.ts`, `npm.cmd run typecheck`, and `npm.cmd run test:e2e -- --maya-shadcn-only` all passed.
+- Beat 2 verification in the partial-edit trim pass: `npm.cmd run test -- tests/invariants/cockpit-no-business-logic.test.ts`, `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts`, `npm.cmd run test -- tests/unit/cockpit-demo-auth.test.ts`, `npm.cmd run typecheck`, and `npm.cmd run test:e2e -- --maya-shadcn-only` passed. The e2e now checks visible Beat 2 verdict/recommended-action chips, compact backend routing labels, table fit, sidebar honesty, and source-state distinction.
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full E2E was not rerun after the previous debug path because the current gate is Beat 1 screenshot/review.
@@ -141,7 +141,32 @@ None. No agent loop is currently active.
 - Header date uses the connector refresh label (`Refreshed 08:24 AM`) instead of a fabricated calendar date because no backend date field exists for the mockup's `May 15, 2025` copy.
 - High-priority remains a visible unavailable KPI slot (`--`, `Needs priority field`) because the `/forensics` read model still has no priority field.
 - Worklist columns use fetched scenario/line/customer/queue fields rather than mockup-only priority, owner, age, and status fields.
-- Source readiness uses backend connector marks and status labels; icon metaphors are intentionally not invented beyond the fetched source marks.
+- Source readiness uses backend connector marks and status labels; synthetic source mode detail is available through the source tooltip/accessible label at tighter widths rather than forced into clipped tile text.
+- Sidebar disabled collapse/filter affordances were trimmed because they were not backed by a route or sidebar filter contract.
+
+## Beat 2 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-02-dashboard.png`
+- `output/playwright/e2e/maya-beat-02-dashboard-1440.png`
+- `output/playwright/e2e/maya-beat-02-dashboard-1280.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Sidebar / nav / footer | 4.5/5 | Stronger dark command rail, honest backend/persona count badges, and finished read-only footer are in place; disabled collapse/filter controls were removed, while the Recoup mark remains code-native rather than exact ImageGen geometry. |
+| Header / date / refresh area | 4.6/5 | Header anatomy, notification count, and review-only refresh control match the target; date remains `Refreshed 08:24 AM` from connector data rather than mockup-only calendar copy. |
+| KPI strip / cards | 4.5/5 | Six-card strip holds the target rhythm and uses backend KPI strings only; high priority stays `--` / `Needs priority field` because the read model has no priority field. |
+| Source readiness strip | 4.5/5 | Slim single-row source strip is readable at 1440 and 1280, with ready/synthetic states visually distinct and no dead `View all sources` CTA; compact mode detail moves to tooltip/accessible label at tighter widths. |
+| Worklist toolbar / table / pagination | 4.5/5 | Toolbar and table-led anatomy match the target without fake priority/owner/age columns; routing is actual wrapped text, footer says `Fetched rows only`, and no fake server pagination controls remain. |
+| Right work-item pane | 4.5/5 | Empty starter pane keeps the target width and quiet centered state; selected-row detail remains shallow client state over fetched rows rather than invented evidence/action authority. |
+| Overall first-viewport composition | 4.5/5 | First viewport preserves sidebar, six KPIs, slim source strip, table-led work area, and right pane at 1440/1280; remaining deltas are backend-contract gaps or non-exact ImageGen lockup geometry. |
+
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow assertions green. This is not independent visual acceptance and not final user acceptance.
 
 ## ETA Bands
 

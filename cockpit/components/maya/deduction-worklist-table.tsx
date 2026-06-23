@@ -1,10 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { BookmarkIcon, ListFilterIcon, MoreHorizontalIcon, SearchIcon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  BookmarkIcon,
+  ListFilterIcon,
+  MoreHorizontalIcon,
+  SearchIcon,
+  SlidersHorizontalIcon
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
@@ -69,7 +75,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
             </Button>
           </div>
         </div>
-        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(250px,1fr)_auto_auto_auto]">
+        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
           <InputGroup className="h-9">
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" data-icon="input-addon" />
@@ -84,16 +90,16 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
               value={query}
             />
           </InputGroup>
-          <Button size="lg" type="button" variant="outline">
+          <Button size="sm" type="button" variant="outline">
             <ListFilterIcon aria-hidden="true" data-icon="inline-start" />
             Recommended action
           </Button>
-          <Button size="lg" type="button" variant="outline">
+          <Button size="sm" type="button" variant="outline">
             Queue
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="lg" type="button" variant="outline">
+              <Button size="sm" type="button" variant="outline">
                 <SlidersHorizontalIcon aria-hidden="true" data-icon="inline-start" />
                 More filters
               </Button>
@@ -117,20 +123,16 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
         ) : filteredItems.length === 0 ? (
           <MayaEmptyState description="No fetched worklist rows match the current local search." title="No matching rows" />
         ) : (
-          <ScrollArea className="h-[520px]">
-            <Table className="w-[calc(100%-8px)] table-fixed text-xs">
+          <ScrollArea className="h-[484px]">
+            <Table className="w-[calc(100%-8px)] table-fixed text-xs" data-testid="maya-worklist-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[9%] whitespace-normal px-1.5 leading-4">Work item</TableHead>
-                  <TableHead className="w-[15%] whitespace-normal px-1.5 leading-4">Case / Customer</TableHead>
-                  <TableHead className="w-[14%] whitespace-normal px-1.5 leading-4">Verdict</TableHead>
-                  <TableHead className="w-[22%] whitespace-normal px-1.5 leading-4">Recommended action</TableHead>
+                  <TableHead className="w-[11%] whitespace-nowrap px-1.5 leading-4">Work item</TableHead>
+                  <TableHead className="w-[20%] whitespace-nowrap px-1.5 leading-4">Case / Customer</TableHead>
+                  <TableHead className="w-[29%] whitespace-nowrap px-1.5 leading-4">Forensics state</TableHead>
                   <TableHead className="w-[12%] whitespace-nowrap px-1.5 leading-4">Amount</TableHead>
-                  <TableHead className="w-[9%] whitespace-normal px-1.5 leading-4">Evidence</TableHead>
-                  <TableHead className="w-[15%] whitespace-normal px-1.5 leading-4">Queue</TableHead>
-                  <TableHead className="w-[4%] whitespace-normal px-1 leading-4">
-                    <span className="sr-only">Row actions</span>
-                  </TableHead>
+                  <TableHead className="w-[9%] whitespace-nowrap px-1.5 leading-4">Evidence</TableHead>
+                  <TableHead className="w-[19%] whitespace-nowrap px-1.5 leading-4">Queue</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -151,69 +153,113 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                     }}
                     tabIndex={0}
                   >
-                    <TableCell className="whitespace-normal px-1.5 py-3">
+                    <TableCell className="whitespace-normal px-1.5 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate font-medium">{item.lineId}</p>
-                        <div className="flex flex-wrap gap-1" aria-label={`${item.lineId} line IDs`}>
-                          {item.lineIds.map((lineId) => (
+                        <div className="flex min-w-0 items-center gap-1" aria-label={`${item.lineId} line IDs`}>
+                          {item.lineIds.slice(0, 1).map((lineId) => (
                             <Badge className="h-5 px-1.5 text-[10px]" key={`${item.lineId}-${lineId}`} variant="outline">
                               {lineId}
                             </Badge>
                           ))}
+                          {item.lineIds.length > 1 ? (
+                            <Badge
+                              className="h-5 px-1.5 text-[10px]"
+                              title={item.lineIds.slice(1).join(", ")}
+                              variant="outline"
+                            >
+                              +{item.lineIds.length - 1}
+                            </Badge>
+                          ) : null}
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3">
+                    <TableCell className="whitespace-normal px-1.5 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <div className="min-w-0">
-                          <p className="font-medium leading-4">{item.scenarioLabel}</p>
-                          <p className="text-xs leading-4 text-muted-foreground">{item.customerLabel}</p>
+                          <p className="truncate font-medium leading-4" title={item.scenarioLabel}>
+                            {item.scenarioLabel}
+                          </p>
+                          <p className="truncate text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
+                            {item.customerLabel}
+                          </p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3">
-                      <Badge
-                        className="h-7 max-w-full justify-start truncate px-1.5 text-[11px]"
-                        title={item.verdictLabel}
-                        variant="secondary"
-                      >
-                        <span className="min-w-0 truncate">{item.verdictLabel}</span>
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3" data-testid="maya-worklist-recommended-action">
-                      <RecommendedActionCell item={item} />
-                    </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3 tabular-nums">{item.amount}</TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span>{item.evidenceScoreLabel}</span>
-                        <span className="text-xs text-muted-foreground">{item.evidenceLabel}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="whitespace-normal px-1.5 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="truncate">{item.queueLabel}</span>
+                    <TableCell className="whitespace-normal px-1.5 py-2" data-testid="maya-worklist-recommended-action">
+                      <div className="flex min-w-0 flex-col items-start gap-1.5">
                         <Badge
-                          className="h-7 max-w-full justify-start truncate px-1.5 text-[11px]"
-                          title={item.routingLabel}
-                          variant="outline"
+                          className="h-6 max-w-full justify-start truncate px-2 text-[11px] leading-none"
+                          data-testid="maya-verdict-badge"
+                          title={item.verdictLabel}
+                          variant="secondary"
                         >
-                          <span className="min-w-0 truncate">{item.routingLabel}</span>
+                          <span className="min-w-0 truncate">{item.verdictLabel}</span>
                         </Badge>
+                        <RecommendedActionCell item={item} />
                       </div>
                     </TableCell>
-                    <TableCell className="px-1 py-3">
-                      <Button aria-label={`Open ${item.scenarioLabel} row actions`} size="icon-xs" type="button" variant="ghost">
-                        <MoreHorizontalIcon aria-hidden="true" data-icon="button-icon" />
-                      </Button>
+                    <TableCell className="whitespace-nowrap px-1.5 py-2 tabular-nums">{item.amount}</TableCell>
+                    <TableCell className="whitespace-normal px-1.5 py-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span>{item.evidenceScoreLabel}</span>
+                        <span className="truncate text-xs text-muted-foreground" title={item.evidenceLabel}>
+                          {item.evidenceLabel}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-normal px-1.5 py-2">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1">
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="truncate" title={item.queueLabel}>
+                            {item.queueLabel}
+                          </span>
+                          <span
+                            className="text-[11px] leading-3 text-muted-foreground"
+                            data-testid="maya-routing-label"
+                            title={item.routingLabel}
+                          >
+                            {item.routingLabel}
+                          </span>
+                        </div>
+                        <Button
+                          aria-label={`Open ${item.scenarioLabel} row actions`}
+                          className="shrink-0"
+                          size="icon-xs"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <MoreHorizontalIcon aria-hidden="true" data-icon="button-icon" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
+              <TableFooter>
+                <TableRow>
+                  <TableCell className="px-1.5 py-2 text-xs text-muted-foreground" colSpan={3}>
+                    Showing {filteredItems.length.toString()} of {items.length.toString()} fetched rows
+                  </TableCell>
+                  <TableCell className="px-1.5 py-2 text-right text-xs text-muted-foreground" colSpan={3}>
+                    Fetched rows only
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
             </Table>
           </ScrollArea>
         )}
       </CardContent>
+      {items.length > 0 ? (
+        <CardFooter className="min-h-11 justify-between gap-3 bg-transparent px-3 py-2">
+          <p className="truncate text-xs text-muted-foreground">
+            Showing {filteredItems.length.toString()} of {items.length.toString()} fetched rows
+          </p>
+          <Badge className="h-6 px-2 text-[11px]" variant="outline">
+            Fetched rows only
+          </Badge>
+        </CardFooter>
+      ) : null}
     </Card>
   );
 }

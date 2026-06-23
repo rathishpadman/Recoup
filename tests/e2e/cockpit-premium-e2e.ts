@@ -272,6 +272,10 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleText(page, "Deduction Worklist");
       await expectVisibleText(page, "Select a deduction to open its work item");
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2WorklistFit(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2SourceReadinessFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
       await page.getByTestId("maya-worklist-row").first().click();
       await expectVisibleLocator(page, '[data-testid="maya-selected-work-item"]', "Maya selected work-item pane");
@@ -598,6 +602,188 @@ async function assertNoHorizontalOverflow(page: Page, label: string): Promise<vo
         tableContainer.clientWidth
       )}`
     );
+  }
+}
+
+async function assertNoClippedBeat2Chips(page: Page, label: string): Promise<void> {
+  const clippedChips = await page.evaluate(() => {
+    const selectors = [
+      '[data-testid="maya-recommended-action-badge"]',
+      '[data-testid="maya-verdict-badge"]'
+    ];
+
+    return selectors.flatMap((selector) =>
+      [...document.querySelectorAll<HTMLElement>(selector)]
+        .filter((element) => element.offsetParent !== null)
+        .map((element) => ({
+          clientHeight: element.clientHeight,
+          clientWidth: element.clientWidth,
+          label: element.innerText.trim(),
+          scrollHeight: element.scrollHeight,
+          scrollWidth: element.scrollWidth,
+          selector
+        }))
+        .filter(
+          (chip) => chip.scrollWidth > chip.clientWidth + 1 || chip.scrollHeight > chip.clientHeight + 1
+        )
+    );
+  });
+
+  assert(
+    clippedChips.length === 0,
+    `${label} must not clip worklist action/status chips: ${JSON.stringify(clippedChips)}`
+  );
+}
+
+async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> {
+  const fit = await page.evaluate(() => {
+    const table = document.querySelector<HTMLElement>('table');
+    const workItemHeader = [...document.querySelectorAll<HTMLElement>("th")].find(
+      (header) => header.innerText.trim() === "Work item"
+    );
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+    const chips = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="maya-recommended-action-badge"], [data-testid="maya-verdict-badge"]'
+      )
+    ].filter((chip) => chip.offsetParent !== null);
+    const routingLabels = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-routing-label"]')].filter(
+      (label) => label.offsetParent !== null
+    );
+
+    const headerRange = document.createRange();
+    if (workItemHeader !== undefined) {
+      headerRange.selectNodeContents(workItemHeader);
+    }
+
+    return {
+      chipMetrics: chips.map((chip) => ({
+        height: chip.getBoundingClientRect().height,
+        label: chip.innerText.trim(),
+        lineHeight: Number.parseFloat(window.getComputedStyle(chip).lineHeight)
+      })),
+      maxRowHeight: Math.max(...rows.map((row) => row.getBoundingClientRect().height)),
+      routingLabelMetrics: routingLabels.map((routingLabel) => ({
+        height: routingLabel.getBoundingClientRect().height,
+        label: routingLabel.innerText.trim(),
+        lineHeight: Number.parseFloat(window.getComputedStyle(routingLabel).lineHeight),
+        scrollHeight: routingLabel.scrollHeight
+      })),
+      rowCount: rows.length,
+      tableWidth: table?.getBoundingClientRect().width ?? 0,
+      workItemHeaderLineCount:
+        workItemHeader === undefined
+          ? 0
+          : [...headerRange.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1).length
+    };
+  });
+
+  assert(fit.tableWidth > 0, `${label} worklist table must render with a measurable width`);
+  assert(fit.rowCount > 0, `${label} worklist rows must render from fetched data`);
+  assert(
+    fit.workItemHeaderLineCount === 1,
+    `${label} Work item header must stay single-line: ${String(fit.workItemHeaderLineCount)} rendered lines`
+  );
+  assert(fit.maxRowHeight <= 86, `${label} worklist rows must stay compact: ${String(fit.maxRowHeight)}px`);
+
+  for (const chip of fit.chipMetrics) {
+    assert(
+      chip.height <= chip.lineHeight + 14,
+      `${label} worklist chip must stay single-line (${chip.label}): ${String(chip.height)}px`
+    );
+  }
+  assert(fit.routingLabelMetrics.length > 0, `${label} routing labels must render from fetched rows`);
+  for (const routingLabel of fit.routingLabelMetrics) {
+    assert(routingLabel.label.length > 0, `${label} routing labels must expose backend text`);
+    assert(
+      routingLabel.height <= routingLabel.lineHeight * 2 + 4 && routingLabel.scrollHeight <= routingLabel.height + 1,
+      `${label} routing label must stay compact and unclipped (${routingLabel.label}): ${String(routingLabel.height)}px`
+    );
+  }
+}
+
+async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<void> {
+  const sidebar = await page.evaluate(() => {
+    const sidebarNode = document.querySelector<HTMLElement>('[data-testid="maya-sidebar"]');
+    const brand = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-brand"]');
+    const navItems = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-sidebar-nav-item"]')].filter(
+      (item) => item.offsetParent !== null
+    );
+    const badges = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-sidebar-badge"]')].filter(
+      (badge) => badge.offsetParent !== null
+    );
+    const footer = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-footer"]');
+    const disabledControls = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="maya-sidebar"] button:disabled')];
+
+    return {
+      badgeCount: badges.length,
+      brandHeight: brand?.getBoundingClientRect().height ?? 0,
+      disabledControlCount: disabledControls.length,
+      footerText: footer?.innerText.trim() ?? "",
+      navCount: navItems.length,
+      navMaxHeight: Math.max(...navItems.map((item) => item.getBoundingClientRect().height)),
+      sidebarHeight: sidebarNode?.getBoundingClientRect().height ?? 0
+    };
+  });
+
+  assert(sidebar.sidebarHeight > 0, `${label} sidebar must render`);
+  assert(sidebar.brandHeight >= 54, `${label} sidebar brand lockup must have stronger presence`);
+  assert(sidebar.navCount >= 9, `${label} sidebar must keep the full Maya nav map`);
+  assert(sidebar.navMaxHeight <= 38, `${label} sidebar nav rhythm must stay dense`);
+  assert(sidebar.badgeCount >= 2, `${label} sidebar must render backend-backed count badges`);
+  assert(sidebar.disabledControlCount === 0, `${label} sidebar must not expose disabled fake controls`);
+  assert(sidebar.footerText.includes("Maya Patel"), `${label} sidebar footer must render session user context`);
+  assert(sidebar.footerText.includes("Read-only"), `${label} sidebar footer must render honest access status`);
+}
+
+async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {
+  const sourceStrip = await page.evaluate(() => {
+    const strip = document.querySelector<HTMLElement>('[data-testid="maya-source-readiness-strip"]');
+    const tiles = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-tile"]')].filter(
+      (tile) => tile.offsetParent !== null
+    );
+    const tones = tiles.map((tile) => tile.dataset.statusTone ?? "");
+    const statuses = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-status"]')].filter(
+      (status) => status.offsetParent !== null
+    );
+
+    return {
+      hasBlocked: tones.includes("blocked"),
+      hasReady: tones.includes("ready"),
+      hasSynthetic: tones.includes("synthetic"),
+      stripHeight: strip?.getBoundingClientRect().height ?? 0,
+      statusMetrics: statuses.map((status) => ({
+        height: status.getBoundingClientRect().height,
+        label: status.innerText.trim(),
+        tone: status.closest<HTMLElement>('[data-testid="maya-source-tile"]')?.dataset.statusTone ?? ""
+      })),
+      tileCount: tiles.length,
+      toneClassNames: tiles.map((tile) => ({
+        className: tile.className,
+        tone: tile.dataset.statusTone ?? ""
+      }))
+    };
+  });
+
+  assert(sourceStrip.stripHeight > 0, `${label} source readiness strip must render`);
+  assert(sourceStrip.stripHeight <= 84, `${label} source readiness strip must stay slim`);
+  assert(sourceStrip.tileCount >= 5, `${label} source readiness strip must render backend source tiles`);
+  assert(sourceStrip.hasReady, `${label} source readiness must show backend ready/connected state`);
+  assert(sourceStrip.hasSynthetic, `${label} source readiness must show backend synthetic state distinctly`);
+
+  const readyClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "ready")?.className ?? "";
+  const syntheticClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "synthetic")?.className ?? "";
+  assert(readyClass !== syntheticClass, `${label} ready and synthetic source tiles must have distinct visual classes`);
+  if (sourceStrip.hasBlocked) {
+    const blockedClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "blocked")?.className ?? "";
+    assert(blockedClass !== readyClass, `${label} blocked source tiles must be visually distinct from ready`);
+  }
+
+  for (const status of sourceStrip.statusMetrics) {
+    assert(status.height <= 24, `${label} source status badge must stay compact (${status.label})`);
+    assert(status.label.length > 0, `${label} source status badge must expose accessible text`);
   }
 }
 
