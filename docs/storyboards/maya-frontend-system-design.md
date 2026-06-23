@@ -11,6 +11,8 @@ Primary inputs:
 - Worklist mockup: `mockups/imagegen/maya-shadcn-worklist-first-2026-06-23.png`
 - Evidence mockup: `mockups/imagegen/maya-shadcn-evidence-first-2026-06-23.png`
 - Query mockup: `mockups/imagegen/maya-shadcn-query-dock-forward-2026-06-23.png`
+- Full 12-beat visual storyboard: `docs/storyboards/maya-12-beat-mockup-index.md`
+- Contact sheet: `mockups/imagegen/maya-12-beat-storyboard/contact-sheet.png`
 
 ## 1. Product Decision
 
@@ -32,7 +34,7 @@ The resulting Maya experience should feel evidence-led, not assistant-led:
 6. Any recovery action stays draft-only until human approval.
 7. Audit confirmation is backend-generated and visible.
 
-Generated mockup text, case IDs, amounts, record IDs, and statuses are not authoritative. They are visual anatomy only. Runtime content must come from backend/read-model data.
+Generated mockup text, case IDs, amounts, record IDs, and statuses are not authoritative. They are visual anatomy only. Runtime content must come from backend/read-model data. The three master mockups set visual direction; the 12-beat storyboard set provides beat-level coverage.
 
 ## 2. Non-Negotiable Rules
 
@@ -313,13 +315,14 @@ The browser test should cover:
 
 ## 11. Visual Audit Gate
 
-Implementation screenshots must be compared against the mockups:
+Implementation screenshots must be compared against the 12-beat storyboard set and the three master direction mockups:
 
 | Target | Required Match | Accepted Delta |
 |---|---|---|
 | Worklist landing | Mini KPI strip, source strip, dense table, recommended action column | Exact text and numbers differ because backend data is authoritative. |
 | Evidence case view | Evidence-first center, deterministic basis/provenance side panel, gated draft/approval | Section order may adapt for responsive behavior. |
 | Query dock | Right-side sheet, case-bound badges, trace accordion, cited/blocked answer | Voice affordance may stay absent or disabled in first implementation. |
+| Full storyboard arc | One implementation screenshot/state should map to each of the 12 storyboard beats | Exact spacing and data may change once real shadcn components and read-model fields are wired. |
 
 Fail conditions:
 
@@ -393,7 +396,7 @@ Recommended defaults are included so implementation is not blocked.
 | Voice controls | Do not build voice in the first shadcn Maya pass. Reserve disabled/secondary affordance only if needed. |
 | Query API | Use existing `/api/query/realtime-tool` first. Avoid new query endpoints unless backend needs a structured `QueryTurn`. |
 | Read-model gaps | Implement existing-data version first, then add backend fields for stable KPI keys, recommended action, deterministic basis, approval state, query turn, and audit confirmation. |
-| Mockup official status | Commit all three PNGs as visual references, but mark worklist/evidence/query roles clearly in docs. |
+| Mockup official status | Commit the three master direction PNGs plus the 12-beat storyboard PNG set and contact sheet as visual references. |
 
 ## 14. Definition Of Done For Maya Shadcn UI
 
@@ -408,4 +411,4 @@ Recommended defaults are included so implementation is not blocked.
 - Recommended action column exists with lucide icon and tooltip.
 - All business values come from read models or API responses.
 - `npm run verify` passes.
-- Browser screenshots are captured and compared against the three mockups.
+- Browser screenshots are captured and compared against the 12-beat storyboard set and the three master direction mockups.

@@ -553,21 +553,27 @@ Do not show more agents than this in Maya's first storyboard. More agents can ex
 | 9 | Approval | Confirms decision | Approval API commits human decision | `AlertDialog`, `Field`, `Textarea`, `Button` | HITL + human identity |
 | 10 | Audit | Views confirmation | Shows hash and next case | `Alert`, `Badge`, `Tooltip`, `Button` | Backend hash only |
 
-## 9. ImageGen Prompt Direction For Next Step
+## 9. ImageGen Mockup Direction
 
-Do not generate mockups until this storyboard is approved.
+The first visual pass produced three master direction mockups:
 
-When approved, generate Maya-only visual options using this constraint block:
+1. Worklist-first: table dominates, detail opens after selection.
+2. Evidence-first: selected case and evidence dossier dominate, worklist becomes rail.
+3. Query-dock-forward: evidence and query dock share the hero moment.
+
+The second visual pass produced one image per storyboard beat:
+
+- Index: `docs/storyboards/maya-12-beat-mockup-index.md`
+- Folder: `mockups/imagegen/maya-12-beat-storyboard/`
+- Contact sheet: `mockups/imagegen/maya-12-beat-storyboard/contact-sheet.png`
+
+Future reruns should use this constraint block:
 
 ```text
 Create a premium shadcn/Radix enterprise finance application screen for Recoup Maya forensics. Use shadcn primitives only: Sidebar, Card, Table, Badge, Tabs, Sheet, Accordion, Alert, Button, Tooltip, ScrollArea. Show login-to-worklist-to-case investigation design language, including a compact mini dashboard for pending items, high-priority items, evidence-ready cases, blocked cases, and draft approvals waiting. In the worklist, show a recommended-action column with a small lucide-style agent recommendation icon and tooltip, not an avatar. Keep it dense operational B2B SaaS, light-first, petrol teal and neutral tokens, no purple gradients, no avatar, no chatbot bubble, no fake live labels, no invented amounts, no autonomous send button. Text accuracy is secondary; component anatomy, density, evidence hierarchy, and human approval gate are primary.
 ```
 
-Mockup variants:
-
-1. Worklist-first: table dominates, detail opens after selection.
-2. Evidence-first: selected case and evidence dossier dominate, worklist becomes rail.
-3. Query-dock-forward: evidence and query dock share the hero moment.
+Generated images remain visual anatomy only. Text, numbers, record IDs, statuses, and business state must come from backend/read-model data during implementation.
 
 ## 10. Verification Plan
 
