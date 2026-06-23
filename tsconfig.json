@@ -15,6 +15,10 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
+      "@/components/ui/*": ["./cockpit/components/ui/*", "./cockpit/components/ui/*.tsx"],
+      "@/components/*": ["./cockpit/components/*", "./cockpit/components/*.tsx"],
+      "@/hooks/*": ["./cockpit/hooks/*", "./cockpit/hooks/*.ts"],
+      "@/lib/*": ["./cockpit/lib/*", "./cockpit/lib/*.ts"],
       "@/*": ["./cockpit/*"]
     },
     "jsx": "react-jsx",
