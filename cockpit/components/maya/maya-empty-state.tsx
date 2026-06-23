@@ -11,7 +11,7 @@ export function MayaEmptyState({ description, title }: MayaEmptyStateProps) {
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <InboxIcon />
+          <InboxIcon aria-hidden="true" data-icon="empty-state" />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
         <EmptyDescription>{description}</EmptyDescription>

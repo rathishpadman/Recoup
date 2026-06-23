@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { SearchIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +18,6 @@ interface QueryEvidenceDockProps {
 }
 
 export function QueryEvidenceDock({ dock, onOpenChange, open, recordIds, selectedLine }: QueryEvidenceDockProps) {
-  const [question, setQuestion] = React.useState("");
-
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="sm:max-w-xl" data-testid="maya-query-dock">
@@ -31,7 +28,9 @@ export function QueryEvidenceDock({ dock, onOpenChange, open, recordIds, selecte
         <div className="flex min-w-0 flex-1 flex-col gap-4 px-4">
           <Alert>
             <AlertTitle>Offline query shell</AlertTitle>
-            <AlertDescription>Realtime evidence calls are not enabled in this review route.</AlertDescription>
+            <AlertDescription id="maya-query-offline-status">
+              Query execution is not enabled in this review route.
+            </AlertDescription>
           </Alert>
           <div className="flex flex-wrap gap-2" aria-label={`${selectedLine} scoped query records`}>
             <Badge variant="secondary">{selectedLine}</Badge>
@@ -46,13 +45,12 @@ export function QueryEvidenceDock({ dock, onOpenChange, open, recordIds, selecte
               <FieldLabel htmlFor="maya-query-question">Question</FieldLabel>
               <InputGroup>
                 <InputGroupTextarea
+                  aria-describedby="maya-query-offline-status"
                   data-testid="maya-query-input"
+                  disabled
                   id="maya-query-question"
-                  onChange={(event) => {
-                    setQuestion(event.target.value);
-                  }}
                   placeholder={dock.promptPlaceholder}
-                  value={question}
+                  readOnly
                 />
                 <InputGroupAddon align="block-end">
                   <span>{dock.languageLabel}</span>

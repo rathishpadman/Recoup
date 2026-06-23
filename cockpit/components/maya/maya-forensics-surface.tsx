@@ -4,6 +4,7 @@ import * as React from "react";
 import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
 import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
+import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { MayaRunKpiStrip } from "./maya-run-kpi-strip.tsx";
 import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
@@ -13,9 +14,7 @@ import type { MayaForensicsSurfaceProps } from "./types.ts";
 export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
   const [queryOpen, setQueryOpen] = React.useState(false);
   const [approvalOpen, setApprovalOpen] = React.useState(false);
-  const selectedWorklistItem =
-    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ??
-    model.worklist[0];
+  const selectedWorklistItem = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId));
 
   return (
     <MayaWorkspaceShell session={session}>
@@ -25,19 +24,26 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           <SourceReadinessStrip connectors={connectors} />
           <DeductionWorklistTable activeLineId={model.selected.lineId} items={model.worklist} />
         </section>
-        <DeductionCaseWorkspace
-          actionInbox={model.actionInbox}
-          journey={model.mayaJourney}
-          multimodalDock={model.multimodalDock}
-          onOpenApproval={() => {
-            setApprovalOpen(true);
-          }}
-          onOpenQuery={() => {
-            setQueryOpen(true);
-          }}
-          selected={model.selected}
-          selectedWorklistItem={selectedWorklistItem}
-        />
+        {selectedWorklistItem === undefined ? (
+          <MayaEmptyState
+            description="The selected line ID was not present in the worklist read model."
+            title="Read-model mismatch"
+          />
+        ) : (
+          <DeductionCaseWorkspace
+            actionInbox={model.actionInbox}
+            journey={model.mayaJourney}
+            multimodalDock={model.multimodalDock}
+            onOpenApproval={() => {
+              setApprovalOpen(true);
+            }}
+            onOpenQuery={() => {
+              setQueryOpen(true);
+            }}
+            selected={model.selected}
+            selectedWorklistItem={selectedWorklistItem}
+          />
+        )}
       </div>
       <QueryEvidenceDock
         dock={model.multimodalDock}
