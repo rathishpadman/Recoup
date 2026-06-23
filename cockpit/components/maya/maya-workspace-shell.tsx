@@ -51,9 +51,11 @@ import type { DemoSession } from "../../app/demo-auth.ts";
 
 interface MayaWorkspaceShellProps {
   children: ReactNode;
+  heading?: string;
   pendingActionCount: number;
   refreshedLabel: string;
   session: DemoSession;
+  support?: string;
   worklistCount: number;
 }
 
@@ -93,12 +95,16 @@ function RecoupBrandMark() {
 
 export function MayaWorkspaceShell({
   children,
+  heading,
   pendingActionCount,
   refreshedLabel,
   session,
+  support,
   worklistCount
 }: MayaWorkspaceShellProps) {
   const firstName = session.displayName.split(" ")[0] ?? session.displayName;
+  const displayHeading = heading ?? `Welcome back, ${firstName}`;
+  const displaySupport = support ?? "Here's what's happening in Maya Forensics.";
 
   return (
     <SidebarProvider
@@ -235,8 +241,8 @@ export function MayaWorkspaceShell({
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="md:hidden" />
             <div className="grid min-w-0 gap-1">
-              <h1 className="truncate text-2xl font-semibold leading-none">Welcome back, {firstName}</h1>
-              <p className="truncate text-sm text-muted-foreground">Here's what's happening in Maya Forensics.</p>
+              <h1 className="truncate text-2xl font-semibold leading-none">{displayHeading}</h1>
+              <p className="truncate text-sm text-muted-foreground">{displaySupport}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

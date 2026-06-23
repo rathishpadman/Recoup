@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. Beat 4+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. Beat 5+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -121,6 +121,9 @@ None. No agent loop is currently active.
 - Beat 3 recommended-action state is implemented for `/forensics/shadcn` only. The table defaults to the backend-selected `worklist[]` row when it maps to `model.selected.lineId`, otherwise the first fetched row. Row selection remains local UI state keyed by `worklist[].lineId`, `aria-selected`, checkbox, click, Enter, and Space; it does not claim a backend row refresh.
 - Beat 3 right pane summarizes only the selected fetched row: customer, scenario, line IDs, amount, verdict, queue, routing, evidence, confidence, and `recommendedActionLabel`. The advisory callout explicitly says `Advisory only`, local buttons do not dispatch external actions, and the detail-packet note states when deep evidence is unavailable until backend row switching exists.
 - Beat 3 verification in this pass: the focused Beat 3 boundary test first failed for the missing selected/advisory state, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 35 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-login-only` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed Beat 1, Beat 2, and Beat 3 screenshots, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 592 tests, dependency-cruiser, release readiness), and `git diff --check` passed with only LF-to-CRLF working-copy warnings.
+- Beat 4 case overview is implemented for `/forensics/shadcn` only. The local `Open investigation` control opens the selected fetched row into a case workspace with a narrow worklist rail, backend scenario/customer/line labels, backend read-only amount, backend verdict/routing/queue/confidence badges, selected-line summary, Overview/Evidence/Agent Trace/Draft/Audit tabs, deterministic basis, record IDs, evidence document count, read-only draft/approval status, notes unavailable state, and `mayaJourney[]` timeline rows. The Draft tab keeps model-owned draft label/status/amount/basis/record IDs and uses neutral `Draft label` inbox copy instead of raw action metadata.
+- Beat 4 deep detail is guarded: `model.selected` evidence, draft, trace, and audit detail render only when the opened worklist row contains `model.selected.lineId`; other row selections show a contract-gap state instead of borrowing the fixed evidence packet. Beat 4 does not call approval, realtime query, SAP, ERP write-back, correspondence, Billing routing, or any external action route.
+- Beat 4 reviewer-fix verification in this pass: the focused boundary tests first failed on the raw action-ID/action-type and disabled command-copy guard, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 36 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed after clicking the Draft tab and checking no `Action ID`, no `Action type`, no `draft-rebill`, and no disabled draft command controls, refreshed Beat 1, Beat 2, Beat 3, and Beat 4 screenshots, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 593 tests, dependency-cruiser, release readiness), and `git diff --check` passed with only LF-to-CRLF working-copy warnings.
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -135,10 +138,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Review the refreshed Beat 3 recommended-action screenshot against `mockups/imagegen/maya-12-beat-storyboard/03-worklist-recommended-action.png`.
-2. Run or record an independent visual reviewer gate before treating Beat 3 as accepted; every component and overall score must be `>=4.5/5`.
-3. Keep Beat 3 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, or evidence.
-4. Do not proceed into Beat 4 case/evidence flows until that beat is explicitly approved.
+1. Review the refreshed Beat 4 case-overview screenshot against `mockups/imagegen/maya-12-beat-storyboard/04-case-overview-crestline-opens.png`.
+2. Run or record an independent visual reviewer gate before treating Beat 4 as accepted; every Beat 4 component and overall score must be `>=4.5/5`.
+3. Keep Beat 4 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, or evidence.
+4. Do not proceed into Beat 5 evidence-dossier work until the Beat 4 build, chained browser/storyline test, and independent reviewer gate pass.
 
 ## Beat 2 Remaining Deltas
 

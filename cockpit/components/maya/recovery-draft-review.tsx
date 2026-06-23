@@ -13,20 +13,16 @@ interface RecoveryDraftReviewProps {
 
 export function RecoveryDraftReview({ actionInbox, draft, recordIds }: RecoveryDraftReviewProps) {
   return (
-    <Card>
+    <Card data-testid="maya-recovery-draft-review">
       <CardHeader>
         <CardTitle>{draft.actionLabel}</CardTitle>
         <CardDescription>{draft.statusLabel}</CardDescription>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <div className="flex flex-col gap-1">
-            <span className="text-sm text-muted-foreground">Action ID</span>
-            <span className="font-medium">{draft.actionId}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-sm text-muted-foreground">Action type</span>
-            <span className="font-medium">{draft.actionType}</span>
+            <span className="text-sm text-muted-foreground">Status</span>
+            <span className="font-medium">{draft.statusLabel}</span>
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-sm text-muted-foreground">Amount</span>
@@ -48,7 +44,7 @@ export function RecoveryDraftReview({ actionInbox, draft, recordIds }: RecoveryD
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Action</TableHead>
+                <TableHead>Draft label</TableHead>
                 <TableHead>Line</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>

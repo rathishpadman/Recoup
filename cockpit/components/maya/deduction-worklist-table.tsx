@@ -35,11 +35,12 @@ interface DeductionWorklistTableProps {
   items: MayaWorklistItem[];
   onSelectItem: (item: MayaWorklistItem) => void;
   selectedLineId?: string;
+  variant?: "rail" | "table";
 }
 
 const missingOperationalFields = ["Priority", "Work type", "Source", "Age", "Owner"] as const;
 
-export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: DeductionWorklistTableProps) {
+export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, variant = "table" }: DeductionWorklistTableProps) {
   const [query, setQuery] = React.useState("");
   const filteredItems = React.useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -62,6 +63,108 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
         .includes(normalizedQuery)
     );
   }, [items, query]);
+
+  if (variant === "rail") {
+    return (
+      <Card className="min-h-[calc(100vh-2rem)] rounded-lg shadow-none" size="sm">
+        <CardHeader className="gap-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="grid min-w-0 gap-1">
+              <CardTitle>Worklist</CardTitle>
+              <CardDescription className="truncate">{items.length.toString()} fetched rows</CardDescription>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button aria-label="Read-model gaps" size="icon-sm" type="button" variant="outline">
+                  <CircleHelpIcon aria-hidden="true" data-icon="button-icon" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-72">
+                <span>Not exposed on worklist rows: {missingOperationalFields.join(", ")}.</span>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <InputGroup className="h-9">
+            <InputGroupAddon>
+              <SearchIcon aria-hidden="true" data-icon="input-addon" />
+            </InputGroupAddon>
+            <InputGroupInput
+              aria-label="Search worklist rail"
+              onChange={(event) => {
+                setQuery(event.target.value);
+              }}
+              placeholder="Search"
+              title="Search by scenario, customer, or line ID"
+              value={query}
+            />
+          </InputGroup>
+        </CardHeader>
+        <CardContent className="min-h-0 px-2">
+          {items.length === 0 ? (
+            <MayaEmptyState description="The forensics read model returned no worklist rows." title="Worklist unavailable" />
+          ) : filteredItems.length === 0 ? (
+            <MayaEmptyState description="No fetched worklist rows match the current local search." title="No matching rows" />
+          ) : (
+            <ScrollArea className="h-[calc(100vh-13rem)] min-h-[520px]">
+              <div className="flex min-w-0 flex-col gap-1 pr-2">
+                {filteredItems.map((item) => (
+                  <Button
+                    aria-selected={item.lineId === selectedLineId}
+                    className={cn(
+                      "h-auto min-h-[104px] w-full justify-start rounded-md border px-3 py-3 text-left font-normal",
+                      "data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-primary/30"
+                    )}
+                    data-line-id={item.lineId}
+                    data-selected={item.lineId === selectedLineId ? "true" : undefined}
+                    data-state={item.lineId === selectedLineId ? "selected" : undefined}
+                    data-testid="maya-worklist-row"
+                    key={item.lineId}
+                    onClick={() => {
+                      onSelectItem(item);
+                    }}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-2">
+                      <span className="flex min-w-0 items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{item.lineId}</span>
+                          <span className="block truncate text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
+                      </span>
+                      <span className="line-clamp-2 text-xs text-muted-foreground">{item.customerLabel}</span>
+                      <span className="flex min-w-0 flex-wrap gap-1">
+                        <Badge className="h-5 px-1.5 text-[10px]" variant="secondary">
+                          {item.verdictLabel}
+                        </Badge>
+                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                          {item.queueLabel}
+                        </Badge>
+                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                          {item.evidenceScoreLabel}
+                        </Badge>
+                      </span>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+        {items.length > 0 ? (
+          <CardFooter className="min-h-11 justify-between gap-2 bg-transparent px-3 py-2">
+            <p className="truncate text-xs text-muted-foreground">
+              {filteredItems.length.toString()} of {items.length.toString()}
+            </p>
+            <Badge className="h-6 px-2 text-[11px]" variant="outline">
+              Local focus
+            </Badge>
+          </CardFooter>
+        ) : null}
+      </Card>
+    );
+  }
 
   return (
     <Card className="min-h-0 rounded-lg shadow-none" size="sm">

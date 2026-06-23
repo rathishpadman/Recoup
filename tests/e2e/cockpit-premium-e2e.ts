@@ -28,6 +28,7 @@ interface ForensicsE2EModel {
   }>;
   worklist: Array<{
     amount: string;
+    confidenceLabel: string;
     customerLabel: string;
     evidenceScoreLabel: string;
     lineId: string;
@@ -45,6 +46,10 @@ interface ForensicsE2EModel {
     }>;
     draft: {
       actionId: string;
+      actionLabel: string;
+      amount: string;
+      basis: string;
+      statusLabel: string;
     };
     evidencePack: {
       documents: Array<{
@@ -162,8 +167,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaLoginBeatScreenshot(browser);
       await captureMayaBeat2LandingScreenshot(browser);
       await captureMayaBeat3RecommendedActionScreenshot(browser);
+      await captureMayaBeat4CaseOverviewScreenshot(browser);
       console.log(
-        `Maya Beat 1, Beat 2, and Beat 3 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-02-dashboard.png, ${outputDir}/maya-beat-03-recommended-action.png`
+        `Maya Beat 1, Beat 2, Beat 3, and Beat 4 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-02-dashboard.png, ${outputDir}/maya-beat-03-recommended-action.png, ${outputDir}/maya-beat-04-case-overview.png`
       );
       return;
     }
@@ -321,6 +327,41 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
       await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${alternateRow.lineId}"]`).click();
       await assertBeat3ReadModelMismatch(page, alternateRow);
     }
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat4CaseOverviewScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    const url = request.url();
+    const method = request.method();
+    if (
+      method !== "GET" &&
+      (url.includes("/approval") || url.includes("/query") || url.includes("/realtime") || url.includes("/sap"))
+    ) {
+      forbiddenRequests.push(`${method} ${url}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 4 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Draft/u }).click();
+    await assertBeat4DraftTabFidelity(page, model, forbiddenRequests);
+    await page.getByRole("tab", { name: /Overview/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-case-overview"]', "Maya Beat 4 overview tab restored");
+    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
   } finally {
     await context.close();
   }
@@ -978,6 +1019,129 @@ async function assertBeat3ReadModelMismatch(
     result.contractText.includes("Detailed evidence is unavailable for this row until the backend exposes row switching."),
     "mismatch pane must not reuse backend-selected deep evidence for another row"
   );
+}
+
+async function assertBeat4CaseOverviewFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  expectedRow: ForensicsE2EModel["worklist"][number],
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya Beat 4 case workspace");
+  await expectVisibleLocator(page, '[data-testid="maya-case-worklist-rail"]', "Maya Beat 4 worklist rail");
+  await expectVisibleLocator(page, '[data-testid="maya-case-overview"]', "Maya Beat 4 overview tab");
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+
+  const result = await page.evaluate(() => {
+    const workspace = document.querySelector<HTMLElement>('[data-testid="maya-case-workspace"]');
+    const rail = document.querySelector<HTMLElement>('[data-testid="maya-case-worklist-rail"]');
+    const selectedRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"][aria-selected="true"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+    const amount = document.querySelector<HTMLElement>('[data-testid="maya-case-overview-readonly-amount"]');
+    const basis = document.querySelector<HTMLElement>('[data-testid="maya-case-deterministic-basis"]');
+    const primaryDraftFacts = document.querySelector<HTMLElement>('[data-testid="maya-case-primary-draft-facts"]');
+    const draftReadonlyStatus = document.querySelector<HTMLElement>('[data-testid="maya-case-draft-readonly-status"]');
+    const draftControls = [...document.querySelectorAll<HTMLElement>('[data-testid^="maya-case-draft-action-"]')];
+
+    return {
+      amountReadOnly: amount?.getAttribute("aria-readonly") ?? "",
+      draftControlCount: draftControls.length,
+      draftReadonlyStatusText: draftReadonlyStatus?.innerText ?? "",
+      primaryDraftFactsText: primaryDraftFacts?.innerText ?? "",
+      railWidth: rail?.getBoundingClientRect().width ?? 0,
+      selectedDataLineId: selectedRows[0]?.dataset.lineId ?? "",
+      selectedRowCount: selectedRows.length,
+      text: workspace?.innerText ?? "",
+      usesBasis: basis?.innerText ?? ""
+    };
+  });
+
+  assert(result.selectedRowCount === 1, "Beat 4 rail must expose exactly one selected row");
+  assert(result.selectedDataLineId === expectedRow.lineId, `Beat 4 rail must keep ${expectedRow.lineId} selected`);
+  assert(result.railWidth > 220 && result.railWidth < 390, `Beat 4 worklist rail must be narrow: ${String(result.railWidth)}px`);
+  assert(result.text.includes(expectedRow.scenarioLabel), "Beat 4 workspace must use backend scenario label");
+  assert(result.text.includes(expectedRow.customerLabel), "Beat 4 workspace must use backend customer label");
+  assert(result.text.includes(expectedRow.amount), "Beat 4 workspace must use backend amount string");
+  assert(result.text.includes(expectedRow.verdictLabel), "Beat 4 workspace must use backend verdict label");
+  assert(result.text.includes(expectedRow.routingLabel), "Beat 4 workspace must use backend routing label");
+  assert(result.text.includes(expectedRow.queueLabel), "Beat 4 workspace must use backend queue label");
+  assert(result.text.includes(expectedRow.confidenceLabel), "Beat 4 workspace must use backend confidence label");
+  assert(result.text.includes(recordId), "Beat 4 workspace must show backend record IDs");
+  assert(result.primaryDraftFactsText.includes("Draft action"), "Beat 4 primary draft facts must keep the backend action label");
+  assert(
+    !result.primaryDraftFactsText.includes(model.selected.draft.actionId),
+    "Beat 4 primary draft facts must not expose raw backend action IDs"
+  );
+  assert(
+    !result.text.includes(model.selected.draft.actionId),
+    "Beat 4 overview must not expose raw backend action IDs as business copy"
+  );
+  assert(
+    !result.text.includes("Action type") && !result.usesBasis.includes("Action type"),
+    "Beat 4 overview must not render raw action-type business labels"
+  );
+  assert(
+    !result.text.includes("External action locked") &&
+      !result.text.includes("View draft") &&
+      !result.text.includes("Approval locked") &&
+      !result.text.includes("More actions"),
+    "Beat 4 overview must not expose disabled command/action copy"
+  );
+  assert(result.amountReadOnly === "true", "Beat 4 amount block must be marked read-only");
+  assert(result.draftControlCount === 0, "Beat 4 overview must not render disabled draft command controls");
+  assert(result.draftReadonlyStatusText.includes("Read-only"), "Beat 4 draft panel must present a read-only status");
+  assert(result.text.includes("Notes unavailable"), "Beat 4 notes must be an honest unavailable state");
+  assert(!result.text.includes("Case created"), "Beat 4 must not invent a case-created timeline event");
+  assert(forbiddenRequests.length === 0, `Beat 4 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
+async function assertBeat4DraftTabFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 4 Draft tab");
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+
+  const result = await page.evaluate(() => {
+    const draft = document.querySelector<HTMLElement>('[data-testid="maya-recovery-draft-review"]');
+    const headers = [...(draft?.querySelectorAll<HTMLElement>("th") ?? [])].map((header) => header.innerText.trim());
+    const disabledButtons = [...(draft?.querySelectorAll<HTMLButtonElement>("button:disabled") ?? [])].map(
+      (button) => button.innerText.trim() || button.getAttribute("aria-label") || ""
+    );
+    const buttons = [...(draft?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map(
+      (button) => button.innerText.trim() || button.getAttribute("aria-label") || ""
+    );
+
+    return {
+      buttonLabels: buttons,
+      disabledButtonLabels: disabledButtons,
+      headers,
+      text: draft?.innerText ?? ""
+    };
+  });
+
+  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 4 Draft tab must keep the backend action label");
+  assert(result.text.includes(model.selected.draft.statusLabel), "Beat 4 Draft tab must keep the backend status label");
+  assert(result.text.includes(model.selected.draft.amount), "Beat 4 Draft tab must keep the backend amount");
+  assert(result.text.includes(model.selected.draft.basis), "Beat 4 Draft tab must keep the backend deterministic basis");
+  assert(result.text.includes(recordId), "Beat 4 Draft tab must keep backend record IDs");
+  assert(result.headers.includes("Draft label"), "Beat 4 Draft tab inbox must use neutral draft-label copy");
+  assert(!result.headers.includes("Action"), "Beat 4 Draft tab inbox must not use command-like Action header copy");
+  assert(!result.text.includes("Action ID"), "Beat 4 Draft tab must not expose raw Action ID labels");
+  assert(!result.text.includes("Action type"), "Beat 4 Draft tab must not expose raw Action type labels");
+  assert(!result.text.includes("draft-rebill"), "Beat 4 Draft tab must not expose raw draft-rebill metadata");
+  assert(
+    !result.text.includes(model.selected.draft.actionId),
+    "Beat 4 Draft tab must not expose raw backend action IDs as business copy"
+  );
+  assert(result.disabledButtonLabels.length === 0, "Beat 4 Draft tab must not render disabled draft command controls");
+  assert(
+    !/\b(?:approve draft|preview draft|route for approval|send draft|modify|reject)\b/iu.test(result.buttonLabels.join(" ")),
+    "Beat 4 Draft tab must not expose command-like draft buttons"
+  );
+  assert(forbiddenRequests.length === 0, `Beat 4 Draft tab must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
 async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {

@@ -4,6 +4,7 @@ import * as React from "react";
 import { FileSearchIcon, NotebookPenIcon, UserRoundCheckIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { MayaRunKpiStrip } from "./maya-run-kpi-strip.tsx";
@@ -15,6 +16,7 @@ import type { MayaForensicsSurfaceProps, MayaWorklistItem } from "./types.ts";
 
 export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
   const [selectedWorklistItem, setSelectedWorklistItem] = React.useState<MayaWorklistItem | undefined>();
+  const [openedCaseWorklistItem, setOpenedCaseWorklistItem] = React.useState<MayaWorklistItem | undefined>();
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
     [model.selected.lineId, model.worklist]
@@ -27,6 +29,50 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     selectedHasBackendDetail = selectedWorklistItem.lineIds.includes(model.selected.lineId);
   } else if (initialSelectedWorklistItem !== undefined) {
     selectedHasBackendDetail = initialSelectedWorklistItem.lineIds.includes(model.selected.lineId);
+  }
+  const openedCaseHasBackendDetail =
+    openedCaseWorklistItem !== undefined && openedCaseWorklistItem.lineIds.includes(model.selected.lineId);
+
+  const handleSelectWorklistItem = React.useCallback(
+    (item: MayaWorklistItem) => {
+      setSelectedWorklistItem(item);
+      if (openedCaseWorklistItem !== undefined) {
+        setOpenedCaseWorklistItem(item);
+      }
+    },
+    [openedCaseWorklistItem]
+  );
+
+  if (openedCaseWorklistItem !== undefined) {
+    return (
+      <MayaWorkspaceShell
+        heading={openedCaseWorklistItem.scenarioLabel}
+        pendingActionCount={model.actionInbox.length}
+        refreshedLabel={connectors.lastRefreshedLabel}
+        session={session}
+        support={`${openedCaseWorklistItem.customerLabel} / ${openedCaseWorklistItem.lineId}`}
+        worklistCount={model.worklist.length}
+      >
+        <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
+          <aside className="min-w-0" data-testid="maya-case-worklist-rail">
+            <DeductionWorklistTable
+              items={model.worklist}
+              onSelectItem={handleSelectWorklistItem}
+              selectedLineId={openedCaseWorklistItem.lineId}
+              variant="rail"
+            />
+          </aside>
+          <DeductionCaseWorkspace
+            actionInbox={model.actionInbox}
+            hasBackendDetail={openedCaseHasBackendDetail}
+            journey={model.mayaJourney}
+            multimodalDock={model.multimodalDock}
+            selected={model.selected}
+            selectedWorklistItem={openedCaseWorklistItem}
+          />
+        </section>
+      </MayaWorkspaceShell>
+    );
   }
 
   return (
@@ -43,7 +89,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           <section className="min-w-0" aria-label="Maya queue">
             <DeductionWorklistTable
               items={model.worklist}
-              onSelectItem={setSelectedWorklistItem}
+              onSelectItem={handleSelectWorklistItem}
               {...(visibleSelectedWorklistItem === undefined ? {} : { selectedLineId: visibleSelectedWorklistItem.lineId })}
             />
           </section>
@@ -133,6 +179,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                           <Button
                             data-testid="maya-local-row-action-open"
                             onClick={() => {
+                              setOpenedCaseWorklistItem(visibleSelectedWorklistItem);
                               setSelectedWorklistItem(visibleSelectedWorklistItem);
                             }}
                             size="sm"

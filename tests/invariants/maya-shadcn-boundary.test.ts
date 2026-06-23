@@ -281,12 +281,16 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(surface).toContain("Detailed evidence is unavailable for this row until the backend exposes row switching.");
     expect(surface).toContain("Open investigation");
     expect(surface).toContain("Add note");
-    expect(surface).not.toContain("model.selected.evidencePack");
-    expect(surface).not.toContain("model.selected.draft.basis");
-    expect(surface).not.toContain("<DeductionCaseWorkspace");
+    expect(surface).toContain("openedCaseWorklistItem");
+    expect(surface).toContain("setOpenedCaseWorklistItem");
+    expect(surface).toContain("<DeductionCaseWorkspace");
+    expect(surface).toContain("openedCaseHasBackendDetail");
+    expect(surface).toContain("openedCaseWorklistItem.lineIds.includes(model.selected.lineId)");
     expect(surface).not.toContain("activeLineId=");
     expect(table).toContain("onSelectItem");
     expect(table).toContain("selectedLineId");
+    expect(table).toContain('variant?: "rail" | "table"');
+    expect(table).toContain('variant === "rail"');
     expect(table).toContain("item.lineId");
     expect(table).toContain("aria-selected={item.lineId === selectedLineId}");
     expect(table).toContain('data-selected={item.lineId === selectedLineId ? "true" : undefined}');
@@ -301,6 +305,72 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(sources).not.toMatch(/onClick=\{[^}]*setSelectedLineId/su);
     expect(sources).not.toContain("Select ${");
     expect(sources).not.toMatch(/\b(?:auto recover|auto approve|execute|write back|recovered|cleared by AI)\b/iu);
+  });
+
+  it("keeps Beat 4 case overview opened locally, deep-detail gated, and non-dispatching", () => {
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
+
+    expect(surface).toContain("openedCaseWorklistItem !== undefined");
+    expect(surface).toContain("setOpenedCaseWorklistItem(visibleSelectedWorklistItem)");
+    expect(surface).toContain("openedCaseHasBackendDetail");
+    expect(surface).toContain("model.selected");
+    expect(surface).toContain("model.mayaJourney");
+    expect(surface).toContain("model.multimodalDock");
+    expect(surface).toContain("model.actionInbox");
+    expect(surface).toContain('data-testid="maya-case-worklist-rail"');
+
+    expect(workspace).toContain("hasBackendDetail");
+    expect(workspace).toContain("selectedWorklistItem.lineIds.includes(selected.lineId)");
+    expect(workspace).toContain("selected.evidencePack.recordIds");
+    expect(workspace).toContain("selected.evidencePack.documents");
+    expect(workspace).toContain("selected.draft.basis");
+    expect(workspace).toContain("selected.draft.actionLabel");
+    expect(workspace).toContain("selected.draft.statusLabel");
+    expect(workspace).toContain('data-testid="maya-case-primary-draft-facts"');
+    expect(workspace).toContain('data-testid="maya-case-draft-readonly-status"');
+    expect(workspace).toContain("journey.map");
+    expect(workspace).toContain("Contract gap");
+    expect(workspace).toContain("Notes unavailable");
+    expect(workspace).toContain("aria-readonly");
+    expect(workspace).toContain('data-testid="maya-case-overview"');
+    expect(workspace).toContain('data-testid="maya-case-overview-readonly-amount"');
+    expect(workspace).toContain('data-testid="maya-case-detail-contract-gap"');
+    expect(workspace).toContain("<RecoveryDraftReview");
+    expect(workspace).not.toContain("/api/approval");
+    expect(workspace).not.toContain("/api/query");
+    expect(workspace).not.toContain("fetch(");
+    expect(workspace).not.toContain('label="Action ID"');
+    expect(workspace).not.toContain('label="Action type"');
+    expect(workspace).not.toContain("selected.draft.actionId");
+    expect(workspace).not.toContain("selected.draft.actionType");
+    expect(workspace).not.toContain('data-testid="maya-case-draft-action-');
+    expect(workspace).not.toContain("External action locked");
+    expect(workspace).not.toContain("View draft");
+    expect(workspace).not.toContain("Approval locked");
+    expect(workspace).not.toContain("More actions");
+    expect(workspace).not.toMatch(/\b(?:owner|contact|due date|received|priority|case created|preview draft|route for approval)\b/iu);
+
+    expect(recoveryDraftReview).toContain('data-testid="maya-recovery-draft-review"');
+    expect(recoveryDraftReview).toContain("draft.actionLabel");
+    expect(recoveryDraftReview).toContain("draft.statusLabel");
+    expect(recoveryDraftReview).toContain("draft.amount");
+    expect(recoveryDraftReview).toContain("draft.basis");
+    expect(recoveryDraftReview).toContain("recordIds.map");
+    expect(recoveryDraftReview).toContain("item.actionLabel");
+    expect(recoveryDraftReview).toContain("item.lineId");
+    expect(recoveryDraftReview).toContain("item.amount");
+    expect(recoveryDraftReview).toContain("item.statusLabel");
+    expect(recoveryDraftReview).toContain("<TableHead>Draft label</TableHead>");
+    expect(recoveryDraftReview).not.toContain("Action ID");
+    expect(recoveryDraftReview).not.toContain("Action type");
+    expect(recoveryDraftReview).not.toContain("draft.actionId");
+    expect(recoveryDraftReview).not.toContain("draft.actionType");
+    expect(recoveryDraftReview).not.toContain("item.actionType");
+    expect(recoveryDraftReview).not.toMatch(/<TableHead>\s*Action\s*<\/TableHead>/u);
+    expect(recoveryDraftReview).not.toMatch(/\b(?:preview draft|route for approval|approve draft|send draft)\b/iu);
+    expect(recoveryDraftReview).not.toMatch(/<button\b|<Button\b/u);
   });
 
   it("keeps Beat 2 priority gaps inside the KPI strip instead of a separate alert", () => {
