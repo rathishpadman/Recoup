@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { SearchIcon } from "lucide-react";
+import { FileTextIcon, SearchIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   startRealtimeBrowserSession,
   type RealtimeBrowserSession,
@@ -46,6 +45,7 @@ export function QueryEvidenceDock({
   const sessionTokenRef = React.useRef(0);
   const [error, setError] = React.useState<string | undefined>();
   const [question, setQuestion] = React.useState("");
+  const [submittedQuestion, setSubmittedQuestion] = React.useState("");
   const [snapshot, setSnapshot] = React.useState<RealtimeBrowserSessionSnapshot | undefined>();
   const isRunning = snapshot?.status === "connecting" || snapshot?.status === "connected";
   const canShowCitedAnswer =
@@ -66,6 +66,7 @@ export function QueryEvidenceDock({
     if (clearLocalState) {
       setError(undefined);
       setQuestion("");
+      setSubmittedQuestion("");
       setSnapshot(undefined);
     }
   }, []);
@@ -121,6 +122,7 @@ export function QueryEvidenceDock({
     previousAbortController?.abort();
     session?.close();
     setError(undefined);
+    setSubmittedQuestion(trimmedQuestion);
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
@@ -186,54 +188,74 @@ export function QueryEvidenceDock({
             ))}
           </div>
         </SheetHeader>
-        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
-          <div className="grid min-w-0 gap-2 rounded-lg border bg-muted/25 p-3" aria-label="Client-selected case context">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium">Client-selected case context</span>
-              <Badge data-testid="maya-query-selected-line" variant="secondary">
-                {selectedLine}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap gap-1.5" aria-label="Selected evidence record IDs">
-              {recordIds.length === 0 ? (
-                <Badge data-testid="maya-query-record-id" variant="outline">
-                  No record IDs
-                </Badge>
-              ) : (
-                recordIds.map((recordId) => (
-                  <Badge className="max-w-full truncate" data-testid="maya-query-record-id" key={recordId} title={recordId} variant="outline">
-                    {recordId}
+        <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
+          <Alert aria-label="Client-selected case context" data-testid="maya-selected-evidence-context">
+            <FileTextIcon aria-hidden="true" data-icon="inline-start" />
+            <AlertTitle>Selected evidence packet</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>Client-selected case context</span>
+                  <Badge data-testid="maya-query-selected-line" variant="secondary">
+                    {selectedLine}
                   </Badge>
-                ))
-              )}
+                </div>
+                <div className="flex flex-wrap gap-1.5" aria-label="Selected evidence record IDs">
+                  {recordIds.length === 0 ? (
+                    <Badge data-testid="maya-query-record-id" variant="outline">
+                      No record IDs
+                    </Badge>
+                  ) : (
+                    recordIds.map((recordId) => (
+                      <Badge
+                        className="max-w-full truncate"
+                        data-testid="maya-query-record-id"
+                        key={recordId}
+                        title={recordId}
+                        variant="outline"
+                      >
+                        {recordId}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+          {isRunning ? null : (
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
+                <InputGroup>
+                  <InputGroupTextarea
+                    aria-describedby={`${statusId} ${questionHelpId}`}
+                    data-testid="maya-query-input"
+                    disabled={isRunning}
+                    id={questionId}
+                    maxLength={QUERY_QUESTION_CHARACTER_LIMIT}
+                    onChange={(event) => {
+                      setQuestion(event.target.value);
+                    }}
+                    placeholder={dock.promptPlaceholder}
+                    value={question}
+                  />
+                  <InputGroupAddon align="block-end" className="justify-between">
+                    <span>{`${question.length.toString()} / ${QUERY_QUESTION_CHARACTER_LIMIT.toString()}`}</span>
+                    <span>{dock.languageLabel}</span>
+                  </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription id={questionHelpId}>
+                  Results must include cited record IDs before display.
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+          )}
+          {submittedQuestion.length > 0 ? (
+            <div className="grid min-w-0 gap-1 rounded-lg border bg-muted/25 p-3" data-testid="maya-submitted-query">
+              <span className="text-sm font-medium">Submitted query</span>
+              <p className="text-sm text-muted-foreground">{submittedQuestion}</p>
             </div>
-          </div>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
-              <InputGroup>
-                <InputGroupTextarea
-                  aria-describedby={`${statusId} ${questionHelpId}`}
-                  data-testid="maya-query-input"
-                  disabled={isRunning}
-                  id={questionId}
-                  maxLength={QUERY_QUESTION_CHARACTER_LIMIT}
-                  onChange={(event) => {
-                    setQuestion(event.target.value);
-                  }}
-                  placeholder={dock.promptPlaceholder}
-                  value={question}
-                />
-                <InputGroupAddon align="block-end" className="justify-between">
-                  <span>{`${question.length.toString()} / ${QUERY_QUESTION_CHARACTER_LIMIT.toString()}`}</span>
-                  <span>{dock.languageLabel}</span>
-                </InputGroupAddon>
-              </InputGroup>
-              <FieldDescription id={questionHelpId}>
-                Results must include cited record IDs before display.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
+          ) : null}
           <div id={statusId} aria-live="polite">
             {error !== undefined ? (
               <Alert variant="destructive">
@@ -274,7 +296,7 @@ export function QueryEvidenceDock({
                 <AlertTitle>Query error</AlertTitle>
                 <AlertDescription>{snapshot.message}</AlertDescription>
               </Alert>
-            ) : (
+            ) : isRunning ? null : (
               <Alert>
                 <AlertTitle>{snapshot.message}</AlertTitle>
                 <AlertDescription>
@@ -290,13 +312,10 @@ export function QueryEvidenceDock({
             )}
           </div>
           {isRunning ? (
-            <div className="flex flex-col gap-2" aria-label="Query loading state">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </div>
+            <AgentTracePanel response={snapshot} subAgents={dock.subAgents} />
+          ) : canShowCitedAnswer ? (
+            <AgentTracePanel response={snapshot} subAgents={dock.subAgents} />
           ) : null}
-          {isRunning || canShowCitedAnswer ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null}
           {canShowCitedAnswer ? <CitedAnswerCard fallbackRecordIds={recordIds} response={snapshot} /> : null}
         </div>
         <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">

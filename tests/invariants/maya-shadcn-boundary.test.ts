@@ -241,10 +241,16 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain('data-testid="maya-query-readiness-preview"');
     expect(queryDock).toContain("Selected evidence context");
     expect(queryDock).toContain("Client-selected case context");
+    expect(queryDock).toContain('data-testid="maya-selected-evidence-context"');
+    expect(queryDock).toContain("Selected evidence packet");
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
     expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
-    expect(queryDock).toContain("isRunning || canShowCitedAnswer ? <AgentTracePanel");
+    expect(queryDock).toContain("isRunning ? (");
+    expect(queryDock).toContain("<AgentTracePanel response={snapshot} subAgents={dock.subAgents} />");
+    expect(queryDock).toContain("submittedQuestion");
+    expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
+    expect(queryDock).toContain('data-testid="maya-submitted-query"');
     expect(queryDock).toContain("recordIds");
     expect(queryDock).toContain("signal: abortController.signal");
     expect(queryDock).toContain("selectedLineId: selectedLine");
@@ -255,6 +261,36 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(citedAnswer).toContain("response.answer !== undefined");
     expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
     expect(citedAnswer).toContain("response.recordIds.length > 0");
+  });
+
+  it("keeps Beat 7 agent trace in-progress state session-level and read-model honest", () => {
+    const agentTrace = readFileSync("cockpit/components/maya/agent-trace-panel.tsx", "utf8");
+    const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const mayaSources = readTree("cockpit/components/maya");
+    const traceAndDock = `${agentTrace}\n${queryDock}`;
+
+    expect(agentTrace).toContain('response?.status === "connecting" || response?.status === "connected"');
+    expect(agentTrace).toContain('data-testid="maya-trace-running-session"');
+    expect(agentTrace).toContain('data-testid="maya-trace-running-skeleton"');
+    expect(agentTrace).toContain("Trace rail");
+    expect(agentTrace).toContain("@/components/ui/table");
+    expect(agentTrace).toContain('data-testid="maya-static-context-table"');
+    expect(agentTrace).toContain('data-testid="maya-static-context-row"');
+    expect(agentTrace).toContain("Read-model evidence context");
+    expect(agentTrace).toContain("Backend trace-step contract gap");
+    expect(agentTrace).toContain("subAgents.map");
+    expect(agentTrace).toContain("agent.statusLabel");
+    expect(agentTrace).not.toMatch(/agent\.statusLabel\s*===/u);
+    expect(agentTrace).not.toContain("statusLabel.toLowerCase");
+    expect(agentTrace).not.toMatch(/\b(?:Query Agent accepted|Forensics context attached|Delivery proof retriever|Evidence reader|Citation and action guard)\b/u);
+    expect(queryDock).toContain("isRunning ? (");
+    expect(queryDock).toContain("<AgentTracePanel response={snapshot} subAgents={dock.subAgents} />");
+    expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
+    expect(mayaSources).not.toContain("/trace");
+    expect(traceAndDock).not.toMatch(/\b(?:POD_2025|312 KB|SHA-256|Custodian|Proof of Delivery|fake five-step|fake trace)\b/u);
+    expect(traceAndDock).not.toMatch(
+      /\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu
+    );
   });
 
   it("opens the Beat 6 query dock from the Evidence tab without borrowing future answer state", () => {

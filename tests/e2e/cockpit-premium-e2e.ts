@@ -190,8 +190,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
         await captureMayaBeat5EvidenceDossierScreenshot(browser);
       }
       await captureMayaBeat6QueryStartScreenshot(browser);
+      await captureMayaBeat7AgentTraceScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 6 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png`
+        `Maya Beat 1 through Beat 7 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png`
       );
       return;
     }
@@ -452,6 +453,73 @@ async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<v
     await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-06-query-start.png` });
   } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const connectors = await loadConnectorE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+  const localQuestion = "Which selected evidence records support this deduction review?";
+  let releaseClientSecretRequest: (() => void) | undefined;
+  let clientSecretRequestCount = 0;
+  const clientSecretRequestStarted = new Promise<void>((resolve) => {
+    void page.route("**/api/query/realtime-client-secret", async (route) => {
+      clientSecretRequestCount += 1;
+      resolve();
+      await new Promise<void>((release) => {
+        releaseClientSecretRequest = release;
+      });
+      await route.fulfill({
+        body: JSON.stringify({
+          auditPolicy: {
+            externalActions: "none",
+            recordIds: model.selected.evidencePack.recordIds,
+            retention: "e2e-beat-7"
+          },
+          status: "blocked_missing_credentials"
+        }),
+        contentType: "application/json",
+        status: 200
+      }).catch((error: unknown) => {
+        if (!String(error).includes("Route is already handled")) {
+          throw error;
+        }
+      });
+    });
+  });
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat7ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 7 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Evidence/u }).click();
+    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
+    await page.getByRole("button", { name: /^Query evidence$/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 7 query dock");
+    await page.getByTestId("maya-query-input").fill(localQuestion);
+    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await page.getByRole("button", { name: /^Run query$/u }).click();
+    await clientSecretRequestStarted;
+    await assertBeat7AgentTraceInProgressFidelity(page, model, localQuestion, forbiddenRequests, clientSecretRequestCount);
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-07-agent-trace.png` });
+  } finally {
+    releaseClientSecretRequest?.();
+    await page.unroute("**/api/query/realtime-client-secret");
     await context.close();
   }
 }
@@ -1408,6 +1476,94 @@ async function assertBeat6QueryStartFidelity(
   assert(forbiddenRequests.length === 0, `Beat 6 opening and typing must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
+async function assertBeat7AgentTraceInProgressFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  localQuestion: string,
+  forbiddenRequests: string[],
+  clientSecretRequestCount: number
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 7 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 7 query dock");
+  await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya Beat 7 agent trace");
+  await expectVisibleLocator(page, '[data-testid="maya-trace-running-session"]', "Maya Beat 7 running session row");
+  await expectVisibleLocator(page, '[data-testid="maya-trace-running-skeleton"]', "Maya Beat 7 running skeleton");
+  await expectVisibleLocator(page, '[data-testid="maya-selected-evidence-context"]', "Maya Beat 7 selected evidence context");
+  await expectVisibleLocator(page, '[data-testid="maya-submitted-query"]', "Maya Beat 7 submitted query context");
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
+
+  const result = await page.evaluate(() => {
+    const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
+    const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
+    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const runningSession = document.querySelector<HTMLElement>('[data-testid="maya-trace-running-session"]');
+    const skeletons = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-running-skeleton"]')];
+    const contextRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-static-context-row"]')];
+    const citedAnswer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
+    const selectedContext = document.querySelector<HTMLElement>('[data-testid="maya-selected-evidence-context"]');
+    const submittedQuery = document.querySelector<HTMLElement>('[data-testid="maya-submitted-query"]')?.innerText ?? "";
+    const viewportHeight = window.innerHeight;
+
+    return {
+      contextRowCount: contextRows.length,
+      contextText: contextRows.map((row) => row.innerText).join("\n"),
+      dockText: dock?.innerText ?? "",
+      dossierText: dossier?.innerText ?? "",
+      hasCitedAnswer: citedAnswer !== null,
+      runningText: runningSession?.innerText ?? "",
+      selectedContextText: selectedContext?.innerText ?? "",
+      skeletonCount: skeletons.length,
+      submittedQuery,
+      traceText: trace?.innerText ?? "",
+      visibleContextRowCount: contextRows.filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < viewportHeight;
+      }).length
+    };
+  });
+
+  assert(clientSecretRequestCount === 1, "Beat 7 must start exactly one held realtime client-secret request");
+  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 7 must keep evidence document context visible");
+  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 7 must keep backend evidence summaries visible");
+  assert(result.submittedQuery.includes(localQuestion), "Beat 7 must show the local submitted query as query context");
+  assert(result.runningText.includes("connecting"), "Beat 7 running row must be tied to the session connecting state");
+  assert(result.dockText.includes(recordId), "Beat 7 dock must keep selected evidence record badges visible");
+  assert(result.selectedContextText.includes("Selected evidence packet"), "Beat 7 must promote selected evidence context in the dock");
+  assert(result.selectedContextText.includes(model.selected.lineId), "Beat 7 selected evidence context must include the selected line");
+  for (const selectedRecordId of model.selected.evidencePack.recordIds) {
+    assert(result.selectedContextText.includes(selectedRecordId), `Beat 7 selected evidence context must include ${selectedRecordId}`);
+  }
+  assert(result.skeletonCount >= 2, "Beat 7 must show shadcn skeleton loading affordance while the session is running");
+  assert(
+    result.contextRowCount === model.selected.evidencePack.documents.length || result.contextRowCount > 0,
+    "Beat 7 must show static read-model context rows"
+  );
+  assert(
+    result.visibleContextRowCount >= Math.min(2, result.contextRowCount),
+    "Beat 7 must keep multiple static read-model context rows in the first viewport"
+  );
+  assert(result.traceText.includes("Trace rail"), "Beat 7 trace panel must read as an operational trace rail");
+  assert(result.contextText.includes("Read-model evidence context"), "Beat 7 context rows must be labeled as static evidence context");
+  assert(result.traceText.includes("Backend trace-step contract gap"), "Beat 7 must mark missing per-step trace contract honestly");
+  assert(!result.hasCitedAnswer, "Beat 7 in-progress state must not render a cited answer card");
+  assert(!result.traceText.includes("Cited Realtime answer received"), "Beat 7 must stop before the answered state");
+  assert(
+    !/\b(?:Query Agent accepted|Forensics context attached|Delivery proof retriever|Evidence reader|Citation and action guard|Proof of Delivery|POD_2025|312 KB|SHA-256|Custodian)\b/u.test(
+      result.traceText
+    ),
+    "Beat 7 must not render mockup-only trace steps or document viewer facts"
+  );
+  assert(
+    !/\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu.test(result.dockText),
+    "Beat 7 dock must not render external-action copy"
+  );
+  assert(
+    forbiddenRequests.length === 0,
+    `Beat 7 must not dispatch external action or OpenAI network routes while held: ${forbiddenRequests.join(", ")}`
+  );
+}
+
 function isForbiddenBeat5Request(request: PlaywrightRequest): boolean {
   const url = new URL(request.url());
   const pathname = url.pathname.toLowerCase();
@@ -1434,6 +1590,23 @@ function isForbiddenBeat6StartRequest(request: PlaywrightRequest): boolean {
     segments.includes("query") ||
     segments.includes("realtime") ||
     segments.includes("sap")
+  );
+}
+
+function isForbiddenBeat7ExternalActionRequest(request: PlaywrightRequest): boolean {
+  const url = new URL(request.url());
+  const pathname = url.pathname.toLowerCase();
+  const segments = pathname.split("/").filter(Boolean);
+  const isRealtimeClientSecret = pathname === "/api/query/realtime-client-secret";
+
+  return (
+    url.hostname === "api.openai.com" ||
+    pathname === "/run" ||
+    pathname.startsWith("/run/") ||
+    segments.includes("approval") ||
+    segments.includes("sap") ||
+    pathname === "/api/query/realtime-tool" ||
+    (segments.includes("query") && !isRealtimeClientSecret)
   );
 }
 
