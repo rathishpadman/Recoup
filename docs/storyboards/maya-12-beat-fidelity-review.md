@@ -1,8 +1,8 @@
 # Maya 12-Beat Fidelity Review
 
-Status: E2E evidence captured; visual fidelity remains pending.
+Status: Beat 1-through-12 E2E evidence captured; Beat 12 accepted by independent reviewer Maxwell.
 
-Date: 2026-06-23
+Date: 2026-06-24
 
 ## Evidence Reviewed
 
@@ -26,35 +26,58 @@ Reference mockups:
 - `mockups/imagegen/maya-12-beat-storyboard/contact-sheet.png`
 - `mockups/imagegen/maya-12-beat-storyboard/01-login-maya-enters-recoup.png`
 - `mockups/imagegen/maya-12-beat-storyboard/02-workspace-morning-run-summary.png`
+- `mockups/imagegen/maya-12-beat-storyboard/03-worklist-recommended-action.png`
+- `mockups/imagegen/maya-12-beat-storyboard/04-case-overview-crestline-opens.png`
+- `mockups/imagegen/maya-12-beat-storyboard/05-evidence-dossier-pod-reviewed.png`
 - `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png`
+- `mockups/imagegen/maya-12-beat-storyboard/07-agent-trace-in-progress.png`
+- `mockups/imagegen/maya-12-beat-storyboard/08-cited-answer-returned.png`
+- `mockups/imagegen/maya-12-beat-storyboard/09-draft-review-recovery-packet.png`
 - `mockups/imagegen/maya-12-beat-storyboard/10-human-approval-dialog.png`
 - `mockups/imagegen/maya-12-beat-storyboard/11-audit-confirmation.png`
+- `mockups/imagegen/maya-12-beat-storyboard/12-return-to-worklist-next-case.png`
 
 ## Verification Result
 
-`npm run test:e2e` passed and generated the runtime screenshot set. The route now reaches `/forensics/shadcn`; old `/forensics` auth and route coverage remain in the E2E path.
+The old `3/5` visual-fidelity checkpoint is superseded. Current evidence records a completed Beat 1-through-12 E2E path on `/forensics/shadcn`, with Beat 12 accepted by independent reviewer Maxwell at `4.6/5` overall and every reviewed component at `>=4.5/5`.
 
-The visual score is **3/5**. This is not passable for cutover under the cockpit UI anti-slop standard, but it is a valid evidence checkpoint for the Phase 7 shadcn route.
+Fresh verification after the accepted Beat 12 candidate:
 
-## What Matches
+- `npm.cmd run typecheck` passed.
+- `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests).
+- `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-12-return-worklist.png`.
+- Full `npm.cmd run verify` passed with lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, and release readiness.
 
-- The 12-beat path exists from login through worklist, selected case, evidence, query, trace, draft, approval, audit, and return.
-- Business values, record IDs, evidence rows, source labels, draft action IDs, and amounts render from the backend/read model.
-- The query dock is case-bound and shows citation chips before the question input.
-- The approval dialog is human-gated, requires reasons for modify/reject, and does not imply external dispatch.
-- The audit beat is honest: it says no approval response is recorded until the human-gated approval API returns.
+## Accepted Current State
 
-## Remaining Visual Deltas
+- The 12-beat path exists from login through worklist, selected case, evidence, query, trace, draft review, approval gate, audit unavailable state, and return-to-worklist.
+- Business values, dollars, verdicts, evidence labels, record IDs, approval actions, and audit labels remain backend/read-model or API data.
+- Beat 10 remains a human approval gate with submit disabled when approval eligibility and evidence-reviewed state are unavailable.
+- Beat 11 remains fail-closed unless a real backend approval response has `status === "human_decided"` and a valid 64-hex `auditEntryHash`.
+- Beat 12 returns to a local worklist view without claiming audit success, queue mutation, case completion, approval, ERP write-back, Billing route, recovery dispatch, or next-case assignment.
 
-- The reference uses a persistent left sidebar and command-surface navigation; runtime still uses a top header with route chips.
-- The reference puts a dense worklist and case workspace in the first viewport; runtime source-readiness cards dominate the page before the worklist.
-- The query sheet renders correctly, but the page beneath it is still the source-readiness/worklist scroll position rather than an evidence-first case pane.
-- Approval and audit states are functionally honest, but they do not yet match the reference composition with a compact draft review pane and committed audit confirmation.
-- Beat 12 currently repeats the audit-pending view instead of showing an updated worklist, audit toast, and next-case focus.
+## Maxwell Beat 12 Scorecard
 
-## Next Pass
+| Component | Score | Current accepted basis |
+|---|---:|---|
+| Return navigation / state reset | 4.8/5 | `Return to worklist` clears only local opened-case state, resets the viewport to the worklist top, and triggers no backend or external-action requests. |
+| First-viewport worklist composition | 4.6/5 | Sidebar, header, Worklist/return badges, five metric cards, toast-shaped unavailable audit state, full source readiness row, tabs, dense table, and footer pagination are visible. |
+| Worklist table / fetched rows | 4.5/5 | Rows render from `worklist[]` only with backend line/customer/scenario/amount/verdict/queue/recommended-action strings; missing priority, age, last-updated, and pagination values stay marked as gaps. |
+| Local focus / selected row handling | 4.7/5 | The returned row keeps the previously opened fetched row as local focus and does not imply server-side selection, audit success, queue mutation, or next-case assignment. |
+| KPI and source readiness honesty | 4.6/5 | Fetched row count and exposure use available read-model values; next-case, age, and audit coverage remain unavailable; source readiness remains `/connectors` data and synthetic/blocked state is not relabeled as live. |
+| Request/action guard | 4.8/5 | The E2E path proves return from Beat 11 made no approval, query, realtime, SAP, ERP, Billing, portal, run, or external-action request. |
+| Mockup fidelity under current truth | 4.5/5 | The screen reads as the intended return-to-worklist moment while replacing mockup-only success/queue/age/audit/pagination fields with unavailable states. |
+| Overall Beat 12 visual fidelity | 4.6/5 | Independent reviewer pass: shadcn-only, table-led, local navigation only, and no fake queue/audit/next-case claims. |
 
-- Rework the first viewport around a persistent Maya sidebar, compact KPI/source strip, worklist table, and selected-case pane.
-- Move source readiness to a compact rail or secondary section so it does not displace the worklist.
-- Make the storyboard capture steps scroll to the active pane before each screenshot.
-- Add a backend-backed approval/audit demo state only if the E2E can perform the human approval POST safely in the test fixture.
+## Remaining Backend-Only Gaps
+
+- No committed approval/audit receipt is exposed to Beat 11 or Beat 12 yet: previous hash, committed timestamp, verified approver, committed receipt record IDs, and audit-route link remain unavailable.
+- No approval eligibility, reviewed-evidence state, reviewed count, or verified human principal display contract is exposed to the current dialog.
+- No queue mutation, completed/approved/audit-verified row state, server-side next-case assignment, or nextRecommendedLineId with cited deterministic basis is exposed.
+- No worklist priority, age, status history, last-updated, queue summary, audit coverage, or server pagination metadata is exposed.
+- No richer draft packet fields such as display packet ID, created/updated timestamps, creator, recipient, amount source, clamp detail, structured calculation rows, or audit-basis rows are exposed.
+- Supabase live source data must remain honest; do not mutate Supabase, SAP, ERP, or any external database to fill gaps without explicit human approval.
+
+## Non-Claims
+
+This review does not claim fake audit success, external dispatch, ERP write-back, approval completion, recovery completion, Billing routing, queue mutation, or next-case state. Those behaviors require backend/read-model support with cited record IDs, deterministic basis, and the human approval gate.

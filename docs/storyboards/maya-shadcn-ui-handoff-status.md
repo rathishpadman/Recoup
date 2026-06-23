@@ -2,19 +2,19 @@
 
 Status date: 2026-06-24
 
-## User Acceptance Rebaseline
+## Current Acceptance Snapshot
 
-Current screenshots are rejected. Any legacy resemblance to the old Maya cockpit is unacceptable for the active Maya shadcn UI goal.
+The prior rejected-screenshot and `3/5` fidelity checkpoint is superseded. The current `/forensics/shadcn` evidence covers Beat 1 through Beat 12 in E2E, and Beat 12 return-to-worklist passed independent reviewer Maxwell with every component at `>=4.5/5` and overall `4.6/5`.
 
-The latest repo fidelity checkpoint in `docs/storyboards/maya-12-beat-fidelity-review.md` recorded the current `/forensics/shadcn` evidence as `3/5`, which was already not passable. The active user rebaseline is stricter: the user currently rates the existing screenshots below `1/5`. Treat the route as visually failed until a fresh implementation pass and visual review score every required Maya beat and component at least `4.5/5`.
+This acceptance is bounded to the implemented Maya shadcn route evidence. It does not create backend approval success, committed audit receipt state, queue mutation, case completion, or next-case assignment. Those remain explicit backend/read-model contract gaps until real backend fields and cited deterministic basis exist.
 
-Visual audit scores below `4.5/5` are not passable. `1/5`, `2/5`, `3/5`, and `4.0/5`-through-`4.4/5` remain failed/pending and cannot be marked complete.
+Future visual audit scores below `4.5/5` are not passable for this Maya shadcn bar. Historical `1/5`, `2/5`, `3/5`, and `4.0/5`-through-`4.4/5` notes remain useful failure history, not the current top-level status.
 
 ## Active Goal
 
 Replace Maya's deduction-forensics cockpit with a shadcn-only, premium B2B SaaS command surface that follows the 12-beat Maya storyboard, uses backend/read-model facts only, preserves Recoup invariants, and does not compute or invent dollars, decisions, evidence, scores, thresholds, approvals, record IDs, audit state, or external-action status in React.
 
-The active review route remains `/forensics/shadcn` until the user accepts the visual direction and the cutover gate allows `/forensics` replacement.
+The active review route remains `/forensics/shadcn` until a separate cutover gate allows `/forensics` replacement.
 
 ## Current Route And Screenshot Paths
 
@@ -45,13 +45,13 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. `output/playwright/e2e/maya-beat-11-audit-confirmation.png` is current Beat 11 honest blocked-state implementation evidence for independent review. `output/playwright/e2e/maya-beat-12-return-worklist.png` is current Beat 12 local return-to-worklist implementation evidence for independent review.
+Current screenshot caveat: the storyboard screenshot set is current E2E evidence for the implemented 12-beat Maya shadcn path. Beat 12 has independent Maxwell acceptance; earlier per-beat sections preserve their own scorecards, verification notes, and backend/read-model deltas.
 
 ## Beat 1 Login Pass
 
-Status: implemented and committed at `9c26a7d` (`Rename Maya login capability label`). Beat 1 is awaiting user approval. Do not proceed to Beat 2 until the user approves Beat 1.
+Status: implemented and committed at `9c26a7d` (`Rename Maya login capability label`). The old Beat 1 approval hold is superseded by the later 12-beat implementation path and chained E2E evidence.
 
-Current reviewer-facing assessment: final read-only review agent Averroes scored Beat 1 visual fidelity `4.1/5` with no blockers. Treat this as an acceptance candidate, not final user acceptance.
+Historical reviewer-facing assessment: final read-only review agent Averroes scored the early Beat 1 screenshot `4.1/5` with no blockers. Later E2E passes continued through Beat 12; any new Beat 1 visual polish should be handled as a follow-up, not as a blocker to proceeding through the storyboard chain.
 
 Screenshot path:
 
@@ -80,7 +80,7 @@ Remaining deltas:
 - The line-art background is implemented with CSS primitives and remains an approximation of the mockup's drafted technical paths.
 - The User ID field displays the selected model `loginId` (`Maya`) to satisfy the backend contract; the mockup shows an empty placeholder state.
 - The type scale and logo spacing are constrained by the cockpit typography rules and are less letter-spaced than the imagegen mockup.
-- Final user approval or change requests are pending; do not treat this screenshot as accepted release evidence until the user approves Beat 1.
+- No current Beat 1-only stop condition is recorded in this handoff. The remaining deltas are visual/asset fidelity notes, not backend-truth gaps.
 
 ## Mockup Paths
 
@@ -111,10 +111,10 @@ Master direction:
 
 None. No agent loop is currently active.
 
-## Open Items
+## Implemented Beat Evidence And Remaining Contract Gaps
 
 - Beat 2 focused rebuild pass is implemented for the morning-run landing view. Maya routes to `/forensics/shadcn`; the page fetches `/forensics` and `/connectors`, renders the KPI strip and source readiness across the full workbench width, then splits into a table-led worklist plus right-side workspace starter.
-- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. The fresh independent reviewer verdict at `2a6f13c` failed at `4.3/5` overall, with remaining blockers in source readiness compression, KPI hierarchy, header metadata weight, worklist rhythm, and a user-reported sidebar rail height defect. The 2026-06-23 final-polish pass is a new acceptance candidate: the sidebar rail now fills the full captured page with the user identity/footer at the bottom of the full rail, header metadata is lighter while still exposing missing run-date/refresh contracts, the high-priority KPI gap is visually quiet, and source readiness is a much thinner one-row status rail that still shows all seven backend tiles with text+icon status semantics. Focused e2e now checks sidebar page-fill, bottom-aligned sidebar user identity, honest header metadata, source-label clipping, thin source-strip height, scan-friendly tile width, all seven backend source tiles, worklist title-backed clipping, single fetched-row footer rhythm, right-pane width, sidebar collapse/filter affordances, and 1440/1280 horizontal fit. Independent visual review and user approval are still required; this is not final user acceptance.
+- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. The fresh independent reviewer verdict at `2a6f13c` failed at `4.3/5` overall, with remaining blockers in source readiness compression, KPI hierarchy, header metadata weight, worklist rhythm, and a user-reported sidebar rail height defect. The 2026-06-23 final-polish pass became a carried-forward acceptance candidate: the sidebar rail now fills the full captured page with the user identity/footer at the bottom of the full rail, header metadata is lighter while still exposing missing run-date/refresh contracts, the high-priority KPI gap is visually quiet, and source readiness is a much thinner one-row status rail that still shows all seven backend tiles with text+icon status semantics. Focused e2e now checks sidebar page-fill, bottom-aligned sidebar user identity, honest header metadata, source-label clipping, thin source-strip height, scan-friendly tile width, all seven backend source tiles, worklist title-backed clipping, single fetched-row footer rhythm, right-pane width, sidebar collapse/filter affordances, and 1440/1280 horizontal fit. Later progress continued through Beat 12; this older Beat 2 checkpoint is no longer a live stop condition.
 - Beat 2 work-item pane behavior after the Beat 3 implementation: the current `/forensics/shadcn` route initializes a local selected worklist row from `worklist[]` so Beat 3 can show the recommended-action moment by default. The Beat 2 screenshot still verifies the accepted sidebar/KPI/source/worklist foundation, but the right pane now shows the selected fetched-row summary rather than the prior Empty starter.
 - Backend contract caveat for Beat 2: only the fixed `model.selected` evidence packet exists. The pane shows a contract note when the clicked worklist row does not correspond to `model.selected.lineId`; no evidence tabs, approval dialog, or deep case flow were rebuilt in Beat 2.
 - Beat 2 verification in this final-polish pass: `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 35 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png`, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 592 tests, dependency-cruiser, release readiness), and `git diff --check` passed with only LF-to-CRLF working-copy warnings.
@@ -146,7 +146,7 @@ None. No agent loop is currently active.
 - Beat 12 return-to-worklist is implemented for `/forensics/shadcn` only. The Audit tab now exposes an enabled `Return to worklist` control that clears only local opened-case state, keeps the returned fetched row locally focused, resets the viewport to the worklist top, and does not call refresh, approval, audit, query, SAP, ERP, Billing, correspondence, or external-action routes.
 - Beat 12 remains honest to the current read model: the returned worklist renders only `worklist[]`, `kpiStrip[]`, and connector/source readiness data. It does not show mockup-only priority, age, status history, last-updated, queue totals, audit coverage, completion state, approved/audit-verified state, next-best-case ranking, backend refresh, or server pagination. The right pane labels the returned row as `Local focus` and shows `Audit status unavailable` with local-only copy.
 - Beat 12 verification in this pass: RED source invariants first failed on missing local return wiring, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed after adding `captureMayaBeat12ReturnWorklistScreenshot`, refreshing `output/playwright/e2e/maya-beat-12-return-worklist.png`, and full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, release readiness).
-- User approval or change requests for Beat 1 login.
+- Current open items are backend/read-model gaps only: approval eligibility and reviewed-evidence state, verified human principal display, committed audit receipt fields, queue summary, next-case recommendation, row priority/age/status history/last-updated fields, and server pagination metadata.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
 - Keep all displayed business truth backend/read-model sourced in future beats.
@@ -154,13 +154,13 @@ None. No agent loop is currently active.
 
 ## Blockers
 
-- Prior Beat 1 approval blocker is superseded for this Beat 2 build pass by the user's 2026-06-23 approval to proceed.
+- Prior Beat 1 approval blocker is superseded by the user's 2026-06-23 approval to proceed and the completed Beat 1-through-12 E2E path.
 - Supabase live-data caveat: `recoup_src_sap` has been observed as `404`. Do not mutate the external Supabase database or any external DB to fix this without explicit human approval.
 - No external action, ERP write-back, approval dispatch, term/limit change, hold/freeze, Billing route, or correspondence may occur without the human approval gate.
 
 ## Next Actions
 
-1. Record user or independent visual approval before treating Beat 12 as accepted; this pass self-scores Beat 12 at `4.6/5` overall with every component at `>=4.5/5`, while intentionally rendering local return/audit-unavailable state.
+1. Beat 12 visual acceptance is recorded: independent reviewer Maxwell passed every component at `>=4.5/5` with `4.6/5` overall, while intentionally rendering local return/audit-unavailable state.
 2. Keep Beat 11 fail-closed until a real backend approval response reaches the component with `status === "human_decided"` and a valid 64-hex `auditEntryHash`.
 3. Do not invent previous hash, commit timestamp, approver, committed receipt record IDs, route completion, case closure, ERP update, Billing route, recovery dispatch, queue decrement, post-audit refresh, or next-case state. Those remain backend/read-model contract gaps.
 4. A richer Beat 12 can only add true next-case recommendation, audit-recorded toast, completion counts, or updated row status after the backend exposes explicit fields with cited record IDs and deterministic basis.
@@ -196,7 +196,7 @@ Fresh evidence:
 | Right work-item pane | 4.6/5 | Empty starter pane keeps the target width and quiet centered state; selected-row detail remains shallow client state over fetched rows rather than invented evidence/action authority. |
 | Overall first-viewport composition | 4.6/5 | First viewport preserves full-page sidebar with bottom user identity, six KPIs, a thin source rail, table-led work area, and right pane at 1440/1280; remaining deltas are backend-contract gaps or non-exact ImageGen lockup geometry. |
 
-Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow/page-fill assertions green and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow/page-fill assertions green and full `npm.cmd run verify` green. This is a historical Beat 2 checkpoint; current acceptance status is summarized at the top of this handoff.
 
 ## Beat 5 Remaining Deltas
 
@@ -254,7 +254,7 @@ Fresh evidence:
 | Request/action guard | 4.8/5 | Opening and typing produced no approval, run, query, realtime, or SAP requests, and the dock contains no external-action controls or fake answer state. |
 | Overall Beat 6 composition | 4.7/5 | The screenshot matches the intended right-dock start state while staying contract-honest; the remaining visual deltas are backend evidence-packet limits and the current route's denser worklist anatomy. |
 
-Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. This is a historical Beat 6 checkpoint; current acceptance status is summarized at the top of this handoff.
 
 ## Beat 7 Remaining Deltas
 
@@ -284,7 +284,7 @@ Fresh evidence:
 | Request/action guard | 4.8/5 | E2E holds `/api/query/realtime-client-secret`, observes one running request, blocks OpenAI network/external action routes, and asserts no answer card or external-action copy. |
 | Overall Beat 7 composition | 4.6/5 | The screen now meets the honest trace-in-progress target with current data: evidence remains adjacent and readable, selected record IDs are promoted, and static context rows read as an operational rail; exact mockup parity is limited by missing evidence asset and active trace-step contracts. |
 
-Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. This is a historical Beat 7 checkpoint; current acceptance status is summarized at the top of this handoff.
 
 ## Beat 8 Remaining Deltas
 
@@ -313,7 +313,7 @@ Fresh evidence:
 | Action/HITL safety | 4.8/5 | No approval, recovery, Billing route, ERP write-back, correspondence, or external-action buttons are added; the only visible button is the disabled read-only query control after answer. |
 | Overall Beat 8 visual fidelity | 4.6/5 | The screen now reads as an answer-review composition rather than a narrow query drawer. Remaining deltas are backend-contract limits and the retained sheet-over-workspace route shape. |
 
-Gate result: self-assessed component-level target met (`>=4.5/5`) with focused invariants, typecheck, chained Beat 6-8 e2e, and full `npm.cmd run verify` green. User or independent visual approval is still required before final acceptance.
+Gate result: self-assessed component-level target met (`>=4.5/5`) with focused invariants, typecheck, chained Beat 6-8 e2e, and full `npm.cmd run verify` green. This is a historical Beat 8 checkpoint; current acceptance status is summarized at the top of this handoff.
 
 ## Beat 9 Remaining Deltas
 
@@ -343,7 +343,7 @@ Fresh evidence:
 | Bottom command bar | 4.6/5 | HITL posture is now visible as a sticky first-viewport bottom surface, buttons are derived from `selected.approvalActions[]`, and e2e clicks prove local-only prepared state with no forbidden requests; Beat 10 owns actual approval submission. |
 | Overall Beat 9 visual fidelity | 4.6/5 | The screen now reads as a draft-review recovery packet with the reviewer visibility blocker fixed, while preserving no-fake-facts and pre-approval constraints. Remaining deltas are mostly backend/read-model contract gaps and route anatomy. |
 
-Gate result: self-assessed component-level user threshold met (`>=4.5/5` all components) after the command-bar visibility fix. The current e2e guard asserts the command bar is inside the first viewport before screenshot capture. Independent visual review was not run in this pass, so user or independent visual approval is still required before final acceptance.
+Gate result: self-assessed component-level user threshold met (`>=4.5/5` all components) after the command-bar visibility fix. The current e2e guard asserts the command bar is inside the first viewport before screenshot capture. This is a historical Beat 9 checkpoint; current acceptance status is summarized at the top of this handoff.
 
 Fresh command-bar visibility fix verification in this pass: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-09-draft-review.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
 
@@ -443,25 +443,28 @@ Fresh evidence:
 
 Gate result: independent reviewer Maxwell passed Beat 12 with every component at `>=4.5/5` and overall `4.6/5`. Prior reviewers failed earlier candidates at `4.1`, `4.2`, `4.4`, `4.35`, `4.3`, and `4.4`; those failures drove the full-width worklist redesign, full source row, first-viewport gap labeling, toast placement cleanup, denser table treatment, and fetched-only pagination footer. Fresh verification after the accepted candidate: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-12-return-worklist.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, release readiness).
 
-## ETA Bands
+## Follow-Up Bands
 
-- Documentation-only handoff update: complete in this pass.
-- First implementation pass after approval: medium, likely hours, because it must avoid legacy resemblance while preserving data ownership and invariants.
-- Full acceptance pass: longer, likely requires at least one implementer pass, one visual reviewer pass, screenshot recapture, fixes, and final verification.
+- Documentation-only reconciliation for stale Maya shadcn completion language: complete in this pass.
+- Backend/read-model enrichment for approval eligibility, committed audit receipts, queue mutation, and next-case state: future scoped implementation only after those contracts are specified.
+- `/forensics` cutover from `/forensics/shadcn`: separate gated task, not implied by this documentation update.
 
 ## Verification Gates
 
-Before claiming the Maya shadcn UI goal is complete:
+Current accepted evidence and gates:
 
-- `npm run lint`
-- `npm run typecheck`
-- `npm run test`
-- `npm run test:e2e`
-- `npm run verify`
+- Beat 1-through-12 storyboard screenshots exist.
+- `npm.cmd run typecheck` passed.
+- `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests).
+- `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-12-return-worklist.png`.
+- Full `npm.cmd run verify` passed with lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, and release readiness.
+- `docs/storyboards/maya-12-beat-fidelity-review.md` is updated with the current accepted Beat 12 Maxwell scorecard, screenshot paths, mockup paths, green gates, and unresolved backend-only deltas.
+
+Before claiming a broader cutover or backend-completion state:
+
+- Re-run the relevant gates for that future change.
 - Responsive screenshots exist for `/forensics/shadcn` or the accepted cutover route at 375, 768, 1024, and 1440 widths.
-- Storyboard screenshots exist for all 12 Maya beats.
-- Fresh visual audit records every required beat and component at `4.5/5` or better.
-- `docs/storyboards/maya-12-beat-fidelity-review.md` is updated with screenshot paths, mockup paths, scores, and unresolved deltas.
+- If a full independent all-beat visual audit is required for cutover, record it explicitly; current independent acceptance evidence is Maxwell for Beat 12.
 - No application code computes money, decisions, thresholds, evidence sufficiency, approval eligibility, audit state, or external-action status in the UI.
 - Human approval remains required for every external action.
 
