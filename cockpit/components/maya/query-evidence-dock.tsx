@@ -37,7 +37,9 @@ export function QueryEvidenceDock({
 }: QueryEvidenceDockProps) {
   const questionId = React.useId();
   const statusId = React.useId();
+  const openRef = React.useRef(open);
   const sessionRef = React.useRef<RealtimeBrowserSession | null>(null);
+  const sessionTokenRef = React.useRef(0);
   const [error, setError] = React.useState<string | undefined>();
   const [question, setQuestion] = React.useState("");
   const [snapshot, setSnapshot] = React.useState<RealtimeBrowserSessionSnapshot | undefined>();
@@ -49,15 +51,51 @@ export function QueryEvidenceDock({
     snapshot.deterministicBasis !== undefined &&
     snapshot.recordIds.length > 0;
 
-  React.useEffect(() => {
-    return () => {
-      sessionRef.current?.close();
-    };
+  const closeActiveSession = React.useCallback((clearLocalState = true) => {
+    sessionTokenRef.current += 1;
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    session?.close();
+    if (clearLocalState) {
+      setError(undefined);
+      setSnapshot(undefined);
+    }
   }, []);
 
-  function publish(next: RealtimeBrowserSessionSnapshot): void {
+  React.useEffect(() => {
+    if (openRef.current !== open) {
+      openRef.current = open;
+      if (!open) {
+        closeActiveSession();
+      }
+    }
+  }, [closeActiveSession, open]);
+
+  React.useEffect(() => {
+    return () => {
+      closeActiveSession(false);
+    };
+  }, [closeActiveSession]);
+
+  function isCurrentSession(sessionToken: number): boolean {
+    return openRef.current && sessionTokenRef.current === sessionToken;
+  }
+
+  function publishForToken(sessionToken: number, next: RealtimeBrowserSessionSnapshot): void {
+    if (!isCurrentSession(sessionToken)) {
+      return;
+    }
+
     setSnapshot(next);
     onResponse(next);
+  }
+
+  function handleOpenChange(nextOpen: boolean): void {
+    openRef.current = nextOpen;
+    if (!nextOpen) {
+      closeActiveSession();
+    }
+    onOpenChange(nextOpen);
   }
 
   async function startQuery(): Promise<void> {
@@ -66,11 +104,14 @@ export function QueryEvidenceDock({
       return;
     }
 
-    sessionRef.current?.close();
+    const session = sessionRef.current;
     sessionRef.current = null;
+    const activeStartToken = sessionTokenRef.current + 1;
+    sessionTokenRef.current = activeStartToken;
+    session?.close();
     setError(undefined);
 
-    publish({
+    publishForToken(activeStartToken, {
       message: "Starting evidence query through the Realtime browser helper.",
       recordIds,
       status: "connecting"
@@ -78,24 +119,34 @@ export function QueryEvidenceDock({
 
     try {
       const session = await startRealtimeBrowserSession({
-        onSnapshot: publish,
+        onSnapshot: (nextSnapshot) => {
+          publishForToken(activeStartToken, nextSnapshot);
+        },
         question: trimmedQuestion
       });
+      if (!isCurrentSession(activeStartToken)) {
+        session.close();
+        return;
+      }
       sessionRef.current = session;
-      publish(session.getSnapshot());
+      publishForToken(activeStartToken, session.getSnapshot());
     } catch {
+      if (!isCurrentSession(activeStartToken)) {
+        return;
+      }
+
       const failedSnapshot: RealtimeBrowserSessionSnapshot = {
         message: "Realtime browser helper failed before returning a cited answer.",
         recordIds,
         status: "error"
       };
       setError(failedSnapshot.message);
-      publish(failedSnapshot);
+      publishForToken(activeStartToken, failedSnapshot);
     }
   }
 
   return (
-    <Sheet onOpenChange={onOpenChange} open={open}>
+    <Sheet onOpenChange={handleOpenChange} open={open}>
       <SheetContent className="sm:max-w-xl" data-testid="maya-query-dock">
         <SheetHeader>
           <SheetTitle>Evidence query</SheetTitle>

@@ -211,6 +211,12 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(sources).not.toContain("https://api.openai.com");
     expect(queryDock).toContain("startRealtimeBrowserSession");
     expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("sessionTokenRef");
+    expect(queryDock).toContain("closeActiveSession");
+    expect(queryDock).toContain("onOpenChange={handleOpenChange}");
+    expect(queryDock).toContain("sessionRef.current = null");
+    expect(queryDock).toContain("publishForToken");
+    expect(queryDock).toContain("isCurrentSession");
     expect(queryDock).toContain("<InputGroupTextarea");
     expect(queryDock).toContain("aria-live");
     expect(queryDock).toContain("CitedAnswerCard");
@@ -229,6 +235,7 @@ describe("Maya shadcn cockpit boundary", () => {
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
     expect(approvalDialog).toContain("/api/approval");
     expect(approvalDialog).toContain("fetch(");
@@ -241,6 +248,8 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).toContain("htmlFor={reasonTextareaId}");
     expect(approvalDialog).toContain("id={reasonTextareaId}");
     expect(approvalDialog).toContain("auditEntryHash");
+    expect(approvalDialog).toContain("result.actionId !== actionId");
+    expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("onResponse");
     expect(approvalDialog).toContain("disabled={submitting");
     expect(approvalDialog).not.toContain("fallbackActions");
@@ -251,6 +260,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(auditPanel).toContain("response?.status");
     expect(surface).toContain("setApprovalResponse");
     expect(surface).toContain("approvalResponse === undefined ? {} : { approvalResponse }");
+    expect(types).toMatch(/interface ApprovalGateResponse\s*\{[^}]*actionId:\s*string;/su);
   });
 
   it("does not expose row switching while details are fixed to model.selected", () => {

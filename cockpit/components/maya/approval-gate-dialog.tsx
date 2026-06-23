@@ -28,6 +28,13 @@ interface ApprovalGateDialogProps {
   recordIds: string[];
 }
 
+interface ApprovalGateRouteResult {
+  actionId?: unknown;
+  auditEntryHash?: unknown;
+  decision?: unknown;
+  status?: unknown;
+}
+
 export function ApprovalGateDialog({
   actionId,
   actions,
@@ -70,17 +77,23 @@ export function ApprovalGateDialog({
         return;
       }
 
-      const result = (await response.json()) as Partial<ApprovalGateResponse>;
-      if (typeof result.auditEntryHash !== "string" || result.decision !== action.decision) {
+      const result = (await response.json()) as ApprovalGateRouteResult;
+      if (
+        typeof result.actionId !== "string" ||
+        result.actionId !== actionId ||
+        typeof result.auditEntryHash !== "string" ||
+        result.decision !== action.decision ||
+        (result.status !== undefined && result.status !== "human_decided")
+      ) {
         setError("Approval service returned an incomplete audit confirmation.");
         return;
       }
 
       const approvalResponse: ApprovalGateResponse = {
-        ...(typeof result.actionId === "string" ? { actionId: result.actionId } : {}),
+        actionId: result.actionId,
         auditEntryHash: result.auditEntryHash,
-        decision: result.decision,
-        ...(typeof result.status === "string" ? { status: result.status } : {})
+        decision: action.decision,
+        ...(result.status === "human_decided" ? { status: result.status } : {})
       };
       setReason("");
       setSuccess(approvalResponse);

@@ -9,10 +9,10 @@ export interface MayaForensicsSurfaceProps {
 }
 
 export interface ApprovalGateResponse {
-  actionId?: string;
+  actionId: string;
   auditEntryHash: string;
   decision: "approve" | "modify" | "reject";
-  status?: string;
+  status?: "human_decided";
 }
 
 export type QueryEvidenceResponse = RealtimeBrowserSessionSnapshot;

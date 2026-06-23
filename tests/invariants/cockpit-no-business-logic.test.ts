@@ -73,6 +73,10 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(mayaSources).toContain("recommendedActionLabel");
     expect(queryDock).toContain("startRealtimeBrowserSession");
     expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("sessionTokenRef");
+    expect(queryDock).toContain("closeActiveSession");
+    expect(queryDock).toContain("onOpenChange={handleOpenChange}");
+    expect(queryDock).toContain("publishForToken");
     expect(queryDock).toContain("question:");
     expect(queryDock).toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
@@ -86,6 +90,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalDialog).toContain("actions.map");
     expect(approvalDialog).toContain("useId");
     expect(approvalDialog).toContain("auditEntryHash");
+    expect(approvalDialog).toContain("result.actionId !== actionId");
+    expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("onResponse");
     expect(surface).toContain("setQueryResponse");
     expect(surface).toContain("setApprovalResponse");
