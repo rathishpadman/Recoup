@@ -42,6 +42,7 @@ Non-negotiable visual goals:
 - Recommended action appears as advisory state inside the table row and in the detail pane, using a lucide icon and shadcn primitives.
 - Right-side detail/workspace pane summarizes only the selected/focused fetched row unless a backend-selected case matches the row.
 - Top worklist controls may show filters, columns, and saved views only as local UI affordances unless a backend contract exists.
+- Mockup-only controls such as `Last updated`, row pagination, row checkboxes, and right-pane support fields must be mapped to current backend/read-model fields or rendered as `Unavailable` / `Contract gap`.
 - No legacy Maya premium/custom visual language, no purple/blue gradients, no decorative hero, no fake agent badges.
 - Mockup text, numbers, labels, record IDs, and amounts are visual-only. Runtime truth comes from backend/read-model fields.
 
@@ -70,6 +71,20 @@ Current route/data behavior:
 | Line IDs | `worklist[].lineIds`, `worklist[].lineId`, `lineCount` | Render IDs as cited operational identifiers. Use wrapping chips only for display. | No per-line row expansion endpoint in Beat 3. |
 | Detail pane summary | Selected `worklist[]` row fields only. If selected row equals `model.selected.lineId`, deeper `selected.evidencePack`, `selected.draft`, and `selected.approvalActions` may be shown as backend-selected case context. | The pane may say the detail packet is available only for the backend-selected case. | No deep packet for arbitrary clicked rows. Do not reuse `model.selected` evidence/draft for a different row. |
 | Worklist totals and status strip | Prefer backend `kpiStrip[]` only when labels clearly match the intended display. | Display backend strings. Otherwise show `Unavailable` or `Contract gap`. | No explicit total-items, high-priority, shortage, overage, advisory, cleared, SLA, or owner fields for Beat 3. |
+| Mockup `Last updated` | None in current Forensics cockpit contract. | Omit, or render `Last updated: Unavailable` only if the visual slot is required for parity. | Do not derive from build time, browser time, current date, API response time, or `mayaJourney[]` unless a backend field is added. |
+| Page controls / pagination | Current `worklist[]` is one fetched array. | If needed for visual parity, implement Button-based local page controls over already-fetched rows only, with disabled states when no local paging is active. | `Pagination` is not installed. No server pagination, total pages, cursor, count, or page size field exists. |
+| Row checkboxes | Local UI selection state only, using fetched `worklist[].lineId` as the key. | Use for local multi-select affordance only if needed; checked state must not imply approval, readiness, dispatch, or backend selection. | No backend bulk-select, bulk action, row-review, or approval-selection contract. |
+| Right-pane `Detected` | None in current worklist or selected case contract. | Render `Unavailable` / `Contract gap` if the field is present in the pane. | Do not infer from route load time, `mayaJourney[]`, document dates, or mockup copy. |
+| Right-pane `Owner` | None in current worklist or selected case contract. | Render `Unavailable` / `Contract gap`. | Do not fabricate analyst names, queues-as-owners, or team ownership from `queueLabel`. |
+| Right-pane `SLA` | None in current worklist or selected case contract. | Render `Unavailable` / `Contract gap`. | Do not compute deadlines, overdue state, age, or severity from confidence/routing. |
+| Right-pane `What happened` | `selectedWorklistItem.scenarioLabel`, `customerLabel`, `routingLabel`, `verdictLabel`, `evidenceLabel`, `recommendedActionLabel`, and `selected.draft.basis` only when the selected row matches `model.selected.lineId`. | Summarize only backend-provided strings, without adding causality beyond the label text. | No structured incident narrative, causal timeline, or detection explanation for arbitrary rows. |
+
+Explicit allowlist for Beat 3 runtime facts:
+
+- `ForensicsCockpitModel.worklist[]` fields may drive the table, selected row summary, advisory label, evidence labels, routing/verdict labels, line IDs, and amount display.
+- `ForensicsCockpitModel.selected` may drive deeper evidence/draft/support fields only when the selected row contains `model.selected.lineId`.
+- `ForensicsCockpitModel.kpiStrip[]` may drive status strips only when the backend label/value already matches the displayed business claim.
+- Anything not present in `worklist[]`, matching-row `selected`, or `kpiStrip[]` is banned as a factual display and must be omitted or marked `Unavailable` / `Contract gap`.
 
 ## 4. Interaction Contract
 
@@ -103,10 +118,13 @@ Required Beat 3 primitives:
 
 | Need | Shadcn component |
 |---|---|
+| Persistent navigation/sidebar | `Sidebar` |
 | Worklist table | `Table`, `ScrollArea` |
+| Optional local row checkbox selection | `Checkbox` |
 | Status, verdict, evidence, queue, line IDs | `Badge` |
 | Recommended action explanation | `Tooltip` |
 | Row action/open investigation/add note controls | `Button` |
+| Local page controls if visual parity requires them | `Button` with disabled state; do not use `Pagination` unless later approved and installed |
 | Filters, columns, saved views, row actions if included | `DropdownMenu` |
 | Empty/no rows/unsupported contract state | `Empty` |
 | Backend gap or read-model mismatch | `Alert` if a visible warning is required |
@@ -122,6 +140,9 @@ Icon rules:
 Composition rules:
 
 - Use `Table` rows and cells for the worklist, not role-based div tables.
+- Use `Sidebar` for the persistent nav shell, not a custom nav surface.
+- Use `Checkbox` only for local selection affordance. It must not imply backend review completion, readiness, or approval.
+- Use `Button` for previous/next/page-size affordances if local paging is included. `Pagination` is not installed in this repo and must not be imported unless a later brief authorizes adding it.
 - Use `Badge` for statuses, not custom styled spans.
 - Use `Tooltip` for compact explanatory support, not hidden business truth.
 - Use `DropdownMenuGroup` for grouped menu items.

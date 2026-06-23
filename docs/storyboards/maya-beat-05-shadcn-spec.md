@@ -1,12 +1,12 @@
-# Maya Beat 5 Shadcn Spec: Evidence Dossier Pod Reviewed
+# Maya Beat 5 Shadcn Spec: Evidence Dossier Available
 
 Status: draft for user review before any Beat 5 implementation.
 
-Success check for this spec: a future build worker can implement only the Beat 5 evidence-dossier reviewed-pod state from this document without inventing evidence, provenance, review completion, source counts, dollars, decisions, or autonomous action state.
+Success check for this spec: a future build worker can implement only the Beat 5 evidence-dossier available state from this document without inventing evidence, provenance, review completion, source counts, dollars, decisions, or autonomous action state.
 
 ## 1. Purpose And Approval Gate
 
-Beat 5 covers only the evidence dossier moment after Maya opens the selected case and reviews an evidence pod. The target state is the Evidence tab with one dossier pod expanded, supporting evidence rows visible, deterministic basis summarized, and provenance kept explicit.
+Beat 5 covers only the evidence dossier moment after Maya opens the selected case. The honest target state is: backend evidence dossier available; review completion state unavailable unless a backend contract is added. The Evidence tab may show one expanded backend-backed evidence packet/pod, supporting evidence rows, backend basis text, and explicit provenance caveats.
 
 This document is a spec, not implementation authorization. Beat 5 implementation waits for prior beat approval, then explicit user approval of this Beat 5 spec. The approved methodology remains:
 
@@ -21,6 +21,7 @@ Non-goals:
 - Do not change backend contracts in the Beat 5 UI pass unless a later brief explicitly names those files.
 - Do not edit tests, cockpit UI, `cockpit/next-env.d.ts`, or dirty Beat 2 files from this spec pass.
 - Do not invent case IDs, claim dates, source systems, pod names, evidence row timestamps, record IDs, review completion, deterministic criteria, provenance totals, dollars, approvals, decisions, or external-action state in React.
+- Do not claim `pod reviewed`, `3 of 3`, `evidence review satisfied`, or equivalent completion copy unless a future backend field explicitly supplies that state with cited record IDs and deterministic basis.
 
 ## 2. Mockup Target And Visual Contract
 
@@ -34,12 +35,12 @@ Storyboard state:
 - The Evidence tab is active.
 - The main work area is an evidence dossier with one expanded pod and additional collapsed pods.
 - A right rail summarizes deterministic basis and source provenance.
-- A bottom success/readout banner indicates evidence review status only when backend-backed.
+- A bottom readout may indicate evidence dossier availability. A success/review-complete banner appears only when backend-backed.
 
 Layout contract:
 
 - Persistent left sidebar remains, with compact navigation and selected `Cases` state.
-- Top case bar remains visible with breadcrumb, search, notification/user controls, case title, status, metadata, and actions control only if backend-backed or already approved shell copy.
+- Top case bar remains visible with breadcrumb/search/notification/user controls only if they are omitted, static shell copy, or implemented with installed primitives without inventing backend state.
 - Tab strip shows the case workflow with `Evidence` active.
 - Main content uses a two-column evidence page:
   - Left wide pane: `Evidence Dossier` heading, filter/view controls, pod accordion, expanded pod table, collapsed pod rows.
@@ -48,6 +49,7 @@ Layout contract:
 - Evidence pods are dense operational rows, not decorative cards. The expanded pod uses a table with columns for evidence item, event/date label if available, record ID, source, and verification.
 - Collapsed pods show pod name and backend-backed count/status only. They do not imply review completion when the backend lacks review state.
 - Provenance hierarchy is visually clear: record IDs and document IDs sit inside the dossier, deterministic basis sits in the right rail, source provenance is secondary and must not claim synthetic data is live.
+- Current backend does not expose `evidencePods[]`, `evidenceReviewStatus`, `deterministicBasisCriteria[]`, `sourceProvenance[]`, source counts, document review actors, or review timestamps. Exact mockup parity requires that contract first.
 
 Visual goals:
 
@@ -78,6 +80,7 @@ Current data transport:
 - `src/services/cockpitApi.ts` exposes `GET /forensics`, `GET /connectors`, `POST /approval`, `POST /query/realtime-client-secret`, and `POST /query/realtime-tool`.
 - `buildForensicsCockpitModel()` selects one recovery decision as `model.selected` and exposes `worklist[]`, `selected.evidencePack`, `selected.draft`, `selected.approvalActions`, `actionInbox[]`, `mayaJourney[]`, and `multimodalDock`.
 - Current shadcn evidence component renders `selected.evidencePack.recordIds` and `selected.evidencePack.documents[]` in a table plus accordion. It does not have structured pods, review criteria, source provenance counts, event timestamps, or evidence-review completion state.
+- Current backend target is therefore evidence dossier availability, not reviewed-pod completion.
 
 | UI element | Source field/route | Allowed formatting | Missing/gap |
 |---|---|---|---|
@@ -90,6 +93,8 @@ Current data transport:
 | Filter/view controls | Local UI affordance over already-fetched `documents[]` | Filter by backend strings already present in `documents[]`; view options can change display density only. | No saved view, server filter, review queue, or pod-filter backend route. |
 | Deterministic basis criteria | No current structured field. Related evidence and basis text exist in `selected.draft.basis`, `selected.evidencePack.recordIds`, and decision-derived documents. | Display backend basis text as text only. Do not convert docs length or document types into `3 of 3` criteria. | Need future `selected.deterministicBasisCriteria[]` with label, status, support, recordIds, and deterministic basis. |
 | Review satisfied banner | No current field. `selected.draft.statusLabel` is action/HITL state, not evidence-review completion. | Show `Unavailable` or omit the satisfied banner unless a backend field explicitly says review is satisfied. | Need future `selected.evidenceReviewStatus` or `selected.evidenceReviewState` with status label, basis, criteria count, and recordIds. |
+| Dossier available readout | `selected.evidencePack.documents[]` and `selected.evidencePack.recordIds[]` | May state that a backend evidence packet/dossier is available when documents or record IDs are present. | Must not imply human review, pod completion, or criteria satisfaction. |
+| Review timestamps / review actor | None in current Forensics cockpit contract. | Omit or render `Review timestamp: Unavailable` / `Reviewer: Contract gap` if visual parity requires the slot. | Do not use current time, build time, route load time, user profile, or document timestamps. |
 | Source provenance list | `/connectors.sourceTiles[]`, `/connectors.connectors[]`, and `documents[].sourceLabel` | Show connector status/source mode from `/connectors`; show document source labels exactly. Any grouping by source must be display-only and must not imply sufficiency or live status. | No per-source evidence item totals, source domains, API/SYS tags, or source trust criteria in the Forensics evidence packet. |
 | Synthetic/live warning | `/connectors.sourceTiles[].statusTone`, `connectors[].sourceMode`, `connectors[].sourceContractMode`, `connectors[].reason` | Render backend-provided synthetic/live/blocked labels honestly. | Do not infer live data from missing credentials or mockup source names. |
 | Evidence empty state | `selected.evidencePack.documents.length === 0` | Use `Empty` with a read-model gap message. | Empty state cannot classify the case, approve action, or mark evidence missing unless backend says so. |
@@ -98,14 +103,15 @@ Current data transport:
 Preferred future backend contract for exact mockup parity:
 
 - `ForensicsCockpitModel.selected.caseHeader`
-- `ForensicsCockpitModel.selected.evidenceReviewStatus`
-- `ForensicsCockpitModel.selected.deterministicBasisCriteria[]`
-- `ForensicsCockpitModel.selected.evidencePods[]`
+- `ForensicsCockpitModel.selected.evidenceReviewStatus` with status label, reviewer/reviewedAt labels if needed, cited record IDs, deterministic basis, and criteria counts
+- `ForensicsCockpitModel.selected.deterministicBasisCriteria[]` with label, status, support text, recordIds, and deterministic basis reference
+- `ForensicsCockpitModel.selected.evidencePods[]` with pod labels, counts, backend status, and no UI-inferred review state
 - `ForensicsCockpitModel.selected.evidencePods[].items[]`
 - `ForensicsCockpitModel.selected.evidencePods[].items[].eventAtLabel`
 - `ForensicsCockpitModel.selected.evidencePods[].items[].sourceToneLabel`
-- `ForensicsCockpitModel.selected.sourceProvenance[]`
+- `ForensicsCockpitModel.selected.sourceProvenance[]` with backend source counts, source mode, source trust/status label, and cited record IDs
 - `ForensicsCockpitModel.selected.sourceProvenance[].recordIds`
+- `ForensicsCockpitModel.selected.reviewTimestamps[]` or equivalent labels, only if product wants reviewer/time parity
 
 Until those fields exist, Beat 5 must render honest gaps rather than mockup facts.
 
@@ -116,6 +122,7 @@ Evidence review state:
 - Beat 5 may open the Evidence tab for the backend-selected case packet.
 - If backend exposes an evidence review state, render it as read-only state with cited record IDs and deterministic basis.
 - If backend does not expose review state, do not display `review satisfied`, `3 of 3`, `all criteria satisfied`, or equivalent completion copy.
+- The default current-state copy is `Evidence dossier available` or `Review state unavailable`, never `Pod reviewed`.
 - `selected.draft.statusLabel` may be shown as draft/HITL state only. It must not be relabeled as evidence review completion.
 
 Pod selection and inspection:
@@ -149,11 +156,12 @@ Required Beat 5 primitives:
 | Need | Shadcn component |
 |---|---|
 | Workspace shell/navigation | `Sidebar`, `ScrollArea`, `Separator`, `Tooltip`, `Button` |
+| Breadcrumb/static route trail | `Button`, `Separator`, text only; no `Breadcrumb` import |
 | Case header and metadata | `Card`, `Badge`, `Button`, `DropdownMenu`, `Separator` |
 | Case tabs | `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` |
 | Evidence pods | `Accordion` or `Collapsible`, `Badge`, `Separator` |
 | Expanded evidence rows | `Table`, `ScrollArea`, `Badge`, `Tooltip` |
-| Filter/view controls | `Button`, `DropdownMenu`, `InputGroup` only if search is included |
+| Filter/view/search controls | `Button`, `DropdownMenu`, `Input`, `InputGroup` only if search is included over fetched evidence strings |
 | Deterministic basis rail | `Card`, `Badge`, `Separator`, `Alert` |
 | Source provenance rail | `Card`, `Badge`, `Table` or compact list with `Separator` |
 | Backend gap / synthetic warning | `Alert`, `Empty` |
@@ -162,6 +170,8 @@ Required Beat 5 primitives:
 Composition rules:
 
 - Use full `Card` anatomy where a card is needed.
+- Do not import `Breadcrumb`, `Pagination`, or `Avatar`; those components are not installed. Breadcrumb/search/user affordances are omitted or composed from installed `Button`, `DropdownMenu`, `Input`, `InputGroup`, `Separator`, and text.
+- Do not hand-roll custom UI to mimic missing shadcn primitives. If a missing primitive is required for exact parity, the implementation brief must approve adding it first.
 - Use `AccordionItem`/`AccordionTrigger`/`AccordionContent` or `Collapsible` for pods, not custom clickable divs.
 - Use `Table` for expanded pod evidence rows.
 - Use `Badge` for source and verification labels, not custom styled spans.
@@ -191,8 +201,8 @@ Runtime rules:
 - All review status and deterministic criteria must be backend fields; React must not infer them from document counts or source labels.
 - Mockup-specific Crestline values, pod names, timestamps, source domains, and `3 of 3` status are not data.
 - If backend data is missing, render `Unavailable`, `Contract gap`, `Empty`, or `Alert`.
-- Allowed copy: `Evidence dossier`, `Cited documents`, `Deterministic basis unavailable`, `Review state unavailable`, `Backend evidence packet`, `Source provenance`.
-- Banned copy without backend support: `review satisfied`, `all criteria satisfied`, `3 of 3`, `source verified by API`, `auto recover`, `auto approve`, `send`, `execute`, `write back`, `agent will`, `recovered`, or `cleared by AI`.
+- Allowed copy: `Evidence dossier`, `Evidence dossier available`, `Cited documents`, `Deterministic basis unavailable`, `Review state unavailable`, `Backend evidence packet`, `Source provenance`.
+- Banned copy without backend support: `pod reviewed`, `review satisfied`, `evidence review satisfied`, `all criteria satisfied`, `3 of 3`, `source verified by API`, `auto recover`, `auto approve`, `send`, `execute`, `write back`, `agent will`, `recovered`, or `cleared by AI`.
 
 ## 7. Screenshot Comparison Checklist
 
@@ -212,7 +222,7 @@ Checklist:
 - Right rail separates deterministic basis from source provenance.
 - Deterministic basis does not claim `3 of 3` or satisfied criteria unless backend-backed.
 - Source provenance does not label synthetic/demo sources as live.
-- Bottom review banner appears only when backend-backed; otherwise unavailable state is honest and understated.
+- Bottom review-complete banner appears only when backend-backed; otherwise the page shows dossier availability plus an honest unavailable review state.
 - Pod expansion, row inspection, filters, and view options do not dispatch external actions or rerun decisions.
 - No wrong-row evidence is shown when UI-selected worklist row does not match `model.selected.lineId`.
 - No legacy Maya premium/custom visual language is obvious.
@@ -233,6 +243,7 @@ Later Beat 5 implementation verification:
 - Test that current flat `documents[]` renders without fabricated pod names, pod counts, timestamps, or review completion.
 - Test that backend-provided evidence rows render `citationId`, `documentId`, `documentType`, `description`, `summary`, `sourceLabel`, `verifiedLabel`, and `relevance` from props.
 - Test that deterministic basis and review-satisfied states are absent or marked unavailable when no backend field exists.
+- Test that current backend state can pass with `Evidence dossier available` while review completion remains unavailable.
 - Test that source provenance uses `/connectors` and does not render synthetic sources as live.
 - Test that filter/view/pod controls do not call `POST /approval`, `POST /run`, realtime query routes, or external action routes.
 - Route/auth tests if `/forensics/shadcn` access, login cutover, or session requirements change.

@@ -40,6 +40,7 @@ Layout contract:
 - Left sidebar is persistent and dark, using compact navigation and a human operator footer.
 - Worklist rail sits immediately to the right of the sidebar and remains dense: selected item, surrounding items, count/page controls, and no card-heavy dashboard layout.
 - Main workspace is a wide case detail surface with a breadcrumb/top bar, header metadata, line summary, tab strip, and overview content.
+- Top breadcrumb, case actions, menu controls, and page-rail controls are shell/navigation affordances unless explicitly backed by fields in `ForensicsCockpitModel` or `/connectors`.
 - The header hierarchy is: case identifier/title, route/status badges, read-only amount block, then metadata rows.
 - Amount is visibly read-only and locked; the UI must not imply Maya or the model can edit it.
 - Selected-line block is a bordered information band with line index and compact line facts.
@@ -81,6 +82,10 @@ Current data transport:
 | UI element | Field/source | Allowed formatting | Missing/gap |
 |---|---|---|---|
 | Breadcrumb/top bar | Route shell only; no current `/forensics` breadcrumb field. | Use static product navigation labels only if already approved by route copy. Do not encode mockup `Shortages > Case...` as fact. | No backend `caseTypeLabel`, `caseId`, or breadcrumb model. |
+| Breadcrumb control | Static shell copy only, or omit. | If shown, compose with text, `Button`, and `Separator` only. The final segment may be the backend `scenarioLabel` or `selected.lineId` when available. | `Breadcrumb` is not installed. Do not hand-roll a custom breadcrumb component that invents case hierarchy. |
+| Page rail controls | Current `worklist[]` is one fetched array. | Use Button-based previous/next controls over local row focus only, or omit. Disabled states must be honest when no previous/next local row exists. | `Pagination` is not installed. No server page, cursor, total pages, or row count contract exists. |
+| Case action menu | `selected.draft.statusLabel`, `selected.approvalActions[]`, `actionInbox[]` only for read-only status. | Omit action controls, or render disabled/read-only `Button` / `DropdownMenu` shell actions such as `Review later` only when they do not dispatch. | No Beat 4 approval, draft preview, correspondence, Billing route, or recovery dispatch permission. |
+| Top menu / overflow | Static shell affordance only. | Use installed `DropdownMenu` for non-dispatching view options, or omit. | Do not expose mockup-only actions as factual workflow state. |
 | Selected worklist row | `ForensicsCockpitModel.worklist[]`; UI state may hold the clicked row from already-fetched data. | Highlight clicked row; render `scenarioLabel`, `customerLabel`, `amount`, `queueLabel`, `lineIds`, `evidenceLabel` as backend strings. | No backend row-switch endpoint. Detail can be deep only when clicked row contains `model.selected.lineId`. |
 | Case identifier/title | Prefer `selectedWorklistItem.scenarioLabel`; fallback `selected.draft.actionLabel`. | Display backend string exactly; may pair with `selected.lineId` as technical identifier. | No true case ID like `CS-2025-04128`; do not fabricate. |
 | Customer summary | `selectedWorklistItem.customerLabel`; optional `customerId` if present. | Display as provided. | No customer contact, email, store/DC, owner, received date, due date, or currency fields. |
@@ -127,6 +132,13 @@ Opening a case/work item:
 - If the clicked row does not correspond to `model.selected.lineId`, show a contract-gap `Alert` or `Empty` state for deep details. Do not borrow `model.selected` evidence for the wrong row.
 - Selection must not call `POST /run`, `POST /approval`, realtime query routes, SAP reads, or any external action route.
 
+Shell and case controls:
+
+- Breadcrumbs are omitted by default. If included for visual parity, they are static shell navigation composed from installed primitives and may use only backend-provided `scenarioLabel`, `selected.lineId`, or route copy for the active label.
+- Case actions are omitted by default. If included, they use existing `Button` or `DropdownMenu` components, remain disabled/read-only, and cannot call approval, draft, route, correspondence, recovery, or ERP paths.
+- Worklist rail page controls are local focus/navigation buttons over fetched `worklist[]` only. They are not server pagination and must not display total pages unless a backend contract is added.
+- Top search, notification, and user controls may be omitted or shown as static shell affordances only. They must not invent user profile, alerts, or global case-search backend state.
+
 Overview/evidence/summary sections:
 
 - Overview may show backend-backed case labels, selected line IDs, amount, verdict, queue, evidence count, deterministic basis text, and record IDs.
@@ -154,6 +166,8 @@ Required Beat 4 primitives:
 |---|---|
 | Workspace shell/navigation | `Sidebar`, `ScrollArea`, `Separator`, `Tooltip`, `Button` |
 | Worklist rail | `Table` or compact list composed with `Button`, `Badge`, `ScrollArea`, `Separator` |
+| Breadcrumb/static route trail | `Button`, `Separator`, text only; no `Breadcrumb` import |
+| Page rail controls | `Button` only; no `Pagination` import |
 | Case header | `Card`, `Badge`, `Button`, `DropdownMenu`, `Tooltip`, `Separator` |
 | Read-only amount/status | `Badge`, `Tooltip`, `Button` disabled state, lucide lock/info icons |
 | Selected line band | `Card`, `Badge`, `Separator`, `Button` disabled state |
@@ -167,6 +181,7 @@ Required Beat 4 primitives:
 Composition rules:
 
 - Use full `Card` anatomy where a card is needed.
+- Do not import `Breadcrumb` or `Pagination`; those components are not installed. Use `Button` / `DropdownMenu` shell controls or omit the control.
 - Use `TabsTrigger` only inside `TabsList`.
 - Use `Alert` for backend gaps or unsupported contract states.
 - Use `Empty` for unavailable notes, missing selected-row details, or no evidence documents.
