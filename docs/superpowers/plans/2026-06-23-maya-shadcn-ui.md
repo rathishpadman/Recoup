@@ -61,6 +61,9 @@ The 12 ImageGen frames should act as state and hierarchy references, not as twel
 - New Maya implementation does not import Phosphor icons.
 - New Maya implementation does not import `decimal.js`, `src/core`, or `src/services`.
 - New Maya implementation does not compute money, verdicts, thresholds, recommended actions, evidence scores, or approval decisions.
+- New Maya implementation does not define local business fixtures such as KPI arrays, worklist rows, evidence documents, approval actions, agent traces, customer names, dollar strings, or audit outcomes.
+- Every Maya domain component receives its business data from `ForensicsCockpitModel`, `ConnectorReadinessCockpitModel`, `DemoSession`, or a response from the existing credential-gated API route it calls.
+- If a component needs a business field that is not present in those read models or API responses, pause UI work and add the field to the backend/read-model contract with tests first.
 - New Maya implementation does not dispatch any external action outside the existing `/api/approval` human-gated route.
 - New Maya implementation must render record IDs and cited evidence where a decision, answer, draft, or audit state is shown.
 - Styling uses shadcn semantic classes and Tailwind layout utilities. New CSS is limited to page-level tokens/layout where shadcn composition cannot express the structure cleanly.
@@ -81,6 +84,32 @@ The 12 ImageGen frames should act as state and hierarchy references, not as twel
 | 10 | Human approval | `ApprovalGateDialog` | `AlertDialog`, `Field`, `Textarea`, `Button` |
 | 11 | Audit confirmation | `AuditConfirmationPanel` | `Alert`, `Badge`, `Table`, `Separator` |
 | 12 | Return to queue | `DeductionWorklistTable`, `MayaEmptyState` | `Table`, `Empty`, `Button`, `Badge` |
+
+## Backend Data Contract By Component
+
+| Component | Required data source | Rule |
+| --- | --- | --- |
+| `MayaForensicsSurface` | `ForensicsCockpitModel`, `ConnectorReadinessCockpitModel`, `DemoSession` | Owns UI state only; selects rows from `model.worklist` and never creates business rows. |
+| `MayaWorkspaceShell` | `DemoSession`, route labels already allowed by auth | Displays persona/session/navigation state only from session and fixed route labels. |
+| `MayaRunKpiStrip` | `model.kpiStrip` | Renders labels, values, and support exactly as supplied. |
+| `SourceReadinessStrip` | `connectors.sourceTiles` and `connectors.connectors` | Renders source health and proof state exactly as supplied. |
+| `DeductionWorklistTable` | `model.worklist` | Renders rows exactly as supplied; row selection is local UI state. |
+| `RecommendedActionCell` | Existing `WorklistItem` fields or a new tested read-model field | If `WorklistItem` does not expose a recommended-action label, add that field to `src/services/cockpitModel.ts` and `cockpit/app/cockpit-data.ts` before rendering it. |
+| `DeductionCaseWorkspace` | `model.selected`, selected `model.worklist` row | Renders selected case facts exactly as supplied. |
+| `EvidenceDossier` | `model.selected.evidencePack` | Renders documents, citations, relevance, verification labels, and record IDs exactly as supplied. |
+| `QueryEvidenceDock` | `model.selected.evidencePack.recordIds`, selected line ID, `startRealtimeBrowserSession()` / `RealtimeBrowserSessionSnapshot` | Sends scoped query context and renders cited response fields only. |
+| `AgentTracePanel` | `RealtimeBrowserSessionSnapshot` or `model.multimodalDock.subAgents` | Shows trace/status only from backend/API data. |
+| `CitedAnswerCard` | `RealtimeBrowserSessionSnapshot` | Blocks display when citations or deterministic basis are absent. |
+| `RecoveryDraftReview` | `model.selected.draft`, `model.actionInbox` | Renders draft packet exactly as supplied. |
+| `ApprovalGateDialog` | `model.selected.approvalActions`, `model.selected.draft.actionId`, `/api/approval` response | Uses supplied actions; displays audit confirmation only after API response. |
+| `AuditConfirmationPanel` | `/api/approval` response and `model.mayaJourney` | Renders returned audit hash/status and existing journey events only. |
+| `MayaEmptyState` | `model.worklist.length`, selected/completed local UI state | May show an empty UI state only when backend data is actually empty or the local filter hides all rows. |
+
+Backend/read-model gap rule:
+
+- If the UI requires a field such as `worklist[].recommendedActionLabel`, `queryResponse.agentTrace`, or `approvalResponse.auditStatusLabel`, first update the backend/read-model source and its tests.
+- Do not substitute a hard-coded label in the component while waiting for backend support.
+- Do not derive business meaning from IDs or enum names in React. Human-readable labels belong in the read model.
 
 ## Component Install Set
 
@@ -141,13 +170,15 @@ Expected checks:
 - `npm run typecheck` exits with code 0.
 - Commit contains only shadcn foundation files and lockfile/manifest changes.
 
-## Phase 2 - Tests First For Maya Boundary
+## Phase 2 - Tests First For Maya Boundary And Data Wiring
 
 - [ ] Add `tests/invariants/maya-shadcn-boundary.test.ts`.
 - [ ] The test must fail before the new route/components exist.
 - [ ] The test must forbid old UI imports and business logic imports in `cockpit/components/maya/` and `cockpit/app/forensics/shadcn/page.tsx`.
+- [ ] The test must forbid local business fixtures inside `cockpit/components/maya/`.
 - [ ] The test must assert that the review route authorizes through `requireRouteAccess("/forensics")`.
 - [ ] The test must assert that the review route uses `fetchForensicsModel()` and `fetchConnectorReadinessModel()`.
+- [ ] The test must assert that the surface component receives `model`, `connectors`, and `session` as props.
 
 Test skeleton:
 
@@ -197,6 +228,37 @@ describe("Maya shadcn cockpit boundary", () => {
       "src/services",
       "evaluateRule",
       "runForensicsInvestigation"
+    ]) {
+      expect(sources).not.toContain(forbidden);
+    }
+  });
+
+  it("keeps Maya components backed by read-model props instead of local business fixtures", () => {
+    const sources = readTree("cockpit/components/maya");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
+
+    expect(types).toContain("model: ForensicsCockpitModel");
+    expect(types).toContain("connectors: ConnectorReadinessCockpitModel");
+    expect(types).toContain("session: DemoSession");
+    expect(surface).toContain("MayaForensicsSurface({ connectors, model, session }");
+    expect(surface).toContain("model.worklist");
+    expect(surface).toContain("model.selected");
+    expect(surface).toContain("connectors.");
+
+    for (const forbidden of [
+      "const kpiStrip = [",
+      "const worklist = [",
+      "const evidencePack =",
+      "const approvalActions = [",
+      "const actionInbox = [",
+      "const mayaJourney = [",
+      "const mock",
+      "mockData",
+      "sampleData",
+      "fixture",
+      "Crestline Foods",
+      "POD-Retriever"
     ]) {
       expect(sources).not.toContain(forbidden);
     }
@@ -270,18 +332,28 @@ Expected result:
 - [ ] Create `cockpit/components/maya/audit-confirmation-panel.tsx`.
 - [ ] Create `cockpit/components/maya/maya-empty-state.tsx`.
 - [ ] Create `cockpit/components/maya/types.ts`.
+- [ ] For every component, pass only backend/read-model data or local UI state listed in the Backend Data Contract By Component table.
+- [ ] If a storyboard field is missing from `ForensicsCockpitModel`, add a backend/read-model task before rendering that field.
 
 `types.ts` should alias existing read-model types instead of redefining business data:
 
 ```ts
-import type { ConnectorReadinessModel, DemoSession, ForensicsCockpitModel } from "../../app/cockpit-data";
+import type { ConnectorReadinessCockpitModel, ForensicsCockpitModel } from "../../app/cockpit-data";
+import type { DemoSession } from "../../app/demo-auth";
+import type { RealtimeBrowserSessionSnapshot } from "../../app/realtime-browser-session";
 
 export interface MayaForensicsSurfaceProps {
-  connectors: ConnectorReadinessModel;
+  connectors: ConnectorReadinessCockpitModel;
   model: ForensicsCockpitModel;
   session: DemoSession;
 }
 
+export interface ApprovalGateResponse {
+  auditEntryHash: string;
+  decision: "approve" | "modify" | "reject";
+}
+
+export type QueryEvidenceResponse = RealtimeBrowserSessionSnapshot;
 export type MayaWorklistItem = ForensicsCockpitModel["worklist"][number];
 export type MayaSelectedCase = ForensicsCockpitModel["selected"];
 ```
@@ -298,6 +370,8 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   const [selectedLineId, setSelectedLineId] = React.useState(model.selected.lineId);
   const [queryOpen, setQueryOpen] = React.useState(false);
   const [approvalOpen, setApprovalOpen] = React.useState(false);
+  const [queryResponse, setQueryResponse] = React.useState<QueryEvidenceResponse | undefined>(undefined);
+  const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>(undefined);
 
   const selectedWorklistItem =
     model.worklist.find((item) => item.lineIds.includes(selectedLineId)) ??
@@ -306,7 +380,43 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
   return (
     <main data-testid="maya-shadcn-workbench">
-      {/* Compose shell, KPI strip, worklist, case workspace, query dock, and approval dialog here. */}
+      <MayaWorkspaceShell session={session}>
+        <MayaRunKpiStrip items={model.kpiStrip} />
+        <SourceReadinessStrip connectors={connectors} />
+        <DeductionWorklistTable
+          items={model.worklist}
+          onSelectLine={setSelectedLineId}
+          selectedLineId={selectedLineId}
+        />
+        <DeductionCaseWorkspace
+          actionInbox={model.actionInbox}
+          journey={model.mayaJourney}
+          onOpenApproval={() => {
+            setApprovalOpen(true);
+          }}
+          onOpenQuery={() => {
+            setQueryOpen(true);
+          }}
+          queryResponse={queryResponse}
+          selected={model.selected}
+          selectedWorklistItem={selectedWorklistItem}
+        />
+        <QueryEvidenceDock
+          onOpenChange={setQueryOpen}
+          onResponse={setQueryResponse}
+          open={queryOpen}
+          recordIds={model.selected.evidencePack.recordIds}
+          selectedLineId={selectedLineId}
+        />
+        <ApprovalGateDialog
+          actions={model.selected.approvalActions}
+          actionId={model.selected.draft.actionId}
+          onOpenChange={setApprovalOpen}
+          onResponse={setApprovalResponse}
+          open={approvalOpen}
+        />
+        <AuditConfirmationPanel journey={model.mayaJourney} response={approvalResponse} />
+      </MayaWorkspaceShell>
     </main>
   );
 }
@@ -322,6 +432,7 @@ Implementation rules:
 - Use `gap-*` utilities rather than `space-x-*` or `space-y-*`.
 - Avoid `transition-all`.
 - Avoid nested cards; one section surface can contain repeated `Card` items, but cards do not wrap other cards.
+- Do not hard-code demo business names, amounts, record IDs, evidence document IDs, agent statuses, recommended actions, or audit labels in React components.
 
 Command:
 
@@ -344,12 +455,13 @@ git commit -m "Add Maya shadcn review route"
 
 ## Phase 5 - Wire Query Agent Narrative
 
-- [ ] Implement `QueryEvidenceDock` against the existing `/api/query/realtime-tool` route.
+- [ ] Implement `QueryEvidenceDock` through the existing `startRealtimeBrowserSession()` helper in `cockpit/app/realtime-browser-session.ts`.
+- [ ] Keep `/api/query/realtime-tool` as the credential-gated backend tool bridge used by that helper.
 - [ ] Send only user query text, selected line ID, and cited record IDs already present in the read model.
 - [ ] Render loading state with `Skeleton`.
 - [ ] Render errors with `Alert`.
 - [ ] Render answers with `CitedAnswerCard`.
-- [ ] Render supervisor/agent progress from returned API fields only.
+- [ ] Render supervisor/agent progress from `RealtimeBrowserSessionSnapshot` fields or existing `model.multimodalDock.subAgents` fields only.
 
 Client rules:
 
@@ -357,6 +469,7 @@ Client rules:
 - No `RECOUP_COCKPIT_AUTH_TOKEN` usage in client code.
 - No `localStorage`, `sessionStorage`, or `indexedDB`.
 - No uncited answer display. If a response lacks citations or deterministic basis, render a blocked `Alert`.
+- No invented agent trace events. If `RealtimeBrowserSessionSnapshot` and `model.multimodalDock.subAgents` do not contain a trace detail, do not render that detail.
 
 Test additions:
 
@@ -618,6 +731,9 @@ Expected result:
 - Beat 2 mini dashboard is present on the first working screen.
 - Beat 3 has a `Recommended action` state with an agent/recommendation icon.
 - All 12 storyboard beats are represented as real UI states.
+- Every Maya domain component is wired to backend/read-model data or existing credential-gated API responses.
+- Any missing storyboard field is added to the backend/read-model contract with tests before the UI renders it.
+- No Maya component contains hard-coded business fixtures, made-up dollars, made-up customer names, made-up recommended actions, made-up evidence, or made-up audit outcomes.
 - `/forensics` no longer imports current bespoke Maya UI components.
 - New Maya code uses shadcn components and lucide icons.
 - UI displays backend/read-model facts only.
