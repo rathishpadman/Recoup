@@ -67,6 +67,59 @@ describe("Realtime browser session helper", () => {
     expect(JSON.stringify(result)).not.toContain("ek_test_client_secret");
   });
 
+  it("stops delayed startup when the external signal aborts before client-secret resolution", async () => {
+    const fakes = createRealtimeFakes();
+    const controller = new AbortController();
+    const snapshots: Array<{ status: string }> = [];
+    const delayedClientSecret = deferred<Response>();
+    fakes.enqueueResponse(delayedClientSecret.promise);
+    fakes.enqueueTextResponse("v=0\r\ns=answer");
+
+    const resultPromise = startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      onSnapshot: (snapshot) => {
+        snapshots.push({ status: snapshot.status });
+      },
+      question: "Why is Harbor blocked?",
+      recordIds: ["POD-SIGNED-7", "INV-913"],
+      selectedLineId: "S7-L2",
+      signal: controller.signal
+    });
+    await waitForMicrotasks();
+
+    expect(fakes.fetchCalls.map((call) => call.url)).toEqual(["/api/query/realtime-client-secret"]);
+    const snapshotsBeforeAbort = snapshots.length;
+    controller.abort();
+    delayedClientSecret.resolve(
+      new Response(
+        JSON.stringify({
+          auditPolicy: {
+            externalActions: "none",
+            recordIds: ["OPENAI-REALTIME-POLICY"],
+            retention: "Audit hashes and cited record ids only; no raw audio."
+          },
+          clientSecret: { value: "ek_test_client_secret" },
+          deterministicBasis: "credential gate",
+          model: "gpt-realtime-2",
+          status: "issued",
+          transport: "webrtc"
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 }
+      )
+    );
+
+    const result = await resultPromise;
+
+    expect(fakes.mediaCalls).toEqual([]);
+    expect(fakes.peerConnections).toEqual([]);
+    expect(fakes.fetchCalls.map((call) => call.url)).toEqual(["/api/query/realtime-client-secret"]);
+    expect(snapshots).toHaveLength(snapshotsBeforeAbort);
+    expect(snapshots.map((snapshot) => snapshot.status)).not.toContain("connected");
+    expect(result.getSnapshot().status).not.toBe("connected");
+  });
+
   it("blocks non-ephemeral client secrets before opening microphone or peer connection", async () => {
     const fakes = createRealtimeFakes();
     fakes.enqueueJsonResponse({
@@ -438,7 +491,7 @@ function createConnectedRealtimeFakes(): ReturnType<typeof createRealtimeFakes> 
 }
 
 function createRealtimeFakes() {
-  const queuedResponses: Response[] = [];
+  const queuedResponses: Array<Promise<Response> | Response> = [];
   const fetchCalls: Array<{ body?: BodyInit | null; headers?: HeadersInit; url: string }> = [];
   const mediaCalls: Array<{ audio: true }> = [];
   const peerConnections: FakePeerConnection[] = [];
@@ -460,6 +513,9 @@ function createRealtimeFakes() {
       queuedResponses.push(
         new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 })
       );
+    },
+    enqueueResponse: (response: Promise<Response> | Response) => {
+      queuedResponses.push(response);
     },
     enqueueTextResponse: (body: string, status = 200) => {
       queuedResponses.push(new Response(body, { headers: { "content-type": "application/sdp" }, status }));
@@ -591,6 +647,21 @@ function stringifyRequestUrl(url: RequestInfo | URL): string {
   }
 
   return url.url;
+}
+
+function deferred<T>(): { promise: Promise<T>; reject: (reason?: unknown) => void; resolve: (value: T) => void } {
+  let rejectPromise: (reason?: unknown) => void = () => {};
+  let resolvePromise: (value: T) => void = () => {};
+  const promise = new Promise<T>((resolve, reject) => {
+    rejectPromise = reject;
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    reject: rejectPromise,
+    resolve: resolvePromise
+  };
 }
 
 async function waitForMicrotasks(): Promise<void> {

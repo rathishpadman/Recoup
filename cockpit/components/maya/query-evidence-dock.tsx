@@ -38,6 +38,7 @@ export function QueryEvidenceDock({
   const questionId = React.useId();
   const statusId = React.useId();
   const openRef = React.useRef(open);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
   const sessionRef = React.useRef<RealtimeBrowserSession | null>(null);
   const sessionTokenRef = React.useRef(0);
   const [error, setError] = React.useState<string | undefined>();
@@ -53,6 +54,9 @@ export function QueryEvidenceDock({
 
   const closeActiveSession = React.useCallback((clearLocalState = true) => {
     sessionTokenRef.current += 1;
+    const abortController = abortControllerRef.current;
+    abortControllerRef.current = null;
+    abortController?.abort();
     const session = sessionRef.current;
     sessionRef.current = null;
     session?.close();
@@ -106,10 +110,15 @@ export function QueryEvidenceDock({
 
     const session = sessionRef.current;
     sessionRef.current = null;
+    const previousAbortController = abortControllerRef.current;
+    abortControllerRef.current = null;
     const activeStartToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = activeStartToken;
+    previousAbortController?.abort();
     session?.close();
     setError(undefined);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     publishForToken(activeStartToken, {
       message: "Starting evidence query through the Realtime browser helper.",
@@ -124,6 +133,7 @@ export function QueryEvidenceDock({
         },
         question: trimmedQuestion,
         recordIds,
+        signal: abortController.signal,
         selectedLineId: selectedLine
       });
       if (!isCurrentSession(activeStartToken)) {

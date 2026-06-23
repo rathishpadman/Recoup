@@ -212,7 +212,10 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain("startRealtimeBrowserSession");
     expect(queryDock).toContain("../../app/realtime-browser-session");
     expect(queryDock).toContain("sessionTokenRef");
+    expect(queryDock).toContain("abortControllerRef");
     expect(queryDock).toContain("closeActiveSession");
+    expect(queryDock).toContain("abortController?.abort()");
+    expect(queryDock).toContain("previousAbortController?.abort()");
     expect(queryDock).toContain("onOpenChange={handleOpenChange}");
     expect(queryDock).toContain("sessionRef.current = null");
     expect(queryDock).toContain("publishForToken");
@@ -224,6 +227,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
     expect(queryDock).toContain("recordIds");
+    expect(queryDock).toContain("signal: abortController.signal");
     expect(queryDock).toContain("selectedLineId: selectedLine");
     expect(queryDock).toContain("onChange=");
     expect(queryDock).toContain("disabled={isRunning || question.trim().length === 0}");

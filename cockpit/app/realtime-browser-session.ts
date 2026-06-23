@@ -29,6 +29,7 @@ export interface StartRealtimeBrowserSessionInput {
   recordIds: readonly string[];
   remoteAudio?: HTMLAudioElement | null;
   selectedLineId: string;
+  signal?: AbortSignal;
   toolEndpoint?: string;
 }
 
@@ -65,6 +66,7 @@ export async function startRealtimeBrowserSession({
   recordIds,
   remoteAudio = null,
   selectedLineId,
+  signal,
   toolEndpoint = realtimeToolUrl
 }: RealtimeBrowserSessionInput): Promise<RealtimeBrowserSession> {
   const trimmedQuestion = question.trim();
@@ -79,14 +81,20 @@ export async function startRealtimeBrowserSession({
     dataChannel?: RTCDataChannel;
     peerConnection?: RTCPeerConnection;
   } = {};
+  let externallyCancelled = signal?.aborted ?? false;
 
   function publish(next: RealtimeBrowserSessionSnapshot): void {
+    if (externallyCancelled) {
+      return;
+    }
+
     snapshot = next;
     onSnapshot?.(snapshot);
   }
 
   function cleanupResources(): void {
     abortController.abort();
+    signal?.removeEventListener("abort", cancelFromExternalSignal);
     cleanupState.dataChannel?.close();
     cleanupState.peerConnection?.close();
     for (const track of localTracks) {
@@ -97,9 +105,34 @@ export async function startRealtimeBrowserSession({
     }
   }
 
+  function cancelFromExternalSignal(): void {
+    externallyCancelled = true;
+    snapshot = { ...snapshot, message: "Realtime session cancelled.", status: "ended" };
+    cleanupResources();
+  }
+
+  function cancelledSession(): RealtimeBrowserSession | undefined {
+    if (!externallyCancelled) {
+      return undefined;
+    }
+
+    snapshot = { ...snapshot, message: "Realtime session cancelled.", status: "ended" };
+    cleanupResources();
+    return { close, getSnapshot: () => snapshot };
+  }
+
   function close(): void {
     cleanupResources();
     publish({ ...snapshot, message: "Realtime session ended.", status: "ended" });
+  }
+
+  if (signal !== undefined && !signal.aborted) {
+    signal.addEventListener("abort", cancelFromExternalSignal, { once: true });
+  }
+
+  const cancelledBeforeStart = cancelledSession();
+  if (cancelledBeforeStart !== undefined) {
+    return cancelledBeforeStart;
   }
 
   if (trimmedQuestion.length === 0) {
@@ -112,17 +145,37 @@ export async function startRealtimeBrowserSession({
     status: "connecting"
   });
 
-  const secretResponse = await fetcher("/api/query/realtime-client-secret", {
-    body: JSON.stringify({
-      question: trimmedQuestion,
-      ...(recordIds === undefined ? {} : { recordIds: [...recordIds] }),
-      ...(selectedLineId === undefined ? {} : { selectedLineId })
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-    signal: abortController.signal
-  });
-  const secret = (await secretResponse.json()) as ClientSecretResult;
+  let secretResponse: Response;
+  let secret: ClientSecretResult;
+  try {
+    secretResponse = await fetcher("/api/query/realtime-client-secret", {
+      body: JSON.stringify({
+        question: trimmedQuestion,
+        ...(recordIds === undefined ? {} : { recordIds: [...recordIds] }),
+        ...(selectedLineId === undefined ? {} : { selectedLineId })
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      signal: abortController.signal
+    });
+    const cancelledAfterSecretResponse = cancelledSession();
+    if (cancelledAfterSecretResponse !== undefined) {
+      return cancelledAfterSecretResponse;
+    }
+
+    secret = (await secretResponse.json()) as ClientSecretResult;
+    const cancelledAfterSecretBody = cancelledSession();
+    if (cancelledAfterSecretBody !== undefined) {
+      return cancelledAfterSecretBody;
+    }
+  } catch (error) {
+    const cancelledAfterSecretError = cancelledSession();
+    if (cancelledAfterSecretError !== undefined) {
+      return cancelledAfterSecretError;
+    }
+
+    throw error;
+  }
   const clientSecret = secret.clientSecret?.value;
 
   if (!secretResponse.ok || secret.status !== "issued" || clientSecret === undefined || !clientSecret.startsWith("ek_")) {
@@ -135,9 +188,18 @@ export async function startRealtimeBrowserSession({
   }
 
   try {
+    const cancelledBeforeMedia = cancelledSession();
+    if (cancelledBeforeMedia !== undefined) {
+      return cancelledBeforeMedia;
+    }
+
     const mediaStream = await mediaDevices.getUserMedia({ audio: true });
     for (const track of mediaStream.getTracks()) {
       localTracks.push(track);
+    }
+    const cancelledAfterMedia = cancelledSession();
+    if (cancelledAfterMedia !== undefined) {
+      return cancelledAfterMedia;
     }
 
     const peerConnection = createPeerConnection();
@@ -164,7 +226,17 @@ export async function startRealtimeBrowserSession({
     });
 
     const offer = await peerConnection.createOffer();
+    const cancelledAfterOffer = cancelledSession();
+    if (cancelledAfterOffer !== undefined) {
+      return cancelledAfterOffer;
+    }
+
     await peerConnection.setLocalDescription(offer);
+    const cancelledAfterLocalDescription = cancelledSession();
+    if (cancelledAfterLocalDescription !== undefined) {
+      return cancelledAfterLocalDescription;
+    }
+
     const answerResponse = await fetcher(realtimeCallsUrl, {
       body: offer.sdp ?? "",
       headers: {
@@ -174,6 +246,10 @@ export async function startRealtimeBrowserSession({
       method: "POST",
       signal: abortController.signal
     });
+    const cancelledAfterSdpResponse = cancelledSession();
+    if (cancelledAfterSdpResponse !== undefined) {
+      return cancelledAfterSdpResponse;
+    }
 
     if (!answerResponse.ok) {
       publish({
@@ -185,11 +261,26 @@ export async function startRealtimeBrowserSession({
       return { close, getSnapshot: () => snapshot };
     }
 
+    const answerSdp = await answerResponse.text();
+    const cancelledAfterSdpBody = cancelledSession();
+    if (cancelledAfterSdpBody !== undefined) {
+      return cancelledAfterSdpBody;
+    }
+
     await peerConnection.setRemoteDescription({
-      sdp: await answerResponse.text(),
+      sdp: answerSdp,
       type: "answer"
     });
+    const cancelledAfterRemoteDescription = cancelledSession();
+    if (cancelledAfterRemoteDescription !== undefined) {
+      return cancelledAfterRemoteDescription;
+    }
+
     dataChannel.addEventListener("open", () => {
+      if (externallyCancelled) {
+        return;
+      }
+
       dataChannel.send(
         JSON.stringify({
           item: {
@@ -203,6 +294,11 @@ export async function startRealtimeBrowserSession({
       dataChannel.send(JSON.stringify({ type: "response.create" }));
     });
   } catch {
+    const cancelledAfterSetupError = cancelledSession();
+    if (cancelledAfterSetupError !== undefined) {
+      return cancelledAfterSetupError;
+    }
+
     publish({
       message: "Realtime session setup failed.",
       recordIds: secret.auditPolicy?.recordIds ?? policyRecordIds,
