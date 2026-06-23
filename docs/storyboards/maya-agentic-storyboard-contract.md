@@ -62,6 +62,7 @@ Domain wrappers may exist only to bind read-model data and compose these primiti
 - `MayaWorkspace`
 - `MayaLoginCard`
 - `DeductionRunSummary`
+- `MayaRunKpiStrip`
 - `DeductionWorklistTable`
 - `EvidenceDossier`
 - `QueryEvidenceDock`
@@ -135,7 +136,7 @@ She lands in the deductions workspace.
 System response:
 The workspace opens with a dense operational layout:
 - left shadcn sidebar
-- top run summary
+- top mini dashboard with pending work and risk/priority KPIs
 - source readiness strip
 - worklist table
 - empty detail prompt until a case is selected
@@ -146,22 +147,24 @@ The overnight forensics service has already prepared the run. The UI does not im
 Shadcn composition:
 - `Sidebar`: product navigation and Maya workspace routes.
 - `Badge`: source provenance labels such as read-only, synthetic, blocked, or deferred.
-- `Card`: compact run summary tiles.
+- `Card`: compact mini-dashboard KPI tiles.
 - `Table`: worklist.
 - `Alert`: if source context is incomplete or a source is synthetic.
 - `Skeleton`: loading state while read model is fetched.
 
 Data obligations:
-- Run summary comes from the cockpit/read model.
+- Run summary and mini-dashboard KPIs come from the cockpit/read model.
 - Gold-set facts remain backend-owned.
 - Source readiness labels come from connector/readiness model.
 - Synthetic sources must be labeled before display.
+- Recommended mini-dashboard KPIs for Maya: total pending items, high-priority items, evidence-ready cases, blocked/evidence-incomplete cases, draft approvals waiting, projected recovery queue value if already computed by backend.
+- KPI labels must be compact and operational. Avoid celebratory copy and avoid implying realized recovery before approval.
 
 Primary copy direction:
 "Morning deduction run" is acceptable. Avoid "AI found money" or any copy implying autonomous recovery.
 
 Acceptance:
-Maya sees the worklist as the primary surface, not a generic dashboard. The source strip is compact and honest, not decorative.
+Maya sees a mini dashboard that gives immediate workload and priority context, but the worklist remains the primary action surface. The source strip is compact and honest, not decorative.
 
 ### Beat 3 - Worklist: Maya Scans Prioritized Cases
 
@@ -176,10 +179,10 @@ The table shows each scenario as a row with:
 - amount display from backend
 - evidence completeness state
 - record ID count or key citations
-- next action state
+- recommended action
 
 Agent narrative:
-The forensics service is the classifier/orchestrator. The UI shows the result and the deterministic basis availability, not a live model monologue.
+The forensics service is the classifier/orchestrator. The UI shows the result, deterministic basis availability, and a recommended action, not a live model monologue.
 
 Shadcn composition:
 - `Table`, `TableHeader`, `TableRow`, `TableCell`.
@@ -187,6 +190,7 @@ Shadcn composition:
 - `Button` variant `ghost` or `outline` for row actions.
 - `Tooltip` for terse status explanation.
 - `ScrollArea` for dense lists.
+- A small lucide agent/recommendation icon may appear inside the recommended-action cell, wrapped in `Tooltip` text such as "Forensics recommendation." It must not be an avatar, emoji, or autonomous-action badge.
 
 Interaction:
 - Rows are keyboard reachable.
@@ -196,6 +200,7 @@ Interaction:
 
 Acceptance:
 Selecting at least three different worklist rows updates the detail pane with different backend-sourced evidence and basis.
+Recommended actions remain advisory until Maya selects a row and reaches the relevant evidence or approval step.
 
 ### Beat 4 - Case Selection: Crestline Shortage Opens
 
@@ -490,8 +495,8 @@ Maya can continue the queue without losing traceability.
 The implementation plan should identify the exact existing endpoints/read models, but the storyboard requires these data shapes:
 
 - `DemoSession`: display name, role, allowed routes, default route.
-- `ForensicsRunSummary`: run ID, scenario counts, source status summary, last refreshed label.
-- `DeductionWorkItem`: scenario ID, customer label, scenario type, amount display, verdict, routing, evidence state, record IDs, next action state.
+- `ForensicsRunSummary`: run ID, scenario counts, source status summary, mini-dashboard KPI values, last refreshed label.
+- `DeductionWorkItem`: scenario ID, customer label, scenario type, amount display, verdict, routing, evidence state, record IDs, recommended action.
 - `DeductionCaseDetail`: rule ID, event ID, deterministic basis, supporting docs, line IDs, draft actions.
 - `EvidenceDocument`: document ID, source family, provenance, retrieved timestamp or as-of label, record IDs, summary.
 - `QueryTurn`: question, status, answer, citations, trace steps, blocked reason.
@@ -514,6 +519,7 @@ It may not add business state:
 - approval eligibility
 - audit hash
 - deterministic basis
+- recommended action
 
 ## 7. Agent Narrative Contract
 
@@ -537,8 +543,8 @@ Do not show more agents than this in Maya's first storyboard. More agents can ex
 | Frame | Screen | Maya Action | System/Agent Response | Shadcn Composition | Evidence/HITL Rule |
 |---|---|---|---|---|---|
 | 1 | Login | Enters Maya session | Authenticates and routes to forensics | `Card`, `Field`, `Input`, `Button`, `Alert` | No source proof before auth |
-| 2 | Workspace | Scans morning run | Shows run summary and source honesty | `Sidebar`, `Card`, `Badge`, `Table` | Source labels from backend |
-| 3 | Worklist | Selects Crestline shortage | Opens case detail | `Table`, `Tabs`, `Card`, `Badge` | Amount/verdict read-only |
+| 2 | Workspace | Scans morning run | Shows mini dashboard, workload KPIs, and source honesty | `Sidebar`, `Card`, `Badge`, `Table` | KPI/source labels from backend |
+| 3 | Worklist | Selects Crestline shortage | Opens case detail from recommended action row | `Table`, `Tabs`, `Card`, `Badge`, `Tooltip` | Amount/verdict/recommendation read-only |
 | 4 | Evidence | Opens signed POD | Marks evidence reviewed | `Accordion`, `Sheet`, `Badge`, `Tooltip` | Record IDs visible |
 | 5 | Query | Asks why recoverable | Starts bounded retrieval | `Sheet`, `InputGroup`, `Button`, `Skeleton` | Read-only query |
 | 6 | Trace | Watches retrieval | Shows query/forensics/retrieval/guardrail steps | `Accordion`, `Collapsible`, `Badge` | Trace maps to real tool/service data |
@@ -554,7 +560,7 @@ Do not generate mockups until this storyboard is approved.
 When approved, generate Maya-only visual options using this constraint block:
 
 ```text
-Create a premium shadcn/Radix enterprise finance application screen for Recoup Maya forensics. Use shadcn primitives only: Sidebar, Card, Table, Badge, Tabs, Sheet, Accordion, Alert, Button, Tooltip, ScrollArea. Show login-to-worklist-to-case investigation design language, dense operational B2B SaaS, light-first, petrol teal and neutral tokens, no purple gradients, no avatar, no chatbot bubble, no fake live labels, no invented amounts, no autonomous send button. Text accuracy is secondary; component anatomy, density, evidence hierarchy, and human approval gate are primary.
+Create a premium shadcn/Radix enterprise finance application screen for Recoup Maya forensics. Use shadcn primitives only: Sidebar, Card, Table, Badge, Tabs, Sheet, Accordion, Alert, Button, Tooltip, ScrollArea. Show login-to-worklist-to-case investigation design language, including a compact mini dashboard for pending items, high-priority items, evidence-ready cases, blocked cases, and draft approvals waiting. In the worklist, show a recommended-action column with a small lucide-style agent recommendation icon and tooltip, not an avatar. Keep it dense operational B2B SaaS, light-first, petrol teal and neutral tokens, no purple gradients, no avatar, no chatbot bubble, no fake live labels, no invented amounts, no autonomous send button. Text accuracy is secondary; component anatomy, density, evidence hierarchy, and human approval gate are primary.
 ```
 
 Mockup variants:
