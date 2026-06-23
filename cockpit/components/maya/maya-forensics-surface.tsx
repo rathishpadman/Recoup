@@ -1,8 +1,6 @@
 "use client";
 
-import * as React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,9 +19,7 @@ function connectorBadgeVariant(statusTone: "ready" | "synthetic" | "blocked"): "
 }
 
 export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
-  const [selectedLineId, setSelectedLineId] = React.useState(model.selected.lineId);
   const selectedWorklistItem =
-    model.worklist.find((item) => item.lineIds.includes(selectedLineId)) ??
     model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ??
     model.worklist[0];
 
@@ -81,22 +77,12 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                   </TableHeader>
                   <TableBody>
                     {model.worklist.map((item) => {
-                      const isSelected = item.lineIds.includes(selectedLineId);
+                      const isSelected = item.lineIds.includes(model.selected.lineId);
 
                       return (
                         <TableRow aria-selected={isSelected} data-state={isSelected ? "selected" : undefined} key={item.lineId}>
                           <TableCell>
-                            <Button
-                              aria-label={`Select ${item.scenarioLabel}`}
-                              onClick={() => {
-                                setSelectedLineId(item.lineId);
-                              }}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                            >
-                              {item.scenarioLabel}
-                            </Button>
+                            <p className="font-medium">{item.scenarioLabel}</p>
                             <p className="text-sm text-muted-foreground">{item.customerLabel}</p>
                           </TableCell>
                           <TableCell>{item.recommendedActionLabel}</TableCell>

@@ -24,10 +24,10 @@ describe("Maya shadcn cockpit boundary", () => {
   it("renders through a dedicated review route backed by canonical read models", () => {
     const route = readFileSync("cockpit/app/forensics/shadcn/page.tsx", "utf8");
 
-    expect(route).toContain('requireRouteAccess("/forensics")');
-    expect(route).toContain("fetchForensicsModel()");
-    expect(route).toContain("fetchConnectorReadinessModel()");
-    expect(route).toContain("<MayaForensicsSurface");
+    expect(route).toMatch(/requireRouteAccess\(\s*["']\/forensics["']\s*\)/u);
+    expect(route).toMatch(/\bfetchForensicsModel\s*\(\s*\)/u);
+    expect(route).toMatch(/\bfetchConnectorReadinessModel\s*\(\s*\)/u);
+    expect(route).toMatch(/<MayaForensicsSurface\b/u);
   });
 
   it("keeps the Maya shadcn surface free of old bespoke UI and business logic", () => {
@@ -55,13 +55,15 @@ describe("Maya shadcn cockpit boundary", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
-    expect(types).toContain("model: ForensicsCockpitModel");
-    expect(types).toContain("connectors: ConnectorReadinessCockpitModel");
-    expect(types).toContain("session: DemoSession");
-    expect(surface).toContain("MayaForensicsSurface({ connectors, model, session }");
-    expect(surface).toContain("model.worklist");
-    expect(surface).toContain("model.selected");
-    expect(surface).toContain("connectors.");
+    expect(types).toMatch(/\bmodel\s*:\s*ForensicsCockpitModel\b/u);
+    expect(types).toMatch(/\bconnectors\s*:\s*ConnectorReadinessCockpitModel\b/u);
+    expect(types).toMatch(/\bsession\s*:\s*DemoSession\b/u);
+    expect(surface).toMatch(/\bMayaForensicsSurface\b/u);
+    expect(surface).toMatch(/\bMayaForensicsSurfaceProps\b/u);
+    expect(surface).toMatch(/\bmodel\.worklist\b/u);
+    expect(surface).toMatch(/\bmodel\.selected\b/u);
+    expect(surface).toMatch(/\bconnectors\./u);
+    expect(surface).toMatch(/\bsession\./u);
 
     for (const forbidden of [
       "const kpiStrip = [",
@@ -79,5 +81,15 @@ describe("Maya shadcn cockpit boundary", () => {
     ]) {
       expect(sources).not.toContain(forbidden);
     }
+  });
+
+  it("does not expose row switching while the skeleton detail panel is fixed to model.selected", () => {
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+
+    expect(surface).toMatch(/\bmodel\.selected\.lineId\b/u);
+    expect(surface).not.toContain("selectedLineId");
+    expect(surface).not.toContain("setSelectedLineId");
+    expect(surface).not.toMatch(/onClick=\{[^}]*setSelectedLineId/su);
+    expect(surface).not.toContain("Select ${");
   });
 });
