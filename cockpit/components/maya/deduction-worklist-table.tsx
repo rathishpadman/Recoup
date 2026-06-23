@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
@@ -142,10 +144,13 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
             <Table className="w-[calc(100%-8px)] table-fixed text-xs" data-testid="maya-worklist-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
-                  <TableHead className="w-[19%] whitespace-nowrap px-2 leading-4">Scenario / Customer</TableHead>
+                  <TableHead className="w-[4%] px-2">
+                    <span className="sr-only">Local row selection</span>
+                  </TableHead>
+                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
+                  <TableHead className="w-[17%] whitespace-nowrap px-2 leading-4">Scenario / Customer</TableHead>
                   <TableHead className="w-[27%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
-                  <TableHead className="w-[13%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
+                  <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
                   <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
                   <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue / Route</TableHead>
                 </TableRow>
@@ -154,6 +159,12 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                 {filteredItems.map((item) => (
                   <TableRow
                     aria-selected={item.lineId === selectedLineId}
+                    className={cn(
+                      "cursor-pointer align-top outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                      "data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-primary/30"
+                    )}
+                    data-line-id={item.lineId}
+                    data-selected={item.lineId === selectedLineId ? "true" : undefined}
                     data-state={item.lineId === selectedLineId ? "selected" : undefined}
                     data-testid="maya-worklist-row"
                     key={item.lineId}
@@ -168,6 +179,18 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                     }}
                     tabIndex={0}
                   >
+                    <TableCell className="px-2 py-2 align-middle">
+                      <Checkbox
+                        aria-label={`${item.scenarioLabel} local row selection`}
+                        checked={item.lineId === selectedLineId}
+                        onCheckedChange={() => {
+                          onSelectItem(item);
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                        }}
+                      />
+                    </TableCell>
                     <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate font-medium">{item.lineId}</p>

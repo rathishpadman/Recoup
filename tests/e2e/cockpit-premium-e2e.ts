@@ -26,7 +26,20 @@ interface ForensicsE2EModel {
   kpiStrip: Array<{
     label: string;
   }>;
+  worklist: Array<{
+    amount: string;
+    customerLabel: string;
+    evidenceScoreLabel: string;
+    lineId: string;
+    lineIds: string[];
+    queueLabel: string;
+    recommendedActionLabel: string;
+    routingLabel: string;
+    scenarioLabel: string;
+    verdictLabel: string;
+  }>;
   selected: {
+    lineId: string;
     approvalActions: Array<{
       label: string;
     }>;
@@ -146,8 +159,12 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       return;
     }
     if (options.mayaShadcnOnly) {
+      await captureMayaLoginBeatScreenshot(browser);
       await captureMayaBeat2LandingScreenshot(browser);
-      console.log(`Maya Beat 2 dashboard screenshot written to ${outputDir}/maya-beat-02-dashboard.png`);
+      await captureMayaBeat3RecommendedActionScreenshot(browser);
+      console.log(
+        `Maya Beat 1, Beat 2, and Beat 3 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-02-dashboard.png, ${outputDir}/maya-beat-03-recommended-action.png`
+      );
       return;
     }
 
@@ -270,7 +287,6 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
       await expectVisibleText(page, "Source Readiness");
       await expectVisibleText(page, "Deduction Worklist");
-      await expectVisibleText(page, "Select a deduction to open its work item");
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2HeaderFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
@@ -284,6 +300,29 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
     } finally {
       await context.close();
     }
+  }
+}
+
+async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const alternateRow = model.worklist.find((item) => item.lineId !== backendSelectedRow.lineId);
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 3 default selected row");
+    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-03-recommended-action.png` });
+
+    if (alternateRow !== undefined) {
+      await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${alternateRow.lineId}"]`).click();
+      await assertBeat3ReadModelMismatch(page, alternateRow);
+    }
+  } finally {
+    await context.close();
   }
 }
 
@@ -752,6 +791,10 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
   );
 
   for (const chip of fit.chipMetrics) {
+    if (chip.label.startsWith("Advisory:")) {
+      assert(chip.height <= 28, `${label} advisory action chip must stay compact (${chip.label}): ${String(chip.height)}px`);
+      continue;
+    }
     assert(
       chip.height <= chip.lineHeight + 14,
       `${label} worklist chip must stay single-line (${chip.label}): ${String(chip.height)}px`
@@ -845,7 +888,96 @@ async function assertBeat2RightPaneFidelity(page: Page, label: string): Promise<
   assert(pane.width >= 320, `${label} right work-item pane must be at least 320px wide: ${String(pane.width)}px`);
   assert(pane.width <= 360, `${label} right work-item pane must stay at or below 360px wide: ${String(pane.width)}px`);
   assert(pane.height > 0, `${label} right work-item pane must render`);
-  assert(pane.text.includes("Select a deduction"), `${label} right work-item pane must start with the honest empty state`);
+  assert(
+    pane.text.includes("Select a deduction") || pane.text.includes("Advisory only"),
+    `${label} right work-item pane must show either the Beat 2 empty starter or Beat 3 advisory selection`
+  );
+}
+
+async function assertBeat3RecommendedActionFidelity(
+  page: Page,
+  expectedRow: ForensicsE2EModel["worklist"][number],
+  label: string
+): Promise<void> {
+  const result = await page.evaluate((lineId) => {
+    const selectedRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"][aria-selected="true"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+    const selectedRow = selectedRows[0];
+    const actionBadges = selectedRow
+      ? [...selectedRow.querySelectorAll<HTMLElement>('[data-testid="maya-recommended-action-badge"]')].filter(
+          (badge) => badge.offsetParent !== null
+        )
+      : [];
+    const pane = document.querySelector<HTMLElement>('[data-testid="maya-work-item-pane"]');
+    const callout = document.querySelector<HTMLElement>('[data-testid="maya-selected-advisory-callout"]');
+    const selectedContract = document.querySelector<HTMLElement>('[data-testid="maya-selected-row-contract-note"]');
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-testid^="maya-local-row-action-"]')].map((button) =>
+      button.innerText.trim()
+    );
+
+    return {
+      actionBadgeCount: actionBadges.length,
+      actionBadgeHeight: actionBadges[0]?.getBoundingClientRect().height ?? 0,
+      actionBadgeText: actionBadges[0]?.innerText.trim() ?? "",
+      buttonLabels: buttons,
+      calloutText: callout?.innerText.trim() ?? "",
+      contractText: selectedContract?.innerText.trim() ?? "",
+      expectedLineId: lineId,
+      paneText: pane?.innerText.trim() ?? "",
+      selectedDataLineId: selectedRow?.dataset.lineId ?? "",
+      selectedRowCount: selectedRows.length
+    };
+  }, expectedRow.lineId);
+
+  assert(result.expectedLineId === expectedRow.lineId, `${label} assertion must use the expected backend row`);
+  assert(result.selectedRowCount === 1, `${label} must expose exactly one selected fetched row`);
+  assert(result.selectedDataLineId === expectedRow.lineId, `${label} must select backend row ${expectedRow.lineId}`);
+  assert(result.actionBadgeCount === 1, `${label} selected row must expose a visible recommended-action badge`);
+  assert(result.actionBadgeHeight >= 28, `${label} recommended-action badge must be visually prominent`);
+  assert(result.actionBadgeText.includes(expectedRow.recommendedActionLabel), `${label} must show backend recommendation label`);
+  assert(result.actionBadgeText.includes("Advisory"), `${label} row recommendation must be explicitly advisory`);
+  assert(result.paneText.includes(expectedRow.customerLabel), `${label} pane must summarize selected row customer`);
+  assert(result.paneText.includes(expectedRow.scenarioLabel), `${label} pane must summarize selected row scenario`);
+  assert(result.paneText.includes(expectedRow.amount), `${label} pane must show backend amount string`);
+  assert(result.paneText.includes(expectedRow.verdictLabel), `${label} pane must show backend verdict label`);
+  assert(result.paneText.includes(expectedRow.queueLabel), `${label} pane must show backend queue label`);
+  assert(result.paneText.includes(expectedRow.evidenceScoreLabel), `${label} pane must show backend evidence score label`);
+  assert(result.calloutText.includes("Advisory only"), `${label} pane action callout must be advisory only`);
+  assert(result.calloutText.includes(expectedRow.recommendedActionLabel), `${label} pane callout must use backend recommendation`);
+  assert(result.contractText.includes("fixed evidence packet corresponds"), `${label} must identify backend-selected detail availability`);
+  assert(result.buttonLabels.includes("Open investigation"), `${label} must render local open-investigation affordance`);
+  assert(result.buttonLabels.includes("Add note"), `${label} must render local add-note affordance`);
+  assert(
+    !/\b(?:auto recover|auto approve|execute|write back|recovered|cleared by AI|send)\b/iu.test(result.paneText),
+    `${label} must not imply autonomous action`
+  );
+}
+
+async function assertBeat3ReadModelMismatch(
+  page: Page,
+  expectedRow: ForensicsE2EModel["worklist"][number]
+): Promise<void> {
+  const result = await page.evaluate((lineId) => {
+    const selectedRow = document.querySelector<HTMLElement>('[data-testid="maya-worklist-row"][aria-selected="true"]');
+    const pane = document.querySelector<HTMLElement>('[data-testid="maya-work-item-pane"]');
+    const selectedContract = document.querySelector<HTMLElement>('[data-testid="maya-selected-row-contract-note"]');
+
+    return {
+      contractText: selectedContract?.innerText.trim() ?? "",
+      expectedLineId: lineId,
+      paneText: pane?.innerText.trim() ?? "",
+      selectedDataLineId: selectedRow?.dataset.lineId ?? ""
+    };
+  }, expectedRow.lineId);
+
+  assert(result.expectedLineId === expectedRow.lineId, "mismatch assertion must use the expected clicked row");
+  assert(result.selectedDataLineId === expectedRow.lineId, `local selection must switch to ${expectedRow.lineId}`);
+  assert(result.paneText.includes(expectedRow.customerLabel), "mismatch pane must summarize the clicked fetched row");
+  assert(
+    result.contractText.includes("Detailed evidence is unavailable for this row until the backend exposes row switching."),
+    "mismatch pane must not reuse backend-selected deep evidence for another row"
+  );
 }
 
 async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {

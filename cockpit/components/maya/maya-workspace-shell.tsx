@@ -58,8 +58,8 @@ interface MayaWorkspaceShellProps {
 }
 
 const navItems = [
-  { icon: LayoutDashboardIcon, isActive: true, label: "Overview" },
-  { count: "worklist" as const, icon: ClipboardListIcon, label: "Worklist" },
+  { icon: LayoutDashboardIcon, label: "Overview" },
+  { count: "worklist" as const, icon: ClipboardListIcon, isActive: true, label: "Worklist" },
   { icon: FileTextIcon, label: "Cases" },
   { icon: InboxIcon, label: "Deductions" },
   { icon: FileCheck2Icon, label: "Evidence" },

@@ -263,26 +263,44 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(types).toMatch(/interface ApprovalGateResponse\s*\{[^}]*actionId:\s*string;/su);
   });
 
-  it("keeps Beat 2 row selection as UI state over fetched worklist records", () => {
+  it("keeps Beat 3 recommendation selection local, advisory, and read-model honest", () => {
     const sources = readTree("cockpit/components/maya");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const table = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
+    const actionCell = readFileSync("cockpit/components/maya/recommended-action-cell.tsx", "utf8");
 
     expect(surface).not.toContain("model.worklist[0]");
-    expect(surface).toContain("<MayaEmptyState");
-    expect(surface).toContain("Select a deduction to open its work item");
+    expect(surface).toContain("backendSelectedWorklistItem");
+    expect(surface).toContain("fallbackSelectedWorklistItem");
+    expect(surface).toContain("initialSelectedWorklistItem");
     expect(surface).toContain("selectedWorklistItem");
     expect(surface).toContain("setSelectedWorklistItem");
+    expect(surface).toContain("selectedWorklistItem ?? initialSelectedWorklistItem");
+    expect(surface).toContain("selectedWorklistItem.lineIds.includes(model.selected.lineId)");
+    expect(surface).toContain("Advisory only");
+    expect(surface).toContain("Detailed evidence is unavailable for this row until the backend exposes row switching.");
+    expect(surface).toContain("Open investigation");
+    expect(surface).toContain("Add note");
+    expect(surface).not.toContain("model.selected.evidencePack");
+    expect(surface).not.toContain("model.selected.draft.basis");
     expect(surface).not.toContain("<DeductionCaseWorkspace");
     expect(surface).not.toContain("activeLineId=");
     expect(table).toContain("onSelectItem");
     expect(table).toContain("selectedLineId");
     expect(table).toContain("item.lineId");
-    expect(sources).toContain("Backend fixed selected record");
+    expect(table).toContain("aria-selected={item.lineId === selectedLineId}");
+    expect(table).toContain('data-selected={item.lineId === selectedLineId ? "true" : undefined}');
+    expect(table).toContain("tabIndex={0}");
+    expect(table).toContain('event.key === "Enter"');
+    expect(table).toContain('event.key === " "');
+    expect(table).toContain("@/components/ui/checkbox");
+    expect(actionCell).toContain("Forensics recommendation, advisory only");
+    expect(actionCell).toContain("UserRoundCheckIcon");
     expect(sources).not.toContain("setSelectedLineId");
     expect(sources).not.toMatch(/useState[^;]*selectedLineId/su);
     expect(sources).not.toMatch(/onClick=\{[^}]*setSelectedLineId/su);
     expect(sources).not.toContain("Select ${");
+    expect(sources).not.toMatch(/\b(?:auto recover|auto approve|execute|write back|recovered|cleared by AI)\b/iu);
   });
 
   it("keeps Beat 2 priority gaps inside the KPI strip instead of a separate alert", () => {
