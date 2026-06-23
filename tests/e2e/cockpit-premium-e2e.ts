@@ -195,8 +195,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaBeat7AgentTraceScreenshot(browser);
       await captureMayaBeat8CitedAnswerScreenshot(browser);
       await captureMayaBeat9DraftReviewScreenshot(browser);
+      await captureMayaBeat10HumanApprovalScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 9 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png`
+        `Maya Beat 1 through Beat 10 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png`
       );
       return;
     }
@@ -947,6 +948,50 @@ async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<
   }
 }
 
+async function captureMayaBeat10HumanApprovalScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat10ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 10 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Draft/u }).click();
+    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
+    });
+    await page.getByRole("button", { name: /^Open approval$/u }).click();
+    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-10-human-approval.png` });
+
+    await page.getByRole("button", { name: /^Close human approval dialog$/u }).click();
+    await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
+    assertNoForbiddenRequests(forbiddenRequests, "Beat 10 close icon");
+
+    await page.getByRole("button", { name: /^Open approval$/u }).click();
+    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await page.getByRole("button", { name: /^Cancel$/u }).click();
+    await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
+    assertNoForbiddenRequests(forbiddenRequests, "Beat 10 cancel");
+  } finally {
+    await context.close();
+  }
+}
+
 async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise<void> {
   await captureMayaLoginBeatScreenshot(browser);
 
@@ -981,7 +1026,7 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.getByRole("tab", { name: /Draft/u }).click();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-09-draft-review.png` });
 
-    await page.getByRole("button", { name: /Human approval/u }).click();
+    await page.getByRole("button", { name: /Open approval/u }).click();
     await expectVisibleLocator(page, '[role="alertdialog"]', "Maya approval dialog");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-10-human-approval.png` });
     await closeVisibleOverlay(page, '[role="alertdialog"]');
@@ -1735,6 +1780,66 @@ async function assertBeat9DraftReviewFidelity(
   assert(forbiddenRequests.length === 0, `Beat 9 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
+async function assertBeat10HumanApprovalFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya Beat 10 approval dialog");
+  await expectVisibleText(page, "Human approval required");
+  await expectVisibleText(page, "Evidence reviewed state and approval eligibility are unavailable");
+  await expectVisibleText(page, "Verified human principal unavailable");
+  await expectVisibleText(page, model.selected.draft.actionLabel);
+  await expectVisibleText(page, model.selected.draft.statusLabel);
+  await expectVisibleText(page, model.selected.draft.basis);
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  await expectVisibleText(page, recordId);
+
+  const expectedDecisionLabels = model.selected.approvalActions.map((action) => approvalDecisionButtonLabel(action.decision));
+  const result = await page.evaluate(() => {
+    const dialog = document.querySelector<HTMLElement>('[data-testid="maya-approval-gate-dialog"]');
+    const buttons = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => ({
+      disabled: button.disabled,
+      label: button.innerText.trim() || button.getAttribute("aria-label") || ""
+    }));
+    const decisionButtons = buttons.filter((button) =>
+      ["Approve", "Reject", "Request changes"].includes(button.label.replace(/\s+Reason required/u, "").trim())
+    );
+
+    return {
+      buttonLabels: buttons.map((button) => button.label),
+      decisionButtons,
+      noteCounterText:
+        dialog?.querySelector<HTMLElement>('[data-testid="maya-approval-note-counter"]')?.innerText.trim() ?? "",
+      textareaCount: dialog?.querySelectorAll("textarea").length ?? 0,
+      text: dialog?.innerText ?? ""
+    };
+  });
+
+  for (const expectedLabel of expectedDecisionLabels) {
+    assert(
+      result.decisionButtons.some((button) => button.label.includes(expectedLabel)),
+      `Beat 10 must render backend decision ${expectedLabel}`
+    );
+  }
+
+  assert(result.decisionButtons.length === expectedDecisionLabels.length, "Beat 10 must not render extra decision buttons");
+  assert(
+    result.decisionButtons.every((button) => button.disabled),
+    "Beat 10 decision buttons must be disabled while approval eligibility is unavailable"
+  );
+  assert(result.buttonLabels.includes("Cancel"), "Beat 10 must expose footer cancel");
+  assert(result.buttonLabels.includes("Close human approval dialog"), "Beat 10 must expose icon-only close");
+  assert(result.text.includes("Reason required"), "Beat 10 must keep reason-required state visible");
+  assert(result.text.includes("Opening this dialog does not dispatch anything"), "Beat 10 must state open is non-dispatching");
+  assert(result.text.includes("No action will be taken until you choose an option"), "Beat 10 must state decision boundary copy");
+  assert(result.text.includes("Your decision, note, and timestamp will be recorded with the draft"), "Beat 10 must show audit posture");
+  assert(result.noteCounterText === "0 / 500", "Beat 10 note field must show a 500-character counter");
+  assert(result.textareaCount === 1, "Beat 10 must render exactly one note/reason textarea");
+  assert(!/\b(?:3 of 3|Reviewed|Maya Patel|auditEntryHash|APPROVAL-HASH|dispatch success|sent to customer)\b/u.test(result.text), "Beat 10 must not invent reviewed, approver, audit, or dispatch state");
+  assert(forbiddenRequests.length === 0, `Beat 10 open path must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
 async function assertBeat5EvidenceDossierFidelity(
   page: Page,
   model: ForensicsE2EModel,
@@ -2207,6 +2312,21 @@ function isForbiddenBeat9ExternalActionRequest(request: PlaywrightRequest): bool
     segments.includes("billing") ||
     segments.includes("portal")
   );
+}
+
+function isForbiddenBeat10ExternalActionRequest(request: PlaywrightRequest): boolean {
+  return isForbiddenBeat9ExternalActionRequest(request);
+}
+
+function approvalDecisionButtonLabel(decision: ForensicsE2EModel["selected"]["approvalActions"][number]["decision"]): string {
+  switch (decision) {
+    case "approve":
+      return "Approve";
+    case "modify":
+      return "Request changes";
+    case "reject":
+      return "Reject";
+  }
 }
 
 async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {
@@ -2733,6 +2853,10 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new Error(`E2E assertion failed: ${message}`);
   }
+}
+
+function assertNoForbiddenRequests(requests: readonly string[], label: string): void {
+  assert(requests.length === 0, `${label} must not call forbidden routes: ${requests.join(", ")}`);
 }
 
 function firstItem<T>(items: readonly T[], label: string): T {

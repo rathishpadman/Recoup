@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. Beat 10+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. Beat 11+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -343,6 +343,39 @@ Fresh evidence:
 Gate result: self-assessed component-level user threshold met (`>=4.5/5` all components) after the command-bar visibility fix. The current e2e guard asserts the command bar is inside the first viewport before screenshot capture. Independent visual review was not run in this pass, so user or independent visual approval is still required before final acceptance.
 
 Fresh command-bar visibility fix verification in this pass: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-09-draft-review.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
+
+## Beat 10 Remaining Deltas
+
+- The current read model exposes `selected.approvalActions[]`, `selected.draft`, and `selected.evidencePack.recordIds/documents`, but it does not expose a stable evidence-reviewed state, reviewed count, approval eligibility, or verified human principal display contract. The dialog therefore opens as a human approval gate while all decision buttons remain disabled.
+- The mockup's positive `Reviewed` row and `3 of 3` count are intentionally absent. Beat 10 renders `Approval blocked by missing eligibility` and `Evidence reviewed state and approval eligibility are unavailable in the current read model` instead.
+- The approver row shows `Verified human principal unavailable` because the browser read model does not expose the backend-verified approval actor. The UI does not submit or edit an approver identity.
+- The footer buttons are rendered only from backend `selected.approvalActions[]`: `approve` maps to `Approve`, `reject` maps to `Reject`, and `modify` maps to `Request changes`. The route does not add extra decisions.
+- Opening the dialog, using the header close button, and using footer `Cancel` do not call `/api/approval` or any external action route. The guarded POST path remains in the component for a future enabled eligibility contract, but the current Beat 10 e2e never clicks an enabled submit button because none exists.
+
+## Beat 10 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/10-human-approval-dialog.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-10-human-approval.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Modal anatomy / overlay | 4.6/5 | Centered shadcn `AlertDialog` sits over a dimmed draft-review screen, with visible title, close affordance, dividers, compact rows, and no nested card. Width is slightly narrower than the mockup to preserve fit at the 1600x1024 e2e viewport. |
+| HITL header and close affordance | 4.7/5 | Header states `Human approval required`, says opening does not dispatch anything, and uses `AlertDialogCancel asChild` with an icon-only `Button` for close. |
+| Blocking eligibility state | 4.8/5 | The dialog honestly blocks submit because evidence-reviewed state and approval eligibility are unavailable; no `Reviewed`, reviewed count, fake approver, audit hash, or dispatch success is rendered. |
+| Approver/action/status/basis/records rows | 4.6/5 | Rows use only backend draft label/status/basis and backend record IDs, with a visible approver contract gap. The action and basis text are somewhat repetitive because the current draft read model exposes only one deterministic basis string. |
+| Note/reason field | 4.6/5 | `FieldGroup`, `Field`, `FieldLabel`, `Textarea`, visible `0 / 500` counter, and reason-required guidance are present. No secrets or PII are invited. |
+| Decision footer | 4.7/5 | Buttons are derived from `approvalActions[]`, map to the required labels, stay disabled under the missing eligibility contract, and footer `Cancel` closes without posting. |
+| Request/action guard | 4.8/5 | Focused e2e asserts open, header close, and footer cancel leave the forbidden request array empty, including no `/api/approval` call. |
+| Overall Beat 10 visual fidelity | 4.6/5 | The screen matches the approval-gate moment while preserving contract honesty. The main intentional delta is the blocked reviewed-state copy instead of the mockup's successful evidence-reviewed row. |
+
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, typecheck, chained shadcn-only e2e, and full `npm.cmd run verify` green.
+
+Fresh Beat 10 verification in this pass: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-10-human-approval.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
 
 ## ETA Bands
 

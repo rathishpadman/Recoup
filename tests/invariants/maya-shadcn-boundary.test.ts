@@ -343,10 +343,16 @@ describe("Maya shadcn cockpit boundary", () => {
   it("wires approval dialog through supplied actions and the existing HITL API", () => {
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
+    const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
     expect(approvalDialog).toContain("/api/approval");
     expect(approvalDialog).toContain("fetch(");
+    expect(approvalDialog).toContain("<AlertDialog");
+    expect(approvalDialog).toContain("<AlertDialogTitle");
+    expect(approvalDialog).toContain("<AlertDialogDescription");
+    expect(approvalDialog).toContain("<AlertDialogCancel asChild");
+    expect(approvalDialog).toContain('aria-label="Close human approval dialog"');
     expect(approvalDialog).toContain("actions.map");
     expect(approvalDialog).toContain("actionId");
     expect(approvalDialog).toContain("decision");
@@ -358,12 +364,30 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).toContain("auditEntryHash");
     expect(approvalDialog).toContain("result.actionId !== actionId");
     expect(approvalDialog).toContain('result.status !== "human_decided"');
+    expect(approvalDialog).toContain("evidenceReviewEligibilityAvailable = false");
+    expect(approvalDialog).toContain("approvalEligibilityUnavailable");
+    expect(approvalDialog).toContain("Evidence reviewed state and approval eligibility are unavailable");
+    expect(approvalDialog).toContain("Verified human principal unavailable");
+    expect(approvalDialog).toContain("Opening this dialog does not dispatch anything");
+    expect(approvalDialog).toContain("No action will be taken until you choose an option");
+    expect(approvalDialog).toContain("Your decision, note, and timestamp will be recorded with the draft");
+    expect(approvalDialog).toContain("NOTE_CHARACTER_LIMIT = 500");
+    expect(approvalDialog).toContain("FieldError");
+    expect(approvalDialog).toContain("Separator");
     expect(approvalDialog).toContain("onResponse");
     expect(approvalDialog).toContain("disabled={submitting");
+    expect(approvalDialog).toContain("disabled={isDecisionDisabled(action)}");
     expect(approvalDialog).not.toContain("fallbackActions");
     expect(approvalDialog).not.toContain("human:maya-lead");
     expect(approvalDialog).not.toContain("human:david-lead");
     expect(approvalDialog).not.toContain("human:cfo-lead");
+    expect(approvalDialog).not.toMatch(/\b(?:3 of 3|Reviewed|reviewed count|audit-entry-demo|APPROVAL-HASH|Maya Patel)\b/u);
+    expect(recoveryDraftReview).toContain("<ApprovalGateDialog");
+    expect(recoveryDraftReview).toContain("approvalDialogOpen");
+    expect(recoveryDraftReview).toContain("setApprovalDialogOpen(true)");
+    expect(recoveryDraftReview).toContain("actionId={draft.actionId}");
+    expect(recoveryDraftReview).not.toContain("/api/approval");
+    expect(recoveryDraftReview).not.toContain("fetch(");
     expect(auditPanel).toContain("response?.auditEntryHash");
     expect(auditPanel).toContain("response?.status");
     expect(types).toMatch(/interface ApprovalGateResponse\s*\{[^}]*actionId:\s*string;/su);
@@ -471,7 +495,6 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).toContain("<TableHead>Draft label</TableHead>");
     expect(recoveryDraftReview).not.toContain("Action ID");
     expect(recoveryDraftReview).not.toContain("Action type");
-    expect(recoveryDraftReview).not.toContain("draft.actionId");
     expect(recoveryDraftReview).not.toContain("draft.actionType");
     expect(recoveryDraftReview).not.toContain("item.actionType");
     expect(recoveryDraftReview).not.toMatch(/<TableHead>\s*Action\s*<\/TableHead>/u);
@@ -521,6 +544,7 @@ describe("Maya shadcn cockpit boundary", () => {
       "draft.statusLabel",
       "draft.amount",
       "draft.basis",
+      "draft.actionId",
       "selectedLineId",
       "selectedWorklistItem.customerLabel",
       "selectedWorklistItem.scenarioLabel",

@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type {
   MayaActionInboxItem,
@@ -52,6 +53,7 @@ export function RecoveryDraftReview({
   selectedWorklistItem
 }: RecoveryDraftReviewProps) {
   const [commandIntent, setCommandIntent] = React.useState<DraftCommandIntent | undefined>();
+  const [approvalDialogOpen, setApprovalDialogOpen] = React.useState(false);
   const modifyAction = approvalActions.find((action) => action.decision === "modify");
   const rejectAction = approvalActions.find((action) => action.decision === "reject");
   const canOpenApproval = approvalActions.length > 0;
@@ -329,6 +331,7 @@ export function RecoveryDraftReview({
               disabled={!canOpenApproval}
               onClick={() => {
                 setCommandIntent("open-approval");
+                setApprovalDialogOpen(true);
               }}
               type="button"
             >
@@ -338,6 +341,15 @@ export function RecoveryDraftReview({
           </div>
         </CardContent>
       </Card>
+      <ApprovalGateDialog
+        actionId={draft.actionId}
+        actions={approvalActions}
+        draft={draft}
+        onOpenChange={setApprovalDialogOpen}
+        onResponse={() => undefined}
+        open={approvalDialogOpen}
+        recordIds={evidencePack.recordIds}
+      />
     </section>
   );
 }
