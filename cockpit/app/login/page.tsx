@@ -21,28 +21,40 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     >
       <MayaLoginLineArt />
       <Card
-        className="relative z-10 w-full max-w-[590px] rounded-[20px] border border-border/80 bg-card py-0 shadow-xl ring-border/70"
+        className="relative z-10 w-full max-w-[590px] rounded-[20px] border border-border/80 bg-card py-0 shadow-2xl ring-1 ring-border/60"
         data-testid="maya-login-card"
       >
-        <CardHeader className="px-8 pb-2 pt-14">
-          <div className="flex items-center justify-center gap-5" aria-label="Recoup Maya Forensics">
-            <span
-              aria-hidden="true"
-              className="flex size-16 items-center justify-center rounded-[14px] bg-primary text-4xl font-semibold text-primary-foreground"
-            >
-              R
-            </span>
+        <CardHeader className="px-8 pb-1 pt-12">
+          <div className="flex items-center justify-center gap-6" aria-label="Recoup Maya Forensics">
+            <RecoupAngularMark />
             <div className="text-left">
-              <div className="text-4xl font-semibold leading-none">RECOUP</div>
+              <div className="text-[2.5rem] font-semibold leading-none">RECOUP</div>
               <div className="mt-2 text-sm font-medium text-primary">MAYA FORENSICS</div>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="mx-auto flex w-[82%] max-w-[484px] flex-col px-0 pb-10 pt-4">
+        <CardContent className="mx-auto flex w-[82%] max-w-[484px] flex-col px-0 pb-9 pt-4">
           <LoginForm hasInvalidSession={hasInvalidSession} personas={login.personas} />
         </CardContent>
       </Card>
     </main>
+  );
+}
+
+function RecoupAngularMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-20 text-primary drop-shadow-sm"
+      fill="none"
+      viewBox="0 0 96 96"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path className="fill-primary" d="M17 18h41l21 20v19L61 75H45L29 59v18H17V31l12 12v1l27-1 7-7-8-7H28v17L17 35V18Z" />
+      <path className="fill-primary/80" d="M31 47h22l21 28H58L42 58H31V47Z" />
+      <path className="fill-background" d="M29 29h26l8 7-7 7H31l-2-2V29Z" />
+      <path className="fill-background" d="M29 59V43l16 16H29Z" />
+    </svg>
   );
 }
 

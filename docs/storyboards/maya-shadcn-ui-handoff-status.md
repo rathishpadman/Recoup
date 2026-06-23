@@ -47,7 +47,9 @@ Current screenshot caveat: these paths are evidence of the rejected state, not a
 
 ## Beat 1 Login Pass
 
-Status: refreshed in the login-only fixer pass on 2026-06-23. This is not user-accepted yet.
+Status: revised in the login-only review fixer pass on 2026-06-23. This is not user-accepted yet.
+
+Current reviewer-facing assessment: Beat 1 login is improved from the prior `3.6/5` review state to approximately `4.1/5` by addressing the blocking deltas named in review. This is a fixer estimate, not a user acceptance score.
 
 Screenshot path:
 
@@ -57,12 +59,19 @@ Implemented scope:
 
 - `/login` now targets the Beat 1 mockup with a near-white full-screen scene, low-contrast technical line-art, one centered access panel, centered Recoup/Maya lockup, and a shadcn-only form flow.
 - The login form preserves `input[name="loginId"]`, the password input, `/api/demo-login`, and navigation via the returned `defaultRoute`.
-- The submit button visible copy is `Open workspace` to match the focused e2e role-name check.
+- The Recoup lockup now uses a code-native angular SVG mark beside `RECOUP`; no raster screenshot is used in the UI.
+- The submit button visible copy is `Open Forensics Workspace`, and the focused e2e accepts the mockup copy while preserving login behavior.
+- Persona choices are rendered from the backend `personas` login model, with display labels mapped for the mockup. Selecting a persona updates the actual `loginId` posted to `/api/demo-login`.
+- `Remember user ID` now has local-only persistence through versioned localStorage keys for the selected `loginId`.
+- `Forgot password?` is disabled with an accessible unavailable explanation because no password-recovery backend route exists in the demo login contract.
+- Footer separators are centered dots, and the alert/button treatments are softer and closer to the mockup without reintroducing legacy or purple styling.
 
 Remaining deltas:
 
-- The Recoup mark is still a component-rendered lockup rather than the exact imagegen symbol geometry.
+- The Recoup mark is still an approximated component-rendered symbol rather than the exact imagegen geometry or an official asset.
 - The line-art background is implemented with CSS primitives and remains an approximation of the mockup's drafted technical paths.
+- The User ID field displays the selected model `loginId` (`Maya`) to satisfy the backend contract; the mockup shows an empty placeholder state.
+- The type scale and logo spacing are constrained by the cockpit typography rules and are less letter-spaced than the imagegen mockup.
 - Final user acceptance and visual score are pending; do not treat this screenshot as accepted release evidence.
 
 ## Mockup Paths

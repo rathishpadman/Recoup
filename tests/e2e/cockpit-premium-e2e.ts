@@ -426,8 +426,23 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-beat"]', "Maya Beat 1 login scene");
     await expectVisibleLocator(loginPage, 'input[name="loginId"]', "Maya login ID input");
     await expectVisibleLocator(loginPage, 'input[name="password"]', "Maya password input");
-    await expectVisibleText(loginPage, "Open workspace");
+    await expectVisibleText(loginPage, "Open Forensics Workspace");
     await expectVisibleText(loginPage, "Invalid session");
+    await expectLoginIdValue(loginPage, demoSessions.maya.loginId);
+
+    await loginPage.getByRole("radio", { name: /Reviewer/u }).click();
+    await expectLoginIdValue(loginPage, demoSessions.david.loginId);
+    await loginPage.getByRole("radio", { name: /Maya/u }).click();
+    await expectLoginIdValue(loginPage, demoSessions.maya.loginId);
+
+    const forgotPassword = loginPage.getByRole("button", { name: /Forgot password unavailable/u });
+    assert((await forgotPassword.count()) === 1, "forgot password must render as unavailable instead of an active inert control");
+    assert(await forgotPassword.isDisabled(), "forgot password unavailable control must be disabled");
+
+    await loginPage.getByLabel(/Remember user ID/u).click();
+    await loginPage.reload({ waitUntil: "networkidle" });
+    await expectLoginIdValue(loginPage, demoSessions.maya.loginId);
+    await loginPage.getByLabel(/Remember user ID/u).click();
 
     const legacyLoginNodes = await loginPage
       .locator(".state-shell, .login-workstation, .login-rail, .login-source-rack, .login-form, .login-fields")
@@ -435,9 +450,11 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
     assert(legacyLoginNodes === 0, "Maya Beat 1 login must not render legacy cockpit login classes");
 
     await loginPage.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-01-login.png` });
-    await loginPage.locator('input[name="loginId"]').fill(demoSessions.maya.loginId);
     await loginPage.locator('input[name="password"]').fill(demoPassword);
-    await loginPage.getByRole("button", { name: /Open workspace/u }).click();
+    const loginRequest = loginPage.waitForRequest((request) => request.url().endsWith("/api/demo-login"));
+    await loginPage.getByRole("button", { name: /Open (Forensics )?Workspace/u }).click();
+    const postData = (await loginRequest).postDataJSON() as { loginId?: string };
+    assert(postData.loginId === demoSessions.maya.loginId, "Maya persona selection must POST the Maya loginId");
     await loginPage.waitForURL(`**${demoSessions.maya.defaultRoute}`, { timeout: 20_000 });
   } finally {
     await loginContext.close();
@@ -506,6 +523,11 @@ async function expectVisibleText(page: Page, text: string): Promise<void> {
   }
 
   throw new Error(`E2E assertion failed: expected visible text: ${text}`);
+}
+
+async function expectLoginIdValue(page: Page, expectedValue: string): Promise<void> {
+  const actualValue = await page.locator('input[name="loginId"]').inputValue();
+  assert(actualValue === expectedValue, `loginId expected ${expectedValue}, received ${actualValue}`);
 }
 
 async function closeVisibleOverlay(page: Page, selector: string): Promise<void> {

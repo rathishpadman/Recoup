@@ -23,7 +23,7 @@ import {
   UserIcon,
   XIcon
 } from "lucide-react";
-import { type SyntheticEvent, useState } from "react";
+import { type SyntheticEvent, useEffect, useMemo, useState } from "react";
 import type { LoginCockpitModel } from "../cockpit-data.ts";
 
 interface DemoLoginResponse {
@@ -36,23 +36,76 @@ interface LoginFormProps {
   personas: LoginCockpitModel["personas"];
 }
 
-const personaLabels = ["Investigator", "Reviewer", "Maya"] as const;
+type PersonaOption = {
+  label: string;
+  loginId: string;
+  role: string;
+  sortOrder: number;
+};
+
 const invalidSessionMessage = "Your session is invalid or has expired. Please sign in again.";
+const rememberUserIdKey = "recoup.login.rememberUserId:v1";
+const rememberedLoginIdKey = "recoup.login.loginId:v1";
 
 export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
-  const availablePersonaIds = personas.map((persona) => persona.loginId);
-  const mayaPersonaAvailable = availablePersonaIds.includes("Maya");
-  const [personaSelection, setPersonaSelection] = useState<(typeof personaLabels)[number]>(
-    mayaPersonaAvailable ? "Maya" : "Investigator"
+  const personaOptions = useMemo(
+    () =>
+      personas
+        .map((persona): PersonaOption => ({
+          label: displayLabelForPersona(persona),
+          loginId: persona.loginId,
+          role: persona.role,
+          sortOrder: displayOrderForPersona(persona)
+        }))
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+    [personas]
   );
-  const [loginId, setLoginId] = useState("");
+  const defaultLoginId = preferredLoginId(personaOptions);
+  const [personaSelection, setPersonaSelection] = useState(defaultLoginId);
+  const [loginId, setLoginId] = useState(defaultLoginId);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [dismissedInitialError, setDismissedInitialError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberUserId, setRememberUserId] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const displayError =
     error ?? (hasInvalidSession && !dismissedInitialError ? invalidSessionMessage : undefined);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(rememberUserIdKey) !== "true") {
+        return;
+      }
+
+      const rememberedLoginId = window.localStorage.getItem(rememberedLoginIdKey);
+      const rememberedPersona = personaOptions.find((persona) => persona.loginId === rememberedLoginId);
+      setRememberUserId(true);
+      if (rememberedPersona !== undefined) {
+        setLoginId(rememberedPersona.loginId);
+        setPersonaSelection(rememberedPersona.loginId);
+      }
+    } catch {
+      setRememberUserId(false);
+    }
+  }, [personaOptions]);
+
+  useEffect(() => {
+    try {
+      if (rememberUserId) {
+        window.localStorage.setItem(rememberUserIdKey, "true");
+        if (loginId.trim().length > 0) {
+          window.localStorage.setItem(rememberedLoginIdKey, loginId);
+        }
+        return;
+      }
+
+      window.localStorage.removeItem(rememberUserIdKey);
+      window.localStorage.removeItem(rememberedLoginIdKey);
+    } catch {
+      setRememberUserId(false);
+    }
+  }, [loginId, rememberUserId]);
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,6 +115,13 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
   async function submitLogin() {
     setError(undefined);
     setSubmitting(true);
+    if (rememberUserId) {
+      try {
+        window.localStorage.setItem(rememberedLoginIdKey, loginId);
+      } catch {
+        setRememberUserId(false);
+      }
+    }
 
     try {
       const response = await fetch("/api/demo-login", {
@@ -89,6 +149,28 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
     setDismissedInitialError(true);
   }
 
+  function updateLoginId(nextLoginId: string) {
+    setLoginId(nextLoginId);
+    setPersonaSelection(personaOptions.find((persona) => persona.loginId === nextLoginId)?.loginId ?? "");
+  }
+
+  function updateRememberUserId(checked: boolean | "indeterminate") {
+    const nextRememberUserId = checked === true;
+    setRememberUserId(nextRememberUserId);
+    try {
+      if (nextRememberUserId) {
+        window.localStorage.setItem(rememberUserIdKey, "true");
+        window.localStorage.setItem(rememberedLoginIdKey, loginId);
+        return;
+      }
+
+      window.localStorage.removeItem(rememberUserIdKey);
+      window.localStorage.removeItem(rememberedLoginIdKey);
+    } catch {
+      setRememberUserId(false);
+    }
+  }
+
   return (
     <form
       aria-describedby={displayError === undefined ? undefined : "login-error"}
@@ -102,7 +184,7 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
           <FieldLabel>Workspace</FieldLabel>
           <Button
             aria-label="Workspace Forensics"
-            className="h-14 w-full justify-between px-4 text-base font-normal"
+            className="h-14 w-full justify-between px-4 text-base font-medium shadow-sm"
             type="button"
             variant="outline"
           >
@@ -122,8 +204,9 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
             aria-label="Persona"
             className="w-full"
             onValueChange={(value) => {
-              if (personaLabels.includes(value as (typeof personaLabels)[number])) {
-                setPersonaSelection(value as (typeof personaLabels)[number]);
+              if (personaOptions.some((persona) => persona.loginId === value)) {
+                setPersonaSelection(value);
+                setLoginId(value);
               }
             }}
             spacing={0}
@@ -131,15 +214,15 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
             value={personaSelection}
             variant="outline"
           >
-            {personaLabels.map((label) => (
+            {personaOptions.map((persona) => (
               <ToggleGroupItem
-                aria-label={label}
+                aria-label={persona.label}
                 className="h-12 flex-1 rounded-none text-base first:rounded-l-lg last:rounded-r-lg data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90"
-                key={label}
-                value={label}
+                key={persona.loginId}
+                value={persona.loginId}
               >
-                {label === "Maya" ? <FingerprintIcon data-icon="inline-start" /> : null}
-                {label}
+                {persona.role === "maya" ? <FingerprintIcon data-icon="inline-start" /> : null}
+                {persona.label}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
@@ -156,7 +239,7 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
               id="loginId"
               name="loginId"
               onChange={(event) => {
-                setLoginId(event.target.value);
+                updateLoginId(event.target.value);
               }}
               placeholder="Enter your user ID"
               required
@@ -199,27 +282,37 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
 
         <div className="flex items-center justify-between gap-3">
           <Field className="w-auto flex-row items-center gap-2" orientation="horizontal">
-            <Checkbox id="remember-user-id" />
+            <Checkbox checked={rememberUserId} id="remember-user-id" onCheckedChange={updateRememberUserId} />
             <FieldLabel className="font-normal text-muted-foreground" htmlFor="remember-user-id">
               Remember user ID
             </FieldLabel>
           </Field>
-          <Button className="h-auto px-0 text-sm" type="button" variant="link">
+          <Button
+            aria-describedby="forgot-password-unavailable"
+            aria-label="Forgot password unavailable"
+            className="h-auto px-0 text-sm"
+            disabled
+            type="button"
+            variant="link"
+          >
             Forgot password?
           </Button>
+          <span className="sr-only" id="forgot-password-unavailable">
+            Password recovery is unavailable in this deterministic demo login.
+          </span>
         </div>
       </FieldGroup>
 
-      <Button className="h-14 w-full text-base font-semibold" disabled={submitting} type="submit">
+      <Button className="h-14 w-full text-base font-semibold shadow-md shadow-primary/20" disabled={submitting} type="submit">
         <ShieldCheckIcon data-icon="inline-start" />
-        {submitting ? "Opening workspace" : "Open workspace"}
+        {submitting ? "Opening Forensics Workspace" : "Open Forensics Workspace"}
       </Button>
 
       {displayError === undefined ? null : (
-        <Alert className="min-h-20 border-destructive/50 bg-destructive/5" id="login-error" variant="destructive">
-          <AlertTriangleIcon />
+        <Alert className="min-h-20 border-destructive/35 bg-card shadow-sm" id="login-error">
+          <AlertTriangleIcon className="text-destructive" />
           <AlertTitle>Invalid session</AlertTitle>
-          <AlertDescription>{displayError}</AlertDescription>
+          <AlertDescription className="text-muted-foreground">{displayError}</AlertDescription>
           <AlertAction>
             <Button aria-label="Dismiss login alert" onClick={dismissError} size="icon-sm" type="button" variant="ghost">
               <XIcon data-icon="inline-start" />
@@ -235,11 +328,43 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
           <ShieldCheckIcon aria-hidden="true" />
           Secure access
         </span>
-        <span aria-hidden="true">/</span>
+        <span aria-hidden="true">•</span>
         <span>Enterprise grade</span>
-        <span aria-hidden="true">/</span>
+        <span aria-hidden="true">•</span>
         <span>Audit ready</span>
       </div>
     </form>
   );
+}
+
+function preferredLoginId(personas: PersonaOption[]): string {
+  return personas.find((persona) => persona.role === "maya" || persona.loginId === "Maya")?.loginId ?? personas[0]?.loginId ?? "";
+}
+
+function displayOrderForPersona(persona: LoginCockpitModel["personas"][number]): number {
+  if (persona.role === "cfo") {
+    return 0;
+  }
+  if (persona.role === "david") {
+    return 1;
+  }
+  if (persona.role === "maya") {
+    return 2;
+  }
+
+  return 3;
+}
+
+function displayLabelForPersona(persona: LoginCockpitModel["personas"][number]): string {
+  if (persona.role === "cfo") {
+    return "Investigator";
+  }
+  if (persona.role === "david") {
+    return "Reviewer";
+  }
+  if (persona.role === "maya") {
+    return "Maya";
+  }
+
+  return persona.persona || persona.displayName || persona.loginId;
 }
