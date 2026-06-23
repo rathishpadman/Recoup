@@ -63,6 +63,7 @@ describe("S5 cockpit business-logic boundary", () => {
   it("wires Maya shadcn query and approval through credential-gated browser/API boundaries", () => {
     const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
     const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
@@ -82,9 +83,21 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("publishForToken");
     expect(queryDock).toContain("onResponse(next)");
     expect(queryDock).toContain("question:");
+    expect(queryDock).toContain("QUERY_QUESTION_CHARACTER_LIMIT = 500");
+    expect(queryDock).toContain("maxLength={QUERY_QUESTION_CHARACTER_LIMIT}");
+    expect(queryDock).toContain("Selected evidence context");
+    expect(queryDock).toContain("Client-selected case context");
+    expect(queryDock).toContain('data-testid="maya-query-record-id"');
+    expect(sheet).toContain("overlayClassName?: string");
+    expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
+    expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
+    expect(queryDock).toContain('data-[side=right]:sm:max-w-[456px]');
+    expect(queryDock).toContain('style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}');
     expect(queryDock).toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
     expect(queryDock).not.toContain("/api/query/realtime-tool");
+    expect(queryDock).not.toContain("2000");
+    expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu);
     expect(realtimeHelper).toContain('const realtimeToolUrl = "/api/query/realtime-tool"');
     expect(approvalDialog).toContain("/api/approval");
     expect(approvalDialog).toContain("fetch(");
@@ -105,6 +118,10 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("selected.draft.basis");
     expect(caseWorkspace).toContain("selected.draft.actionLabel");
     expect(caseWorkspace).toContain("AuditConfirmationPanel journey={journey} response={undefined}");
+    expect(caseWorkspace).toContain("<QueryEvidenceDock");
+    expect(caseWorkspace).toContain("queryDockOpen");
+    expect(caseWorkspace).toContain("setQueryDockOpen");
+    expect(caseWorkspace).toContain("recordIds={selected.evidencePack.recordIds}");
     expect(caseWorkspace).toContain('data-testid="maya-case-primary-draft-facts"');
     expect(caseWorkspace).toContain('data-testid="maya-case-draft-readonly-status"');
     expect(caseWorkspace).toContain("<RecoveryDraftReview");
@@ -121,6 +138,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("approvalResponse?: ApprovalGateResponse");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
+    expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
+    expect(evidenceDossier).toContain("Query evidence");
     expect(evidenceDossier).toContain("evidencePack.documents.map");
     expect(evidenceDossier).toContain("RecordIdStrip recordIds={evidencePack.recordIds}");
     expect(evidenceDossier).toContain("recordIds.map");

@@ -187,10 +187,11 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
         await captureMayaBeat2LandingScreenshot(browser);
         await captureMayaBeat3RecommendedActionScreenshot(browser);
         await captureMayaBeat4CaseOverviewScreenshot(browser);
+        await captureMayaBeat5EvidenceDossierScreenshot(browser);
       }
-      await captureMayaBeat5EvidenceDossierScreenshot(browser);
+      await captureMayaBeat6QueryStartScreenshot(browser);
       console.log(
-        `Maya Beat 1 and Beat 5 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-05-evidence-dossier.png`
+        `Maya Beat 1 through Beat 6 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png`
       );
       return;
     }
@@ -413,6 +414,43 @@ async function captureMayaBeat5EvidenceDossierScreenshot(browser: Browser): Prom
     await page.getByRole("tab", { name: /Evidence/u }).click();
     await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-05-evidence-dossier.png` });
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const connectors = await loadConnectorE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+  const localQuestion = "Why is this deduction recoverable from the selected evidence?";
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat6StartRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await expectVisibleText(page, "Source Readiness");
+    await expectVisibleText(page, "Deduction Worklist");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 6 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Evidence/u }).click();
+    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
+    await page.getByRole("button", { name: /^Query evidence$/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 6 query dock");
+    await page.getByTestId("maya-query-input").fill(localQuestion);
+    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-06-query-start.png` });
   } finally {
     await context.close();
   }
@@ -1279,6 +1317,97 @@ async function assertBeat5EvidenceDossierFidelity(
   assert(forbiddenRequests.length === 0, `Beat 5 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
+async function assertBeat6QueryStartFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  localQuestion: string,
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 6 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 6 query dock");
+  await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya Beat 6 query input");
+  await expectVisibleLocator(page, '[data-testid="maya-query-selected-line"]', "Maya Beat 6 selected line");
+  await expectVisibleLocator(page, '[data-testid="maya-query-readiness-preview"]', "Maya Beat 6 readiness preview");
+  const queryButton = page.getByRole("button", { name: /^Run query$/u });
+  await queryButton.waitFor({ state: "visible", timeout: 15_000 });
+  assert(!(await queryButton.isDisabled()), "Beat 6 query button must be enabled after typing a local question");
+  const inputValue = await page.getByTestId("maya-query-input").inputValue();
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+
+  const result = await page.evaluate(() => {
+    const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
+    const overlay = document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]');
+    const overlayStyle = overlay === null ? undefined : window.getComputedStyle(overlay);
+    const recordBadges = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-query-record-id"]')].map((badge) =>
+      badge.innerText.trim()
+    );
+    const selectedLine = document.querySelector<HTMLElement>('[data-testid="maya-query-selected-line"]')?.innerText ?? "";
+    const citedAnswer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
+    const tracePanel = dock?.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
+    const dockRect = dock?.getBoundingClientRect();
+    const dockStyle = dock === null ? undefined : window.getComputedStyle(dock);
+
+    return {
+      dockBackgroundColor: dockStyle?.backgroundColor ?? "",
+      dockOpacity: dockStyle?.opacity ?? "",
+      dockWidth: dockRect?.width ?? 0,
+      hasCitedAnswer: citedAnswer !== null,
+      hasTracePanel: tracePanel !== null,
+      overlayBackdropFilter: overlayStyle?.getPropertyValue("backdrop-filter") ?? "",
+      overlayBackgroundColor: overlayStyle?.backgroundColor ?? "",
+      overlayClassName: overlay?.className ?? "",
+      overlayExists: overlay !== null,
+      recordBadges,
+      selectedLine,
+      text: dock?.innerText ?? ""
+    };
+  });
+
+  assert(inputValue === localQuestion, "Beat 6 input must preserve the typed local question");
+  assert(result.text.includes("Query Evidence"), "Beat 6 dock must show the query sheet title");
+  assert(result.text.includes("Selected evidence context"), "Beat 6 dock must describe selected evidence context honestly");
+  assert(result.text.includes("Client-selected case context"), "Beat 6 dock must not imply server-enforced record scope");
+  assert(result.text.includes("500"), "Beat 6 counter/help must use the current 500-character limit");
+  assert(!result.text.includes("2000"), "Beat 6 must not show the mockup-only 2000-character counter");
+  assert(result.overlayExists, "Beat 6 must keep the shadcn Sheet overlay mounted for dialog accessibility");
+  assert(result.overlayClassName.includes("bg-transparent"), "Beat 6 must opt into a transparent Sheet overlay");
+  assert(
+    result.overlayClassName.includes("backdrop-blur-none") &&
+      result.overlayClassName.includes("supports-backdrop-filter:backdrop-blur-none"),
+    "Beat 6 must opt out of Sheet overlay blur on supported desktop browsers"
+  );
+  assert(
+    result.overlayBackgroundColor === "rgba(0, 0, 0, 0)" || result.overlayBackgroundColor === "transparent",
+    `Beat 6 overlay must not dim evidence workspace; received ${result.overlayBackgroundColor}`
+  );
+  assert(
+    result.overlayBackdropFilter === "" || result.overlayBackdropFilter === "none",
+    `Beat 6 overlay must not blur evidence workspace; received ${result.overlayBackdropFilter}`
+  );
+  assert(
+    result.dockWidth >= 420 && result.dockWidth <= 480,
+    `Beat 6 right rail must stay crisp and rail-sized on desktop; received width ${result.dockWidth.toString()}`
+  );
+  assert(
+    result.dockBackgroundColor !== "" &&
+      result.dockBackgroundColor !== "rgba(0, 0, 0, 0)" &&
+      result.dockBackgroundColor !== "transparent",
+    `Beat 6 right rail must have an opaque token background; received ${result.dockBackgroundColor}`
+  );
+  assert(result.dockOpacity === "1", `Beat 6 right rail must not be captured mid-fade; received opacity ${result.dockOpacity}`);
+  assert(result.selectedLine.includes(model.selected.lineId), "Beat 6 must show the selected backend line ID");
+  assert(result.recordBadges.includes(recordId), "Beat 6 must show backend record ID badges near the input");
+  assert(!result.hasCitedAnswer, "Beat 6 start state must not render a cited answer card");
+  assert(!result.hasTracePanel, "Beat 6 start state must not render the full agent trace panel");
+  assert(
+    !/\b(?:server-enforced|locked records|locked to|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu.test(
+      result.text
+    ),
+    "Beat 6 dock must not render unsupported scope or external-action copy"
+  );
+  assert(forbiddenRequests.length === 0, `Beat 6 opening and typing must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
 function isForbiddenBeat5Request(request: PlaywrightRequest): boolean {
   const url = new URL(request.url());
   const pathname = url.pathname.toLowerCase();
@@ -1290,6 +1419,21 @@ function isForbiddenBeat5Request(request: PlaywrightRequest): boolean {
     pathname.includes("/query") ||
     pathname.includes("/realtime") ||
     pathname.includes("/sap")
+  );
+}
+
+function isForbiddenBeat6StartRequest(request: PlaywrightRequest): boolean {
+  const url = new URL(request.url());
+  const pathname = url.pathname.toLowerCase();
+  const segments = pathname.split("/").filter(Boolean);
+
+  return (
+    pathname === "/run" ||
+    pathname.startsWith("/run/") ||
+    segments.includes("approval") ||
+    segments.includes("query") ||
+    segments.includes("realtime") ||
+    segments.includes("sap")
   );
 }
 

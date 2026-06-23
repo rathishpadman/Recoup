@@ -1,4 +1,4 @@
-import { FileTextIcon, FilterIcon, InfoIcon, Settings2Icon, ShieldCheckIcon } from "lucide-react";
+import { FileTextIcon, FilterIcon, InfoIcon, SearchIcon, Settings2Icon, ShieldCheckIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,17 @@ interface EvidenceDossierProps {
   deterministicBasis: string;
   draftStatusLabel: string;
   evidencePack: MayaEvidencePack;
+  onQueryEvidence?: () => void;
   sourceTiles: MayaSourceTile[];
 }
 
-export function EvidenceDossier({ deterministicBasis, draftStatusLabel, evidencePack, sourceTiles }: EvidenceDossierProps) {
+export function EvidenceDossier({
+  deterministicBasis,
+  draftStatusLabel,
+  evidencePack,
+  onQueryEvidence,
+  sourceTiles
+}: EvidenceDossierProps) {
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-evidence-dossier">
       <div className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -28,6 +35,12 @@ export function EvidenceDossier({ deterministicBasis, draftStatusLabel, evidence
               <CardDescription>Cited documents and record IDs from the selected backend packet</CardDescription>
             </div>
             <CardAction className="flex gap-2">
+              {onQueryEvidence === undefined ? null : (
+                <Button onClick={onQueryEvidence} size="sm" type="button">
+                  <SearchIcon aria-hidden="true" data-icon="inline-start" />
+                  Query evidence
+                </Button>
+              )}
               <Button aria-label="Filter unavailable for current evidence packet" disabled size="sm" type="button" variant="outline">
                 <FilterIcon aria-hidden="true" data-icon="inline-start" />
                 Filter

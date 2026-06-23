@@ -18,6 +18,8 @@ import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { CitedAnswerCard } from "./cited-answer-card.tsx";
 import type { MayaMultimodalDock, QueryEvidenceResponse } from "./types.ts";
 
+const QUERY_QUESTION_CHARACTER_LIMIT = 500;
+
 interface QueryEvidenceDockProps {
   dock: MayaMultimodalDock;
   onOpenChange: (open: boolean) => void;
@@ -36,6 +38,7 @@ export function QueryEvidenceDock({
   selectedLine
 }: QueryEvidenceDockProps) {
   const questionId = React.useId();
+  const questionHelpId = React.useId();
   const statusId = React.useId();
   const openRef = React.useRef(open);
   const abortControllerRef = React.useRef<AbortController | null>(null);
@@ -62,6 +65,7 @@ export function QueryEvidenceDock({
     session?.close();
     if (clearLocalState) {
       setError(undefined);
+      setQuestion("");
       setSnapshot(undefined);
     }
   }, []);
@@ -159,12 +163,77 @@ export function QueryEvidenceDock({
 
   return (
     <Sheet onOpenChange={handleOpenChange} open={open}>
-      <SheetContent className="sm:max-w-xl" data-testid="maya-query-dock">
-        <SheetHeader>
-          <SheetTitle>Evidence query</SheetTitle>
-          <SheetDescription>{dock.policyLabel}</SheetDescription>
+      <SheetContent
+        className="gap-0 data-[side=right]:sm:max-w-[456px]"
+        data-testid="maya-query-dock"
+        overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"
+        side="right"
+        style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}
+      >
+        <SheetHeader className="gap-3">
+          <SheetTitle>Query Evidence</SheetTitle>
+          <SheetDescription>
+            Ask from the current evidence packet; selected IDs are included as client context.
+          </SheetDescription>
+          <div className="flex flex-wrap gap-2" aria-label="Query policy and modes">
+            <Badge variant="secondary">Selected evidence context</Badge>
+            <Badge variant="outline">Read-only query</Badge>
+            <Badge variant="outline">{dock.policyLabel}</Badge>
+            {dock.modeOptions.map((mode) => (
+              <Badge key={mode} variant="outline">
+                {mode}
+              </Badge>
+            ))}
+          </div>
         </SheetHeader>
-        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
+          <div className="grid min-w-0 gap-2 rounded-lg border bg-muted/25 p-3" aria-label="Client-selected case context">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">Client-selected case context</span>
+              <Badge data-testid="maya-query-selected-line" variant="secondary">
+                {selectedLine}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-1.5" aria-label="Selected evidence record IDs">
+              {recordIds.length === 0 ? (
+                <Badge data-testid="maya-query-record-id" variant="outline">
+                  No record IDs
+                </Badge>
+              ) : (
+                recordIds.map((recordId) => (
+                  <Badge className="max-w-full truncate" data-testid="maya-query-record-id" key={recordId} title={recordId} variant="outline">
+                    {recordId}
+                  </Badge>
+                ))
+              )}
+            </div>
+          </div>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
+              <InputGroup>
+                <InputGroupTextarea
+                  aria-describedby={`${statusId} ${questionHelpId}`}
+                  data-testid="maya-query-input"
+                  disabled={isRunning}
+                  id={questionId}
+                  maxLength={QUERY_QUESTION_CHARACTER_LIMIT}
+                  onChange={(event) => {
+                    setQuestion(event.target.value);
+                  }}
+                  placeholder={dock.promptPlaceholder}
+                  value={question}
+                />
+                <InputGroupAddon align="block-end" className="justify-between">
+                  <span>{`${question.length.toString()} / ${QUERY_QUESTION_CHARACTER_LIMIT.toString()}`}</span>
+                  <span>{dock.languageLabel}</span>
+                </InputGroupAddon>
+              </InputGroup>
+              <FieldDescription id={questionHelpId}>
+                Results must include cited record IDs before display.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
           <div id={statusId} aria-live="polite">
             {error !== undefined ? (
               <Alert variant="destructive">
@@ -172,9 +241,20 @@ export function QueryEvidenceDock({
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : snapshot === undefined ? (
-              <Alert>
+              <Alert data-testid="maya-query-readiness-preview">
                 <AlertTitle>Ready for cited query</AlertTitle>
-                <AlertDescription>{dock.transcript.english}</AlertDescription>
+                <AlertDescription>
+                  <div className="flex flex-col gap-2">
+                    <span>No query is running. Read-model trace context is shown as a readiness preview only.</span>
+                    <div className="flex flex-wrap gap-1.5" aria-label="Readiness preview agents">
+                      {dock.subAgents.map((agent) => (
+                        <Badge key={`${agent.name}-${agent.source}`} variant="outline">
+                          {agent.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </AlertDescription>
               </Alert>
             ) : snapshot.status === "blocked" || snapshot.status === "blocked_uncited_output" ? (
               <Alert>
@@ -209,43 +289,6 @@ export function QueryEvidenceDock({
               </Alert>
             )}
           </div>
-          <div className="flex flex-wrap gap-2" aria-label={`${selectedLine} scoped query records`}>
-            <Badge variant="secondary">{selectedLine}</Badge>
-            {recordIds.map((recordId) => (
-              <Badge key={recordId} variant="outline">
-                {recordId}
-              </Badge>
-            ))}
-          </div>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor={questionId}>Question</FieldLabel>
-              <InputGroup>
-                <InputGroupTextarea
-                  aria-describedby={statusId}
-                  data-testid="maya-query-input"
-                  disabled={isRunning}
-                  id={questionId}
-                  onChange={(event) => {
-                    setQuestion(event.target.value);
-                  }}
-                  placeholder={dock.promptPlaceholder}
-                  value={question}
-                />
-                <InputGroupAddon align="block-end">
-                  <span>{dock.languageLabel}</span>
-                </InputGroupAddon>
-              </InputGroup>
-              <FieldDescription>{dock.transcript.english}</FieldDescription>
-            </Field>
-          </FieldGroup>
-          <div className="flex flex-wrap gap-2" aria-label="Query modes">
-            {dock.modeOptions.map((mode) => (
-              <Badge key={mode} variant="outline">
-                {mode}
-              </Badge>
-            ))}
-          </div>
           {isRunning ? (
             <div className="flex flex-col gap-2" aria-label="Query loading state">
               <Skeleton className="h-4 w-full" />
@@ -253,11 +296,13 @@ export function QueryEvidenceDock({
               <Skeleton className="h-4 w-1/2" />
             </div>
           ) : null}
-          <AgentTracePanel response={snapshot} subAgents={dock.subAgents} />
+          {isRunning || canShowCitedAnswer ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null}
           {canShowCitedAnswer ? <CitedAnswerCard fallbackRecordIds={recordIds} response={snapshot} /> : null}
         </div>
-        <SheetFooter>
+        <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">Read-only query. Citations required before answer display.</p>
           <Button
+            className="sm:w-auto"
             disabled={isRunning || question.trim().length === 0}
             onClick={() => {
               void startQuery();

@@ -188,6 +188,7 @@ describe("Maya shadcn cockpit boundary", () => {
     const sources = readTree("cockpit/components/maya");
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
     const citedAnswer = readFileSync("cockpit/components/maya/cited-answer-card.tsx", "utf8");
+    const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
 
     for (const forbidden of [
       "/api/query/realtime-tool",
@@ -209,6 +210,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(sources).not.toContain("https://api.openai.com");
     expect(queryDock).toContain("startRealtimeBrowserSession");
     expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("const QUERY_QUESTION_CHARACTER_LIMIT = 500");
     expect(queryDock).toContain("sessionTokenRef");
     expect(queryDock).toContain("abortControllerRef");
     expect(queryDock).toContain("closeActiveSession");
@@ -218,20 +220,58 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain("sessionRef.current = null");
     expect(queryDock).toContain("publishForToken");
     expect(queryDock).toContain("isCurrentSession");
+    expect(queryDock).toContain("<SheetHeader");
+    expect(queryDock).toContain("<SheetTitle");
+    expect(queryDock).toContain("<SheetDescription");
+    expect(queryDock).toContain("<SheetFooter");
+    expect(sheet).toContain("overlayClassName");
+    expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
+    expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
+    expect(queryDock).toContain('data-[side=right]:sm:max-w-[456px]');
+    expect(queryDock).toContain('style={{ animation: "none", backgroundColor: "var(--bg-surface)", opacity: 1 }}');
+    expect(queryDock).toContain("<FieldGroup");
+    expect(queryDock).toContain("<InputGroup");
     expect(queryDock).toContain("<InputGroupTextarea");
+    expect(queryDock).toContain("maxLength={QUERY_QUESTION_CHARACTER_LIMIT}");
     expect(queryDock).toContain("aria-live");
     expect(queryDock).toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
+    expect(queryDock).toContain('data-testid="maya-query-selected-line"');
+    expect(queryDock).toContain('data-testid="maya-query-record-id"');
+    expect(queryDock).toContain('data-testid="maya-query-readiness-preview"');
+    expect(queryDock).toContain("Selected evidence context");
+    expect(queryDock).toContain("Client-selected case context");
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
+    expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
+    expect(queryDock).toContain("isRunning || canShowCitedAnswer ? <AgentTracePanel");
     expect(queryDock).toContain("recordIds");
     expect(queryDock).toContain("signal: abortController.signal");
     expect(queryDock).toContain("selectedLineId: selectedLine");
     expect(queryDock).toContain("onChange=");
     expect(queryDock).toContain("disabled={isRunning || question.trim().length === 0}");
+    expect(queryDock).not.toContain("2000");
+    expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu);
     expect(citedAnswer).toContain("response.answer !== undefined");
     expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
     expect(citedAnswer).toContain("response.recordIds.length > 0");
+  });
+
+  it("opens the Beat 6 query dock from the Evidence tab without borrowing future answer state", () => {
+    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+
+    expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
+    expect(evidenceDossier).toContain("onQueryEvidence");
+    expect(evidenceDossier).toContain("Query evidence");
+    expect(workspace).toContain("QueryEvidenceDock");
+    expect(workspace).toContain("queryDockOpen");
+    expect(workspace).toContain("setQueryDockOpen");
+    expect(workspace).toContain("recordIds={selected.evidencePack.recordIds}");
+    expect(workspace).toContain("selectedLine={selected.lineId}");
+    expect(workspace).toContain("onResponse={() => undefined}");
+    expect(workspace).not.toContain("queryResponse");
+    expect(workspace).not.toContain("CitedAnswerCard");
   });
 
   it("wires approval dialog through supplied actions and the existing HITL API", () => {

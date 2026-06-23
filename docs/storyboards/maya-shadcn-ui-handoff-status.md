@@ -1,6 +1,6 @@
 # Maya Shadcn UI Handoff Status
 
-Status date: 2026-06-23
+Status date: 2026-06-24
 
 ## User Acceptance Rebaseline
 
@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. Beat 6+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. Beat 7+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -128,6 +128,11 @@ None. No agent loop is currently active.
 - Beat 5 remains backend/read-model honest: no mockup-only pod names, counts, dates, reviewer, `3 of 3`, review-satisfied copy, live-source relabeling, autonomous recovery, approval dispatch, query/run call, SAP read, ERP write-back, Billing route, correspondence, or data mutation is introduced. `selected.draft.basis` and `selected.draft.statusLabel` are displayed only as draft/deterministic-basis context, not as evidence-review completion.
 - Beat 5 deep detail preserves the wrong-row guard from Beat 4. If the opened worklist row does not include `model.selected.lineId`, the Evidence tab still shows the existing contract-gap card instead of borrowing the fixed backend evidence packet.
 - Beat 5 verification in this pass: RED invariants first failed for missing source-tile threading and dossier state, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 37 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-01-login.png` plus `output/playwright/e2e/maya-beat-05-evidence-dossier.png` only, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 594 tests, dependency-cruiser, release readiness).
+- Beat 6 query-dock start state is implemented for `/forensics/shadcn` only. The Evidence tab now exposes a local `Query evidence` affordance for the backend-selected case detail packet, opens a right-edge shadcn `Sheet`, keeps the evidence dossier visible behind the dock, shows selected line and backend record IDs near the composer, renders policy/mode chips, uses `FieldGroup` + `Field` + `InputGroupTextarea`, applies the current 500-character question limit, and keeps the `Run query` button disabled until a local question is typed.
+- Beat 6 stops before future states: opening and typing do not call approval, run, query, realtime, or SAP routes; the E2E pass types `Why is this deduction recoverable from the selected evidence?` but does not click `Run query`; no cited answer card, fake answer, fake trace completion, external action, approval dispatch, SAP read, ERP write-back, Billing routing, correspondence, or data mutation is introduced.
+- Beat 6 scope copy is intentionally honest: the dock says selected IDs are included as client context and labels the scope `Client-selected case context`. It does not claim server-enforced scope or locked records because the current realtime client-secret route validates only the question.
+- Beat 6 verification in this pass: RED invariants first failed for missing query affordance, 500-limit composer, and dock wiring, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 38 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-01-login.png` plus `output/playwright/e2e/maya-beat-06-query-start.png` only, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 595 tests, dependency-cruiser, release readiness).
+- Beat 6 reviewer-blocker fix: the query dock now uses an opt-in `SheetContent` overlay class for this dock only, keeping the shadcn overlay mounted while rendering it transparent and no-blur on desktop. The rail also uses an opaque token background and no content fade so the refreshed screenshot keeps the Evidence tab, selected line, record badges, and evidence dossier readable while the dock is open.
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -142,10 +147,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Review the refreshed Beat 5 evidence-dossier screenshot against `mockups/imagegen/maya-12-beat-storyboard/05-evidence-dossier-pod-reviewed.png`.
-2. Run or record an independent visual reviewer gate before treating Beat 5 as accepted; every Beat 5 component and overall score must be `>=4.5/5`.
-3. Keep Beat 5 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, evidence, review completion, or source counts.
-4. Do not proceed into Beat 6 query-dock work until the Beat 5 build, chained browser/storyline test, and independent reviewer gate pass.
+1. Review the refreshed Beat 6 query-dock screenshot against `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png`.
+2. Run or record an independent visual reviewer gate before treating Beat 6 as accepted; every Beat 6 component and overall score must be `>=4.5/5`.
+3. Keep Beat 6 wired to backend/read-model data only; do not invent answers, dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, evidence, trace completion, or source counts.
+4. Do not proceed into Beat 7 agent-trace work until the Beat 6 build, chained browser/storyline test, and independent reviewer gate pass.
 
 ## Beat 2 Remaining Deltas
 
@@ -207,6 +212,34 @@ Fresh evidence:
 | Source provenance rail | 4.5/5 | Connector source tiles render from `/connectors`, synthetic sources stay synthetic, and no source totals are invented; exact source domains/item counts need a future backend contract. |
 | Dossier status readout | 4.7/5 | Bottom readout clearly states dossier availability and review-state unavailability without success/review-complete claims. |
 | Overall Beat 5 composition | 4.6/5 | The page now matches the two-column evidence-dossier state while staying contract-honest; remaining deltas are backend-contract gaps rather than React polish gaps. |
+
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+
+## Beat 6 Remaining Deltas
+
+- Server-side strict query scope is still a backend contract gap: the UI submits selected line/record IDs as client context but does not claim server-enforced scope or locked records.
+- The readiness preview uses backend `multimodalDock.subAgents[]` names as compact context only; Beat 7 still owns live in-progress trace rendering.
+- The dock remains narrower and denser than a chat surface, but exact mockup table anatomy on the left is limited by the current backend evidence packet shape from Beat 5.
+
+## Beat 6 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-06-query-start.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Evidence adjacency / opened case | 4.8/5 | The opened case workspace remains crisp with the Evidence tab, selected line, record badges, and dossier readable behind the right-edge sheet; the default shared overlay is bypassed only through the Beat 6 opt-in class. |
+| Sheet anatomy / title / footer | 4.8/5 | Right-anchored `SheetContent`, `SheetHeader`, `SheetTitle`, `SheetDescription`, and bottom `SheetFooter` are present with an opaque token rail, compact primary `Run query` button, and read-only/citation help. |
+| Selected context / record badges | 4.7/5 | Selected line and backend record IDs render near the composer, with honest `Client-selected case context` copy and no server-enforced or locked-record claim. |
+| Composer / counter / disabled state | 4.7/5 | `FieldGroup`, `Field`, `InputGroup`, and `InputGroupTextarea` are used; the visible counter uses the actual 500-character limit, and the button is enabled only after a local question is typed in E2E. |
+| Start-state answer / trace boundary | 4.8/5 | No cited answer card or full agent trace panel renders before submit; only a compact readiness preview from `multimodalDock.subAgents[]` is visible. |
+| Request/action guard | 4.8/5 | Opening and typing produced no approval, run, query, realtime, or SAP requests, and the dock contains no external-action controls or fake answer state. |
+| Overall Beat 6 composition | 4.7/5 | The screenshot matches the intended right-dock start state while staying contract-honest; the remaining visual deltas are backend evidence-packet limits and the current route's denser worklist anatomy. |
 
 Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
 

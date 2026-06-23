@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   AlertCircleIcon,
   ClipboardListIcon,
@@ -17,6 +18,7 @@ import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { AuditConfirmationPanel } from "./audit-confirmation-panel.tsx";
 import { EvidenceDossier } from "./evidence-dossier.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
+import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { RecoveryDraftReview } from "./recovery-draft-review.tsx";
 import type {
   MayaActionInboxItem,
@@ -46,6 +48,7 @@ export function DeductionCaseWorkspace({
   selectedWorklistItem,
   sourceTiles
 }: DeductionCaseWorkspaceProps) {
+  const [queryDockOpen, setQueryDockOpen] = React.useState(false);
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
   const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(selected.lineId) ?? -1;
@@ -255,6 +258,9 @@ export function DeductionCaseWorkspace({
               deterministicBasis={selected.draft.basis}
               draftStatusLabel={selected.draft.statusLabel}
               evidencePack={selected.evidencePack}
+              onQueryEvidence={() => {
+                setQueryDockOpen(true);
+              }}
               sourceTiles={sourceTiles}
             />
           ) : (
@@ -279,6 +285,16 @@ export function DeductionCaseWorkspace({
           {canShowBackendDetail ? <AuditConfirmationPanel journey={journey} response={undefined} /> : <DetailGapCard title="Audit unavailable" />}
         </TabsContent>
       </Tabs>
+      {canShowBackendDetail ? (
+        <QueryEvidenceDock
+          dock={multimodalDock}
+          onOpenChange={setQueryDockOpen}
+          onResponse={() => undefined}
+          open={queryDockOpen}
+          recordIds={selected.evidencePack.recordIds}
+          selectedLine={selected.lineId}
+        />
+      ) : null}
     </section>
   );
 }
