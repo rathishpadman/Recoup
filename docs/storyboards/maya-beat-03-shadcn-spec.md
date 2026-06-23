@@ -171,7 +171,9 @@ Target screenshot path for the build pass:
 
 - `output/playwright/e2e/maya-beat-03-recommended-action.png`
 
-Pass criteria: reviewer score must be `>=4/5`. Scores `1/5`, `2/5`, and `3/5` remain failed/pending.
+Pass criteria: reviewer score must be `>=4.5/5`. Scores `1/5`, `2/5`, and `3/5` remain failed/pending.
+
+Current backend/read-model gaps prevent exact mockup parity where the mockup shows fields not exposed by the runtime contract. Implementations must document those deltas explicitly and render unavailable/contract-gap states instead of adding fake fields or mockup constants.
 
 Checklist:
 
@@ -203,5 +205,5 @@ Later Beat 3 implementation verification:
 - `npm run typecheck`
 - `npm run test`
 - Focused E2E screenshot capture for `output/playwright/e2e/maya-beat-03-recommended-action.png`.
-- Visual comparison against `mockups/imagegen/maya-12-beat-storyboard/03-worklist-recommended-action.png`.
+- Visual comparison against `mockups/imagegen/maya-12-beat-storyboard/03-worklist-recommended-action.png` records a score `>=4.5/5` and explicit deltas for any backend/read-model gaps.
 - Full `npm run verify` before claiming the broader Maya shadcn goal is complete.

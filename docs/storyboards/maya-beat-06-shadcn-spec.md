@@ -198,14 +198,16 @@ Required:
 
 ## 7. Screenshot Comparison Checklist
 
-Pass criteria: reviewer score must be `>=4/5`. Scores `1/5`, `2/5`, and `3/5` remain failed/pending.
+Pass criteria: reviewer score must be `>=4.5/5`. Scores `1/5`, `2/5`, and `3/5` remain failed/pending.
+
+Current backend gaps prevent exact mockup parity where the mockup implies scoped enforcement fields or validated query-scope echoes not present in the runtime contract. Implementations must document those deltas explicitly and render honest selected-context language instead of fake scoped-enforcement claims.
 
 Checklist:
 
 - Runtime screenshot path is `output/playwright/e2e/maya-beat-06-query-start.png`.
 - View matches the Beat 6 anatomy: case/evidence workspace on the left, query dock open on the right.
 - Query dock is a dense operational panel, not a chat landing page or decorative card.
-- Right sheet width, edge anchoring, table toolbar/footer placement, and bottom submit/help alignment match `06-query-dock-start.png` closely enough for a `>=4/5` review.
+- Right sheet width, edge anchoring, table toolbar/footer placement, and bottom submit/help alignment match `06-query-dock-start.png` closely enough for a `>=4.5/5` review.
 - Title, close affordance, policy chips, question label, multiline input, submit button, and citation/no-action support are visible.
 - `SheetTitle` exists for accessibility, even if visually hidden.
 - Evidence/context adjacency is clear through visible selected line and cited record IDs.
@@ -235,7 +237,7 @@ Future Beat 6 implementation verification:
 - `tests/unit/cockpit-api.test.ts` coverage remains green for realtime route auth, no-store behavior, empty question rejection, tool allowlist, and safety identifier behavior.
 - `tests/invariants/cockpit-v12-contract.test.ts` remains green for I-29 and I-30.
 - E2E opens `/forensics/shadcn`, opens the query dock, verifies `[data-testid="maya-query-dock"]`, `[data-testid="maya-query-input"]`, start-state policy text, selected record badges, and captures `output/playwright/e2e/maya-beat-06-query-start.png`.
-- Visual comparison against `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png` records a score `>=4/5` and explicit deltas.
+- Visual comparison against `mockups/imagegen/maya-12-beat-storyboard/06-query-dock-start.png` records a score `>=4.5/5` and explicit deltas, including any current backend gaps around server-side `recordIds` / `selectedLineId` validation and query-scope echo fields.
 - `npm run lint`
 - `npm run typecheck`
 - `npm run test`
