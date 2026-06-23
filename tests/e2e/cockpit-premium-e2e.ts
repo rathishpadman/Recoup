@@ -645,16 +645,21 @@ async function assertBeat2HeaderFidelity(page: Page, label: string): Promise<voi
     const disabledRefresh = refreshGap?.querySelector<HTMLButtonElement>("button:disabled");
 
     return {
-      refreshGapText: refreshGap?.innerText.trim() ?? "",
+      refreshButtonLabel: disabledRefresh?.getAttribute("aria-label") ?? "",
+      refreshButtonText: disabledRefresh?.innerText.trim() ?? "",
       refreshMetadataText: refreshMetadata?.innerText.trim() ?? "",
       refreshUnavailableDisabled: disabledRefresh !== null && disabledRefresh !== undefined,
-      runDateText: runDateGap?.innerText.trim() ?? ""
+      runDateLabel: runDateGap?.getAttribute("aria-label") ?? ""
     };
   });
 
-  assert(header.runDateText.includes("Run date not exposed"), `${label} header must not invent a calendar date`);
+  assert(header.runDateLabel.includes("Run date not exposed"), `${label} header must not invent a calendar date`);
   assert(header.refreshMetadataText.includes("Refreshed"), `${label} header must show source refresh metadata`);
-  assert(header.refreshGapText.includes("Refresh unavailable"), `${label} header must label missing backend refresh action`);
+  assert(header.refreshButtonText === "Refresh", `${label} header refresh affordance should stay visually light`);
+  assert(
+    header.refreshButtonLabel.includes("Refresh unavailable"),
+    `${label} header must label missing backend refresh action`
+  );
   assert(header.refreshUnavailableDisabled, `${label} refresh control must not trigger a page reload as a fake refresh`);
 }
 
@@ -776,21 +781,44 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
     const filterTrigger = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-filter-trigger"]');
     const footer = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-footer"]');
     const disabledControls = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="maya-sidebar"] button:disabled')];
+    const sidebarGap = document.querySelector<HTMLElement>('[data-slot="sidebar-gap"]');
+    const sidebarGapBackground =
+      sidebarGap === null ? "missing" : window.getComputedStyle(sidebarGap).backgroundColor;
 
     return {
       badgeCount: badges.length,
       brandHeight: brand?.getBoundingClientRect().height ?? 0,
       collapseVisible: collapseControl?.offsetParent !== null,
       disabledControlCount: disabledControls.length,
+      documentHeight: document.documentElement.scrollHeight,
       filterText: filterTrigger?.innerText.trim() ?? "",
+      footerBottom: footer?.getBoundingClientRect().bottom ?? 0,
       footerText: footer?.innerText.trim() ?? "",
       navCount: navItems.length,
       navMaxHeight: Math.max(...navItems.map((item) => item.getBoundingClientRect().height)),
+      sidebarGapBackground,
+      sidebarGapHeight: sidebarGap?.getBoundingClientRect().height ?? 0,
       sidebarHeight: sidebarNode?.getBoundingClientRect().height ?? 0
     };
   });
 
   assert(sidebar.sidebarHeight > 0, `${label} sidebar must render`);
+  assert(
+    sidebar.sidebarGapHeight >= sidebar.documentHeight - 1,
+    `${label} sidebar visual rail must fill the full captured page: ${String(sidebar.sidebarGapHeight)}px < ${String(
+      sidebar.documentHeight
+    )}px`
+  );
+  assert(
+    sidebar.sidebarGapBackground !== "rgba(0, 0, 0, 0)",
+    `${label} sidebar visual rail must not hang over a transparent page gap`
+  );
+  assert(
+    sidebar.footerBottom >= sidebar.documentHeight - 28,
+    `${label} sidebar user identity must sit at the bottom of the full rail: ${String(sidebar.footerBottom)}px < ${String(
+      sidebar.documentHeight
+    )}px`
+  );
   assert(sidebar.brandHeight >= 54, `${label} sidebar brand lockup must have stronger presence`);
   assert(sidebar.collapseVisible, `${label} sidebar must expose a working collapse affordance`);
   assert(sidebar.filterText.includes("Filters"), `${label} sidebar must expose the lower filter affordance`);
@@ -852,6 +880,7 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
         tone: status.closest<HTMLElement>('[data-testid="maya-source-tile"]')?.dataset.statusTone ?? ""
       })),
       tileCount: tiles.length,
+      tileMinWidth: Math.min(...tiles.map((tile) => tile.getBoundingClientRect().width)),
       tileText,
       toneClassNames: tiles.map((tile) => ({
         className: tile.className,
@@ -862,10 +891,16 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
 
   assert(sourceStrip.stripHeight > 0, `${label} source readiness strip must render`);
   assert(
-    sourceStrip.stripHeight <= 84,
-    `${label} source readiness strip must stay slim: ${String(sourceStrip.stripHeight)}px`
+    sourceStrip.stripHeight <= 76,
+    `${label} source readiness strip must stay thin while preserving readable source states: ${String(
+      sourceStrip.stripHeight
+    )}px`
   );
   assert(sourceStrip.tileCount === 7, `${label} source readiness strip must render all backend source tiles`);
+  assert(
+    sourceStrip.tileMinWidth >= 104,
+    `${label} source readiness tiles must stay scan-friendly: ${String(sourceStrip.tileMinWidth)}px`
+  );
   assert(
     sourceStrip.tileText.some((text) => text.includes("Contract Repo")),
     `${label} source readiness must not hide Contract Repo`

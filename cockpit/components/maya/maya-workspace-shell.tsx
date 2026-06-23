@@ -102,6 +102,7 @@ export function MayaWorkspaceShell({
 
   return (
     <SidebarProvider
+      className="min-h-svh items-stretch bg-background [&_[data-slot=sidebar-container]]:!absolute [&_[data-slot=sidebar-container]]:!h-full [&_[data-slot=sidebar-container]]:!min-h-full [&_[data-slot=sidebar-gap]]:min-h-full [&_[data-slot=sidebar-gap]]:bg-sidebar [&_[data-slot=sidebar]]:relative [&_[data-slot=sidebar]]:min-h-full [&_[data-slot=sidebar]]:self-stretch"
       defaultOpen
       style={{ "--sidebar-width": "15rem", "--sidebar-width-icon": "4.5rem" } as CSSProperties}
     >
@@ -238,16 +239,24 @@ export function MayaWorkspaceShell({
               <p className="truncate text-sm text-muted-foreground">Here's what's happening in Maya Forensics.</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  aria-label="Run date not exposed by the read model"
+                  className="hidden h-8 items-center gap-1.5 px-1 text-xs text-muted-foreground 2xl:inline-flex"
+                  data-testid="maya-run-date-contract-gap"
+                >
+                  <CalendarClockIcon aria-hidden="true" data-icon="inline-start" />
+                  Run date unavailable
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span>No run date field is exposed by the read model.</span>
+              </TooltipContent>
+            </Tooltip>
             <span
-              className="hidden h-8 items-center gap-2 rounded-md border bg-card px-2.5 text-xs text-muted-foreground xl:inline-flex"
-              data-testid="maya-run-date-contract-gap"
-            >
-              <CalendarClockIcon aria-hidden="true" data-icon="inline-start" />
-              Run date not exposed
-            </span>
-            <span
-              className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-2.5 text-sm text-muted-foreground"
+              className="hidden h-8 items-center gap-1.5 px-1.5 text-xs text-muted-foreground lg:inline-flex"
               data-testid="maya-refresh-metadata"
             >
               <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
@@ -255,7 +264,7 @@ export function MayaWorkspaceShell({
             </span>
             <span
               aria-label={`${pendingActionCount.toString()} pending human actions`}
-              className="relative inline-flex size-8 items-center justify-center rounded-lg border bg-background text-foreground"
+              className="relative inline-flex size-8 items-center justify-center rounded-md border bg-background text-foreground"
             >
               <BellIcon aria-hidden="true" data-icon="header-notification" />
               <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">
@@ -265,9 +274,15 @@ export function MayaWorkspaceShell({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex" data-testid="maya-refresh-contract-gap">
-                  <Button disabled size="lg" type="button" variant="outline">
+                  <Button
+                    aria-label="Refresh unavailable: no backend refresh action is exposed by the read model"
+                    disabled
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
                     <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
-                    Refresh unavailable
+                    Refresh
                   </Button>
                 </span>
               </TooltipTrigger>

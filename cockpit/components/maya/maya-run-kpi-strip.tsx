@@ -96,7 +96,7 @@ function kpiIconTone(index: number): string {
 }
 
 function kpiValueClassName(value: string): string {
-  return value.length > 9 ? "text-[1.35rem]" : "text-[1.75rem]";
+  return value.length > 9 ? "text-[1.45rem]" : "text-[1.9rem]";
 }
 
 export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRunKpiStripProps) {
@@ -107,13 +107,13 @@ export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRun
   const cards = beatTwoKpiCards(items);
 
   return (
-    <section className="grid min-w-0 gap-2.5 md:grid-cols-3 xl:grid-cols-6" aria-label="Forensics run KPIs">
+    <section className="grid min-w-0 gap-3 md:grid-cols-3 xl:grid-cols-6" aria-label="Forensics run KPIs">
       {cards.map((card, index) => {
         const key = card.kind === "backend" ? card.item.label : "high-priority-contract-gap";
         const label = card.kind === "backend" ? card.item.label : "High-priority items";
-        const value = card.kind === "backend" ? card.item.value : "No field";
+        const value = card.kind === "backend" ? card.item.value : "Not exposed";
         const support = card.kind === "backend" ? card.item.support : card.support;
-        const trend = card.kind === "backend" ? support : support;
+        const trend = card.kind === "backend" ? support : "Priority unavailable";
         const tooltipLabel =
           card.kind === "backend"
             ? support
@@ -122,15 +122,15 @@ export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRun
         return (
           <Card
             className={cn(
-              "min-h-[158px] justify-between rounded-lg shadow-none",
-              card.kind === "contract-gap" ? "border-dashed bg-muted/20" : "bg-card"
+              "min-h-[166px] justify-between rounded-lg border-border/80 shadow-xs",
+              card.kind === "contract-gap" ? "border-dashed bg-muted/15 shadow-none" : "bg-card"
             )}
             key={key}
             size="sm"
           >
-            <CardHeader className="gap-4">
+            <CardHeader className="gap-5">
               <div className="flex min-w-0 items-center justify-between gap-3">
-                <div className={cn("flex size-11 shrink-0 items-center justify-center rounded-lg border", kpiIconTone(index))}>
+                <div className={cn("flex size-12 shrink-0 items-center justify-center rounded-lg border", kpiIconTone(index))}>
                   {renderKpiIcon(index)}
                 </div>
                 <Tooltip>
@@ -144,8 +144,8 @@ export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRun
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <div className="grid min-w-0 gap-1">
-                <CardDescription className="min-h-4 text-xs leading-4">{label}</CardDescription>
+              <div className="grid min-w-0 gap-1.5">
+                <CardDescription className="min-h-4 text-[11px] leading-4">{label}</CardDescription>
                 {card.kind === "contract-gap" ? (
                   <Badge className="h-5 w-fit px-1.5 text-[10px]" variant="outline">
                     Read-model gap
@@ -157,7 +157,7 @@ export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRun
               <CardTitle
                 className={cn(
                   "min-w-0 truncate font-semibold leading-none tabular-nums",
-                  card.kind === "contract-gap" ? "text-lg text-muted-foreground" : kpiValueClassName(value)
+                  card.kind === "contract-gap" ? "text-sm text-muted-foreground" : kpiValueClassName(value)
                 )}
               >
                 {value}

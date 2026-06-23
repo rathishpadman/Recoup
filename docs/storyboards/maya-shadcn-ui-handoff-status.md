@@ -32,6 +32,8 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-shadcn-forensics-1440.png`
 - `output/playwright/e2e/maya-beat-01-login.png`
 - `output/playwright/e2e/maya-beat-02-dashboard.png`
+- `output/playwright/e2e/maya-beat-02-dashboard-1440.png`
+- `output/playwright/e2e/maya-beat-02-dashboard-1280.png`
 - `output/playwright/e2e/maya-beat-03-recommended-action.png`
 - `output/playwright/e2e/maya-beat-04-case-overview.png`
 - `output/playwright/e2e/maya-beat-05-evidence-dossier.png`
@@ -43,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. The other beat screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. The other beat screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -112,10 +114,10 @@ None. No agent loop is currently active.
 ## Open Items
 
 - Beat 2 focused rebuild pass is implemented for the morning-run landing view. Maya routes to `/forensics/shadcn`; the page fetches `/forensics` and `/connectors`, renders the KPI strip and source readiness across the full workbench width, then splits into a table-led worklist plus right-side workspace starter.
-- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. The prior candidate commit `c13a148` failed independent Feynman review at `4.0/5` overall, with source readiness, KPI hierarchy, worklist readability, header metadata, and sidebar lockup below the `4.5/5` component gate. The 2026-06-23 Beat 2 reviewer-fix pass is a new acceptance candidate: focused e2e now checks honest header metadata, source-label clipping, all seven backend source tiles, worklist title-backed clipping, single fetched-row footer rhythm, right-pane width, sidebar collapse/filter affordances, and 1440/1280 horizontal fit. Focused e2e passed after the source rail was tightened, but independent visual review and user approval are still required; this is not final user acceptance.
+- Fresh Beat 2 screenshot evidence exists at `output/playwright/e2e/maya-beat-02-dashboard.png`, plus focused 1440 and 1280 captures. The fresh independent reviewer verdict at `2a6f13c` failed at `4.3/5` overall, with remaining blockers in source readiness compression, KPI hierarchy, header metadata weight, worklist rhythm, and a user-reported sidebar rail height defect. The 2026-06-23 final-polish pass is a new acceptance candidate: the sidebar rail now fills the full captured page with the user identity/footer at the bottom of the full rail, header metadata is lighter while still exposing missing run-date/refresh contracts, the high-priority KPI gap is visually quiet, and source readiness is a much thinner one-row status rail that still shows all seven backend tiles with text+icon status semantics. Focused e2e now checks sidebar page-fill, bottom-aligned sidebar user identity, honest header metadata, source-label clipping, thin source-strip height, scan-friendly tile width, all seven backend source tiles, worklist title-backed clipping, single fetched-row footer rhythm, right-pane width, sidebar collapse/filter affordances, and 1440/1280 horizontal fit. Independent visual review and user approval are still required; this is not final user acceptance.
 - Beat 2 work-item pane behavior: the landing pane starts with a shadcn Empty workspace starter (`Select a deduction to open its work item`). Clicking a worklist row opens a shallow work-item summary using only that already-fetched `worklist[]` row. This is client-side UI state over real fetched records, not a backend row-switch contract.
 - Backend contract caveat for Beat 2: only the fixed `model.selected` evidence packet exists. The pane shows a contract note when the clicked worklist row does not correspond to `model.selected.lineId`; no evidence tabs, approval dialog, or deep case flow were rebuilt in Beat 2.
-- Beat 2 verification in this reviewer-fix pass: `npm.cmd run test -- tests/invariants/cockpit-no-business-logic.test.ts`, `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts`, `npm.cmd run typecheck`, `npm.cmd run test:e2e -- --maya-shadcn-only`, `git diff --check`, and full `npm.cmd run verify` passed. Full verify covered lint, typecheck, 81 Vitest files / 592 tests, dependency-cruiser, and release readiness.
+- Beat 2 verification in this final-polish pass: `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 35 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png`, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 592 tests, dependency-cruiser, release readiness), and `git diff --check` passed with only LF-to-CRLF working-copy warnings.
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -138,11 +140,11 @@ None. No agent loop is currently active.
 ## Beat 2 Remaining Deltas
 
 - The Recoup sidebar mark is still a component-rendered approximation rather than an official brand asset or exact ImageGen lockup geometry.
-- Header date uses an explicit `Run date not exposed` contract-gap affordance plus the connector refresh label (`Refreshed 08:24 AM`) because no backend date field exists for the mockup's `May 15, 2025` copy. The header refresh button is disabled and labelled `Refresh unavailable` because no backend refresh action is exposed by the read model.
-- High-priority remains a visible unavailable KPI slot (`No field`, `Priority field not exposed`) because the `/forensics` read model still has no priority field.
+- Header date uses an explicit accessible `Run date not exposed` contract-gap affordance because no backend date field exists for the mockup's `May 15, 2025` copy. The connector refresh label (`Refreshed 08:24 AM`) remains visible as metadata, and the disabled refresh button now reads `Refresh` visually while its accessible label/tooltip states that refresh is unavailable because no backend refresh action is exposed by the read model.
+- High-priority remains an unavailable KPI slot (`Not exposed`, `Priority unavailable`; tooltip basis `Priority field not exposed`) because the `/forensics` read model still has no priority field.
 - Worklist columns use fetched scenario/line/customer/queue fields rather than mockup-only priority, owner, age, and status fields.
-- Source readiness now renders all seven backend source tiles (SAP OData, TPM, 3PL POD, Bureau, Remittance / EDI, Contract Repo, MCP). Visible state labels are shortened (`OK`, `Synth`) to prevent clipping at 1280; full backend state and mode labels remain in aria/title/tooltip text.
-- Sidebar now exposes a working shadcn collapse trigger and a lower filter dropdown. The filter dropdown lists only fetched filter axes (scenario, verdict, queue) and marks priority/owner/age-style fields as backend gaps.
+- Source readiness now renders all seven backend source tiles (SAP OData, TPM, 3PL POD, Bureau, Remittance / EDI, Contract Repo, MCP) as a thin one-row rail. Visible state labels are shortened (`OK`, `Synth`) to prevent clipping at 1280; full backend state and mode labels remain in aria/title/tooltip text.
+- Sidebar now exposes a working shadcn collapse trigger and a lower filter dropdown, its visual rail fills the full captured page instead of ending at the first viewport, and the user identity/footer sits at the bottom of the full rail. The filter dropdown lists only fetched filter axes (scenario, verdict, queue) and marks priority/owner/age-style fields as backend gaps.
 
 ## Beat 2 Component-Level Visual Gate
 
@@ -158,15 +160,15 @@ Fresh evidence:
 
 | Component | Score | Concrete deltas |
 |---|---:|---|
-| Sidebar / nav / footer | 4.6/5 | Dark command rail, honest backend/persona count badges, standalone Recoup loop mark, shadcn collapse trigger, lower filter dropdown, teal active nav state, and read-only footer are in place; the mark remains component-rendered rather than an official brand asset. |
-| Header / date / refresh area | 4.5/5 | Header rhythm is compact, notification count is honest, run date is explicitly marked as not exposed, connector refresh metadata is shown, and the refresh control is disabled instead of pretending to call a backed refresh action. |
-| KPI strip / cards | 4.5/5 | Six-card strip holds the target rhythm and uses backend KPI strings only; high priority stays `No field` / `Priority field not exposed` because the read model has no priority field. |
-| Source readiness strip | 4.5/5 | Single-row source strip shows all seven backend source tiles at 1440 and 1280; ready/synthetic states are visually distinct with icons plus text. Visible state labels are compact to avoid clipping, with full backend state/mode preserved in accessible text. |
+| Sidebar / nav / footer | 4.7/5 | Dark command rail, honest backend/persona count badges, standalone Recoup loop mark, shadcn collapse trigger, lower filter dropdown, teal active nav state, bottom-aligned read-only footer, and full-page rail fill are in place; the mark remains component-rendered rather than an official brand asset. |
+| Header / date / refresh area | 4.6/5 | Header rhythm is lighter, notification count is honest, run date is accessible as a missing read-model field, connector refresh metadata is shown, and the refresh control is disabled with an unavailable label instead of pretending to call a backed refresh action. |
+| KPI strip / cards | 4.6/5 | Six-card strip gives real backend values stronger executive weight; high priority stays a quiet `Not exposed` / `Priority unavailable` contract gap because the read model has no priority field. |
+| Source readiness strip | 4.6/5 | Thin source strip shows all seven backend source tiles at 1440 and 1280, ready/synthetic states are visually distinct with icons plus text, and full backend state/mode remains preserved in accessible text. |
 | Worklist toolbar / table / pagination | 4.5/5 | Toolbar and table-led anatomy match the target without fake priority/work-type/source/age/owner columns; a read-model gap affordance names those missing fields, evidence and routing text are readable, and only one `Fetched rows only` footer remains. |
-| Right work-item pane | 4.5/5 | Empty starter pane keeps the 320px target width and quiet centered state; selected-row detail remains shallow client state over fetched rows rather than invented evidence/action authority. |
-| Overall first-viewport composition | 4.5/5 | First viewport preserves sidebar, six KPIs, slim source strip, table-led work area, and right pane at 1440/1280; remaining deltas are backend-contract gaps or non-exact ImageGen lockup geometry. |
+| Right work-item pane | 4.6/5 | Empty starter pane keeps the target width and quiet centered state; selected-row detail remains shallow client state over fetched rows rather than invented evidence/action authority. |
+| Overall first-viewport composition | 4.6/5 | First viewport preserves full-page sidebar with bottom user identity, six KPIs, a thin source rail, table-led work area, and right pane at 1440/1280; remaining deltas are backend-contract gaps or non-exact ImageGen lockup geometry. |
 
-Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow assertions and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow/page-fill assertions green and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
 
 ## ETA Bands
 
