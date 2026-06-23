@@ -23,6 +23,7 @@ import type {
   MayaJourneyItem,
   MayaMultimodalDock,
   MayaSelectedCase,
+  MayaSourceTile,
   MayaWorklistItem
 } from "./types.ts";
 
@@ -33,6 +34,7 @@ interface DeductionCaseWorkspaceProps {
   multimodalDock: MayaMultimodalDock;
   selected: MayaSelectedCase;
   selectedWorklistItem: MayaWorklistItem | undefined;
+  sourceTiles: MayaSourceTile[];
 }
 
 export function DeductionCaseWorkspace({
@@ -41,7 +43,8 @@ export function DeductionCaseWorkspace({
   journey,
   multimodalDock,
   selected,
-  selectedWorklistItem
+  selectedWorklistItem,
+  sourceTiles
 }: DeductionCaseWorkspaceProps) {
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
@@ -185,7 +188,7 @@ export function DeductionCaseWorkspace({
             <div className="flex min-w-0 flex-col gap-3">
               <Alert>
                 <FileTextIcon aria-hidden="true" data-icon="inline-start" />
-                <AlertTitle>{canShowBackendDetail ? "Evidence review available" : "Evidence detail unavailable"}</AlertTitle>
+                <AlertTitle>{canShowBackendDetail ? "Evidence dossier available" : "Evidence detail unavailable"}</AlertTitle>
                 <AlertDescription>
                   {canShowBackendDetail
                     ? `${selected.evidencePack.documents.length.toString()} backend evidence documents and ${selected.evidencePack.recordIds.length.toString()} record IDs are attached to this opened line.`
@@ -247,7 +250,16 @@ export function DeductionCaseWorkspace({
           </div>
         </TabsContent>
         <TabsContent className="mt-3" value="evidence">
-          {canShowBackendDetail ? <EvidenceDossier evidencePack={selected.evidencePack} /> : <DetailGapCard title="Evidence unavailable" />}
+          {canShowBackendDetail ? (
+            <EvidenceDossier
+              deterministicBasis={selected.draft.basis}
+              draftStatusLabel={selected.draft.statusLabel}
+              evidencePack={selected.evidencePack}
+              sourceTiles={sourceTiles}
+            />
+          ) : (
+            <DetailGapCard title="Evidence unavailable" />
+          )}
         </TabsContent>
         <TabsContent className="mt-3" value="trace">
           {canShowBackendDetail ? (

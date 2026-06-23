@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. Beat 5+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. Beat 6+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -124,6 +124,10 @@ None. No agent loop is currently active.
 - Beat 4 case overview is implemented for `/forensics/shadcn` only. The local `Open investigation` control opens the selected fetched row into a case workspace with a narrow worklist rail, backend scenario/customer/line labels, backend read-only amount, backend verdict/routing/queue/confidence badges, selected-line summary, Overview/Evidence/Agent Trace/Draft/Audit tabs, deterministic basis, record IDs, evidence document count, read-only draft/approval status, notes unavailable state, and `mayaJourney[]` timeline rows. The Draft tab keeps model-owned draft label/status/amount/basis/record IDs and uses neutral `Draft label` inbox copy instead of raw action metadata.
 - Beat 4 deep detail is guarded: `model.selected` evidence, draft, trace, and audit detail render only when the opened worklist row contains `model.selected.lineId`; other row selections show a contract-gap state instead of borrowing the fixed evidence packet. Beat 4 does not call approval, realtime query, SAP, ERP write-back, correspondence, Billing routing, or any external action route.
 - Beat 4 reviewer-fix verification in this pass: the focused boundary tests first failed on the raw action-ID/action-type and disabled command-copy guard, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 36 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed after clicking the Draft tab and checking no `Action ID`, no `Action type`, no `draft-rebill`, and no disabled draft command controls, refreshed Beat 1, Beat 2, Beat 3, and Beat 4 screenshots, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 593 tests, dependency-cruiser, release readiness), and `git diff --check` passed with only LF-to-CRLF working-copy warnings.
+- Beat 5 evidence dossier is implemented for `/forensics/shadcn` only. The Evidence tab now opens inside the selected case workspace and renders a dense two-column dossier: left side `Backend evidence packet` with backend `selected.evidencePack.recordIds[]` chips and `documents[]` rows, right side deterministic-basis and source-provenance rails, and a bottom readout that says `Evidence dossier available` while keeping `Review state unavailable`.
+- Beat 5 remains backend/read-model honest: no mockup-only pod names, counts, dates, reviewer, `3 of 3`, review-satisfied copy, live-source relabeling, autonomous recovery, approval dispatch, query/run call, SAP read, ERP write-back, Billing route, correspondence, or data mutation is introduced. `selected.draft.basis` and `selected.draft.statusLabel` are displayed only as draft/deterministic-basis context, not as evidence-review completion.
+- Beat 5 deep detail preserves the wrong-row guard from Beat 4. If the opened worklist row does not include `model.selected.lineId`, the Evidence tab still shows the existing contract-gap card instead of borrowing the fixed backend evidence packet.
+- Beat 5 verification in this pass: RED invariants first failed for missing source-tile threading and dossier state, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 37 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-01-login.png` plus `output/playwright/e2e/maya-beat-05-evidence-dossier.png` only, full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 594 tests, dependency-cruiser, release readiness).
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -138,10 +142,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Review the refreshed Beat 4 case-overview screenshot against `mockups/imagegen/maya-12-beat-storyboard/04-case-overview-crestline-opens.png`.
-2. Run or record an independent visual reviewer gate before treating Beat 4 as accepted; every Beat 4 component and overall score must be `>=4.5/5`.
-3. Keep Beat 4 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, or evidence.
-4. Do not proceed into Beat 5 evidence-dossier work until the Beat 4 build, chained browser/storyline test, and independent reviewer gate pass.
+1. Review the refreshed Beat 5 evidence-dossier screenshot against `mockups/imagegen/maya-12-beat-storyboard/05-evidence-dossier-pod-reviewed.png`.
+2. Run or record an independent visual reviewer gate before treating Beat 5 as accepted; every Beat 5 component and overall score must be `>=4.5/5`.
+3. Keep Beat 5 wired to backend/read-model data only; do not invent dollars, thresholds, scores, claims, decisions, approvals, contacts, dates, case IDs, evidence, review completion, or source counts.
+4. Do not proceed into Beat 6 query-dock work until the Beat 5 build, chained browser/storyline test, and independent reviewer gate pass.
 
 ## Beat 2 Remaining Deltas
 
@@ -175,6 +179,36 @@ Fresh evidence:
 | Overall first-viewport composition | 4.6/5 | First viewport preserves full-page sidebar with bottom user identity, six KPIs, a thin source rail, table-led work area, and right pane at 1440/1280; remaining deltas are backend-contract gaps or non-exact ImageGen lockup geometry. |
 
 Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused e2e clipping/overflow/page-fill assertions green and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
+
+## Beat 5 Remaining Deltas
+
+- The current backend exposes a flat `selected.evidencePack.documents[]` packet, not structured evidence pods. The UI therefore renders one expanded `Backend evidence packet` rather than the mockup's named pod stack.
+- The mockup's reviewed-pod completion, `3 of 3` criteria badge, reviewer/time semantics, and bottom success banner are intentionally absent because no backend review-completion contract exists.
+- The right rail uses `/connectors.sourceTiles[]` readiness labels and does not show mockup source domains or item totals because those fields are not present in the Forensics evidence packet.
+- The table uses compact three-column evidence rows so every backend document field remains visible without fabricating event timestamps or requiring a clipped five-column layout.
+- Source provenance still includes synthetic readiness labels from the backend connector model; exact mockup parity requires a future backend `selected.sourceProvenance[]` contract with counts, trust labels, and cited record IDs.
+
+## Beat 5 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/05-evidence-dossier-pod-reviewed.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-05-evidence-dossier.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Evidence tab / opened-case context | 4.6/5 | Evidence opens inside the selected case workspace with the worklist rail, case header, active Evidence tab, and wrong-row guard preserved; exact mockup breadcrumb/case metadata remains unavailable in the backend contract. |
+| Backend evidence packet | 4.6/5 | One expanded backend-backed packet renders record IDs and every document field from `selected.evidencePack`; structured pod names, pod counts, and event timestamps are intentionally omitted. |
+| Evidence rows / table density | 4.5/5 | Three-column rows keep citation, document ID, type, description, summary, source, verification, and relevance visible without clipping; it is less visually identical to the mockup's five-column table because event-date/source-tone fields do not exist. |
+| Deterministic basis rail | 4.6/5 | Draft basis/status remain read-only backend text, and structured criteria are explicitly marked unavailable; mockup `3 of 3` and satisfied criteria are not rendered. |
+| Source provenance rail | 4.5/5 | Connector source tiles render from `/connectors`, synthetic sources stay synthetic, and no source totals are invented; exact source domains/item counts need a future backend contract. |
+| Dossier status readout | 4.7/5 | Bottom readout clearly states dossier availability and review-state unavailability without success/review-complete claims. |
+| Overall Beat 5 composition | 4.6/5 | The page now matches the two-column evidence-dossier state while staying contract-honest; remaining deltas are backend-contract gaps rather than React polish gaps. |
+
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, chained e2e, and full `npm.cmd run verify` green. Independent visual review and user approval are still required before final acceptance.
 
 ## ETA Bands
 

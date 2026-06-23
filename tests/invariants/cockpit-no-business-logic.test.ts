@@ -65,6 +65,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
     const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
     const realtimeHelper = readFileSync("cockpit/app/realtime-browser-session.ts", "utf8");
 
@@ -120,6 +121,20 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("approvalResponse?: ApprovalGateResponse");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
+    expect(evidenceDossier).toContain("evidencePack.documents.map");
+    expect(evidenceDossier).toContain("RecordIdStrip recordIds={evidencePack.recordIds}");
+    expect(evidenceDossier).toContain("recordIds.map");
+    expect(evidenceDossier).toContain("sourceTiles.map");
+    expect(evidenceDossier).toContain("Review state unavailable");
+    expect(evidenceDossier).toContain("Deterministic basis unavailable");
+    expect(evidenceDossier).not.toMatch(
+      /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu
+    );
+    expect(evidenceDossier).not.toMatch(
+      /\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u
+    );
+    expect(evidenceDossier).not.toContain("fetch(");
+    expect(evidenceDossier).not.toContain("/api/");
     expect(recoveryDraftReview).toContain('data-testid="maya-recovery-draft-review"');
     expect(recoveryDraftReview).toContain("draft.actionLabel");
     expect(recoveryDraftReview).toContain("draft.statusLabel");

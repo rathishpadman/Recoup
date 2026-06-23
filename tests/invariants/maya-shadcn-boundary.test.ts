@@ -373,6 +373,69 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).not.toMatch(/<button\b|<Button\b/u);
   });
 
+  it("keeps Beat 5 evidence dossier prop-driven, review-state honest, and provenance-safe", () => {
+    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
+
+    expect(types).toContain("MayaSourceTile");
+    expect(surface).toContain("sourceTiles={connectors.sourceTiles}");
+    expect(workspace).toContain("sourceTiles: MayaSourceTile[]");
+    expect(workspace).toContain("sourceTiles={sourceTiles}");
+    expect(workspace).toContain("deterministicBasis={selected.draft.basis}");
+    expect(workspace).toContain("draftStatusLabel={selected.draft.statusLabel}");
+    expect(workspace).toContain("<EvidenceDossier");
+
+    for (const requiredHook of [
+      'data-testid="maya-evidence-dossier"',
+      'data-testid="maya-evidence-packet"',
+      'data-testid="maya-evidence-document-row"',
+      'data-testid="maya-deterministic-basis-rail"',
+      'data-testid="maya-source-provenance-rail"',
+      'data-testid="maya-evidence-review-state"'
+    ]) {
+      expect(evidenceDossier).toContain(requiredHook);
+    }
+
+    for (const requiredPropRead of [
+      "RecordIdStrip recordIds={evidencePack.recordIds}",
+      "recordIds.map",
+      "evidencePack.documents.map",
+      "document.citationId",
+      "document.documentId",
+      "document.documentType",
+      "document.description",
+      "document.summary",
+      "document.sourceLabel",
+      "document.verifiedLabel",
+      "document.relevance",
+      "sourceTiles.map",
+      "source.statusTone",
+      "source.stateLabel",
+      "source.modeLabel"
+    ]) {
+      expect(evidenceDossier).toContain(requiredPropRead);
+    }
+
+    expect(evidenceDossier).toContain("Backend evidence packet");
+    expect(evidenceDossier).toContain("Evidence dossier available");
+    expect(evidenceDossier).toContain("Review state unavailable");
+    expect(evidenceDossier).toContain("Deterministic basis unavailable");
+    expect(evidenceDossier).toContain("Contract gap");
+    expect(evidenceDossier).toContain('source.statusTone === "synthetic"');
+    expect(evidenceDossier).not.toMatch(
+      /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu
+    );
+    expect(evidenceDossier).not.toMatch(
+      /\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u
+    );
+    expect(evidenceDossier).not.toContain("new Date");
+    expect(evidenceDossier).not.toContain("Date.now");
+    expect(evidenceDossier).not.toContain("fetch(");
+    expect(evidenceDossier).not.toContain("/api/");
+  });
+
   it("keeps Beat 2 priority gaps inside the KPI strip instead of a separate alert", () => {
     const kpiStrip = readFileSync("cockpit/components/maya/maya-run-kpi-strip.tsx", "utf8");
 

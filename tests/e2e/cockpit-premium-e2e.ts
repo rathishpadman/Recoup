@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Request as PlaywrightRequest } from "playwright";
 import { governedConfigSeedRows } from "../../config/governed.js";
 import { releaseOwnerInputSeedRows } from "../../config/releaseOwnerInputs.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
@@ -53,11 +53,29 @@ interface ForensicsE2EModel {
     };
     evidencePack: {
       documents: Array<{
+        citationId: string;
+        description: string;
         documentId: string;
+        documentType: string;
+        relevance: string;
+        sourceLabel: string;
+        summary: string;
+        verifiedLabel: string;
       }>;
       recordIds: string[];
     };
   };
+}
+
+interface ConnectorE2EModel {
+  sourceTiles: Array<{
+    key: string;
+    label: string;
+    modeLabel: string;
+    stateLabel: string;
+    statusTone: "ready" | "synthetic" | "blocked";
+    summary: string;
+  }>;
 }
 
 interface ManagedProcess {
@@ -165,11 +183,14 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
     }
     if (options.mayaShadcnOnly) {
       await captureMayaLoginBeatScreenshot(browser);
-      await captureMayaBeat2LandingScreenshot(browser);
-      await captureMayaBeat3RecommendedActionScreenshot(browser);
-      await captureMayaBeat4CaseOverviewScreenshot(browser);
+      if (process.argv.includes("--maya-refresh-prior-shadcn-beats")) {
+        await captureMayaBeat2LandingScreenshot(browser);
+        await captureMayaBeat3RecommendedActionScreenshot(browser);
+        await captureMayaBeat4CaseOverviewScreenshot(browser);
+      }
+      await captureMayaBeat5EvidenceDossierScreenshot(browser);
       console.log(
-        `Maya Beat 1, Beat 2, Beat 3, and Beat 4 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-02-dashboard.png, ${outputDir}/maya-beat-03-recommended-action.png, ${outputDir}/maya-beat-04-case-overview.png`
+        `Maya Beat 1 and Beat 5 screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-05-evidence-dossier.png`
       );
       return;
     }
@@ -362,6 +383,36 @@ async function captureMayaBeat4CaseOverviewScreenshot(browser: Browser): Promise
     await page.getByRole("tab", { name: /Overview/u }).click();
     await expectVisibleLocator(page, '[data-testid="maya-case-overview"]', "Maya Beat 4 overview tab restored");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat5EvidenceDossierScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const connectors = await loadConnectorE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat5Request(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 5 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Evidence/u }).click();
+    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
+    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-05-evidence-dossier.png` });
   } finally {
     await context.close();
   }
@@ -608,6 +659,13 @@ async function loadForensicsE2EModel(): Promise<ForensicsE2EModel> {
   assert(response.ok, `forensics model expected 2xx, received ${String(response.status)}`);
 
   return (await response.json()) as ForensicsE2EModel;
+}
+
+async function loadConnectorE2EModel(): Promise<ConnectorE2EModel> {
+  const response = await fetch(`${apiUrl}/connectors`);
+  assert(response.ok, `connector model expected 2xx, received ${String(response.status)}`);
+
+  return (await response.json()) as ConnectorE2EModel;
 }
 
 async function expectLocator(page: Page, selector: string, label: string): Promise<void> {
@@ -1142,6 +1200,97 @@ async function assertBeat4DraftTabFidelity(
     "Beat 4 Draft tab must not expose command-like draft buttons"
   );
   assert(forbiddenRequests.length === 0, `Beat 4 Draft tab must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
+async function assertBeat5EvidenceDossierFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  connectors: ConnectorE2EModel,
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 5 evidence dossier");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-packet"]', "Maya Beat 5 backend evidence packet");
+  await expectVisibleLocator(page, '[data-testid="maya-deterministic-basis-rail"]', "Maya Beat 5 deterministic basis rail");
+  await expectVisibleLocator(page, '[data-testid="maya-source-provenance-rail"]', "Maya Beat 5 source provenance rail");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-review-state"]', "Maya Beat 5 review state readout");
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
+  const syntheticTile = connectors.sourceTiles.find((source) => source.statusTone === "synthetic");
+
+  const result = await page.evaluate(() => {
+    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const packet = document.querySelector<HTMLElement>('[data-testid="maya-evidence-packet"]');
+    const basisRail = document.querySelector<HTMLElement>('[data-testid="maya-deterministic-basis-rail"]');
+    const sourceRail = document.querySelector<HTMLElement>('[data-testid="maya-source-provenance-rail"]');
+    const reviewState = document.querySelector<HTMLElement>('[data-testid="maya-evidence-review-state"]');
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-document-row"]')];
+    const sourceRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-provenance-row"]')].map((row) => ({
+      statusTone: row.dataset.statusTone ?? "",
+      text: row.innerText
+    }));
+
+    return {
+      basisText: basisRail?.innerText ?? "",
+      dossierText: dossier?.innerText ?? "",
+      packetText: packet?.innerText ?? "",
+      reviewText: reviewState?.innerText ?? "",
+      rowCount: rows.length,
+      sourceRows,
+      sourceText: sourceRail?.innerText ?? ""
+    };
+  });
+
+  assert(result.rowCount === model.selected.evidencePack.documents.length, "Beat 5 must render one row per backend evidence document");
+  assert(result.packetText.includes("Backend evidence packet"), "Beat 5 must render one backend-backed expanded packet");
+  assert(result.dossierText.includes("Evidence dossier available"), "Beat 5 must show dossier availability");
+  assert(result.reviewText.includes("Review state unavailable"), "Beat 5 must not imply evidence-review completion");
+  assert(result.basisText.includes(model.selected.draft.basis), "Beat 5 must show backend deterministic basis text");
+  assert(result.basisText.includes(model.selected.draft.statusLabel), "Beat 5 must label draft status as draft/HITL state only");
+  assert(result.basisText.includes("Deterministic basis unavailable"), "Beat 5 must mark structured criteria as unavailable");
+  assert(result.dossierText.includes(recordId), "Beat 5 must show backend record IDs");
+  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 5 must show backend citation IDs");
+  assert(result.dossierText.includes(evidenceDocument.documentId), "Beat 5 must show backend document IDs");
+  assert(result.dossierText.includes(evidenceDocument.documentType), "Beat 5 must show backend document types");
+  assert(result.dossierText.includes(evidenceDocument.description), "Beat 5 must show backend document descriptions");
+  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 5 must show backend document summaries");
+  assert(result.dossierText.includes(evidenceDocument.sourceLabel), "Beat 5 must show backend source labels");
+  assert(result.dossierText.includes(evidenceDocument.verifiedLabel), "Beat 5 must show backend verification labels");
+  assert(result.dossierText.includes(evidenceDocument.relevance), "Beat 5 must show backend relevance labels");
+  assert(
+    !/\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu.test(
+      result.dossierText
+    ),
+    "Beat 5 must not render unsupported review completion or external-action copy"
+  );
+  assert(
+    !/\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u.test(
+      result.dossierText
+    ),
+    "Beat 5 must not render mockup-only evidence pod names"
+  );
+
+  if (syntheticTile !== undefined) {
+    const matchingSourceRow = result.sourceRows.find((row) => row.text.includes(syntheticTile.label));
+    assert(matchingSourceRow !== undefined, `Beat 5 source provenance must include ${syntheticTile.label}`);
+    assert(matchingSourceRow.statusTone === "synthetic", `Beat 5 must keep ${syntheticTile.label} marked synthetic`);
+    assert(!matchingSourceRow.text.includes("Live read"), `Beat 5 must not relabel ${syntheticTile.label} as live`);
+  }
+
+  assert(forbiddenRequests.length === 0, `Beat 5 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
+function isForbiddenBeat5Request(request: PlaywrightRequest): boolean {
+  const url = new URL(request.url());
+  const pathname = url.pathname.toLowerCase();
+
+  return (
+    pathname === "/run" ||
+    pathname.startsWith("/run/") ||
+    pathname.includes("/approval") ||
+    pathname.includes("/query") ||
+    pathname.includes("/realtime") ||
+    pathname.includes("/sap")
+  );
 }
 
 async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {

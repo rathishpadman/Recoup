@@ -69,6 +69,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             multimodalDock={model.multimodalDock}
             selected={model.selected}
             selectedWorklistItem={openedCaseWorklistItem}
+            sourceTiles={connectors.sourceTiles}
           />
         </section>
       </MayaWorkspaceShell>
