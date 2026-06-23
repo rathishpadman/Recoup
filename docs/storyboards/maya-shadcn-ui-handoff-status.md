@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. `output/playwright/e2e/maya-beat-11-audit-confirmation.png` is current Beat 11 honest blocked-state implementation evidence for independent review. Beat 12 screenshots, if present, are legacy/rejected-state evidence until rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. `output/playwright/e2e/maya-beat-11-audit-confirmation.png` is current Beat 11 honest blocked-state implementation evidence for independent review. `output/playwright/e2e/maya-beat-12-return-worklist.png` is current Beat 12 local return-to-worklist implementation evidence for independent review.
 
 ## Beat 1 Login Pass
 
@@ -143,6 +143,9 @@ None. No agent loop is currently active.
 - Beat 8 metadata handling now passes the selected backend `evidencePack` into `QueryEvidenceDock` and `CitedAnswerCard`. Citation rows match response record IDs exactly against loaded evidence `documentId` or `citationId`; exact matches render backend document metadata, and non-matches keep `Metadata unavailable` without inventing document dates, titles, or types.
 - Beat 8 answered layout fix: after an accepted answer, the dock switches from the 456px query drawer to a wider answer-review sheet, hides the composer, suppresses duplicate answered status alerts, promotes exact metadata joins before unavailable rows, removes the Beat 7 trace rail from answered mode, and disables the query button. This keeps Beat 6 start and Beat 7 running screenshots behavior intact while making Beat 8 read as a review composition.
 - Beat 8 verification in this pass: RED invariants first failed on missing evidence-pack props/wide answered mode, RED e2e then failed on unavailable-row ordering and answered trace crowding, focused checks then passed with `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` (2 files / 39 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-01-login.png`, `output/playwright/e2e/maya-beat-06-query-start.png`, `output/playwright/e2e/maya-beat-07-agent-trace.png`, and `output/playwright/e2e/maya-beat-08-cited-answer.png`, and full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 596 tests, dependency-cruiser, release readiness).
+- Beat 12 return-to-worklist is implemented for `/forensics/shadcn` only. The Audit tab now exposes an enabled `Return to worklist` control that clears only local opened-case state, keeps the returned fetched row locally focused, resets the viewport to the worklist top, and does not call refresh, approval, audit, query, SAP, ERP, Billing, correspondence, or external-action routes.
+- Beat 12 remains honest to the current read model: the returned worklist renders only `worklist[]`, `kpiStrip[]`, and connector/source readiness data. It does not show mockup-only priority, age, status history, last-updated, queue totals, audit coverage, completion state, approved/audit-verified state, next-best-case ranking, backend refresh, or server pagination. The right pane labels the returned row as `Local focus` and shows `Audit status unavailable` with local-only copy.
+- Beat 12 verification in this pass: RED source invariants first failed on missing local return wiring, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed after adding `captureMayaBeat12ReturnWorklistScreenshot`, refreshing `output/playwright/e2e/maya-beat-12-return-worklist.png`, and full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, release readiness).
 - User approval or change requests for Beat 1 login.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
 - Broad full verification passed in this reviewer-fix loop.
@@ -157,10 +160,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Record user or independent visual approval before treating Beat 11 as accepted; this pass self-scores Beat 11 at `4.7/5` overall with every component at `>=4.5/5`, while intentionally rendering a blocked/unavailable state.
+1. Record user or independent visual approval before treating Beat 12 as accepted; this pass self-scores Beat 12 at `4.6/5` overall with every component at `>=4.5/5`, while intentionally rendering local return/audit-unavailable state.
 2. Keep Beat 11 fail-closed until a real backend approval response reaches the component with `status === "human_decided"` and a valid 64-hex `auditEntryHash`.
-3. Do not invent previous hash, commit timestamp, approver, committed receipt record IDs, route completion, case closure, ERP update, Billing route, recovery dispatch, or next-case state. Those remain backend/read-model contract gaps.
-4. Next implementation step is Beat 12 return-to-worklist only after Beat 11 visual review is accepted or the user explicitly asks to continue.
+3. Do not invent previous hash, commit timestamp, approver, committed receipt record IDs, route completion, case closure, ERP update, Billing route, recovery dispatch, queue decrement, post-audit refresh, or next-case state. Those remain backend/read-model contract gaps.
+4. A richer Beat 12 can only add true next-case recommendation, audit-recorded toast, completion counts, or updated row status after the backend exposes explicit fields with cited record IDs and deterministic basis.
 
 ## Beat 2 Remaining Deltas
 
@@ -383,7 +386,7 @@ Fresh Beat 10 verification in this pass: `npm.cmd run typecheck` passed; `npm.cm
 - The Audit tab now renders a shadcn `Alert`, `Card`, `Table`, `Badge`, `Button`, `Separator`, and `Tooltip`-ready confirmation workspace. It does not render a successful audit receipt unless the component receives `status === "human_decided"` and an `auditEntryHash` matching `/^[a-fA-F0-9]{64}$/u`.
 - The receipt/gap table includes rows for audit entry hash, previous hash, decision/action reference, decision outcome, human approver, committed timestamp, cited record IDs, and action state. Current values fail closed as `Unavailable`, `Waiting for committed backend approval response`, or `Backend contract gap`.
 - Selected action label, selected draft status, deterministic basis, and selected evidence record IDs are shown only in a separate `Selected action context` section. The copy explicitly labels those IDs as selected action citations, not committed audit receipt citations.
-- `View audit trail` and `Return to worklist unavailable` are disabled in this pass. No `Next case`, fake audit route, copy control for unavailable hashes, case closure, ERP update, Billing route, recovery dispatch, or route completion state is rendered.
+- `View audit trail` remains disabled because no audit-route contract is exposed. `Return to worklist` is now enabled as a local-only Beat 12 navigation control; it clears the opened-case view and does not imply audit success, next-case assignment, case closure, ERP update, Billing route, recovery dispatch, or route completion state.
 - A future confirmed branch is present but narrow: it displays the exact backend response action ID, decision, `human_decided` action state, and hash only after the response passes validation. Previous hash, approver, timestamp, and committed receipt record IDs remain unavailable until the backend/read model exposes them.
 
 ## Beat 11 Component-Level Visual Gate
@@ -402,13 +405,43 @@ Fresh evidence:
 | Receipt/gap table | 4.7/5 | All required rows are present and table-led. Current values stay unavailable or contract-gap instead of inventing hashes, timestamps, approvers, receipt IDs, or action completion. |
 | Selected action context | 4.6/5 | Backend-selected action label, draft status, basis, and record IDs are visible but separated from committed receipt rows and clearly labeled as selected action citations only. |
 | Confirmed-state guard | 4.8/5 | Source invariants require the 64-hex regex, positive `human_decided` check, action ID validation, no local hash/date/random generation, and no `/api/approval` call from the audit panel. |
-| Controls and action safety | 4.8/5 | Audit route and return controls are disabled/unavailable; there is no Next Case, no copy button for unavailable values, and no external action state. |
+| Controls and action safety | 4.8/5 | Audit route remains disabled, while `Return to worklist` is an enabled local navigation control; there is no Next Case, no copy button for unavailable values, and no external action state. |
 | Mockup fidelity under honest blocked state | 4.6/5 | The visual structure keeps the mockup's table-led audit workspace and sidebar/workbench continuity, but intentionally replaces success receipt styling with the current blocked contract state. |
 | Overall Beat 11 visual fidelity | 4.7/5 | Passable for the current backend truth: dense, shadcn-only, read-model wired, and fail-closed. Exact mockup success parity remains blocked on a real committed approval response plus richer audit receipt fields. |
 
 Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, typecheck, chained shadcn-only e2e, full-page screenshot evidence, and full `npm.cmd run verify` green.
 
 Fresh Beat 11 verification in this pass: RED invariants first failed on missing audit-response handoff and missing validation/blocking source guarantees; `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-11-audit-confirmation.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
+
+## Beat 12 Remaining Deltas
+
+- The target mockup's successful `Audit recorded` toast, worklist total `128`, resolved recommended-next KPI, average age, audit coverage, priority values, age values, last-updated timestamps, server pagination, and row audit-state fields are intentionally absent or marked unavailable because the current read model does not expose them.
+- The returned row remains the previously opened fetched row as local focus. Beat 12 does not auto-open a different row, infer a next-best case, reorder the queue, decrement fetched rows, or mark any row completed/approved/audit-verified.
+- Beat 12 now returns to a dedicated full-width `Deduction Cases` worklist page rather than the morning-run dashboard/right-pane layout. It uses five metric cards, a toast-shaped `Audit status unavailable` alert, full source readiness row, tabs, dense worklist table, and a disabled fetched-only pagination footer.
+- Exact mockup parity needs future backend fields such as queue summary, committed audit receipt state, nextRecommendedLineId with basis record IDs, row priority/age/status history/last-updated fields, and server pagination metadata.
+
+## Beat 12 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/12-return-to-worklist-next-case.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-12-return-worklist.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Return navigation / state reset | 4.8/5 | The Audit tab exposes an enabled shadcn `Return to worklist` control that clears only local opened-case state, resets the viewport to the worklist top, and triggers no backend or external-action requests. |
+| First-viewport worklist composition | 4.6/5 | Sidebar, header, Worklist/return badges, five metric cards, toast-shaped unavailable audit state, full source readiness row, tabs, dense table, and footer pagination are visible in the returned viewport. |
+| Worklist table / fetched rows | 4.5/5 | Rows continue to render from `worklist[]` only with backend line/customer/scenario/amount/verdict/queue/recommended-action strings; missing priority, age, last-updated, and pagination values are marked as gaps. |
+| Local focus / selected row handling | 4.7/5 | The returned row keeps the previously opened fetched row as local focus and does not imply server-side selection, audit success, queue mutation, or next-case assignment. |
+| KPI and source readiness honesty | 4.6/5 | Fetched row count and exposure use available read-model values; next-case, age, and audit coverage remain unavailable; source readiness remains `/connectors` data and synthetic/blocked state is not relabeled as live. |
+| Request/action guard | 4.8/5 | The e2e path proves return from Beat 11 made no approval, query, realtime, SAP, ERP, Billing, portal, run, or external-action request. |
+| Mockup fidelity under current truth | 4.5/5 | The screen reads as the intended return-to-worklist moment while honestly replacing mockup-only success/queue/age/audit/pagination fields with unavailable states. |
+| Overall Beat 12 visual fidelity | 4.6/5 | Independent reviewer pass: shadcn-only, table-led, local navigation only, and no fake queue/audit/next-case claims. |
+
+Gate result: independent reviewer Maxwell passed Beat 12 with every component at `>=4.5/5` and overall `4.6/5`. Prior reviewers failed earlier candidates at `4.1`, `4.2`, `4.4`, `4.35`, `4.3`, and `4.4`; those failures drove the full-width worklist redesign, full source row, first-viewport gap labeling, toast placement cleanup, denser table treatment, and fetched-only pagination footer. Fresh verification after the accepted candidate: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-12-return-worklist.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, release readiness).
 
 ## ETA Bands
 

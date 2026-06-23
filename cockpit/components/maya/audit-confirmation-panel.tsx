@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardCopyIcon, FileSearchIcon, LockKeyholeIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ClipboardCopyIcon,
+  FileSearchIcon,
+  LockKeyholeIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon
+} from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +28,7 @@ interface SelectedActionContext {
 }
 
 interface AuditConfirmationPanelProps {
+  onReturnToWorklist: () => void;
   response: ApprovalGateResponse | undefined;
   selectedActionContext: SelectedActionContext;
 }
@@ -33,10 +41,14 @@ interface ReceiptRow {
   value: React.ReactNode;
 }
 
-export function AuditConfirmationPanel({ response, selectedActionContext }: AuditConfirmationPanelProps) {
+export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedActionContext }: AuditConfirmationPanelProps) {
   const confirmedResponse = confirmedApprovalResponse(response);
   const [copyStatus, setCopyStatus] = React.useState<string | undefined>();
   const rows = confirmedResponse === undefined ? unavailableRows() : confirmedRows(confirmedResponse);
+
+  React.useEffect(() => {
+    setCopyStatus(undefined);
+  }, [confirmedResponse?.auditEntryHash]);
 
   async function copyAuditEntryHash(): Promise<void> {
     if (confirmedResponse === undefined) {
@@ -123,8 +135,9 @@ export function AuditConfirmationPanel({ response, selectedActionContext }: Audi
           <FileSearchIcon data-icon="inline-start" />
           View audit trail
         </Button>
-        <Button disabled type="button" variant="outline">
-          Return to worklist unavailable
+        <Button onClick={onReturnToWorklist} type="button" variant="outline">
+          <ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
+          Return to worklist
         </Button>
       </CardFooter>
     </Card>

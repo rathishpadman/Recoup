@@ -225,9 +225,13 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
     expect(auditPanel).toContain("View audit trail");
+    expect(auditPanel).toContain("onReturnToWorklist");
+    expect(auditPanel).toContain("Return to worklist");
+    expect(auditPanel).toContain("setCopyStatus(undefined)");
     expect(auditPanel).toContain("navigator.clipboard.writeText(confirmedResponse.auditEntryHash)");
     expect(auditPanel).not.toContain("/api/approval");
     expect(auditPanel).not.toContain("fetch(");
+    expect(auditPanel).not.toContain("Return to worklist unavailable");
     expect(auditPanel).not.toMatch(/\b(?:new Date|Date\.now|crypto|getRandomValues|randomUUID|Math\.random)\b/u);
     expect(auditPanel).not.toMatch(
       /\b(?:APPROVAL-HASH|audit-entry-demo|Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case)\b/u
@@ -305,6 +309,39 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(mayaSources).not.toContain("localStorage");
     expect(mayaSources).not.toContain("sessionStorage");
     expect(mayaSources).not.toContain("indexedDB");
+  });
+
+  it("keeps Maya Beat 12 return navigation local and read-model honest", () => {
+    const cockpitData = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
+    const table = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
+    const beat12Sources = `${surface}\n${workspace}\n${auditPanel}\n${table}`;
+
+    expect(cockpitData).not.toContain("nextRecommendedLineId");
+    expect(surface).toContain("handleReturnToWorklist");
+    expect(surface).toContain("setOpenedCaseWorklistItem(undefined)");
+    expect(surface).toContain("setSelectedWorklistItem(openedCaseWorklistItem)");
+    expect(surface).toContain("setReturnContextLineId(openedCaseWorklistItem.lineId)");
+    expect(surface).toContain("BeatTwelveReturnedWorklist");
+    expect(surface).toContain('heading="Deduction Cases"');
+    expect(surface).toContain('data-testid="maya-beat-12-worklist-page"');
+    expect(surface).toContain('data-testid="maya-beat-12-return-table"');
+    expect(surface).toContain("Backend gaps:");
+    expect(surface).toContain("no committed audit receipt, queue update, or next-case assignment");
+    expect(workspace).toContain("onReturnToWorklist: () => void");
+    expect(auditPanel).toContain("onClick={onReturnToWorklist}");
+    expect(table).toContain("items.length");
+    expect(table).toContain("filteredItems.length");
+    expect(table).toContain("Fetched rows only");
+    expect(surface).not.toContain("nextRecommendedLineId");
+    expect(beat12Sources).not.toMatch(/\b(?:Next Case|Next case|Next recommended|Recommended Next|Audit recorded|audit recorded)\b/u);
+    expect(beat12Sources).not.toMatch(/\b(?:Completed|Closed|Case closure|queue decremented|Audit verified)\b/u);
+    expect(beat12Sources).not.toMatch(/\b(?:setQueue|setCompleted|setApproved|setAudit|postAudit|refreshAfterAudit)\b/u);
+    expect(beat12Sources).not.toMatch(/\b(?:128|\$2\.74M|14\.6 days|96%|May 24, 2025)\b/u);
+    expect(auditPanel).not.toContain("fetch(");
+    expect(auditPanel).not.toContain("/api/");
   });
 
   it("keeps David command-centre rows in the canonical credit read model", () => {

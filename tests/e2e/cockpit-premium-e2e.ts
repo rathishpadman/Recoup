@@ -197,8 +197,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaBeat9DraftReviewScreenshot(browser);
       await captureMayaBeat10HumanApprovalScreenshot(browser);
       await captureMayaBeat11AuditConfirmationScreenshot(browser);
+      await captureMayaBeat12ReturnWorklistScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 11 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png, ${outputDir}/maya-beat-11-audit-confirmation.png`
+        `Maya Beat 1 through Beat 12 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png, ${outputDir}/maya-beat-11-audit-confirmation.png, ${outputDir}/maya-beat-12-return-worklist.png`
       );
       return;
     }
@@ -1028,6 +1029,48 @@ async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): P
     await page.getByRole("tab", { name: /^Audit$/u }).click();
     await assertBeat11AuditConfirmationFidelity(page, model, forbiddenRequests);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat12ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 12 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Draft/u }).click();
+    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
+    });
+    await page.getByRole("button", { name: /^Open approval$/u }).click();
+    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await page.getByRole("button", { name: /^Cancel$/u }).click();
+    await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
+    assertNoForbiddenRequests(forbiddenRequests, "Beat 12 pre-audit approval cancel");
+
+    await page.getByRole("tab", { name: /^Audit$/u }).click();
+    await assertBeat11AuditConfirmationFidelity(page, model, forbiddenRequests);
+    await page.getByRole("button", { name: /^Return to worklist$/u }).click();
+    await assertBeat12ReturnWorklistFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-12-return-worklist.png` });
   } finally {
     await context.close();
   }
@@ -1943,6 +1986,73 @@ async function assertBeat11AuditConfirmationFidelity(
   assert(forbiddenRequests.length === 0, `Beat 11 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
+async function assertBeat12ReturnWorklistFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  expectedRow: ForensicsE2EModel["worklist"][number],
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya Beat 12 workbench");
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-worklist-page"]', "Maya Beat 12 returned worklist page");
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-source-readiness"]', "Maya Beat 12 source readiness");
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-deduction-cases"]', "Maya Beat 12 deduction cases table");
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-return-table"]', "Maya Beat 12 return table");
+  await expectVisibleText(page, "Deduction Cases");
+  await expectVisibleText(page, "Review, audit, and action fetched deduction cases.");
+  await expectVisibleText(page, "Audit status unavailable");
+  await expectVisibleText(page, "Local focus");
+
+  const result = await page.evaluate(() => {
+    const workbench = document.querySelector<HTMLElement>('[data-testid="maya-shadcn-workbench"]');
+    const pageRoot = document.querySelector<HTMLElement>('[data-testid="maya-beat-12-worklist-page"]');
+    const table = document.querySelector<HTMLElement>('[data-testid="maya-beat-12-return-table"]');
+    const selectedRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"][aria-selected="true"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+
+    return {
+      auditPanelCount: document.querySelectorAll('[data-testid="maya-audit-confirmation"]').length,
+      caseWorkspaceCount: document.querySelectorAll('[data-testid="maya-case-workspace"]').length,
+      rowCount: rows.length,
+      selectedDataLineId: selectedRows[0]?.dataset.lineId ?? "",
+      selectedRowCount: selectedRows.length,
+      pageText: pageRoot?.innerText ?? "",
+      tableText: table?.innerText ?? "",
+      text: workbench?.innerText ?? ""
+    };
+  });
+
+  assert(result.caseWorkspaceCount === 0, "Beat 12 return must leave the case workspace and render the worklist surface");
+  assert(result.auditPanelCount === 0, "Beat 12 returned worklist must not keep the audit panel mounted");
+  assert(result.rowCount === model.worklist.length, "Beat 12 must keep all fetched worklist rows visible without queue mutation");
+  assert(result.selectedRowCount === 1, "Beat 12 must keep exactly one local focused row");
+  assert(result.selectedDataLineId === expectedRow.lineId, `Beat 12 must keep ${expectedRow.lineId} as local focus`);
+  assert(
+    result.text.includes(`Showing ${model.worklist.length.toString()} of ${model.worklist.length.toString()} fetched rows`),
+    "Beat 12 table must show fetched-row count only"
+  );
+  assert(result.pageText.includes(expectedRow.customerLabel), "Beat 12 table must use the returned fetched row customer");
+  assert(result.pageText.includes(expectedRow.scenarioLabel), "Beat 12 table must use the returned fetched row scenario");
+  assert(result.pageText.includes(expectedRow.amount), "Beat 12 table must show backend amount string");
+  assert(result.pageText.includes("All fetched"), "Beat 12 must render the target-style fetched case tabs");
+  assert(result.pageText.includes("Backend gaps:"), "Beat 12 must label missing mockup fields as backend gaps");
+  assert(result.pageText.includes("Audit status unavailable"), "Beat 12 must avoid fake audit-success toast or status");
+  assert(result.pageText.includes("no committed audit receipt"), "Beat 12 must not claim an audit receipt exists");
+  assert(result.pageText.includes("Local focus"), "Beat 12 must label returned context as local focus");
+  assert(!result.text.includes("Welcome back, Maya"), "Beat 12 return must not fall back to the morning-run dashboard heading");
+  assert(!result.text.includes("Recommended Next"), "Beat 12 must not claim mockup-only next-case ranking");
+  assert(
+    !/\b(?:Audit recorded|audit recorded|Completed|Closed|Case state updated|Queue updated|Audit verified|Approved|Next Case|Next case|Next recommended|Recommended Next|128|2\.74M|14\.6 days|96%)\b/u.test(
+      result.text
+    ),
+    "Beat 12 must not render mockup-only queue, audit, completion, or next-case claims"
+  );
+  assert(forbiddenRequests.length === 0, `Beat 12 return must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
 async function assertBeat5EvidenceDossierFidelity(
   page: Page,
   model: ForensicsE2EModel,
@@ -2423,6 +2533,10 @@ function isForbiddenBeat10ExternalActionRequest(request: PlaywrightRequest): boo
 
 function isForbiddenBeat11ExternalActionRequest(request: PlaywrightRequest): boolean {
   return isForbiddenBeat10ExternalActionRequest(request);
+}
+
+function isForbiddenBeat12ExternalActionRequest(request: PlaywrightRequest): boolean {
+  return isForbiddenBeat11ExternalActionRequest(request);
 }
 
 function approvalDecisionButtonLabel(decision: ForensicsE2EModel["selected"]["approvalActions"][number]["decision"]): string {

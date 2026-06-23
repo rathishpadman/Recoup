@@ -35,6 +35,7 @@ interface DeductionCaseWorkspaceProps {
   hasBackendDetail: boolean;
   journey: MayaJourneyItem[];
   multimodalDock: MayaMultimodalDock;
+  onReturnToWorklist: () => void;
   selected: MayaSelectedCase;
   selectedWorklistItem: MayaWorklistItem | undefined;
   sourceTiles: MayaSourceTile[];
@@ -45,6 +46,7 @@ export function DeductionCaseWorkspace({
   hasBackendDetail,
   journey,
   multimodalDock,
+  onReturnToWorklist,
   selected,
   selectedWorklistItem,
   sourceTiles
@@ -303,7 +305,11 @@ export function DeductionCaseWorkspace({
         </TabsContent>
         <TabsContent className="mt-3" value="audit">
           {canShowBackendDetail ? (
-            <AuditConfirmationPanel response={approvalResponse} selectedActionContext={selectedActionContext} />
+            <AuditConfirmationPanel
+              onReturnToWorklist={onReturnToWorklist}
+              response={approvalResponse}
+              selectedActionContext={selectedActionContext}
+            />
           ) : (
             <DetailGapCard title="Audit unavailable" />
           )}
