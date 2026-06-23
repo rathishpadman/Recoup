@@ -190,7 +190,9 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("selected.evidencePack.recordIds");
     expect(caseWorkspace).toContain("selected.draft.basis");
     expect(caseWorkspace).toContain("selected.draft.actionLabel");
-    expect(caseWorkspace).toContain("AuditConfirmationPanel journey={journey} response={undefined}");
+    expect(caseWorkspace).toContain("setApprovalResponse");
+    expect(caseWorkspace).toContain("response={approvalResponse}");
+    expect(caseWorkspace).toContain("selectedActionContext");
     expect(caseWorkspace).toContain("<QueryEvidenceDock");
     expect(caseWorkspace).toContain("queryDockOpen");
     expect(caseWorkspace).toContain("setQueryDockOpen");
@@ -209,9 +211,27 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("Approval locked");
     expect(caseWorkspace).not.toContain("More actions");
     expect(caseWorkspace).not.toContain("queryResponse?: QueryEvidenceResponse");
-    expect(caseWorkspace).not.toContain("approvalResponse?: ApprovalGateResponse");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
+    const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
+    expect(auditPanel).toContain("AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u");
+    expect(auditPanel).toContain('response.status === "human_decided"');
+    expect(auditPanel).toContain("AUDIT_HASH_PATTERN.test(response.auditEntryHash)");
+    expect(auditPanel).toContain('typeof response.actionId === "string"');
+    expect(auditPanel).toContain("Audit confirmation unavailable");
+    expect(auditPanel).toContain("No backend approval response or audit commit is available yet");
+    expect(auditPanel).toContain("Waiting for committed backend approval response");
+    expect(auditPanel).toContain("Backend contract gap");
+    expect(auditPanel).toContain("Committed audit receipt citations unavailable");
+    expect(auditPanel).toContain("Selected action citations");
+    expect(auditPanel).toContain("View audit trail");
+    expect(auditPanel).toContain("navigator.clipboard.writeText(confirmedResponse.auditEntryHash)");
+    expect(auditPanel).not.toContain("/api/approval");
+    expect(auditPanel).not.toContain("fetch(");
+    expect(auditPanel).not.toMatch(/\b(?:new Date|Date\.now|crypto|getRandomValues|randomUUID|Math\.random)\b/u);
+    expect(auditPanel).not.toMatch(
+      /\b(?:APPROVAL-HASH|audit-entry-demo|Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case)\b/u
+    );
     expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
     expect(evidenceDossier).toContain("Query evidence");
     expect(evidenceDossier).toContain("evidencePack.documents.map");

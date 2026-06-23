@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type {
+  ApprovalGateResponse,
   MayaActionInboxItem,
   MayaApprovalAction,
   MayaEvidencePack,
@@ -31,6 +32,7 @@ interface RecoveryDraftReviewProps {
   approvalActions: MayaApprovalAction[];
   draft: MayaSelectedCase["draft"];
   evidencePack: MayaEvidencePack;
+  onApprovalResponse: (response: ApprovalGateResponse) => void;
   selectedLineId: string;
   selectedWorklistItem: MayaWorklistItem | undefined;
 }
@@ -49,6 +51,7 @@ export function RecoveryDraftReview({
   approvalActions,
   draft,
   evidencePack,
+  onApprovalResponse,
   selectedLineId,
   selectedWorklistItem
 }: RecoveryDraftReviewProps) {
@@ -346,7 +349,7 @@ export function RecoveryDraftReview({
         actions={approvalActions}
         draft={draft}
         onOpenChange={setApprovalDialogOpen}
-        onResponse={() => undefined}
+        onResponse={onApprovalResponse}
         open={approvalDialogOpen}
         recordIds={evidencePack.recordIds}
       />

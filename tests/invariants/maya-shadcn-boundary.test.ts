@@ -386,10 +386,30 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).toContain("approvalDialogOpen");
     expect(recoveryDraftReview).toContain("setApprovalDialogOpen(true)");
     expect(recoveryDraftReview).toContain("actionId={draft.actionId}");
+    expect(recoveryDraftReview).toContain("onApprovalResponse");
     expect(recoveryDraftReview).not.toContain("/api/approval");
     expect(recoveryDraftReview).not.toContain("fetch(");
-    expect(auditPanel).toContain("response?.auditEntryHash");
-    expect(auditPanel).toContain("response?.status");
+    expect(auditPanel).toContain("AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u");
+    expect(auditPanel).toContain('response.status === "human_decided"');
+    expect(auditPanel).toContain("AUDIT_HASH_PATTERN.test(response.auditEntryHash)");
+    expect(auditPanel).toContain('typeof response.actionId === "string"');
+    expect(auditPanel).toContain("Audit confirmation unavailable");
+    expect(auditPanel).toContain("No backend approval response or audit commit is available yet");
+    expect(auditPanel).toContain("status === human_decided");
+    expect(auditPanel).toContain("valid 64-hex auditEntryHash");
+    expect(auditPanel).toContain("Waiting for committed backend approval response");
+    expect(auditPanel).toContain("Backend contract gap");
+    expect(auditPanel).toContain("Committed audit receipt citations unavailable");
+    expect(auditPanel).toContain("Selected action citations");
+    expect(auditPanel).toContain("View audit trail");
+    expect(auditPanel).toContain("navigator.clipboard.writeText(confirmedResponse.auditEntryHash)");
+    expect(auditPanel).not.toContain("/api/approval");
+    expect(auditPanel).not.toContain("fetch(");
+    expect(auditPanel).not.toMatch(/\b(?:new Date|Date\.now|crypto|getRandomValues|randomUUID|Math\.random)\b/u);
+    expect(auditPanel).not.toMatch(/[a-fA-F0-9]{64}[^/]/u);
+    expect(auditPanel).not.toMatch(
+      /\b(?:APPROVAL-HASH|audit-entry-demo|Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case)\b/u
+    );
     expect(types).toMatch(/interface ApprovalGateResponse\s*\{[^}]*actionId:\s*string;/su);
   });
 

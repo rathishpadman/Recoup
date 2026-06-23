@@ -196,8 +196,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaBeat8CitedAnswerScreenshot(browser);
       await captureMayaBeat9DraftReviewScreenshot(browser);
       await captureMayaBeat10HumanApprovalScreenshot(browser);
+      await captureMayaBeat11AuditConfirmationScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 10 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png`
+        `Maya Beat 1 through Beat 11 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png, ${outputDir}/maya-beat-11-audit-confirmation.png`
       );
       return;
     }
@@ -987,6 +988,46 @@ async function captureMayaBeat10HumanApprovalScreenshot(browser: Browser): Promi
     await page.getByRole("button", { name: /^Cancel$/u }).click();
     await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
     assertNoForbiddenRequests(forbiddenRequests, "Beat 10 cancel");
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat11ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 11 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Draft/u }).click();
+    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
+    });
+    await page.getByRole("button", { name: /^Open approval$/u }).click();
+    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await page.getByRole("button", { name: /^Cancel$/u }).click();
+    await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
+    assertNoForbiddenRequests(forbiddenRequests, "Beat 11 pre-audit approval cancel");
+
+    await page.getByRole("tab", { name: /^Audit$/u }).click();
+    await assertBeat11AuditConfirmationFidelity(page, model, forbiddenRequests);
+    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
   } finally {
     await context.close();
   }
@@ -1840,6 +1881,68 @@ async function assertBeat10HumanApprovalFidelity(
   assert(forbiddenRequests.length === 0, `Beat 10 open path must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
+async function assertBeat11AuditConfirmationFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya Beat 11 audit confirmation");
+  await expectVisibleText(page, "Audit confirmation");
+  await expectVisibleText(page, "Audit confirmation unavailable");
+  await expectVisibleText(page, "No backend approval response or audit commit is available yet");
+  await expectVisibleText(page, "status === human_decided");
+  await expectVisibleText(page, "valid 64-hex auditEntryHash");
+  await expectVisibleText(page, "Waiting for committed backend approval response");
+  await expectVisibleText(page, "Backend contract gap");
+  await expectVisibleText(page, "Selected action citations");
+  const selectedRecordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  const result = await page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>('[data-testid="maya-audit-confirmation"]');
+    const rows = [...(panel?.querySelectorAll<HTMLElement>("tbody tr") ?? [])].map((row) => row.innerText);
+    const buttons = [...(panel?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => ({
+      disabled: button.disabled,
+      label: button.innerText.trim() || button.getAttribute("aria-label") || ""
+    }));
+
+    return {
+      buttons,
+      copyButtonCount: buttons.filter((button) => /copy/i.test(button.label)).length,
+      rowText: rows.join("\n"),
+      text: panel?.innerText ?? ""
+    };
+  });
+
+  for (const requiredRow of [
+    "Audit entry hash",
+    "Previous hash",
+    "Decision/action reference",
+    "Decision outcome",
+    "Human approver",
+    "Committed timestamp",
+    "Cited record IDs",
+    "Action state"
+  ]) {
+    assert(result.rowText.includes(requiredRow), `Beat 11 must render receipt/gap row: ${requiredRow}`);
+  }
+
+  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 11 must show selected backend action label only as context");
+  assert(result.text.includes(model.selected.draft.statusLabel), "Beat 11 must show selected backend draft status only as context");
+  assert(result.text.includes(model.selected.draft.basis), "Beat 11 must show selected backend basis only as context");
+  assert(result.text.includes(selectedRecordId), "Beat 11 must show selected record IDs as selected action citations");
+  assert(result.text.includes("Committed audit receipt citations unavailable"), "Beat 11 must not relabel selected IDs as receipt IDs");
+  assert(result.buttons.some((button) => button.label === "View audit trail" && button.disabled), "Beat 11 audit-route control must be disabled");
+  assert(result.copyButtonCount === 0, "Beat 11 unavailable state must not expose copy controls for absent hashes");
+  assert(!result.text.includes(model.selected.draft.actionId), "Beat 11 unavailable state must not render raw action IDs as receipt IDs");
+  assert(!/[a-fA-F0-9]{64}/u.test(result.text), "Beat 11 unavailable state must not render a fake 64-hex audit hash");
+  assert(
+    !/\b(?:Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case|Approved)\b/u.test(
+      result.text
+    ),
+    "Beat 11 must not render mockup-only people, timestamps, external-action state, next-case state, or approval finality"
+  );
+  assert(forbiddenRequests.length === 0, `Beat 11 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
 async function assertBeat5EvidenceDossierFidelity(
   page: Page,
   model: ForensicsE2EModel,
@@ -2316,6 +2419,10 @@ function isForbiddenBeat9ExternalActionRequest(request: PlaywrightRequest): bool
 
 function isForbiddenBeat10ExternalActionRequest(request: PlaywrightRequest): boolean {
   return isForbiddenBeat9ExternalActionRequest(request);
+}
+
+function isForbiddenBeat11ExternalActionRequest(request: PlaywrightRequest): boolean {
+  return isForbiddenBeat10ExternalActionRequest(request);
 }
 
 function approvalDecisionButtonLabel(decision: ForensicsE2EModel["selected"]["approvalActions"][number]["decision"]): string {

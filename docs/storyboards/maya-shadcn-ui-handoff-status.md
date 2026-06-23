@@ -45,7 +45,7 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
 
-Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. Beat 11+ screenshots, if present, are legacy/rejected-state evidence until each beat is rebuilt and reviewed in sequence.
+Current screenshot caveat: `output/playwright/e2e/maya-beat-01-login.png` is current Beat 1 acceptance-candidate evidence. `output/playwright/e2e/maya-beat-02-dashboard.png`, `output/playwright/e2e/maya-beat-02-dashboard-1440.png`, and `output/playwright/e2e/maya-beat-02-dashboard-1280.png` are current Beat 2 final-polish evidence for independent review. `output/playwright/e2e/maya-beat-03-recommended-action.png` is current Beat 3 implementation evidence for independent review. `output/playwright/e2e/maya-beat-04-case-overview.png` is current Beat 4 implementation evidence for independent review. `output/playwright/e2e/maya-beat-05-evidence-dossier.png` is current Beat 5 implementation evidence for independent review. `output/playwright/e2e/maya-beat-06-query-start.png` is current Beat 6 query-dock start evidence for independent review. `output/playwright/e2e/maya-beat-07-agent-trace.png` is current Beat 7 trace-in-progress evidence for independent review. `output/playwright/e2e/maya-beat-08-cited-answer.png` is current Beat 8 cited-answer evidence for independent review. `output/playwright/e2e/maya-beat-09-draft-review.png` is current Beat 9 draft-review implementation evidence for independent review. `output/playwright/e2e/maya-beat-10-human-approval.png` is current Beat 10 human-approval dialog implementation evidence for independent review. `output/playwright/e2e/maya-beat-11-audit-confirmation.png` is current Beat 11 honest blocked-state implementation evidence for independent review. Beat 12 screenshots, if present, are legacy/rejected-state evidence until rebuilt and reviewed in sequence.
 
 ## Beat 1 Login Pass
 
@@ -157,10 +157,10 @@ None. No agent loop is currently active.
 
 ## Next Actions
 
-1. Beat 9 reviewer command-bar first-viewport blocker is fixed: `maya-draft-command-bar` is now a sticky bottom shadcn `Card` command surface, and the e2e capture asserts it is fully inside the viewport before writing `output/playwright/e2e/maya-beat-09-draft-review.png`.
-2. Record user or independent visual approval before treating Beat 9 as accepted; this pass self-scores Beat 9 at `4.6/5` overall with every component at `>=4.5/5`, while still limited by backend contract gaps.
-3. Keep Beat 9 wired to backend/read-model data only: `selected.draft`, `selected.evidencePack`, `actionInbox[]`, selected worklist row labels, and `selected.approvalActions[]`. Do not invent packet IDs, timestamps, accounts, recipients, files, approval owners, audit hashes, or external-action state.
-4. Do not proceed into Beat 10 human-approval-dialog work until Beat 9 visual review and user approval are recorded.
+1. Record user or independent visual approval before treating Beat 11 as accepted; this pass self-scores Beat 11 at `4.7/5` overall with every component at `>=4.5/5`, while intentionally rendering a blocked/unavailable state.
+2. Keep Beat 11 fail-closed until a real backend approval response reaches the component with `status === "human_decided"` and a valid 64-hex `auditEntryHash`.
+3. Do not invent previous hash, commit timestamp, approver, committed receipt record IDs, route completion, case closure, ERP update, Billing route, recovery dispatch, or next-case state. Those remain backend/read-model contract gaps.
+4. Next implementation step is Beat 12 return-to-worklist only after Beat 11 visual review is accepted or the user explicitly asks to continue.
 
 ## Beat 2 Remaining Deltas
 
@@ -376,6 +376,39 @@ Fresh evidence:
 Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, typecheck, chained shadcn-only e2e, and full `npm.cmd run verify` green.
 
 Fresh Beat 10 verification in this pass: `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-10-human-approval.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
+
+## Beat 11 Remaining Deltas
+
+- Beat 11 is implemented for `/forensics/shadcn` only as an honest audit-confirmation unavailable state. This is intentional because Beat 10 currently cannot produce a real `ApprovalGateResponse`; approval submit buttons remain disabled while evidence-reviewed state and approval eligibility are absent from the read model.
+- The Audit tab now renders a shadcn `Alert`, `Card`, `Table`, `Badge`, `Button`, `Separator`, and `Tooltip`-ready confirmation workspace. It does not render a successful audit receipt unless the component receives `status === "human_decided"` and an `auditEntryHash` matching `/^[a-fA-F0-9]{64}$/u`.
+- The receipt/gap table includes rows for audit entry hash, previous hash, decision/action reference, decision outcome, human approver, committed timestamp, cited record IDs, and action state. Current values fail closed as `Unavailable`, `Waiting for committed backend approval response`, or `Backend contract gap`.
+- Selected action label, selected draft status, deterministic basis, and selected evidence record IDs are shown only in a separate `Selected action context` section. The copy explicitly labels those IDs as selected action citations, not committed audit receipt citations.
+- `View audit trail` and `Return to worklist unavailable` are disabled in this pass. No `Next case`, fake audit route, copy control for unavailable hashes, case closure, ERP update, Billing route, recovery dispatch, or route completion state is rendered.
+- A future confirmed branch is present but narrow: it displays the exact backend response action ID, decision, `human_decided` action state, and hash only after the response passes validation. Previous hash, approver, timestamp, and committed receipt record IDs remain unavailable until the backend/read model exposes them.
+
+## Beat 11 Component-Level Visual Gate
+
+Target mockup:
+
+- `mockups/imagegen/maya-12-beat-storyboard/11-audit-confirmation.png`
+
+Fresh evidence:
+
+- `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
+
+| Component | Score | Concrete deltas |
+|---|---:|---|
+| Audit-state banner | 4.8/5 | Strong shadcn alert makes the blocked state explicit, names the required `status === human_decided` and valid 64-hex hash gate, and avoids mockup success copy while current backend data is unavailable. |
+| Receipt/gap table | 4.7/5 | All required rows are present and table-led. Current values stay unavailable or contract-gap instead of inventing hashes, timestamps, approvers, receipt IDs, or action completion. |
+| Selected action context | 4.6/5 | Backend-selected action label, draft status, basis, and record IDs are visible but separated from committed receipt rows and clearly labeled as selected action citations only. |
+| Confirmed-state guard | 4.8/5 | Source invariants require the 64-hex regex, positive `human_decided` check, action ID validation, no local hash/date/random generation, and no `/api/approval` call from the audit panel. |
+| Controls and action safety | 4.8/5 | Audit route and return controls are disabled/unavailable; there is no Next Case, no copy button for unavailable values, and no external action state. |
+| Mockup fidelity under honest blocked state | 4.6/5 | The visual structure keeps the mockup's table-led audit workspace and sidebar/workbench continuity, but intentionally replaces success receipt styling with the current blocked contract state. |
+| Overall Beat 11 visual fidelity | 4.7/5 | Passable for the current backend truth: dense, shadcn-only, read-model wired, and fail-closed. Exact mockup success parity remains blocked on a real committed approval response plus richer audit receipt fields. |
+
+Gate result: self-assessed component-level minimum met (`>=4.5/5`) with focused invariants, typecheck, chained shadcn-only e2e, full-page screenshot evidence, and full `npm.cmd run verify` green.
+
+Fresh Beat 11 verification in this pass: RED invariants first failed on missing audit-response handoff and missing validation/blocking source guarantees; `npm.cmd run typecheck` passed; `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 40 tests); `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-11-audit-confirmation.png`; full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 597 tests, dependency-cruiser, release readiness).
 
 ## ETA Bands
 

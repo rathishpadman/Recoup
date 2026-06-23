@@ -21,6 +21,7 @@ import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { RecoveryDraftReview } from "./recovery-draft-review.tsx";
 import type {
+  ApprovalGateResponse,
   MayaActionInboxItem,
   MayaJourneyItem,
   MayaMultimodalDock,
@@ -49,6 +50,7 @@ export function DeductionCaseWorkspace({
   sourceTiles
 }: DeductionCaseWorkspaceProps) {
   const [queryDockOpen, setQueryDockOpen] = React.useState(false);
+  const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
   const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(selected.lineId) ?? -1;
@@ -59,6 +61,16 @@ export function DeductionCaseWorkspace({
   const amount = selectedWorklistItem?.amount ?? selected.draft.amount;
   const title = selectedWorklistItem?.scenarioLabel ?? selected.draft.actionLabel;
   const customer = selectedWorklistItem?.customerLabel ?? "Unavailable";
+  const selectedActionContext = {
+    actionLabel: selected.draft.actionLabel,
+    basis: selected.draft.basis,
+    recordIds: selected.evidencePack.recordIds,
+    statusLabel: selected.draft.statusLabel
+  };
+
+  React.useEffect(() => {
+    setApprovalResponse(undefined);
+  }, [selected.lineId]);
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-case-workspace">
@@ -281,6 +293,7 @@ export function DeductionCaseWorkspace({
               approvalActions={selected.approvalActions}
               draft={selected.draft}
               evidencePack={selected.evidencePack}
+              onApprovalResponse={setApprovalResponse}
               selectedLineId={selected.lineId}
               selectedWorklistItem={selectedWorklistItem}
             />
@@ -289,7 +302,11 @@ export function DeductionCaseWorkspace({
           )}
         </TabsContent>
         <TabsContent className="mt-3" value="audit">
-          {canShowBackendDetail ? <AuditConfirmationPanel journey={journey} response={undefined} /> : <DetailGapCard title="Audit unavailable" />}
+          {canShowBackendDetail ? (
+            <AuditConfirmationPanel response={approvalResponse} selectedActionContext={selectedActionContext} />
+          ) : (
+            <DetailGapCard title="Audit unavailable" />
+          )}
         </TabsContent>
       </Tabs>
       {canShowBackendDetail ? (
