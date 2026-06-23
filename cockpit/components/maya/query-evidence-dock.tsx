@@ -122,7 +122,9 @@ export function QueryEvidenceDock({
         onSnapshot: (nextSnapshot) => {
           publishForToken(activeStartToken, nextSnapshot);
         },
-        question: trimmedQuestion
+        question: trimmedQuestion,
+        recordIds,
+        selectedLineId: selectedLine
       });
       if (!isCurrentSession(activeStartToken)) {
         session.close();

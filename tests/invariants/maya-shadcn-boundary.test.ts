@@ -224,6 +224,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
     expect(queryDock).toContain("recordIds");
+    expect(queryDock).toContain("selectedLineId: selectedLine");
     expect(queryDock).toContain("onChange=");
     expect(queryDock).toContain("disabled={isRunning || question.trim().length === 0}");
     expect(citedAnswer).toContain("response.answer !== undefined");
@@ -270,8 +271,8 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(surface).toMatch(/\bmodel\.selected\.lineId\b/u);
     expect(surface).not.toContain("model.worklist[0]");
     expect(surface).toContain("<MayaEmptyState");
-    expect(sources).not.toContain("selectedLineId");
     expect(sources).not.toContain("setSelectedLineId");
+    expect(sources).not.toMatch(/useState[^;]*selectedLineId/su);
     expect(sources).not.toMatch(/onClick=\{[^}]*setSelectedLineId/su);
     expect(sources).not.toContain("Select ${");
   });

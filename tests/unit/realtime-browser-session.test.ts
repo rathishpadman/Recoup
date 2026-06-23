@@ -37,7 +37,9 @@ describe("Realtime browser session helper", () => {
       createPeerConnection: fakes.createPeerConnection,
       fetcher: fakes.fetcher,
       mediaDevices: fakes.mediaDevices,
-      question: "Why is Harbor blocked?"
+      question: "Why is Harbor blocked?",
+      recordIds: ["POD-SIGNED-7", "INV-913"],
+      selectedLineId: "S7-L2"
     });
 
     expect(result.getSnapshot().status).toBe("connected");
@@ -47,7 +49,13 @@ describe("Realtime browser session helper", () => {
       "peer:create"
     ]);
     expect(fakes.fetchCalls[0]?.url).toBe("/api/query/realtime-client-secret");
-    expect(fakes.fetchCalls[0]?.body).toBe(JSON.stringify({ question: "Why is Harbor blocked?" }));
+    expect(fakes.fetchCalls[0]?.body).toBe(
+      JSON.stringify({
+        question: "Why is Harbor blocked?",
+        recordIds: ["POD-SIGNED-7", "INV-913"],
+        selectedLineId: "S7-L2"
+      })
+    );
     expect(JSON.stringify(fakes.fetchCalls[0])).not.toContain("safetyIdentifier");
     expect(JSON.stringify(fakes.fetchCalls[0])).not.toContain("OPENAI_API_KEY");
     expect(fakes.mediaCalls).toEqual([{ audio: true }]);

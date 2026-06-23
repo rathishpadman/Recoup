@@ -26,9 +26,18 @@ export interface StartRealtimeBrowserSessionInput {
   mediaDevices?: Pick<MediaDevices, "getUserMedia">;
   onSnapshot?: (snapshot: RealtimeBrowserSessionSnapshot) => void;
   question: string;
+  recordIds: readonly string[];
   remoteAudio?: HTMLAudioElement | null;
+  selectedLineId: string;
   toolEndpoint?: string;
 }
+
+type LegacyRealtimeBrowserSessionInput = Omit<StartRealtimeBrowserSessionInput, "recordIds" | "selectedLineId"> & {
+  recordIds?: never;
+  selectedLineId?: never;
+};
+
+type RealtimeBrowserSessionInput = StartRealtimeBrowserSessionInput | LegacyRealtimeBrowserSessionInput;
 
 interface ClientSecretResult {
   auditPolicy?: {
@@ -53,9 +62,11 @@ export async function startRealtimeBrowserSession({
   mediaDevices = navigator.mediaDevices,
   onSnapshot,
   question,
+  recordIds,
   remoteAudio = null,
+  selectedLineId,
   toolEndpoint = realtimeToolUrl
-}: StartRealtimeBrowserSessionInput): Promise<RealtimeBrowserSession> {
+}: RealtimeBrowserSessionInput): Promise<RealtimeBrowserSession> {
   const trimmedQuestion = question.trim();
   let snapshot: RealtimeBrowserSessionSnapshot = {
     message: "Ask a scoped question before requesting a Realtime session.",
@@ -102,7 +113,11 @@ export async function startRealtimeBrowserSession({
   });
 
   const secretResponse = await fetcher("/api/query/realtime-client-secret", {
-    body: JSON.stringify({ question: trimmedQuestion }),
+    body: JSON.stringify({
+      question: trimmedQuestion,
+      ...(recordIds === undefined ? {} : { recordIds: [...recordIds] }),
+      ...(selectedLineId === undefined ? {} : { selectedLineId })
+    }),
     headers: { "content-type": "application/json" },
     method: "POST",
     signal: abortController.signal
