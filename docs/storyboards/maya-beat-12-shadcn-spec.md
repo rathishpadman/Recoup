@@ -6,7 +6,7 @@ Success check for this spec: a build worker can implement only the Beat 12 retur
 
 ## 1. Purpose And Approval Gate
 
-Beat 12 covers only the moment after Maya has completed or inspected the audit confirmation beat and returns to the deduction worklist. The screen should show that she is back in queue mode, can see a lightweight audit-recorded confirmation if the backend supplies one, and can choose the next recommended case herself.
+Beat 12 covers only the moment after Maya has completed or inspected the audit confirmation beat and returns to the deduction worklist. The screen should show that she is back in queue mode, can see a lightweight audit-recorded confirmation if the backend supplies one, and can choose another fetched case herself. It must not present a proven next-best-case recommendation unless the backend supplies `nextRecommendedLineId` plus record IDs/basis.
 
 This document is a spec, not implementation approval. Beat 12 implementation waits for explicit user approval and must not edit cockpit UI, route code, backend services, tests, or existing Beat 2 files during this spec pass.
 
@@ -44,7 +44,7 @@ Non-negotiable visual goals:
 - Worklist is the primary surface: compact header, dense KPI strip, compact source-readiness row, table-led queue, and footer-level pagination affordance if needed for visual parity.
 - The first viewport should read as return-to-worklist, not a selected-case detail page, marketing dashboard, or audit-only confirmation screen.
 - A lightweight audit confirmation may appear as a shadcn/sonner toast in the upper-right only when backed by refreshed audit or approval response state.
-- The next recommended case may be highlighted or selected in the table, but must not auto-open, auto-approve, auto-dispatch, or claim decision recomputation.
+- A next/local case may be highlighted or selected in the table only by user action or exact backend `nextRecommendedLineId`; it must not auto-open, auto-approve, auto-dispatch, or claim decision recomputation.
 - Mockup-only KPI values (`128`, `$2.74M`, `14.6 days`, `96%`), row amounts, priorities, ages, statuses, references, and timestamps are visual-only. Runtime truth comes from backend/read-model fields.
 - Source readiness stays compact and honest; do not show synthetic or blocked sources as live.
 - No legacy Maya custom/premium visual language, purple/blue gradients, decorative hero, nested-card surface, emoji icons, or fake agent badges.
@@ -68,14 +68,14 @@ Current route/data behavior:
 | UI element | Field/source | Allowed transformation | Missing/gap |
 |---|---|---|---|
 | Worklist rows | `ForensicsCockpitModel.worklist[]` | Render table rows from fetched row strings. Use local selection keyed by `worklist[].lineId`. | No priority, age, owner, last-updated, reference invoice, status history, or server pagination fields. |
-| Recommended next case | Existing selected/focused local row from fetched `worklist[]`; `worklist[].recommendedActionLabel` may support advisory text. | Highlight a fetched row as local focus only. If future backend adds a `nextRecommendedLineId`, use that field. | No backend next-best-case ranking, next-case basis, or next-case ID exists. Do not infer from array order, amount, routing, verdict, confidence, or mockup text. |
-| Audit toast | Future refreshed backend audit/approval response, if exposed; otherwise no factual toast. | Display a lightweight success toast only after a real response/read-model field says audit was recorded. | Current `ForensicsCockpitModel` has no audit hash/status field for Beat 12. Do not fabricate `Audit recorded`. |
+| Recommended next case | Existing selected/focused local row from fetched `worklist[]`; `worklist[].recommendedActionLabel` may support advisory routing text only. | Highlight a fetched row as local focus only after user selection. If future backend adds `nextRecommendedLineId`, use that field and verify the ID exists in fetched rows. | No backend next-best-case ranking, next-case basis, or next-case ID exists. Do not infer from array order, amount, routing, verdict, confidence, or mockup text. |
+| Audit toast | Matched approval/audit response state or refreshed backend audit/read-model state, if exposed; otherwise no factual toast. | Display a lightweight success toast only after a real response/read-model field says audit was recorded and matches the returned action/line context. | Current `ForensicsCockpitModel` has no audit hash/status field for Beat 12. Do not fabricate `Audit recorded`; toast cannot be the only durable audit indication. |
 | Updated row state | Future refreshed `worklist[]` status/audit fields, if added. | Render backend strings as `Badge` variants. | Current worklist rows do not expose approval/audit/completed/cleared status. Do not mark rows approved, verified, completed, or closed from local clicks. |
 | KPI strip | `ForensicsCockpitModel.kpiStrip[]` | Display backend label/value/support strings. | No stable KPI keys for cases in worklist, exposure, average age, audit coverage, or completion counts. Do not map mockup KPI meanings onto unrelated labels. |
 | Queue counts and tabs | Current `worklist[]` length may support local fetched-row count only if labelled as fetched rows. | Local tab/filter controls may filter already-fetched rows and show local result counts if clearly local. | No total queue size, recommended count, high-exposure count, in-review count, or backend tab totals. |
 | Potential exposure / dollars | `worklist[].amount`, `kpiStrip[]`, `recoveryTracker` backend strings only. | Display exact strings; align tabularly. | React must not parse, add, round, or recompute money. |
 | Source readiness row | `ConnectorReadinessCockpitModel.sourceTiles[]`, `connectors[]`, `lastRefreshedLabel` | Map `statusTone` only to semantic badge/tone variants. Display backend strings. | Do not infer live/synthetic status from missing credentials in React. |
-| Row status badges | `worklist[].routingLabel`, `verdictLabel`, `queueLabel`, `selected.draft.statusLabel` only where the row matches `selected.lineId`. | Render as advisory/queue state, not completion state. | No row-level `approved`, `new`, `in review`, `audit verified`, or completion state in current contract. |
+| Row status badges | `worklist[].routingLabel`, `verdictLabel`, `queueLabel`, `selected.draft.statusLabel` only where the row matches `selected.lineId`. | Render `routingLabel` and `recommendedActionLabel` as advisory routing/investigation labels, not proven next-best-case recommendations. | No row-level `approved`, `new`, `in review`, `audit verified`, or completion state in current contract. |
 | Footer pagination | Current `worklist[]` fetched array only. | Use local Button/Select controls if visual parity requires paging; disable unavailable actions. | No backend total results, cursor, page size, page count, or server pagination. |
 | Last updated | None in current Forensics cockpit contract. | Omit or render `Unavailable`/`Contract gap` only if a visible slot is required. | Do not use browser time, current date, build time, `lastRefreshedLabel`, or mockup timestamps as row update time. |
 
@@ -88,6 +88,13 @@ Explicit allowlist for Beat 12 runtime facts:
 - `ConnectorReadinessCockpitModel` may drive source readiness only.
 - Anything outside these fields must be omitted or displayed as `Unavailable` / `Contract gap`.
 
+Available-data-only layout for the current model:
+
+- KPI strip: render only `ForensicsCockpitModel.kpiStrip[]` label/value/support strings exactly as returned. Do not relabel them as worklist total, exposure total, average age, audit coverage, completed count, queue total, or recommended-next KPI unless future backend keys provide those meanings.
+- Worklist table columns for the current model: line ID, customer label, backend amount string, verdict label, routing label, queue label, evidence label, confidence label, and advisory recommended action label where present in `worklist[]`.
+- Mockup-only priority, reference, age, last updated, row audit status, audit coverage, queue totals, recommended-next KPI, status history, and server pagination totals must be omitted. If a fixed mockup slot remains visually necessary, render `Unavailable` or `Contract gap` with `Alert`/muted table copy.
+- `recommendedActionLabel` and `routingLabel` are advisory routing/read-model labels. They are not proof that the row is the next best case, externally actionable, approved, completed, or audit-confirmed unless future backend fields add cited record IDs and deterministic basis for that claim.
+
 ## 4. Interaction Contract
 
 Beat 12 must preserve the difference between local queue navigation and backend state mutation.
@@ -98,7 +105,7 @@ Required interactions:
 - Row hover: quiet table hover state only. No hover scale, rotate, or decorative motion.
 - Row focus: keyboard-visible focus state.
 - Row selection: selecting a row sets local client state keyed by `worklist[].lineId`.
-- Next case button: may move local focus to a fetched row only if labelled as local navigation. It must not claim backend recommendation, completion, or decision refresh without a backend field.
+- Next case button: may move local focus to a user-selected fetched row only if labelled as local navigation. Automatic next-row selection is banned unless the backend supplies `nextRecommendedLineId`. It must not claim backend recommendation, completion, or decision refresh without a backend field.
 - Recommended action hover/focus: tooltip may expose backend `recommendedActionLabel`, `evidenceLabel`, and `confidenceLabel`.
 - Audit toast close: dismisses UI notification only; it must not alter backend state or row status.
 - Filters/columns controls: may open local `DropdownMenu` controls for display affordances only. They must not imply server filters or persisted views unless implemented by backend contract.
@@ -114,6 +121,7 @@ Accessibility requirements:
 - The next-case control requires an accessible label that says what it does locally.
 - Icon-only controls require accessible labels and tooltips where meaning is not obvious.
 - Toast content must also be represented by accessible status semantics; critical audit state cannot exist only in a transient toast.
+- Any audit toast must correspond to matched approval/audit response state and a durable visible indication, such as a backend-backed receipt summary or unavailable-state message. A toast alone is not evidence that audit persistence exists.
 
 ## 5. Shadcn Component Map
 
@@ -131,7 +139,8 @@ Required Beat 12 primitives:
 | Row status, routing, evidence, queue, line IDs | `Badge` |
 | Recommended action explanation | `Tooltip` |
 | Filters, columns, row actions | `DropdownMenu` with `DropdownMenuGroup` |
-| Rows-per-page local control | `Select` if needed; no server semantics |
+| Rows-per-page local control | `Select` with `SelectGroup` if needed; no server semantics |
+| Local tabs/filters if retained | `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`; triggers must stay inside `TabsList` and counts must be local fetched-row counts only |
 | Local previous/next/page buttons | `Button` with disabled state |
 | Empty or unsupported contract state | `Empty` |
 | Backend gap or read-model mismatch | `Alert` |
@@ -152,6 +161,8 @@ Composition rules:
 - Use `Alert` for visible contract gaps or unavailable data.
 - Use `Empty` for no rows or unsupported filtered states.
 - Use `Separator` for structural dividers.
+- Use `DropdownMenuGroup` around `DropdownMenuItem` entries and `SelectGroup` around `SelectItem` entries.
+- If tabs remain in the implementation, map local queue views through `Tabs` > `TabsList` > `TabsTrigger` and paired `TabsContent`; never render `TabsTrigger` directly under `Tabs`.
 - Use semantic tokens and shadcn variants; no raw ad hoc status color ramps.
 - `Pagination` is not installed in this repo. Do not import it unless a later brief approves adding it.
 - Full `Card` anatomy is required wherever a card is used.
@@ -164,9 +175,9 @@ Allowed:
 
 - Local focus can move from the previously selected row to another fetched `worklist[]` row.
 - The UI can label a row as locally selected/focused.
-- The UI can show `Recommended action` from `worklist[].recommendedActionLabel`.
+- The UI can show `Recommended action` from `worklist[].recommendedActionLabel` only as advisory routing/read-model copy.
 - The UI can display pending human-action context from `actionInbox[]`.
-- A confirmation toast can be shown only when a real approval/audit response or refreshed read model exposes that state.
+- A confirmation toast can be shown only when a real approval/audit response or refreshed read model exposes that state and the page also has a durable visible audit indication or honest unavailable state.
 
 Banned:
 
@@ -174,6 +185,7 @@ Banned:
 - Do not increment completed, approved, audit coverage, or closed counts in React.
 - Do not mark a row `Approved`, `Audit verified`, `Closed`, `Completed`, or `Monitor & Close` unless backend data supplies that exact state.
 - Do not select the next case by sorting amount, confidence, routing, verdict, array order, customer name, or mockup values.
+- Do not automatically select any next row after return unless `ForensicsCockpitModel.nextRecommendedLineId` or equivalent backend field exists and matches a fetched row.
 - Do not persist optimistic business state if backend rejects or omits the audit/update.
 - Do not reuse `model.selected` evidence, draft, approval actions, or record IDs for a different clicked row.
 - Do not dispatch recovery, route Billing, approve, send correspondence, write ERP data, mutate source systems, or imply any external action without HITL approval.
@@ -210,7 +222,7 @@ No fake data:
 
 No autonomous action:
 
-- Allowed copy: `Return to worklist`, `Next case`, `Recommended action`, `Forensics recommendation`, `Advisory only`, `Open investigation`, `Review row`, `Audit status unavailable`.
+- Allowed copy: `Return to worklist`, `Next case`, `Local next row`, `Recommended action`, `Forensics recommendation`, `Advisory routing`, `Advisory only`, `Open investigation`, `Review row`, `Audit status unavailable`.
 - Banned copy: `auto recover`, `auto approve`, `send`, `execute`, `write back`, `agent will`, `recovered`, `cleared by AI`, `completed`, `closed`, or any phrasing that implies external action without human approval.
 - Any external action remains blocked behind HITL approval per I-7 and I-20.
 - ERP write-back remains prohibited per I-26; the billing loop remains draft-only per I-23.

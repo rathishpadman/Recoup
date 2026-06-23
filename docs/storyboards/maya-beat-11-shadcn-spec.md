@@ -36,11 +36,11 @@ Target anatomy:
 - Top breadcrumb/status row positions the user at the final decision/audit step; copy must use backend route/case labels where available.
 - Main title area reads as a case review / decision confirmation workspace, not a marketing success page.
 - Stepper shows the prior workflow steps as complete and the decision/audit step as current or complete, backed by journey/read-model status where available.
-- A single strong success `Alert` confirms that the human decision was recorded and an audit entry was committed.
+- A single strong success `Alert` confirms that the human decision was recorded and an audit entry was committed only when the response has `status === "human_decided"` and a valid 64-hex `auditEntryHash`.
 - Supporting alert copy must state that the audit hash is backend-generated after approval and cannot be known before commit.
 - The audit-evidence table is the center of the page. It should feel like an immutable receipt: label column, provenance/status chip where useful, backend-owned value column, and copy controls only for values that actually exist.
 - Required rows in the target design are audit entry hash, previous hash, decision/action reference, decision outcome, human approver, committed timestamp if backend-owned, cited record IDs, and action state.
-- Footer actions are quiet operational controls: view audit trail and return/next-case navigation. They must be disabled, absent, or renamed if no backend route/state supports them.
+- Footer actions are quiet operational controls: view audit trail and return navigation. They must be disabled, absent, or renamed if no exact backend route/state supports them.
 
 Visual standards:
 
@@ -65,8 +65,8 @@ Current relevant backend/client evidence:
 
 | UI element | Current source | Allowed transformation | Gap / required future contract |
 |---|---|---|---|
-| Success state | Successful `POST /api/approval` response with `status === "human_decided"` if present | Render as confirmed only after success. If status is omitted but response is otherwise valid, use cautious copy such as `Audit hash received`. | Preferred: require `status: "human_decided"` for Beat 11 final confirmation. |
-| Audit entry hash | `auditEntryHash` from approval response | Validate display shape as 64 lowercase hex; render exact backend string with copy affordance. | No preview. No shortening as the only visible value. |
+| Success state | Successful `POST /api/approval` response with `status === "human_decided"` and valid `auditEntryHash` | Render as confirmed only after both conditions pass. If `status` is omitted, not `human_decided`, or the hash is malformed, render `Audit confirmation unavailable` / blocked state instead of a confirmed receipt. | Beat 11 final confirmation requires exact `human_decided` state; do not downgrade to softer success copy. |
+| Audit entry hash | `auditEntryHash` from approval response | Validate display shape as 64 lowercase-or-uppercase hex with `/^[a-fA-F0-9]{64}$/`; render exact backend string with copy affordance. | No preview. No shortening as the only visible value. Normalize only for validation; do not rewrite backend casing in displayed/copied text. |
 | Previous hash | Backend audit entry or read-model receipt | Render exact backend string with copy affordance. | Current approval response does not expose `previousHash`; add to a future approval confirmation model or audit-read endpoint before showing this row as real. |
 | Sequence | Backend audit entry | Render backend number/string only. | Current approval response does not expose `sequence`. Optional but useful for audit trail navigation. |
 | Decision/action reference | `actionId` from selected action and approval response | Confirm response `actionId` matches selected action before rendering. | Do not generate a separate decision ID in React. If product wants a decision ID, backend must provide it. |
@@ -74,9 +74,15 @@ Current relevant backend/client evidence:
 | Human approver | Verified human principal from approval response or persisted receipt | Display backend principal or backend display label. | Current client response includes `approverId` from API but `ApprovalGateResponse` does not keep it; expose it explicitly if the Beat 11 build needs it. Do not use mockup names/emails. |
 | Timestamp | Durable audit/memory commit timestamp | Render backend-owned ISO/time label. | Current approval response does not expose timestamp. Do not use browser time as the commit time. |
 | Cited record IDs | Prepared approval audit record IDs or persisted receipt `recordIds` | Render as backend strings in `Badge` chips; allow copy; preserve all IDs. | Current immediate response does not expose record IDs; selected action/evidence props may be shown as action citations, but the committed audit receipt requires backend confirmation. |
-| Action state | Approval response status plus selected action status | Show `human_decided`/backend wording only. | No claim that downstream queue, ERP, Billing, or recovery state changed unless a backend field says so. |
-| View audit | `audit.read`, governance trace, memory receipt, or future audit route | Link only to an existing authorized route/endpoint. | Do not hard-code `/audit` or fake routing if no route exists. |
-| Next case | Worklist/read-model route state | Navigate only through existing worklist/case selection behavior. | Do not invent next-case assignment or queue order. |
+| Action state | Approval response `status` plus backend/read-model action state field if one exists | Show `human_decided` and any exact backend action-state string only. | No claim that downstream queue, ERP, Billing, recovery, dispatch, closure, or routing state changed unless a backend field says so. |
+| View audit | Exact existing audit/trace route or authorized read endpoint | Enable only when the implementation names and verifies the route/endpoint already exists. | If no exact route exists, omit the control or render a disabled `Audit route unavailable` action. Do not hard-code `/audit` or fake routing. |
+| Return navigation | Worklist/read-model route state | Use `Return to worklist` by default. | `Next case` is allowed only if backend supplies next-case state/ID; do not invent next-case assignment or queue order. |
+
+Full mockup receipt row requirement:
+
+- A complete Beat 11 receipt may render rows for `auditEntryHash`, `previousHash`, `sequence`, `committedAt`, `approverId`, committed `recordIds`, and action state only when those fields come from a backend/API/read-model contract.
+- A partial receipt may render only the subset returned by the backend/read model and must label omitted fields as unavailable only if the UI design needs to preserve the row.
+- Copy such as `Approved case state`, `Updated action state`, `Case closed`, `Route complete`, `Recovery sent`, or `ERP updated` is banned unless exact backend fields with those meanings exist. Approval recorded is not dispatch, closure, routing, ERP write-back, or recovery execution.
 
 Required future Beat 11 confirmation object if the implementation wants to match the mockup fully:
 
@@ -91,6 +97,7 @@ interface MayaApprovalConfirmation {
   sequence: number;
   committedAt: string;
   recordIds: string[];
+  actionState: "human_decided" | string;
 }
 ```
 
@@ -116,8 +123,10 @@ States:
 Controls:
 
 - Copy buttons may copy only values already returned by the backend/read model.
-- `View audit` should open an existing audit/trace/memory surface only if routed and authorized.
-- `Next case` should return to the worklist or select the next backend-provided worklist item only if the selection behavior already exists. Otherwise label it `Return to worklist`.
+- Copy buttons are icon buttons with lucide `Copy` using `data-icon`, an accessible name such as `Copy audit entry hash`, and a tooltip that names the exact value. Tooltip text must not imply that copying validates, dispatches, or completes the action.
+- After copying, use a short accessible confirmation such as `Audit entry hash copied`; failures should report `Copy unavailable`. Do not change row state or audit state after a copy action.
+- `View audit` should open an existing audit/trace/memory surface only if the exact route/endpoint is named and authorized in the implementation. Otherwise omit it or disable it with `Audit route unavailable`.
+- `Next case` degrades to `Return to worklist` unless the backend/read model supplies next-case state/ID.
 - Closing/dismissing the success alert must not delete the confirmation state or imply the audit entry can be undone.
 
 Accessibility:
@@ -125,6 +134,7 @@ Accessibility:
 - Confirmation alert uses `Alert` with a clear title and non-duplicative description.
 - Audit evidence uses a real `Table` with headers or accessible row labels.
 - Hash copy controls have accessible names such as `Copy audit entry hash`.
+- Tooltip content for hash/record controls must match the visible action and value class (`Copy previous hash`, `Copy committed record ID`) and must be reachable for keyboard and pointer users.
 - Long hashes remain keyboard-focusable and screen-reader readable.
 
 ## 5. Shadcn Component Map
@@ -148,9 +158,10 @@ Composition rules:
 - Use full `Card` anatomy for the receipt panel.
 - Use `Table` for the audit rows, not a div table.
 - Use `Badge` variants for backend status labels; no custom status spans.
+- Audit chips/status chips must be shadcn `Badge` plus `Tooltip` when explanation is needed. Do not import or recreate legacy `premium-components` audit-chip styling for Beat 11.
 - Use lucide icons through component conventions with `data-icon`.
 - Use `gap-*`, `size-*`, semantic tokens, and `cn()` where conditional classes are needed.
-- Do not use old `premium-components` audit chip copy as the primary Beat 11 design unless it is wrapped into shadcn primitives and remains backend-backed.
+- Do not use old `premium-components` audit chip copy or styling as the primary Beat 11 design; audit-chip behavior must be composed from installed shadcn primitives and backend-backed strings only.
 
 ## 6. Hash-Chain And Audit Evidence Constraints
 
