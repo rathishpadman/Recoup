@@ -14,6 +14,7 @@ function hasCitedAnswer(response: QueryEvidenceResponse | undefined): response i
 } {
   return (
     response !== undefined &&
+    response.status === "answered" &&
     response.answer !== undefined &&
     response.deterministicBasis !== undefined &&
     response.recordIds.length > 0

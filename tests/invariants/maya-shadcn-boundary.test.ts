@@ -186,27 +186,71 @@ describe("Maya shadcn cockpit boundary", () => {
     }
   });
 
-  it("keeps Phase 4 query and approval shells offline until later wiring phases", () => {
+  it("wires query narrative through the Realtime browser helper and cited answer guard", () => {
     const sources = readTree("cockpit/components/maya");
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const citedAnswer = readFileSync("cockpit/components/maya/cited-answer-card.tsx", "utf8");
 
     for (const forbidden of [
-      "fetch(",
-      "startRealtimeBrowserSession",
       "/api/query/realtime-tool",
       "/api/query/realtime-client-secret",
-      "/api/approval",
-      "method: \"POST\"",
-      "method: 'POST'"
+      "https://api.openai.com",
+      "OPENAI_API_KEY",
+      "RECOUP_COCKPIT_AUTH_TOKEN",
+      "x-recoup-human-token",
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "decimal.js",
+      "src/core",
+      "src/services"
     ]) {
-      expect(sources).not.toContain(forbidden);
+      expect(queryDock).not.toContain(forbidden);
     }
 
+    expect(sources).not.toContain("https://api.openai.com");
+    expect(queryDock).toContain("startRealtimeBrowserSession");
+    expect(queryDock).toContain("../../app/realtime-browser-session");
     expect(queryDock).toContain("<InputGroupTextarea");
-    expect(queryDock).toMatch(/\bdisabled\b/u);
-    expect(queryDock).toMatch(/\breadOnly\b/u);
-    expect(queryDock).not.toContain("useState");
-    expect(queryDock).not.toContain("onChange=");
+    expect(queryDock).toContain("aria-live");
+    expect(queryDock).toContain("CitedAnswerCard");
+    expect(queryDock).toContain("AgentTracePanel");
+    expect(queryDock).toContain('snapshot.status === "answered"');
+    expect(queryDock).toContain("snapshot.deterministicBasis");
+    expect(queryDock).toContain("recordIds");
+    expect(queryDock).toContain("onChange=");
+    expect(queryDock).toContain("disabled={isRunning || question.trim().length === 0}");
+    expect(citedAnswer).toContain("response.answer !== undefined");
+    expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
+    expect(citedAnswer).toContain("response.recordIds.length > 0");
+  });
+
+  it("wires approval dialog through supplied actions and the existing HITL API", () => {
+    const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
+    const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+
+    expect(approvalDialog).toContain("/api/approval");
+    expect(approvalDialog).toContain("fetch(");
+    expect(approvalDialog).toContain("actions.map");
+    expect(approvalDialog).toContain("actionId");
+    expect(approvalDialog).toContain("decision");
+    expect(approvalDialog).toContain("requiresReason");
+    expect(approvalDialog).toContain("reason.trim");
+    expect(approvalDialog).toContain("useId");
+    expect(approvalDialog).toContain("htmlFor={reasonTextareaId}");
+    expect(approvalDialog).toContain("id={reasonTextareaId}");
+    expect(approvalDialog).toContain("auditEntryHash");
+    expect(approvalDialog).toContain("onResponse");
+    expect(approvalDialog).toContain("disabled={submitting");
+    expect(approvalDialog).not.toContain("fallbackActions");
+    expect(approvalDialog).not.toContain("human:maya-lead");
+    expect(approvalDialog).not.toContain("human:david-lead");
+    expect(approvalDialog).not.toContain("human:cfo-lead");
+    expect(auditPanel).toContain("response?.auditEntryHash");
+    expect(auditPanel).toContain("response?.status");
+    expect(surface).toContain("setApprovalResponse");
+    expect(surface).toContain("approvalResponse === undefined ? {} : { approvalResponse }");
   });
 
   it("does not expose row switching while details are fixed to model.selected", () => {

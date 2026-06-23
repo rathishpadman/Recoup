@@ -9,11 +9,13 @@ import { MayaRunKpiStrip } from "./maya-run-kpi-strip.tsx";
 import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { SourceReadinessStrip } from "./source-readiness-strip.tsx";
-import type { MayaForensicsSurfaceProps } from "./types.ts";
+import type { ApprovalGateResponse, MayaForensicsSurfaceProps, QueryEvidenceResponse } from "./types.ts";
 
 export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
   const [queryOpen, setQueryOpen] = React.useState(false);
   const [approvalOpen, setApprovalOpen] = React.useState(false);
+  const [queryResponse, setQueryResponse] = React.useState<QueryEvidenceResponse | undefined>();
+  const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
   const selectedWorklistItem = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId));
 
   return (
@@ -40,6 +42,8 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             onOpenQuery={() => {
               setQueryOpen(true);
             }}
+            {...(approvalResponse === undefined ? {} : { approvalResponse })}
+            {...(queryResponse === undefined ? {} : { queryResponse })}
             selected={model.selected}
             selectedWorklistItem={selectedWorklistItem}
           />
@@ -48,6 +52,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       <QueryEvidenceDock
         dock={model.multimodalDock}
         onOpenChange={setQueryOpen}
+        onResponse={setQueryResponse}
         open={queryOpen}
         recordIds={model.selected.evidencePack.recordIds}
         selectedLine={model.selected.lineId}
@@ -57,6 +62,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         actionId={model.selected.draft.actionId}
         draft={model.selected.draft}
         onOpenChange={setApprovalOpen}
+        onResponse={setApprovalResponse}
         open={approvalOpen}
         recordIds={model.selected.evidencePack.recordIds}
       />

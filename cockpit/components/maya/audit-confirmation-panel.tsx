@@ -12,17 +12,29 @@ interface AuditConfirmationPanelProps {
 }
 
 export function AuditConfirmationPanel({ journey, response }: AuditConfirmationPanelProps) {
+  const responseStatus = response?.status;
+
   return (
     <Card data-testid="maya-audit-confirmation">
       <CardHeader>
         <CardTitle>Audit confirmation</CardTitle>
-        <CardDescription>{response?.auditEntryHash}</CardDescription>
+        <CardDescription>{response?.auditEntryHash ?? "Waiting for approval response"}</CardDescription>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <Alert>
-          <AlertTitle>{response === undefined ? "No approval decision submitted" : "Approval response"}</AlertTitle>
+          <AlertTitle>{response === undefined ? "No approval response recorded" : "Approval response"}</AlertTitle>
           <AlertDescription>
-            {response === undefined ? "This review route does not dispatch approval decisions." : response.auditEntryHash}
+            {response === undefined ? (
+              "The audit hash appears only after the human-gated approval API returns successfully."
+            ) : (
+              <div className="flex flex-col gap-2">
+                <span>{response.auditEntryHash}</span>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">{response.decision}</Badge>
+                  {responseStatus === undefined ? null : <Badge variant="outline">{responseStatus}</Badge>}
+                </div>
+              </div>
+            )}
           </AlertDescription>
         </Alert>
         <Separator />

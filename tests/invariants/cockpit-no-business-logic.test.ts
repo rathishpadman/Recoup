@@ -60,23 +60,44 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(cockpitAndMayaSources).not.toContain("runForensicsInvestigation");
   });
 
-  it("keeps Maya shadcn components prop-backed and offline for the Phase 4 shell", () => {
+  it("wires Maya shadcn query and approval through credential-gated browser/API boundaries", () => {
     const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
+    const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const realtimeHelper = readFileSync("cockpit/app/realtime-browser-session.ts", "utf8");
 
     expect(mayaSources).toContain("model: ForensicsCockpitModel");
     expect(mayaSources).toContain("connectors: ConnectorReadinessCockpitModel");
     expect(mayaSources).toContain("session: DemoSession");
     expect(mayaSources).toContain("recommendedActionLabel");
+    expect(queryDock).toContain("startRealtimeBrowserSession");
+    expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("question:");
+    expect(queryDock).toContain("CitedAnswerCard");
+    expect(queryDock).toContain("AgentTracePanel");
+    expect(queryDock).not.toContain("/api/query/realtime-tool");
+    expect(realtimeHelper).toContain('const realtimeToolUrl = "/api/query/realtime-tool"');
+    expect(approvalDialog).toContain("/api/approval");
+    expect(approvalDialog).toContain("fetch(");
+    expect(approvalDialog).toContain("actionId");
+    expect(approvalDialog).toContain("decision");
+    expect(approvalDialog).toContain("reason");
+    expect(approvalDialog).toContain("actions.map");
+    expect(approvalDialog).toContain("useId");
+    expect(approvalDialog).toContain("auditEntryHash");
+    expect(approvalDialog).toContain("onResponse");
+    expect(surface).toContain("setQueryResponse");
+    expect(surface).toContain("setApprovalResponse");
+    expect(surface).toContain("approvalResponse === undefined ? {} : { approvalResponse }");
     expect(mayaSources).not.toContain("cockpit-shell");
     expect(mayaSources).not.toContain("premium-components");
     expect(mayaSources).not.toContain("@phosphor-icons");
     expect(mayaSources).not.toContain("decimal.js");
     expect(mayaSources).not.toContain("src/core");
     expect(mayaSources).not.toContain("src/services");
-    expect(mayaSources).not.toContain("fetch(");
-    expect(mayaSources).not.toContain("/api/query/realtime-tool");
     expect(mayaSources).not.toContain("/api/query/realtime-client-secret");
-    expect(mayaSources).not.toContain("/api/approval");
+    expect(mayaSources).not.toContain("https://api.openai.com");
     expect(mayaSources).not.toContain("OPENAI_API_KEY");
     expect(mayaSources).not.toContain("RECOUP_COCKPIT_AUTH_TOKEN");
     expect(mayaSources).not.toContain("x-recoup-human-token");
