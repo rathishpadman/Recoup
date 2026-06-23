@@ -60,34 +60,19 @@ function sourceStatusIcon(statusTone: MayaSourceTile["statusTone"]) {
 }
 
 function displaySourceLabel(label: string): string {
-  const [primaryLabel] = label.split("/").map((part) => part.trim());
-
-  return primaryLabel === undefined || primaryLabel.length === 0 ? label : primaryLabel;
+  return label;
 }
 
-function displaySourceMode(modeLabel: string): string {
-  const normalizedMode = modeLabel.toLocaleLowerCase();
-  if (normalizedMode.includes("synthetic table")) {
-    return "Table";
+function displayStateLabel(stateLabel: string): string {
+  if (stateLabel === "Connected") {
+    return "OK";
   }
 
-  if (normalizedMode.includes("synthetic evidence")) {
-    return "Proof";
+  if (stateLabel === "Synthetic") {
+    return "Synth";
   }
 
-  if (normalizedMode.includes("synthetic")) {
-    return "Synthetic";
-  }
-
-  if (normalizedMode.includes("read-only")) {
-    return "Read";
-  }
-
-  if (normalizedMode.includes("live")) {
-    return "Live";
-  }
-
-  return modeLabel;
+  return stateLabel;
 }
 
 export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) {
@@ -100,23 +85,26 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
     );
   }
 
-  const visibleSources = connectors.sourceTiles.slice(0, 5);
-
   return (
     <Card className="rounded-lg py-0 shadow-none" size="sm">
       <CardContent
         aria-label={connectors.lastRefreshedLabel}
-        className="grid min-h-[58px] min-w-0 items-center gap-3 px-3 py-1 lg:grid-cols-[214px_minmax(0,1fr)]"
+        className="grid min-h-[62px] min-w-0 items-center gap-3 px-3 py-1 lg:grid-cols-[206px_minmax(0,1fr)]"
         data-testid="maya-source-readiness-strip"
       >
         <div className="grid min-w-0 gap-1">
-          <CardTitle>Source Readiness</CardTitle>
+          <div className="flex min-w-0 items-center gap-2">
+            <CardTitle>Source Readiness</CardTitle>
+            <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+              {connectors.sourceTiles.length.toString()} sources
+            </Badge>
+          </div>
           <CardDescription className="truncate text-xs leading-3">System connectivity and data freshness</CardDescription>
         </div>
-        <div className="grid min-w-0 gap-2 md:grid-cols-5">
-          {visibleSources.map((source) => {
+        <div className="grid min-w-0 grid-cols-7 gap-1.5">
+          {connectors.sourceTiles.map((source) => {
             const displayLabel = displaySourceLabel(source.label);
-            const displayMode = displaySourceMode(source.modeLabel);
+            const displayState = displayStateLabel(source.stateLabel);
 
             return (
               <Tooltip key={source.key}>
@@ -124,7 +112,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
                   <div
                     aria-label={`${source.label}: ${source.stateLabel}; ${source.modeLabel}`}
                     className={cn(
-                      "grid min-h-10 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-md border px-2 py-0.5",
+                      "grid min-h-11 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 overflow-hidden rounded-md border px-1.5 py-0.5",
                       sourceTileClass(source.statusTone)
                     )}
                     data-status-tone={source.statusTone}
@@ -134,32 +122,30 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
                       {source.mark}
                     </div>
                     <div className="grid min-w-0 gap-0.5">
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <p className="min-w-0 text-xs font-medium leading-4" title={source.label}>
+                      <div className="min-w-0">
+                        <p className="min-w-0 break-words text-[10px] font-semibold leading-3" title={source.label}>
                           {displayLabel}
                         </p>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <span className={cn("flex shrink-0 items-center", sourceStatusClass(source.statusTone))}>
                           {sourceStatusIcon(source.statusTone)}
                         </span>
-                      </div>
-                      <div className="flex min-w-0 items-center gap-1.5">
                         <Badge
-                          className="h-4 max-w-full shrink-0 justify-start px-1.5 text-[10px]"
+                          className="h-4 max-w-full shrink-0 justify-start px-1 text-[10px]"
                           data-testid="maya-source-status"
                           title={source.stateLabel}
                           variant={sourceToneVariant(source.statusTone)}
                         >
-                          <span>{source.stateLabel}</span>
+                          <span>{displayState}</span>
                         </Badge>
-                        <p className="min-w-0 text-[10px] leading-3 text-muted-foreground" title={source.modeLabel}>
-                          {displayMode}
-                        </p>
                       </div>
                     </div>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-72">
                   <span>{source.detail}</span>
+                  <span>{source.modeLabel}</span>
                   {source.proofItems.map((proof) => (
                     <span key={`${source.key}-${proof}`}>{proof}</span>
                   ))}

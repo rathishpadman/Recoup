@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   BookmarkIcon,
+  CircleHelpIcon,
   ListFilterIcon,
   MoreHorizontalIcon,
   SearchIcon,
@@ -23,6 +24,7 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
@@ -32,6 +34,8 @@ interface DeductionWorklistTableProps {
   onSelectItem: (item: MayaWorklistItem) => void;
   selectedLineId?: string;
 }
+
+const missingOperationalFields = ["Priority", "Work type", "Source", "Age", "Owner"] as const;
 
 export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: DeductionWorklistTableProps) {
   const [query, setQuery] = React.useState("");
@@ -63,9 +67,20 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <CardTitle>Deduction Worklist ({items.length})</CardTitle>
-            <CardDescription>Forensics read-model rows</CardDescription>
+            <CardDescription>Forensics read-model rows grouped by scenario and queue</CardDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge className="hidden h-8 gap-1.5 px-2 text-[11px] md:inline-flex" data-testid="maya-worklist-contract-gap" variant="outline">
+                  <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
+                  Read-model gaps
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-72">
+                <span>Not exposed on worklist rows: {missingOperationalFields.join(", ")}.</span>
+              </TooltipContent>
+            </Tooltip>
             <Button size="sm" type="button" variant="outline">
               <BookmarkIcon aria-hidden="true" data-icon="inline-start" />
               Save view
@@ -112,7 +127,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                 <DropdownMenuItem>Queue</DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>Additional fields require backend support</DropdownMenuItem>
+              <DropdownMenuItem disabled>{missingOperationalFields.join(", ")} require backend support</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -128,11 +143,11 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
-                  <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Case / Customer</TableHead>
-                  <TableHead className="w-[28%] whitespace-nowrap px-2 leading-4">Forensics state</TableHead>
+                  <TableHead className="w-[19%] whitespace-nowrap px-2 leading-4">Scenario / Customer</TableHead>
+                  <TableHead className="w-[27%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
                   <TableHead className="w-[13%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
                   <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
-                  <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue</TableHead>
+                  <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue / Route</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -156,6 +171,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                     <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate font-medium">{item.lineId}</p>
+                        <span className="text-[11px] leading-3 text-muted-foreground">{item.lineCount.toString()} lines</span>
                         <div className="flex min-w-0 items-center gap-1" aria-label={`${item.lineId} line IDs`}>
                           {item.lineIds.slice(0, 1).map((lineId) => (
                             <Badge className="h-5 px-1.5 text-[10px]" key={`${item.lineId}-${lineId}`} variant="outline">
@@ -222,15 +238,41 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId }: 
                             {item.routingLabel}
                           </span>
                         </div>
-                        <Button
-                          aria-label={`Open ${item.scenarioLabel} row actions`}
-                          className="shrink-0"
-                          size="icon-xs"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <MoreHorizontalIcon aria-hidden="true" data-icon="button-icon" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              aria-label={`Open ${item.scenarioLabel} row actions`}
+                              className="shrink-0"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                              }}
+                              size="icon-xs"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <MoreHorizontalIcon aria-hidden="true" data-icon="button-icon" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                            }}
+                          >
+                            <DropdownMenuLabel>Fetched row</DropdownMenuLabel>
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  onSelectItem(item);
+                                }}
+                              >
+                                Open work item
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled>Deep evidence switching requires backend support</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>

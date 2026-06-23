@@ -273,6 +273,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleText(page, "Select a deduction to open its work item");
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2HeaderFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2WorklistFit(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2RightPaneFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
@@ -636,6 +637,27 @@ async function assertNoClippedBeat2Chips(page: Page, label: string): Promise<voi
   );
 }
 
+async function assertBeat2HeaderFidelity(page: Page, label: string): Promise<void> {
+  const header = await page.evaluate(() => {
+    const runDateGap = document.querySelector<HTMLElement>('[data-testid="maya-run-date-contract-gap"]');
+    const refreshMetadata = document.querySelector<HTMLElement>('[data-testid="maya-refresh-metadata"]');
+    const refreshGap = document.querySelector<HTMLElement>('[data-testid="maya-refresh-contract-gap"]');
+    const disabledRefresh = refreshGap?.querySelector<HTMLButtonElement>("button:disabled");
+
+    return {
+      refreshGapText: refreshGap?.innerText.trim() ?? "",
+      refreshMetadataText: refreshMetadata?.innerText.trim() ?? "",
+      refreshUnavailableDisabled: disabledRefresh !== null && disabledRefresh !== undefined,
+      runDateText: runDateGap?.innerText.trim() ?? ""
+    };
+  });
+
+  assert(header.runDateText.includes("Run date not exposed"), `${label} header must not invent a calendar date`);
+  assert(header.refreshMetadataText.includes("Refreshed"), `${label} header must show source refresh metadata`);
+  assert(header.refreshGapText.includes("Refresh unavailable"), `${label} header must label missing backend refresh action`);
+  assert(header.refreshUnavailableDisabled, `${label} refresh control must not trigger a page reload as a fake refresh`);
+}
+
 async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> {
   const fit = await page.evaluate(() => {
     const table = document.querySelector<HTMLElement>('table');
@@ -654,6 +676,7 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
     const routingLabels = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-routing-label"]')].filter(
       (label) => label.offsetParent !== null
     );
+    const contractGap = document.querySelector<HTMLElement>('[data-testid="maya-worklist-contract-gap"]');
     const titleBackedCells =
       worklistTable === null
         ? []
@@ -687,6 +710,7 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
         }))
         .filter((cell) => cell.scrollWidth > cell.clientWidth + 1),
       fetchedRowsOnlyVisibleCount: fetchedRowsOnlyMentions.length,
+      hasContractGapAffordance: contractGap?.innerText.includes("Read-model gaps") ?? false,
       maxRowHeight: Math.max(...rows.map((row) => row.getBoundingClientRect().height)),
       routingLabelMetrics: routingLabels.map((routingLabel) => ({
         height: routingLabel.getBoundingClientRect().height,
@@ -705,6 +729,7 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
 
   assert(fit.tableWidth > 0, `${label} worklist table must render with a measurable width`);
   assert(fit.rowCount > 0, `${label} worklist rows must render from fetched data`);
+  assert(fit.hasContractGapAffordance, `${label} worklist must honestly mark missing mockup contract fields`);
   assert(
     fit.workItemHeaderLineCount === 1,
     `${label} Work item header must stay single-line: ${String(fit.workItemHeaderLineCount)} rendered lines`
@@ -747,13 +772,17 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
     const badges = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-sidebar-badge"]')].filter(
       (badge) => badge.offsetParent !== null
     );
+    const collapseControl = document.querySelector<HTMLElement>('[aria-label="Collapse Maya navigation"]');
+    const filterTrigger = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-filter-trigger"]');
     const footer = document.querySelector<HTMLElement>('[data-testid="maya-sidebar-footer"]');
     const disabledControls = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="maya-sidebar"] button:disabled')];
 
     return {
       badgeCount: badges.length,
       brandHeight: brand?.getBoundingClientRect().height ?? 0,
+      collapseVisible: collapseControl?.offsetParent !== null,
       disabledControlCount: disabledControls.length,
+      filterText: filterTrigger?.innerText.trim() ?? "",
       footerText: footer?.innerText.trim() ?? "",
       navCount: navItems.length,
       navMaxHeight: Math.max(...navItems.map((item) => item.getBoundingClientRect().height)),
@@ -763,6 +792,8 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
 
   assert(sidebar.sidebarHeight > 0, `${label} sidebar must render`);
   assert(sidebar.brandHeight >= 54, `${label} sidebar brand lockup must have stronger presence`);
+  assert(sidebar.collapseVisible, `${label} sidebar must expose a working collapse affordance`);
+  assert(sidebar.filterText.includes("Filters"), `${label} sidebar must expose the lower filter affordance`);
   assert(sidebar.navCount >= 9, `${label} sidebar must keep the full Maya nav map`);
   assert(sidebar.navMaxHeight <= 38, `${label} sidebar nav rhythm must stay dense`);
   assert(sidebar.badgeCount >= 2, `${label} sidebar must render backend-backed count badges`);
@@ -799,6 +830,7 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
     const statuses = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-status"]')].filter(
       (status) => status.offsetParent !== null
     );
+    const tileText = tiles.map((tile) => tile.innerText);
     const labels = tiles.flatMap((tile) =>
       [...tile.querySelectorAll<HTMLElement>("[title]")].filter((element) => element.offsetParent !== null)
     );
@@ -820,6 +852,7 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
         tone: status.closest<HTMLElement>('[data-testid="maya-source-tile"]')?.dataset.statusTone ?? ""
       })),
       tileCount: tiles.length,
+      tileText,
       toneClassNames: tiles.map((tile) => ({
         className: tile.className,
         tone: tile.dataset.statusTone ?? ""
@@ -832,7 +865,12 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
     sourceStrip.stripHeight <= 84,
     `${label} source readiness strip must stay slim: ${String(sourceStrip.stripHeight)}px`
   );
-  assert(sourceStrip.tileCount >= 5, `${label} source readiness strip must render backend source tiles`);
+  assert(sourceStrip.tileCount === 7, `${label} source readiness strip must render all backend source tiles`);
+  assert(
+    sourceStrip.tileText.some((text) => text.includes("Contract Repo")),
+    `${label} source readiness must not hide Contract Repo`
+  );
+  assert(sourceStrip.tileText.some((text) => text.includes("MCP")), `${label} source readiness must not hide MCP`);
   assert(sourceStrip.hasReady, `${label} source readiness must show backend ready/connected state`);
   assert(sourceStrip.hasSynthetic, `${label} source readiness must show backend synthetic state distinctly`);
   for (const sourceLabel of sourceStrip.labelMetrics) {

@@ -288,8 +288,9 @@ describe("Maya shadcn cockpit boundary", () => {
   it("keeps Beat 2 priority gaps inside the KPI strip instead of a separate alert", () => {
     const kpiStrip = readFileSync("cockpit/components/maya/maya-run-kpi-strip.tsx", "utf8");
 
-    expect(kpiStrip).toContain("Needs priority field");
+    expect(kpiStrip).toContain("Priority field not exposed");
     expect(kpiStrip).toContain("High-priority items");
+    expect(kpiStrip).toContain("Read-model gap");
     expect(kpiStrip).toContain("recoveryTracker");
     expect(kpiStrip).toContain("actionInbox");
     expect(kpiStrip).not.toContain("@/components/ui/alert");
@@ -300,12 +301,14 @@ describe("Maya shadcn cockpit boundary", () => {
   it("keeps source readiness as a slim backend-wired strip", () => {
     const sourceStrip = readFileSync("cockpit/components/maya/source-readiness-strip.tsx", "utf8");
 
-    expect(sourceStrip).toContain("connectors.sourceTiles.slice");
+    expect(sourceStrip).toContain("connectors.sourceTiles.map");
+    expect(sourceStrip).toContain("connectors.sourceTiles.length");
     expect(sourceStrip).toContain("connectors.lastRefreshedLabel");
     expect(sourceStrip).toContain("source.modeLabel");
     expect(sourceStrip).toContain("source.stateLabel");
+    expect(sourceStrip).toContain("source.label");
+    expect(sourceStrip).not.toContain("connectors.sourceTiles.slice");
     expect(sourceStrip).not.toContain("View all sources");
-    expect(sourceStrip).not.toContain("lg:grid-cols-7");
     expect(sourceStrip).not.toContain("connectors.connectors.map");
   });
 
@@ -319,9 +322,11 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(table).toContain("Save view");
     expect(table).toContain("More filters");
     expect(table).toContain("Recommended action");
-    expect(table).not.toContain("Priority");
-    expect(table).not.toContain("Owner");
-    expect(table).not.toContain("Age");
+    expect(table).toContain("Read-model gaps");
+    expect(table).toContain("missingOperationalFields");
+    expect(table).not.toMatch(/<TableHead[^>]*>\s*Priority/u);
+    expect(table).not.toMatch(/<TableHead[^>]*>\s*Owner/u);
+    expect(table).not.toMatch(/<TableHead[^>]*>\s*Age/u);
   });
 
   it("keeps lucide icons accessible or explicitly decorative", () => {

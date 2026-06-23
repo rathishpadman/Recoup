@@ -3,20 +3,30 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   BellIcon,
+  CalendarClockIcon,
   ChevronDownIcon,
   ClipboardListIcon,
   FileCheck2Icon,
   FileTextIcon,
+  FunnelIcon,
   GaugeIcon,
   InboxIcon,
   LayoutDashboardIcon,
   PieChartIcon,
   RefreshCwIcon,
-  SlidersHorizontalIcon,
-  UserRoundIcon
+  SlidersHorizontalIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -26,13 +36,16 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarRail,
   SidebarSeparator,
   SidebarTrigger
 } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { DemoSession } from "../../app/demo-auth.ts";
 
@@ -88,20 +101,27 @@ export function MayaWorkspaceShell({
   const firstName = session.displayName.split(" ")[0] ?? session.displayName;
 
   return (
-    <SidebarProvider defaultOpen style={{ "--sidebar-width": "15rem" } as CSSProperties}>
-      <Sidebar className="min-h-svh border-sidebar-border bg-sidebar" collapsible="none" data-testid="maya-sidebar">
-        <SidebarHeader className="gap-4 p-4 pb-4">
+    <SidebarProvider
+      defaultOpen
+      style={{ "--sidebar-width": "15rem", "--sidebar-width-icon": "4.5rem" } as CSSProperties}
+    >
+      <Sidebar className="min-h-svh border-sidebar-border bg-sidebar" collapsible="icon" data-testid="maya-sidebar">
+        <SidebarHeader className="gap-4 p-4 pb-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-3">
           <div className="flex min-h-16 min-w-0 items-center justify-between gap-2" data-testid="maya-sidebar-brand">
             <div className="flex min-w-0 items-center gap-2.5">
               <RecoupBrandMark />
-              <div className="grid min-w-0 gap-1.5">
+              <div className="grid min-w-0 gap-1.5 group-data-[collapsible=icon]:hidden">
                 <strong className="truncate text-[22px] font-semibold leading-none">Recoup</strong>
                 <span className="truncate text-xs font-medium text-sidebar-foreground/75">Deduction Forensics</span>
               </div>
             </div>
+            <SidebarTrigger
+              aria-label="Collapse Maya navigation"
+              className="hidden text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:inline-flex group-data-[collapsible=icon]:hidden"
+            />
           </div>
           <Button
-            className="h-9 justify-between border-sidebar-border bg-sidebar-accent/30 px-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="h-9 justify-between border-sidebar-border bg-sidebar-accent/30 px-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
             size="sm"
             type="button"
             variant="outline"
@@ -140,6 +160,11 @@ export function MayaWorkspaceShell({
                         <NavIcon aria-hidden="true" data-icon="sidebar-menu" />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
+                      {"isActive" in item ? (
+                        <SidebarMenuAction aria-label="Overview route options" showOnHover type="button">
+                          <ChevronDownIcon aria-hidden="true" data-icon="sidebar-menu-action" />
+                        </SidebarMenuAction>
+                      ) : null}
                       {count === undefined ? null : (
                         <SidebarMenuBadge
                           className="right-2 rounded-full bg-sidebar-accent px-2 text-sidebar-accent-foreground"
@@ -154,28 +179,58 @@ export function MayaWorkspaceShell({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+          <div className="mt-auto px-2 pb-3 group-data-[collapsible=icon]:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className="h-9 w-full justify-between border-sidebar-border bg-sidebar-accent/20 px-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  data-testid="maya-sidebar-filter-trigger"
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                    <FunnelIcon aria-hidden="true" data-icon="inline-start" />
+                    <span className="truncate">Filters</span>
+                  </span>
+                  <ChevronDownIcon aria-hidden="true" data-icon="inline-end" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right">
+                <DropdownMenuLabel>Fetched filter axes</DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem>Scenario</DropdownMenuItem>
+                  <DropdownMenuItem>Verdict</DropdownMenuItem>
+                  <DropdownMenuItem>Queue</DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled>Priority, owner, age require backend fields</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </SidebarContent>
         <SidebarSeparator />
-        <SidebarFooter className="mt-auto gap-3 p-4" data-testid="maya-sidebar-footer">
+        <SidebarFooter className="mt-auto gap-3 p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-3" data-testid="maya-sidebar-footer">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-full border border-sidebar-border bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground">
-              <UserRoundIcon aria-hidden="true" data-icon="sidebar-user" />
+              {session.displayName.charAt(0)}
             </div>
-            <div className="grid min-w-0 gap-0.5">
+            <div className="grid min-w-0 gap-0.5 group-data-[collapsible=icon]:hidden">
               <strong className="truncate text-sm">{session.displayName}</strong>
               <span className="truncate text-xs text-sidebar-foreground/70">Forensics analyst</span>
             </div>
           </div>
-          <div className="flex items-center justify-between gap-2 text-xs text-sidebar-foreground/65">
+          <div className="flex items-center justify-between gap-2 text-xs text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden">
             <span>Read-only demo access</span>
             <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
-              Active
+              {pendingActionCount.toString()} HITL
             </Badge>
           </div>
         </SidebarFooter>
+        <SidebarRail />
       </Sidebar>
       <SidebarInset className="min-h-svh bg-background text-foreground" data-testid="maya-shadcn-workbench">
-        <header className="flex min-w-0 items-center justify-between gap-4 px-5 py-6">
+        <header className="flex min-w-0 items-center justify-between gap-4 px-5 py-5">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="md:hidden" />
             <div className="grid min-w-0 gap-1">
@@ -183,8 +238,18 @@ export function MayaWorkspaceShell({
               <p className="truncate text-sm text-muted-foreground">Here's what's happening in Maya Forensics.</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <span className="inline-flex h-8 items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className="hidden h-8 items-center gap-2 rounded-md border bg-card px-2.5 text-xs text-muted-foreground xl:inline-flex"
+              data-testid="maya-run-date-contract-gap"
+            >
+              <CalendarClockIcon aria-hidden="true" data-icon="inline-start" />
+              Run date not exposed
+            </span>
+            <span
+              className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-2.5 text-sm text-muted-foreground"
+              data-testid="maya-refresh-metadata"
+            >
               <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
               {refreshedLabel}
             </span>
@@ -197,17 +262,19 @@ export function MayaWorkspaceShell({
                 {pendingActionCount}
               </span>
             </span>
-            <Button
-              onClick={() => {
-                window.location.reload();
-              }}
-              size="lg"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
-              Refresh
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex" data-testid="maya-refresh-contract-gap">
+                  <Button disabled size="lg" type="button" variant="outline">
+                    <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
+                    Refresh unavailable
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span>No backend refresh action is exposed by the read model.</span>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </header>
         <div className="flex min-w-0 flex-1 flex-col px-5 pb-5">{children}</div>
