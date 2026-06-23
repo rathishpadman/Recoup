@@ -50,12 +50,39 @@ describe("S5 cockpit business-logic boundary", () => {
       "cockpit/app/credit/command/page.tsx",
       "cockpit/app/cfo/page.tsx"
     ]);
+    const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
+    const cockpitAndMayaSources = `${cockpitSources}\n${mayaSources}`;
 
-    expect(cockpitSources).not.toContain("decimal.js");
-    expect(cockpitSources).not.toContain("../../src/services");
-    expect(cockpitSources).not.toContain("src/core");
-    expect(cockpitSources).not.toContain("evaluateRule");
-    expect(cockpitSources).not.toContain("runForensicsInvestigation");
+    expect(cockpitAndMayaSources).not.toContain("decimal.js");
+    expect(cockpitAndMayaSources).not.toContain("../../src/services");
+    expect(cockpitAndMayaSources).not.toContain("src/core");
+    expect(cockpitAndMayaSources).not.toContain("evaluateRule");
+    expect(cockpitAndMayaSources).not.toContain("runForensicsInvestigation");
+  });
+
+  it("keeps Maya shadcn components prop-backed and offline for the Phase 4 shell", () => {
+    const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
+
+    expect(mayaSources).toContain("model: ForensicsCockpitModel");
+    expect(mayaSources).toContain("connectors: ConnectorReadinessCockpitModel");
+    expect(mayaSources).toContain("session: DemoSession");
+    expect(mayaSources).toContain("recommendedActionLabel");
+    expect(mayaSources).not.toContain("cockpit-shell");
+    expect(mayaSources).not.toContain("premium-components");
+    expect(mayaSources).not.toContain("@phosphor-icons");
+    expect(mayaSources).not.toContain("decimal.js");
+    expect(mayaSources).not.toContain("src/core");
+    expect(mayaSources).not.toContain("src/services");
+    expect(mayaSources).not.toContain("fetch(");
+    expect(mayaSources).not.toContain("/api/query/realtime-tool");
+    expect(mayaSources).not.toContain("/api/query/realtime-client-secret");
+    expect(mayaSources).not.toContain("/api/approval");
+    expect(mayaSources).not.toContain("OPENAI_API_KEY");
+    expect(mayaSources).not.toContain("RECOUP_COCKPIT_AUTH_TOKEN");
+    expect(mayaSources).not.toContain("x-recoup-human-token");
+    expect(mayaSources).not.toContain("localStorage");
+    expect(mayaSources).not.toContain("sessionStorage");
+    expect(mayaSources).not.toContain("indexedDB");
   });
 
   it("keeps David command-centre rows in the canonical credit read model", () => {
