@@ -118,6 +118,9 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.worklist.every((item) => item.lineCount >= 1)).toBe(true);
     expect(model.worklist.every((item) => Number.parseInt(item.evidenceScoreLabel, 10) > 0)).toBe(true);
     expect(model.worklist.every((item) => item.queueLabel.length > 0)).toBe(true);
+    expect(model.worklist.every((item) => item.recommendedActionLabel.trim().length > 0)).toBe(true);
+    expect(model.worklist.every((item) => item.recommendedActionLabel === item.routingLabel)).toBe(true);
+    expect(model.worklist.every((item) => item.recommendedActionLabel !== item.routing)).toBe(true);
     expect(model.kpiStrip).toContainEqual({
       label: "Evidence sources",
       value: "4",

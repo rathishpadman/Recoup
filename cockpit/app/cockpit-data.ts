@@ -473,6 +473,7 @@ export interface WorklistItem {
   customerLabel: string;
   routing?: string;
   routingLabel: string;
+  recommendedActionLabel: string;
   scenarioId?: string;
   scenarioLabel: string;
   scenarioType: string;

@@ -180,6 +180,7 @@ export interface WorklistItem {
   verdictLabel: string;
   routing: string;
   routingLabel: string;
+  recommendedActionLabel: string;
   confidence: string;
   confidenceLabel: string;
   evidenceScoreLabel: string;
@@ -1273,6 +1274,7 @@ function buildScenarioWorklist(
       verdictLabel: verdictLabel(firstDecision.verdict),
       routing: firstDecision.routing,
       routingLabel: routingLabel(firstDecision.routing),
+      recommendedActionLabel: routingLabel(firstDecision.routing),
       confidence: confidenceDisplayValue(firstDecision.confidence),
       confidenceLabel: confidenceLabel(firstDecision.confidence),
       evidenceScoreLabel: String(recordIds.length),
