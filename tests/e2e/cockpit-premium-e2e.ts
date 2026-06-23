@@ -42,7 +42,9 @@ interface ForensicsE2EModel {
   selected: {
     lineId: string;
     approvalActions: Array<{
+      decision: "approve" | "modify" | "reject";
       label: string;
+      requiresReason: boolean;
     }>;
     draft: {
       actionId: string;
@@ -192,8 +194,9 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaBeat6QueryStartScreenshot(browser);
       await captureMayaBeat7AgentTraceScreenshot(browser);
       await captureMayaBeat8CitedAnswerScreenshot(browser);
+      await captureMayaBeat9DraftReviewScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 8 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png`
+        `Maya Beat 1 through Beat 9 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png`
       );
       return;
     }
@@ -903,6 +906,47 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
   }
 }
 
+async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const context = await newRoleContext(browser, "maya", 1600, 1024);
+  const page = await context.newPage();
+  const forbiddenRequests: string[] = [];
+
+  page.on("request", (request) => {
+    if (isForbiddenBeat9ExternalActionRequest(request)) {
+      forbiddenRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
+    await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 9 pre-open selected row");
+    await page.getByTestId("maya-local-row-action-open").click();
+    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.getByRole("tab", { name: /Draft/u }).click();
+    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
+    });
+    await assertLocatorInsideViewport(page, '[data-testid="maya-draft-command-bar"]', "Maya Beat 9 command bar");
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-09-draft-review.png` });
+
+    await page.getByRole("button", { name: /^Request changes$/u }).click();
+    await expectVisibleText(page, "Request changes prepared");
+    await page.getByRole("button", { name: /^Reject draft$/u }).click();
+    await expectVisibleText(page, "Reject draft prepared");
+    await page.getByRole("button", { name: /^Open approval$/u }).click();
+    await expectVisibleText(page, "Open approval prepared");
+    assert(forbiddenRequests.length === 0, `Beat 9 commands must not call forbidden routes: ${forbiddenRequests.join(", ")}`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise<void> {
   await captureMayaLoginBeatScreenshot(browser);
 
@@ -1059,6 +1103,36 @@ async function expectVisibleLocator(page: Page, selector: string, label: string)
   }
 
   throw new Error(`E2E assertion failed: ${label} was not visible`);
+}
+
+async function assertLocatorInsideViewport(page: Page, selector: string, label: string): Promise<void> {
+  const result = await page.evaluate((targetSelector) => {
+    const element = document.querySelector<HTMLElement>(targetSelector);
+    const rect = element?.getBoundingClientRect();
+
+    return {
+      bottom: rect?.bottom ?? 0,
+      exists: element !== null,
+      height: rect?.height ?? 0,
+      left: rect?.left ?? 0,
+      right: rect?.right ?? 0,
+      top: rect?.top ?? 0,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      width: rect?.width ?? 0
+    };
+  }, selector);
+  const epsilon = 1;
+
+  assert(result.exists, `${label} was not rendered`);
+  assert(result.width > 0 && result.height > 0, `${label} did not have visible dimensions`);
+  assert(
+    result.top >= -epsilon &&
+      result.left >= -epsilon &&
+      result.bottom <= result.viewportHeight + epsilon &&
+      result.right <= result.viewportWidth + epsilon,
+    `${label} must be fully inside the first viewport before screenshot capture; rect=${JSON.stringify(result)}`
+  );
 }
 
 async function expectVisibleText(page: Page, text: string): Promise<void> {
@@ -1563,12 +1637,102 @@ async function assertBeat4DraftTabFidelity(
     !result.text.includes(model.selected.draft.actionId),
     "Beat 4 Draft tab must not expose raw backend action IDs as business copy"
   );
-  assert(result.disabledButtonLabels.length === 0, "Beat 4 Draft tab must not render disabled draft command controls");
   assert(
-    !/\b(?:approve draft|preview draft|route for approval|send draft|modify|reject)\b/iu.test(result.buttonLabels.join(" ")),
-    "Beat 4 Draft tab must not expose command-like draft buttons"
+    !/\b(?:approve draft|preview draft|route for approval|send draft|modify)\b/iu.test(result.buttonLabels.join(" ")),
+    "Beat 4 Draft tab must not expose raw approval-submit or legacy command copy"
   );
   assert(forbiddenRequests.length === 0, `Beat 4 Draft tab must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+}
+
+async function assertBeat9DraftReviewFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  selectedRow: ForensicsE2EModel["worklist"][number],
+  forbiddenRequests: string[]
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 9 draft review");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-hitl-warning"]', "Maya Beat 9 HITL warning");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-packet-panel"]', "Maya Beat 9 packet panel");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-evidence-table"]', "Maya Beat 9 evidence table");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-context-rail"]', "Maya Beat 9 case context rail");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-command-bar"]', "Maya Beat 9 command bar");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-readonly-amount"]', "Maya Beat 9 read-only amount");
+  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
+  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  const hasModify = model.selected.approvalActions.some((action) => action.decision === "modify");
+  const hasReject = model.selected.approvalActions.some((action) => action.decision === "reject");
+
+  const result = await page.evaluate(() => {
+    const draft = document.querySelector<HTMLElement>('[data-testid="maya-recovery-draft-review"]');
+    const amount = document.querySelector<HTMLElement>('[data-testid="maya-draft-readonly-amount"]');
+    const evidenceRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-draft-evidence-row"]')];
+    const headers = [...(draft?.querySelectorAll<HTMLElement>("th") ?? [])].map((header) => header.innerText.trim());
+    const buttons = [...(draft?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => ({
+      disabled: button.disabled,
+      label: button.innerText.trim() || button.getAttribute("aria-label") || ""
+    }));
+    const inputs = draft?.querySelectorAll("input, textarea, select, [contenteditable='true']") ?? [];
+
+    return {
+      amountReadonly: amount?.getAttribute("aria-readonly") ?? "",
+      buttonLabels: buttons.map((button) => button.label),
+      disabledButtonLabels: buttons.filter((button) => button.disabled).map((button) => button.label),
+      evidenceRowCount: evidenceRows.length,
+      headers,
+      inputCount: inputs.length,
+      text: draft?.innerText ?? ""
+    };
+  });
+
+  assert(result.text.includes("Recovery Draft Review"), "Beat 9 must show the draft-review title");
+  assert(result.text.includes("Human approval required"), "Beat 9 must show the human-approval gate");
+  assert(result.text.includes("Draft only"), "Beat 9 must show a draft-only packet state");
+  assert(result.text.includes("No external action before human approval"), "Beat 9 must keep HITL posture visible");
+  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 9 must render the backend draft label");
+  assert(result.text.includes(model.selected.draft.statusLabel), "Beat 9 must render the backend draft status");
+  assert(result.text.includes(model.selected.draft.amount), "Beat 9 must render the backend draft amount");
+  assert(result.text.includes(model.selected.draft.basis), "Beat 9 must render the backend draft basis");
+  assert(result.text.includes(recordId), "Beat 9 must render backend record IDs");
+  assert(result.text.includes("Draft gate"), "Beat 9 context rail must show the backend draft gate section");
+  assert(result.text.includes("Human decisions"), "Beat 9 context rail must show available human decisions");
+  assert(result.text.includes("Evidence records"), "Beat 9 context rail must show backend evidence record IDs");
+  assert(result.text.includes("Backend gaps"), "Beat 9 context rail must call out backend contract gaps");
+  assert(result.text.includes("Packet display ID not exposed"), "Beat 9 context rail must avoid fake packet IDs");
+  assert(result.text.includes("Case account and currency not exposed"), "Beat 9 context rail must avoid fake account/currency facts");
+  assert(result.text.includes("Approval owner and timestamps not exposed"), "Beat 9 context rail must avoid fake owner/timestamp facts");
+  assert(result.text.includes("Audit hash waits for human decision"), "Beat 9 context rail must avoid fake audit hashes");
+  assert(result.text.includes(selectedRow.customerLabel), "Beat 9 context rail must use the selected worklist customer label");
+  assert(result.text.includes(selectedRow.scenarioLabel), "Beat 9 context rail must use the selected worklist scenario label");
+  assert(result.text.includes(evidenceDocument.citationId), "Beat 9 evidence table must show backend citation IDs");
+  assert(result.text.includes(evidenceDocument.documentId), "Beat 9 evidence table must show backend document IDs");
+  assert(result.text.includes(evidenceDocument.documentType), "Beat 9 evidence table must show backend document types");
+  assert(result.text.includes(evidenceDocument.description), "Beat 9 evidence table must show backend descriptions");
+  assert(result.text.includes(evidenceDocument.sourceLabel), "Beat 9 evidence table must show backend source labels");
+  assert(result.text.includes(evidenceDocument.verifiedLabel), "Beat 9 evidence table must show backend verification labels");
+  assert(result.evidenceRowCount === model.selected.evidencePack.documents.length, "Beat 9 must render one row per evidence document");
+  assert(result.headers.includes("Evidence item"), "Beat 9 evidence table must be table-led");
+  assert(!result.headers.includes("Date"), "Beat 9 evidence table must not invent dates");
+  assert(!result.headers.includes("File / Reference"), "Beat 9 evidence table must not invent file references");
+  assert(!result.headers.includes("Included"), "Beat 9 evidence table must not invent included flags");
+  assert(result.amountReadonly === "true", "Beat 9 amount must be marked read-only");
+  assert(result.inputCount === 0, "Beat 9 must not render editable draft fields");
+  if (hasModify) {
+    assert(result.buttonLabels.includes("Request changes"), "Beat 9 modify action must surface as Request changes");
+  }
+  if (hasReject) {
+    assert(result.buttonLabels.includes("Reject draft"), "Beat 9 reject action must surface as Reject draft");
+  }
+  assert(result.buttonLabels.includes("Open approval"), "Beat 9 must expose an Open approval affordance");
+  assert(result.disabledButtonLabels.length === 0, "Beat 9 available command buttons must be keyboard reachable");
+  assert(!result.text.includes("Action ID"), "Beat 9 must not expose raw Action ID as primary copy");
+  assert(!result.text.includes("Action type"), "Beat 9 must not expose raw Action type as primary copy");
+  assert(!result.text.includes("draft-rebill"), "Beat 9 must not expose raw draft-rebill metadata");
+  assert(!result.text.includes(model.selected.draft.actionId), "Beat 9 must not show raw action IDs as packet IDs");
+  assert(
+    !/\b(?:Sent|Recovered|ERP written|Portal submitted|Human approved|Approved|Posted|Cleared by AI)\b/u.test(result.text),
+    "Beat 9 must not render post-approval or external-action state copy"
+  );
+  assert(forbiddenRequests.length === 0, `Beat 9 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
 async function assertBeat5EvidenceDossierFidelity(
@@ -2024,6 +2188,24 @@ function isForbiddenBeat8ExternalActionRequest(request: PlaywrightRequest): bool
     segments.includes("approval") ||
     segments.includes("sap") ||
     (segments.includes("query") && !isRealtimeClientSecret && !isRealtimeTool)
+  );
+}
+
+function isForbiddenBeat9ExternalActionRequest(request: PlaywrightRequest): boolean {
+  const url = new URL(request.url());
+  const pathname = url.pathname.toLowerCase();
+  const segments = pathname.split("/").filter(Boolean);
+
+  return (
+    pathname === "/run" ||
+    pathname.startsWith("/run/") ||
+    segments.includes("approval") ||
+    segments.includes("query") ||
+    segments.includes("realtime") ||
+    segments.includes("sap") ||
+    segments.includes("erp") ||
+    segments.includes("billing") ||
+    segments.includes("portal")
   );
 }
 

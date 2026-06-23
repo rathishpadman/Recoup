@@ -276,7 +276,14 @@ export function DeductionCaseWorkspace({
         </TabsContent>
         <TabsContent className="mt-3" value="draft">
           {canShowBackendDetail ? (
-            <RecoveryDraftReview actionInbox={actionInbox} draft={selected.draft} recordIds={selected.evidencePack.recordIds} />
+            <RecoveryDraftReview
+              actionInbox={actionInbox}
+              approvalActions={selected.approvalActions}
+              draft={selected.draft}
+              evidencePack={selected.evidencePack}
+              selectedLineId={selected.lineId}
+              selectedWorklistItem={selectedWorklistItem}
+            />
           ) : (
             <DetailGapCard title="Draft unavailable" />
           )}

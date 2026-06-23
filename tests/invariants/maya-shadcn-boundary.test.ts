@@ -475,8 +475,106 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).not.toContain("draft.actionType");
     expect(recoveryDraftReview).not.toContain("item.actionType");
     expect(recoveryDraftReview).not.toMatch(/<TableHead>\s*Action\s*<\/TableHead>/u);
-    expect(recoveryDraftReview).not.toMatch(/\b(?:preview draft|route for approval|approve draft|send draft)\b/iu);
-    expect(recoveryDraftReview).not.toMatch(/<button\b|<Button\b/u);
+    expect(recoveryDraftReview).not.toMatch(/\b(?:preview draft|route for approval|approve draft|send draft|submit approval)\b/iu);
+  });
+
+  it("keeps Beat 9 draft review pre-approval, prop-driven, and local-command only", () => {
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
+
+    expect(workspace).toContain("approvalActions={selected.approvalActions}");
+    expect(workspace).toContain("evidencePack={selected.evidencePack}");
+    expect(workspace).toContain("selectedLineId={selected.lineId}");
+    expect(workspace).toContain("selectedWorklistItem={selectedWorklistItem}");
+    expect(workspace).not.toContain("/api/approval");
+    expect(workspace).not.toContain("fetch(");
+
+    for (const requiredProp of [
+      "approvalActions: MayaApprovalAction[]",
+      "evidencePack: MayaEvidencePack",
+      "selectedLineId: string",
+      "selectedWorklistItem: MayaWorklistItem | undefined"
+    ]) {
+      expect(recoveryDraftReview).toContain(requiredProp);
+    }
+
+    for (const requiredHook of [
+      'data-testid="maya-recovery-draft-review"',
+      'data-testid="maya-draft-hitl-warning"',
+      'data-testid="maya-draft-packet-panel"',
+      'data-testid="maya-draft-evidence-table"',
+      'data-testid="maya-draft-evidence-row"',
+      'data-testid="maya-draft-context-rail"',
+      'data-testid="maya-draft-rail-gate"',
+      'data-testid="maya-draft-rail-record-ids"',
+      'data-testid="maya-draft-rail-human-decisions"',
+      'data-testid="maya-draft-rail-backend-gaps"',
+      'data-testid="maya-draft-readonly-amount"',
+      'data-testid="maya-draft-command-bar"',
+      'data-testid="maya-draft-command-intent"'
+    ]) {
+      expect(recoveryDraftReview).toContain(requiredHook);
+    }
+
+    for (const requiredPropRead of [
+      "draft.actionLabel",
+      "draft.statusLabel",
+      "draft.amount",
+      "draft.basis",
+      "selectedLineId",
+      "selectedWorklistItem.customerLabel",
+      "selectedWorklistItem.scenarioLabel",
+      "selectedWorklistItem.amount",
+      "selectedWorklistItem.queueLabel",
+      "selectedWorklistItem.routingLabel",
+      "evidencePack.recordIds",
+      "approvalActions.map",
+      "humanDecisionLabel(action.decision)",
+      "action.requiresReason",
+      "evidencePack.documents.map",
+      "document.citationId",
+      "document.documentId",
+      "document.documentType",
+      "document.description",
+      "document.relevance",
+      "document.sourceLabel",
+      "document.summary",
+      "document.verifiedLabel",
+      "actionInbox.map",
+      "item.actionLabel",
+      "item.lineId",
+      "item.amount",
+      "item.statusLabel",
+      "approvalActions.find((action) => action.decision === \"modify\")",
+      "approvalActions.find((action) => action.decision === \"reject\")",
+      "setCommandIntent"
+    ]) {
+      expect(recoveryDraftReview).toContain(requiredPropRead);
+    }
+
+    expect(recoveryDraftReview).toContain('aria-readonly="true"');
+    expect(recoveryDraftReview).toContain("Backend amount, read-only");
+    expect(recoveryDraftReview).toContain("Request changes");
+    expect(recoveryDraftReview).toContain("Reject draft");
+    expect(recoveryDraftReview).toContain("Open approval");
+    expect(recoveryDraftReview).toContain("sticky bottom-0");
+    expect(recoveryDraftReview).toContain("pb-24");
+    expect(recoveryDraftReview).toContain("Packet display ID not exposed");
+    expect(recoveryDraftReview).toContain("Case account and currency not exposed");
+    expect(recoveryDraftReview).toContain("Approval owner and timestamps not exposed");
+    expect(recoveryDraftReview).toContain("Audit hash waits for human decision");
+    expect(recoveryDraftReview).toContain("type=\"button\"");
+    expect(recoveryDraftReview).toContain("<TabsList");
+    expect(recoveryDraftReview).toContain("<TabsTrigger");
+    expect(recoveryDraftReview).toContain("<Table");
+    expect(recoveryDraftReview).toContain("<Alert");
+    expect(recoveryDraftReview).toContain("<Button");
+    expect(recoveryDraftReview).not.toContain("/api/approval");
+    expect(recoveryDraftReview).not.toContain("fetch(");
+    expect(recoveryDraftReview).not.toMatch(/<input\b|<textarea\b|contentEditable|type="number"/iu);
+    expect(recoveryDraftReview).not.toMatch(/\b(?:new Date|Date\.now|toLocaleDateString|toLocaleTimeString)\b/u);
+    expect(recoveryDraftReview).not.toMatch(/\b(?:DP-24-08971-01|24-08971|XXXX-XX34|Sterling Equipment Finance|Crestline Auto Target|contract_XXXXX34|pmt_history_XXXXX34)\b/u);
+    expect(recoveryDraftReview).not.toMatch(/\b(?:Sent|Recovered|ERP written|Portal submitted|Human approved|Approved|Posted|Cleared by AI)\b/u);
   });
 
   it("keeps Beat 5 evidence dossier prop-driven, review-state honest, and provenance-safe", () => {
