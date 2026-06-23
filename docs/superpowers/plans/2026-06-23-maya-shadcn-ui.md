@@ -49,6 +49,8 @@ The 12 ImageGen frames should act as state and hierarchy references, not as twel
 - Maya has nested route authorization support because `isDemoRouteAllowed("/forensics/shadcn", ["/forensics", "/run"])` returns true by prefix matching.
 - Existing data loaders live in `cockpit/app/cockpit-data.ts`: `fetchForensicsModel()` and `fetchConnectorReadinessModel()`.
 - Existing credential-gated interaction routes are `cockpit/app/api/query/realtime-tool/route.ts` and `cockpit/app/api/approval/route.ts`.
+- Browser testing is already enabled. `package.json` exposes `npm run test:e2e`, which runs `tsx tests/e2e/cockpit-premium-e2e.ts`.
+- The existing E2E harness already launches Playwright Chromium, starts or reuses the API and cockpit dev server, logs in as Maya/David/CFO, checks role routing, asserts premium surfaces, and captures responsive screenshots in `output/playwright/e2e`.
 
 ## Non-Negotiable Boundaries
 
@@ -411,10 +413,12 @@ git add cockpit/components/maya tests/invariants/cockpit-no-business-logic.test.
 git commit -m "Wire Maya shadcn query and approval states"
 ```
 
-## Phase 7 - Responsive Visual QA On Review Route
+## Phase 7 - Extend Existing Browser E2E On Review Route
 
-- [ ] Add `/forensics/shadcn` as a Maya screenshot target in `tests/e2e/cockpit-premium-e2e.ts`.
-- [ ] Add a focused assertion function for the review route, separate from current `/forensics` premium assertions.
+- [ ] Keep the existing browser harness in `tests/e2e/cockpit-premium-e2e.ts`; do not create a second Playwright test runner.
+- [ ] Add `/forensics/shadcn` as a Maya screenshot target in the existing `screenshotTargets` array.
+- [ ] Add a focused assertion function for the review route, separate from the current `/forensics` old-premium assertions.
+- [ ] Call the new assertion function from `assertPremiumSurfaces(browser)` after the existing Maya `/forensics` assertions while the review route is still parallel.
 - [ ] Assert these visible elements on `/forensics/shadcn`:
   - `Maya`
   - `Recommended action`
@@ -425,6 +429,62 @@ git commit -m "Wire Maya shadcn query and approval states"
 - [ ] Add a Playwright interaction that opens query sheet.
 - [ ] Add a Playwright interaction that opens approval dialog.
 - [ ] Capture screenshots at 375, 768, 1024, and 1440 widths.
+
+E2E code shape:
+
+```ts
+const screenshotTargets = [
+  { name: "login", path: "/login", role: "anonymous" },
+  { name: "maya-forensics", path: "/forensics", role: "maya" },
+  { name: "maya-shadcn-forensics", path: "/forensics/shadcn", role: "maya" },
+  { name: "maya-run", path: "/run", role: "maya" },
+  { name: "david-credit", path: "/credit", role: "david" },
+  { name: "david-command", path: "/credit/command", role: "david" },
+  { name: "cfo", path: "/cfo", role: "cfo" },
+  { name: "governance-agents", path: "/governance/agents", role: "cfo" },
+  { name: "governance-connectors", path: "/governance/connectors", role: "cfo" },
+  { name: "governance-memory", path: "/governance/memory", role: "cfo" },
+  { name: "governance-trace", path: "/governance/trace", role: "cfo" }
+] as const satisfies Array<{ name: string; path: string; role: ScreenshotRole }>;
+
+async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
+  const mayaContext = await newRoleContext(browser, "maya", 1440, 900);
+  const page = await mayaContext.newPage();
+  await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+
+  await expectText(page, "Maya");
+  await expectText(page, "Recommended action");
+  await expectText(page, "Human approval");
+  await expectLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+
+  await page.getByRole("button", { name: /Ask|Query/u }).click();
+  await expectLocator(page, '[role="dialog"]', "Maya query sheet");
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /Review|Approve|Human approval/u }).click();
+  await expectLocator(page, '[role="alertdialog"]', "Maya approval dialog");
+
+  await mayaContext.close();
+}
+```
+
+`assertPremiumSurfaces` should call the new function without replacing the existing `/forensics` checks until Phase 8:
+
+```ts
+async function assertPremiumSurfaces(browser: Browser): Promise<void> {
+  const mayaContext = await newRoleContext(browser, "maya", 1440, 900);
+  const forensics = await mayaContext.newPage();
+  await forensics.goto(`${appUrl}/forensics`, { waitUntil: "networkidle" });
+  await expectLocator(forensics, ".tool-status-rail", "Maya ToolStatusRail");
+  await expectLocator(forensics, ".multimodal-dock", "Maya MultimodalDock");
+  await expectLocator(forensics, ".audit-verify-chip", "Maya AuditVerifyChip");
+  await mayaContext.close();
+
+  await assertMayaShadcnReviewRoute(browser);
+
+  // Existing David, David command-centre, and CFO checks remain below this call.
+}
+```
 
 Command:
 
@@ -437,6 +497,7 @@ Expected result:
 - E2E exits with code 0.
 - Screenshots are written under `output/playwright/e2e`.
 - New screenshot names include `maya-shadcn-forensics-375.png`, `maya-shadcn-forensics-768.png`, `maya-shadcn-forensics-1024.png`, and `maya-shadcn-forensics-1440.png`.
+- Existing screenshot names continue to be produced for login, Maya run, David credit, David command, CFO, and governance routes.
 
 Visual comparison checklist:
 
@@ -460,7 +521,8 @@ git commit -m "Add Maya shadcn visual checks"
 
 - [ ] Replace `cockpit/app/forensics/page.tsx` with the shadcn route implementation.
 - [ ] Keep `/forensics/shadcn` as a temporary alias only if the user still needs side-by-side review.
-- [ ] Update `tests/e2e/cockpit-premium-e2e.ts` so `maya-forensics` asserts the shadcn surface, not old premium components.
+- [ ] Update the existing `tests/e2e/cockpit-premium-e2e.ts` harness so `maya-forensics` asserts the shadcn surface, not old premium components.
+- [ ] Remove the temporary duplicate `/forensics/shadcn` screenshot target only after `/forensics` has cut over and side-by-side review is no longer useful.
 - [ ] Update `tests/invariants/cockpit-no-business-logic.test.ts` route checks so Maya no longer requires `ApprovalControls` from the old route.
 - [ ] Keep `cockpit/app/cockpit-shell.tsx` and `cockpit/app/premium-components.tsx` unchanged for run, credit, CFO, and governance routes unless a separate brief authorizes their redesign.
 
