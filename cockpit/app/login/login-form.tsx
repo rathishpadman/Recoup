@@ -50,13 +50,12 @@ const rememberedLoginIdKey = "recoup.login.loginId:v1";
 export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
   const personaOptions = useMemo(
     () =>
-      personas
-        .map((persona): PersonaOption => ({
-          label: displayLabelForPersona(persona),
-          loginId: persona.loginId,
-          role: persona.role,
-          sortOrder: displayOrderForPersona(persona)
-        }))
+      personas.map((persona): PersonaOption => ({
+        label: displayLabelForPersona(persona),
+        loginId: persona.loginId,
+        role: persona.role,
+        sortOrder: displayOrderForPersona(persona)
+      }))
         .sort((left, right) => left.sortOrder - right.sortOrder),
     [personas]
   );

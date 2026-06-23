@@ -25,11 +25,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         data-testid="maya-login-card"
       >
         <CardHeader className="px-8 pb-1 pt-12">
-          <div className="flex items-center justify-center gap-6" aria-label="Recoup Maya Forensics">
+          <div className="flex items-center justify-center gap-6" aria-label="Recoup Deduction Forensics">
             <RecoupAngularMark />
             <div className="text-left">
               <div className="text-[2.5rem] font-semibold leading-none">RECOUP</div>
-              <div className="mt-2 text-sm font-medium text-primary">MAYA FORENSICS</div>
+              <div className="mt-2 text-sm font-medium text-primary">Deduction Forensics</div>
             </div>
           </div>
         </CardHeader>

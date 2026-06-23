@@ -47,9 +47,9 @@ Current screenshot caveat: these paths are evidence of the rejected state, not a
 
 ## Beat 1 Login Pass
 
-Status: revised in the login-only review fixer pass on 2026-06-23. This is not user-accepted yet.
+Status: revised in the login-only review fixer pass on 2026-06-23, then cleaned up in the Beat 1 naming pass after commit `927cfa0`. This is not user-accepted yet.
 
-Current reviewer-facing assessment: Beat 1 login is improved from the prior `3.6/5` review state to approximately `4.1/5` by addressing the blocking deltas named in review. This is a fixer estimate, not a user acceptance score.
+Current reviewer-facing assessment: Beat 1 login remains approximately `4.0/5` pending user acceptance. This is a reviewer/fixer estimate, not a user acceptance score.
 
 Screenshot path:
 
@@ -57,7 +57,8 @@ Screenshot path:
 
 Implemented scope:
 
-- `/login` now targets the Beat 1 mockup with a near-white full-screen scene, low-contrast technical line-art, one centered access panel, centered Recoup/Maya lockup, and a shadcn-only form flow.
+- `/login` now targets the Beat 1 mockup with a near-white full-screen scene, low-contrast technical line-art, one centered access panel, centered Recoup/Deduction Forensics lockup, and a shadcn-only form flow.
+- Product naming decision for the login lockup: the title is `RECOUP`, the subtitle is `Deduction Forensics`, and `Maya` appears only in the persona selector or user/persona context.
 - The login form preserves `input[name="loginId"]`, the password input, `/api/demo-login`, and navigation via the returned `defaultRoute`.
 - The Recoup lockup now uses a code-native angular SVG mark beside `RECOUP`; no raster screenshot is used in the UI.
 - The submit button visible copy is `Open Forensics Workspace`, and the focused e2e accepts the mockup copy while preserving login behavior.
@@ -65,6 +66,7 @@ Implemented scope:
 - `Remember user ID` now has local-only persistence through versioned localStorage keys for the selected `loginId`.
 - `Forgot password?` is disabled with an accessible unavailable explanation because no password-recovery backend route exists in the demo login contract.
 - Footer separators are centered dots, and the alert/button treatments are softer and closer to the mockup without reintroducing legacy or purple styling.
+- Focused check for this naming pass refreshes `output/playwright/e2e/maya-beat-01-login.png` through `npm run test:e2e -- --maya-login-only`.
 
 Remaining deltas:
 

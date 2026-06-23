@@ -426,6 +426,7 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-beat"]', "Maya Beat 1 login scene");
     await expectVisibleLocator(loginPage, 'input[name="loginId"]', "Maya login ID input");
     await expectVisibleLocator(loginPage, 'input[name="password"]', "Maya password input");
+    await expectVisibleText(loginPage, "Deduction Forensics");
     await expectVisibleText(loginPage, "Open Forensics Workspace");
     await expectVisibleText(loginPage, "Invalid session");
     await expectLoginIdValue(loginPage, demoSessions.maya.loginId);
@@ -473,7 +474,10 @@ async function newRoleContext(
   await loginPage.goto(`${appUrl}/login`, { waitUntil: "domcontentloaded" });
   await loginPage.locator('input[name="loginId"]').fill(profile.loginId);
   await loginPage.locator('input[name="password"]').fill(demoPassword);
-  await loginPage.getByRole("button", { name: /Open workspace/u }).click();
+  const loginRequest = loginPage.waitForRequest((request) => request.url().endsWith("/api/demo-login"));
+  await loginPage.getByRole("button", { name: /Open (Forensics )?Workspace/u }).click();
+  const postData = (await loginRequest).postDataJSON() as { loginId?: string };
+  assert(postData.loginId === profile.loginId, `${profile.displayName} login must POST ${profile.loginId}`);
   await loginPage.waitForURL(`**${profile.defaultRoute}`, { timeout: 20_000 });
   await loginPage.close();
 
