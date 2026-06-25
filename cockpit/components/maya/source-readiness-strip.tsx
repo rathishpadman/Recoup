@@ -91,6 +91,7 @@ function displayCheckedAt(checkedAtIso: string): string {
     hour: "2-digit",
     minute: "2-digit",
     month: "short",
+    timeZone: "UTC",
     timeZoneName: "short"
   }).format(checkedAt)}`;
 }

@@ -890,6 +890,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(sourceStrip).toContain("React.useState(connectors)");
     expect(sourceStrip).toContain('fetch("/api/connectors"');
     expect(sourceStrip).toContain("sourceReadinessRefreshIntervalMs");
+    expect(sourceStrip).toContain('timeZone: "UTC"');
     expect(sourceStrip).toContain("sourceRefreshError");
     expect(sourceStrip).toContain('data-testid="maya-source-refresh-status"');
     expect(sourceStrip).toContain("aria-live");
