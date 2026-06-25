@@ -12,3 +12,5 @@ coverage/
 .superpowers/
 .playwright-mcp/
 output/
+
+.vercel
