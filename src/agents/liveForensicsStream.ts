@@ -1,11 +1,14 @@
 import type { RuntimeEnv } from "../../config/env.js";
 import {
+  createAgentHookAuditReceipt,
   registerRunHookAuditReceipts,
   type AgentHookAuditReceipt
 } from "../services/conductor.js";
-import { forensicsInvestigatorAgent } from "./agentRuntime.js";
+import type { ServiceInvocationContext } from "../services/serviceLayer.js";
+import { createForensicsInvestigatorAgent, forensicsInvestigatorAgent } from "./agentRuntime.js";
 import type { ForensicsTraceEvent } from "./forensics.js";
-import { OpenAIProvider, Runner, type RunStreamEvent } from "./openAiAgentsSdk.js";
+import { Agent, OpenAIProvider, Runner, type RunStreamEvent } from "./openAiAgentsSdk.js";
+import { createMayaMcpGateway, mayaAgentMcpAllowedToolNames, type MayaMcpGateway } from "./mcpGateway.js";
 
 const liveAgentInput =
   "Stream concise operator-visible status for the Recoup forensics run. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions. Those are produced only by deterministic Recoup code.";
@@ -20,6 +23,7 @@ export interface LiveForensicsStreamRequest {
   apiKey: string;
   input: string;
   maxTurns: number;
+  mcpServiceContext?: ServiceInvocationContext;
   signal?: AbortSignal;
 }
 
@@ -37,10 +41,18 @@ export interface LiveForensicsAgentHookAuditOptions {
 export interface LiveForensicsOpenAiRunner {
   on(type: string, listener: (...args: unknown[]) => void): unknown;
   run(
-    agent: typeof forensicsInvestigatorAgent,
+    agent: Agent,
     input: string,
     options: { maxTurns: number; signal?: AbortSignal; stream: true }
   ): Promise<AsyncIterable<RunStreamEvent>>;
+}
+
+export type LiveForensicsMcpGateway = MayaMcpGateway;
+
+export interface OpenAIForensicsAgentStreamOptions {
+  env?: RuntimeEnv;
+  mcpGatewayFactory?: () => MaybePromise<LiveForensicsMcpGateway | undefined>;
+  mcpServiceContext?: ServiceInvocationContext;
 }
 
 export interface StreamLiveForensicsTraceOptions {
@@ -48,6 +60,8 @@ export interface StreamLiveForensicsTraceOptions {
   env?: RuntimeEnv;
   input?: string;
   maxTurns?: number;
+  mcpServiceContext?: ServiceInvocationContext;
+  onAgentHookReceipt?: (receipt: AgentHookAuditReceipt) => void;
   onRetry?: () => void;
   onTokenUsage?: (tokens: number) => void;
   retryCap?: number;
@@ -65,6 +79,17 @@ export interface LiveForensicsAgentRunResult {
 }
 
 type ForensicsStatusKind = Extract<ForensicsTraceEvent, { type: "status" }>["payload"]["kind"];
+type SdkToolInputProof = {
+  toolInputRecordIds?: string[];
+  toolInputSelectedLineId?: string;
+};
+type SdkToolOutputProof = {
+  toolOutputCanonicalModel?: string;
+  toolOutputSapEvidenceRecordIds?: string[];
+  toolOutputSelectedLineId?: string;
+  toolOutputSelectedRecordIds?: string[];
+  toolOutputSourceReadStatus?: string;
+};
 
 export const forensicsQueryTracePhases = ["supervisor", "query", "retrieval", "decision"] as const;
 export type ForensicsQueryTracePhase = (typeof forensicsQueryTracePhases)[number];
@@ -89,7 +114,10 @@ export async function collectLiveForensicsAgentRun(
   const hookReceipts: AgentHookAuditReceipt[] = [];
   let status: LiveForensicsAgentRunStatus = "failed";
   let tokenUsage = 0;
-  const sourceRunner = options.runner ?? runOpenAIForensicsAgentStream;
+  const sourceRunner =
+    options.runner ??
+    ((request: LiveForensicsStreamRequest) =>
+      runOpenAIForensicsAgentStream(request, undefined, openAiForensicsStreamOptionsFromEnv(options.env)));
   const runner: LiveForensicsStreamRunner = async (request) => {
     if (request.agentHookAudit === undefined) {
       return sourceRunner(request);
@@ -100,6 +128,7 @@ export async function collectLiveForensicsAgentRun(
       apiKey: request.apiKey,
       input: request.input,
       maxTurns: request.maxTurns,
+      ...(request.mcpServiceContext === undefined ? {} : { mcpServiceContext: request.mcpServiceContext }),
       agentHookAudit: {
         onReceipt(receipt) {
           hookReceipts.push(receipt);
@@ -118,6 +147,9 @@ export async function collectLiveForensicsAgentRun(
     onTokenUsage(tokens) {
       tokenUsage += tokens;
       options.onTokenUsage?.(tokens);
+    },
+    onAgentHookReceipt(receipt) {
+      hookReceipts.push(receipt);
     },
     runner
   })) {
@@ -174,11 +206,15 @@ export async function* streamLiveForensicsTraceEvents(
     let recordedTokenTotal = 0;
     try {
       const agentHookRecordIds = dedupeRecordIds(options.agentHookRecordIds ?? []);
+      const sdkToolInputProofs = new Map<string, SdkToolInputProof>();
       const request: LiveForensicsStreamRequest = {
         apiKey,
         input: options.input ?? liveAgentInput,
         maxTurns: options.maxTurns
       };
+      if (options.mcpServiceContext !== undefined) {
+        request.mcpServiceContext = options.mcpServiceContext;
+      }
       if (agentHookRecordIds.length > 0) {
         request.agentHookAudit = {
           onReceipt(receipt) {
@@ -191,7 +227,10 @@ export async function* streamLiveForensicsTraceEvents(
         request.signal = options.signal;
       }
 
-      const stream = await (options.runner ?? runOpenAIForensicsAgentStream)(request);
+      const stream = await (
+        options.runner ??
+        ((liveRequest) => runOpenAIForensicsAgentStream(liveRequest, undefined, openAiForensicsStreamOptionsFromEnv(options.env)))
+      )(request);
       for (const receiptEvent of drainAgentHookReceiptEvents(agentHookReceipts)) {
         yield receiptEvent;
       }
@@ -203,6 +242,14 @@ export async function* streamLiveForensicsTraceEvents(
         if (tokenTotal !== undefined && tokenTotal > recordedTokenTotal) {
           options.onTokenUsage?.(tokenTotal - recordedTokenTotal);
           recordedTokenTotal = tokenTotal;
+        }
+        const sdkToolReceipt =
+          agentHookRecordIds.length > 0
+            ? sdkToolReceiptFromRunItemEvent(event, agentHookRecordIds, sdkToolInputProofs)
+            : undefined;
+        if (sdkToolReceipt !== undefined) {
+          agentHookReceipts.push(sdkToolReceipt);
+          options.onAgentHookReceipt?.(sdkToolReceipt);
         }
         const traceEvent = mapRunStreamEvent(event);
         if (traceEvent !== undefined) {
@@ -235,7 +282,8 @@ export async function* streamLiveForensicsTraceEvents(
 
 export async function runOpenAIForensicsAgentStream(
   request: LiveForensicsStreamRequest,
-  runner: LiveForensicsOpenAiRunner = createOpenAiForensicsRunner(request.apiKey)
+  runner: LiveForensicsOpenAiRunner = createOpenAiForensicsRunner(request.apiKey),
+  options: OpenAIForensicsAgentStreamOptions = {}
 ): Promise<AsyncIterable<RunStreamEvent>> {
   if (request.agentHookAudit !== undefined) {
     registerRunHookAuditReceipts(runner, request.agentHookAudit.onReceipt, {
@@ -255,7 +303,57 @@ export async function runOpenAIForensicsAgentStream(
           stream: true as const
         };
 
-  return runner.run(forensicsInvestigatorAgent, request.input, runOptions);
+  const mcpGateway = await resolveLiveMcpGateway({
+    ...options,
+    ...(request.mcpServiceContext === undefined ? {} : { mcpServiceContext: request.mcpServiceContext })
+  });
+  try {
+    if (mcpGateway !== undefined) {
+      await mcpGateway.connect();
+    }
+    const agent =
+      mcpGateway === undefined
+        ? forensicsInvestigatorAgent
+        : createForensicsInvestigatorAgent({ mcpServers: mcpGateway.mcpServers });
+    const stream = await runner.run(agent, request.input, runOptions);
+
+    return mcpGateway === undefined ? stream : closeMcpGatewayAfterStream(stream, mcpGateway);
+  } catch (error) {
+    await mcpGateway?.close();
+    throw error;
+  }
+}
+
+async function resolveLiveMcpGateway(
+  options: OpenAIForensicsAgentStreamOptions
+): Promise<LiveForensicsMcpGateway | undefined> {
+  if (options.mcpGatewayFactory !== undefined) {
+    return options.mcpGatewayFactory();
+  }
+
+  return options.env === undefined
+    ? undefined
+    : createMayaMcpGateway({
+        env: options.env,
+        ...(options.mcpServiceContext === undefined ? {} : { serviceContext: options.mcpServiceContext })
+      });
+}
+
+function closeMcpGatewayAfterStream<T>(
+  stream: AsyncIterable<T>,
+  mcpGateway: LiveForensicsMcpGateway
+): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      try {
+        for await (const event of stream) {
+          yield event;
+        }
+      } finally {
+        await mcpGateway.close();
+      }
+    }
+  };
 }
 
 function createOpenAiForensicsRunner(apiKey: string): LiveForensicsOpenAiRunner {
@@ -265,6 +363,12 @@ function createOpenAiForensicsRunner(apiKey: string): LiveForensicsOpenAiRunner 
     tracingDisabled: true,
     workflowName: "recoup-forensics-live-stream"
   });
+}
+
+function openAiForensicsStreamOptionsFromEnv(
+  env: RuntimeEnv | undefined
+): OpenAIForensicsAgentStreamOptions {
+  return env === undefined ? {} : { env };
 }
 
 function mapRunStreamEvent(event: unknown): ForensicsTraceEvent | undefined {
@@ -295,6 +399,251 @@ function mapRunStreamEvent(event: unknown): ForensicsTraceEvent | undefined {
   }
 
   return undefined;
+}
+
+function sdkToolReceiptFromRunItemEvent(
+  event: unknown,
+  recordIds: readonly string[],
+  inputProofs: Map<string, SdkToolInputProof>
+): AgentHookAuditReceipt | undefined {
+  if (!isRecord(event) || event.type !== "run_item_stream_event") {
+    return undefined;
+  }
+  if (event.name !== "tool_called" && event.name !== "tool_output") {
+    return undefined;
+  }
+
+  const toolName = normalizeSdkToolName(readRunItemToolName(event.item));
+  if (toolName === undefined || !mayaAgentMcpAllowedToolNames.includes(toolName as (typeof mayaAgentMcpAllowedToolNames)[number])) {
+    return undefined;
+  }
+  const toolCallKey = readRunItemToolCallKey(event.item, toolName);
+  const inputProof =
+    event.name === "tool_called"
+      ? selectedEvidenceToolInputProof(readRunItemStructuredPayload(event.item, [
+          "arguments",
+          "argumentsJson",
+          "arguments_json",
+          "args",
+          "input",
+          "params"
+        ]))
+      : (inputProofs.get(toolCallKey) ?? inputProofs.get(toolName));
+  if (event.name === "tool_called" && inputProof !== undefined) {
+    inputProofs.set(toolCallKey, inputProof);
+    inputProofs.set(toolName, inputProof);
+  }
+  const outputProof =
+    event.name === "tool_output"
+      ? selectedEvidenceToolOutputProof(readRunItemStructuredPayload(event.item, ["output", "result", "content"]))
+      : undefined;
+
+  return createAgentHookAuditReceipt({
+    agentName: readRunItemAgentName(event.item) ?? "Forensics Investigator",
+    hook: event.name === "tool_called" ? "agent_tool_start" : "agent_tool_end",
+    recordIds: [...recordIds],
+    toolName,
+    ...(inputProof === undefined ? {} : inputProof),
+    ...(outputProof === undefined ? {} : outputProof)
+  });
+}
+
+function selectedEvidenceToolInputProof(payload: unknown): SdkToolInputProof | undefined {
+  const payloadRecord = toRecord(payload);
+  if (payloadRecord === undefined) {
+    return undefined;
+  }
+
+  const selectedLineId = readNonEmptyString(payloadRecord.selectedLineId);
+  const recordIds = readStringArray(payloadRecord.recordIds);
+  if (selectedLineId === undefined && recordIds === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(recordIds === undefined ? {} : { toolInputRecordIds: recordIds }),
+    ...(selectedLineId === undefined ? {} : { toolInputSelectedLineId: selectedLineId })
+  };
+}
+
+function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof | undefined {
+  const payloadRecord = toRecord(payload);
+  const sourceReads = toRecord(payloadRecord?.sourceReads);
+  if (payloadRecord === undefined || sourceReads === undefined) {
+    return undefined;
+  }
+
+  const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
+  const sapEvidenceRecordIds = collectSapEvidenceRecordIds(sourceReads.sapEvidence);
+  const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
+  const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
+  const sourceReadStatus = readNonEmptyString(payloadRecord.sourceReadStatus);
+  const outputProof: SdkToolOutputProof = {
+    ...(canonicalModel === undefined ? {} : { toolOutputCanonicalModel: canonicalModel }),
+    ...(sapEvidenceRecordIds.length === 0 ? {} : { toolOutputSapEvidenceRecordIds: sapEvidenceRecordIds }),
+    ...(selectedLineId === undefined ? {} : { toolOutputSelectedLineId: selectedLineId }),
+    ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
+    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus })
+  };
+
+  return Object.keys(outputProof).length === 0 ? undefined : outputProof;
+}
+
+function normalizeSdkToolName(toolName: string | undefined): string | undefined {
+  if (toolName === undefined) {
+    return undefined;
+  }
+
+  return toolName.replaceAll("_", ".");
+}
+
+function readRunItemToolName(item: unknown): string | undefined {
+  const itemRecord = toRecord(item);
+  const rawItem = toRecord(itemRecord?.rawItem);
+  if (typeof rawItem?.name === "string" && rawItem.name.length > 0) {
+    return rawItem.name;
+  }
+  if (typeof itemRecord?.name === "string" && itemRecord.name.length > 0) {
+    return itemRecord.name;
+  }
+
+  const json = readRunItemJson(itemRecord);
+  const jsonRawItem = toRecord(json?.rawItem);
+  if (typeof jsonRawItem?.name === "string" && jsonRawItem.name.length > 0) {
+    return jsonRawItem.name;
+  }
+
+  return undefined;
+}
+
+function readRunItemAgentName(item: unknown): string | undefined {
+  const itemRecord = toRecord(item);
+  const agent = toRecord(itemRecord?.agent);
+  if (typeof agent?.name === "string" && agent.name.length > 0) {
+    return agent.name;
+  }
+
+  const json = readRunItemJson(itemRecord);
+  const jsonAgent = toRecord(json?.agent);
+  return typeof jsonAgent?.name === "string" && jsonAgent.name.length > 0 ? jsonAgent.name : undefined;
+}
+
+function readRunItemToolCallKey(item: unknown, fallbackToolName: string): string {
+  const itemRecord = toRecord(item);
+  const rawItem = toRecord(itemRecord?.rawItem);
+  const json = readRunItemJson(itemRecord);
+  const jsonRawItem = toRecord(json?.rawItem);
+  const candidates = [
+    rawItem?.callId,
+    rawItem?.call_id,
+    rawItem?.id,
+    itemRecord?.callId,
+    itemRecord?.call_id,
+    itemRecord?.id,
+    jsonRawItem?.callId,
+    jsonRawItem?.call_id,
+    jsonRawItem?.id,
+    json?.callId,
+    json?.call_id,
+    json?.id
+  ];
+
+  for (const candidate of candidates) {
+    const value = readNonEmptyString(candidate);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return fallbackToolName;
+}
+
+function readRunItemStructuredPayload(item: unknown, keys: readonly string[]): unknown {
+  const itemRecord = toRecord(item);
+  const rawItem = toRecord(itemRecord?.rawItem);
+  const json = readRunItemJson(itemRecord);
+  const jsonRawItem = toRecord(json?.rawItem);
+  const records = [rawItem, itemRecord, jsonRawItem, json];
+
+  for (const record of records) {
+    if (record === undefined) {
+      continue;
+    }
+    for (const key of keys) {
+      if (key in record) {
+        const normalizedPayload = normalizeStructuredPayload(record[key]);
+        if (normalizedPayload !== undefined) {
+          return normalizedPayload;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeStructuredPayload(value: unknown): unknown {
+  if (typeof value === "string") {
+    try {
+      return normalizeStructuredPayload(JSON.parse(value) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const entryRecord = toRecord(entry);
+      if (typeof entryRecord?.text === "string") {
+        const parsedText = normalizeStructuredPayload(entryRecord.text);
+        if (parsedText !== undefined) {
+          return parsedText;
+        }
+      }
+      const normalizedEntry = normalizeStructuredPayload(entry);
+      if (isRecord(normalizedEntry)) {
+        return normalizedEntry;
+      }
+    }
+
+    return undefined;
+  }
+  const valueRecord = toRecord(value);
+  if (valueRecord === undefined) {
+    return undefined;
+  }
+  if (typeof valueRecord.text === "string") {
+    const textPayload = normalizeStructuredPayload(valueRecord.text);
+    if (textPayload !== undefined) {
+      return textPayload;
+    }
+  }
+  if (Array.isArray(valueRecord.content)) {
+    const contentPayload = normalizeStructuredPayload(valueRecord.content);
+    if (contentPayload !== undefined) {
+      return contentPayload;
+    }
+  }
+  if (valueRecord.structuredContent !== undefined) {
+    const structuredContent = normalizeStructuredPayload(valueRecord.structuredContent);
+    if (structuredContent !== undefined) {
+      return structuredContent;
+    }
+  }
+
+  return valueRecord;
+}
+
+function readRunItemJson(item: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const toJSON = item?.toJSON;
+  if (typeof toJSON !== "function") {
+    return undefined;
+  }
+
+  try {
+    return toRecord(toJSON.call(item));
+  } catch {
+    return undefined;
+  }
 }
 
 function statusEvent(kind: ForensicsStatusKind, text: string): ForensicsTraceEvent {
@@ -370,6 +719,40 @@ function readNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const values = dedupeRecordIds(value.filter((entry): entry is string => typeof entry === "string"));
+  return values.length === 0 ? undefined : values;
+}
+
+function collectSapEvidenceRecordIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const recordIds: string[] = [];
+  for (const evidence of value) {
+    const evidenceRecord = toRecord(evidence);
+    const evidenceRecordIds = readStringArray(evidenceRecord?.recordIds);
+    if (evidenceRecordIds !== undefined) {
+      recordIds.push(...evidenceRecordIds);
+    }
+  }
+
+  return dedupeRecordIds(recordIds);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
 }

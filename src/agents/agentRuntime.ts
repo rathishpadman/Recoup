@@ -1,5 +1,5 @@
 import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
-import { Agent } from "./openAiAgentsSdk.js";
+import { Agent, type MCPServer } from "./openAiAgentsSdk.js";
 import { loadAgentPrompt, type AgentPromptFileName } from "./prompts.js";
 
 const promptFiles = {
@@ -11,20 +11,36 @@ const promptFiles = {
   conversationalQuery: "conversational-query.md"
 } as const satisfies Record<string, AgentPromptFileName>;
 
-export const recoveryDrafterAgent = new Agent({
-  name: "Recovery Drafter",
-  model: runtimeModels.fast,
-  modelSettings: runtimeModelSettings.recoveryDrafter,
-  instructions: loadAgentPrompt(promptFiles.recoveryDrafter)
-});
+export interface AgentMcpServerOptions {
+  mcpServers?: MCPServer[];
+}
 
-export const forensicsInvestigatorAgent = new Agent({
-  name: "Forensics Investigator",
-  model: runtimeModels.reasoning,
-  modelSettings: runtimeModelSettings.forensicsInvestigator,
-  instructions: loadAgentPrompt(promptFiles.forensicsInvestigator),
-  handoffs: [recoveryDrafterAgent]
-});
+export function createRecoveryDrafterAgent(options: AgentMcpServerOptions = {}) {
+  return new Agent({
+    name: "Recovery Drafter",
+    model: runtimeModels.fast,
+    modelSettings: runtimeModelSettings.recoveryDrafter,
+    instructions: loadAgentPrompt(promptFiles.recoveryDrafter),
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
+}
+
+export function createForensicsInvestigatorAgent(options: AgentMcpServerOptions = {}) {
+  const recoveryAgent = createRecoveryDrafterAgent(options);
+
+  return new Agent({
+    name: "Forensics Investigator",
+    model: runtimeModels.reasoning,
+    modelSettings: runtimeModelSettings.forensicsInvestigator,
+    instructions: loadAgentPrompt(promptFiles.forensicsInvestigator),
+    handoffs: [recoveryAgent],
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
+}
+
+export const recoveryDrafterAgent = createRecoveryDrafterAgent();
+
+export const forensicsInvestigatorAgent = createForensicsInvestigatorAgent();
 
 export const sentinelAgent = new Agent({
   name: "Sentinel",

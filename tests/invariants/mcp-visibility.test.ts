@@ -3,6 +3,7 @@ import { day1GovernedConfigSeed } from "../../config/governed.js";
 import type { SourcePort, SourceRiskObservationSnapshot } from "../../src/adapters/source.js";
 import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { createMcpToolFacade } from "../../src/mcp/server.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
 
 const governedConfig = day1GovernedConfigSeed.values;
 const source = new SyntheticSource({ seed: 42 });
@@ -120,7 +121,7 @@ describe("MCP tool visibility", () => {
     const facade = createMcpToolFacade({
       actorCapabilities: ["read"],
       actorId: "human:cfo",
-      serviceContext: { governedConfig, source }
+      serviceContext: { ...fixtureForensicsServiceContext, governedConfig, source }
     });
 
     expect(() => facade.callTool("actions.draftRebill", { decisionId: "deduction-decision:S1-L2" })).toThrow(
@@ -133,7 +134,11 @@ describe("MCP tool visibility", () => {
         selectedLineId: "S3-L1"
       })
     ).toMatchObject({
-      status: "disabled_offline_safe"
+      sourceReadStatus: "source_backed_selected_scope",
+      sourceReads: {
+        canonicalModel: "EvidenceDocument",
+        selectedLineId: "S3-L1"
+      }
     });
   });
 

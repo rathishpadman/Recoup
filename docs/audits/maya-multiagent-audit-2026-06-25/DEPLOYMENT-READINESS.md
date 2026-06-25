@@ -1,98 +1,202 @@
-# Deployment Readiness — Vercel + Supabase + Render
+# Deployment Readiness Runbook - Vercel + Render + Supabase
 
-**Date:** 2026-06-25 · **Mode:** static review, no changes
-**Targets:** Vercel (Next 16 cockpit) · Render (Express API, port 4317) · Supabase (Postgres + RPC)
+**Date:** 2026-06-25  
+**Targets:** Vercel cockpit, Render API, Supabase data plane, loopback Recoup MCP gateway  
+**Status:** Deployable only after this runbook is followed in order.
 
-## Verdict
+This is the deployment instruction document for future Codex sessions. Do not treat plugin installation as provider authentication. Verify Vercel auth, Render MCP workspace access, Git push state, and production smoke tests every time.
 
-**🟡 Not yet one-click deployable — ~70% there.** Both `render.yaml` and `vercel.json` exist and the app is fully env-driven and fail-closed, which is a strong base. But there are **4 hard blockers** and several config gaps that will cause a first deploy to fail or come up non-functional. None are deep code problems; they're deployment-wiring and ordering issues. Budget ~half a day plus a test deploy.
+## Current Architecture
 
----
+| Layer | Host | Runtime | Notes |
+|---|---|---|---|
+| Cockpit UI | Vercel | Next.js from `cockpit/` via root `vercel.json` | Uses server routes and server components; validate with real deploy. |
+| API | Render | Node 22, `npm run start:api` | Public API surface on `PORT=4317`; health is `/healthz`. |
+| MCP data plane | Render API process | Loopback Streamable HTTP server started by Maya live query path | No separate public MCP service is required for the first production deploy. Leave `RECOUP_MCP_URL` unset unless intentionally deploying a separate MCP service. |
+| Supabase | Existing project | Postgres + RPC + source tables | Must be seeded before Render health can pass. |
 
-## 🔴 Blockers (deploy will fail / app non-functional)
+The live Maya query path now attaches an OpenAI Agents SDK `MCPServerStreamableHttp` client to the Forensics agent. When `RECOUP_MCP_URL` is unset, the API starts an authenticated loopback MCP gateway with request-bound selected evidence scope. Agents do not receive SAP or Supabase credentials; the gateway holds source credentials and returns governed results.
 
-### B1 — Render health check depends on Supabase being seeded first
-`GET /healthz` returns **503 until** Supabase has the release-owner `recoup_config` run-control rows (`cockpitApi.ts` `/healthz` → `loadRunControlConfig` → Supabase `loadActive()`). `render.yaml` sets `healthCheckPath: /healthz`, so **Render will mark the service unhealthy and the deploy will never go live** until Supabase is fully provisioned *and* the API has the Supabase env at first boot.
-→ **Order of operations matters:** provision + seed Supabase → set Render env → then deploy. Document this; consider a `/healthz` that reports "degraded" vs hard-503 for boot.
+## Provider Reachability Checks
 
-### B2 — CORS allowlist defaults to localhost only
-`defaultAllowedCockpitOrigins = ["http://127.0.0.1:3000","http://localhost:3000"]`. Unsafe-method requests from a cross-origin are rejected with **403** (`cockpitApi.ts:252-255`). The Vercel cockpit calls the Render API for `/approval`, `/forensics/query`, realtime — all **POST**. Without `RECOUP_COCKPIT_ALLOWED_ORIGINS` set to the Vercel production URL **and** preview URLs, every write call 403s.
-→ Set `RECOUP_COCKPIT_ALLOWED_ORIGINS=https://<your-vercel-domain>` (comma-list incl. preview domains).
+Run these before deploying:
 
-### B3 — Vercel monorepo packaging risk (no `cockpit/package.json`)
-The Next app lives in `cockpit/` but there is **no `cockpit/package.json`** — the whole repo is one npm package. `vercel.json` uses `buildCommand: npm run build:cockpit` + `outputDirectory: cockpit/.next`. Vercel's Next.js builder expects the app at the project root (or a Root Directory that contains its own `package.json`). With only `outputDirectory` set, **route handlers (`app/api/*`), server components, and middleware may not be packaged as functions** — you can get a static-only or broken deploy.
-→ Must be validated with a real test deploy. Likely fixes: set Vercel **Root Directory** appropriately, or add a `cockpit/package.json`, or restructure. This is the single most uncertain item.
+```powershell
+vercel whoami --token $env:VERCEL_TOKEN
+codex mcp list
+```
 
-### B4 — Required env missing from `render.yaml`
-Notably **`RECOUP_MEMORY_BACKEND`** is absent. If it isn't `supabase`, `POST /approval` fails closed with 503 "Durable audit trail is unavailable" (`cockpitApi.ts:941-956`) — the HITL approval beat breaks. Also missing: `RECOUP_COCKPIT_HUMAN_PRINCIPAL`, `RECOUP_DATA_MODE`, `MCP_PORT`, `RECOUP_MCP_CLIENT_PRINCIPAL/CAPABILITIES`, `OPENAI_EVIDENCE_VECTOR_STORE_ID`.
-→ Add `RECOUP_MEMORY_BACKEND=supabase` (+ the others as needed).
+Expected:
 
----
+- Vercel returns the account name.
+- `codex mcp list` shows `render` enabled.
+- Render MCP `get_selected_workspace` returns the intended workspace. In the verified setup, the workspace was `Hackathon`.
 
-## 🟠 Vercel env (set in dashboard — none are in `vercel.json`)
+Do not paste provider tokens or application secrets into chat, docs, tests, screenshots, or logs.
 
-The cockpit fail-closes without these; set all before first use:
+## Pre-Deploy Requirements
 
-| Var | Why |
+| Requirement | Required Evidence |
 |---|---|
-| `RECOUP_API_URL` | Server components + `/api/*` proxy → Render API (`cockpit-data.ts:1`, all proxy routes) |
-| `NEXT_PUBLIC_RECOUP_API_URL` | Browser `EventSource('/run')` in `run-stream.tsx:5` (client-side, must be public) |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | `/api/demo-login` calls Supabase RPC directly; cockpit reads |
-| `RECOUP_DEMO_SESSION_SECRET` | Signs the demo session cookie (`demo-auth.ts`) |
-| `RECOUP_COCKPIT_AUTH_TOKEN`, `RECOUP_COCKPIT_HUMAN_PRINCIPAL` | Backend-read auth headers forwarded from the Maya page |
-| `RECOUP_SUPABASE_MEMORY_TABLE` | Memory table name |
+| Exact deploy commit pushed | `git status -sb` clean after commit, `git push origin <branch>` succeeds, and Render + Vercel both deploy the same pushed branch/commit SHA. |
+| Supabase release owner inputs seeded | `recoup_config` contains the active release owner-input row set required by the cockpit API: `run_control`, `release_eval_label_manifest`, `intent_eval_labels`, and `arbitration_eval_labels`, each with `config_version=1`, valid hashes, and human approval. Run `npm.cmd run verify:release`, then require deployed `/healthz -> 200`. |
+| Render env complete | Render service has all variables from `render.yaml`; secrets are set as provider env, not committed. |
+| Vercel env complete | Vercel deploy gets API URL, Supabase server env, demo secret, and backend auth env. |
+| CORS aligned | Render `RECOUP_COCKPIT_ALLOWED_ORIGINS` includes the final Vercel deployment URL exactly. |
+| MCP proof retained | Production Maya query trace includes `query.answer` tool end with `sap_odata`. |
 
-⚠️ `SUPABASE_SERVICE_ROLE_KEY` on Vercel is a **service-role secret in the frontend project** — acceptable because it's only used in server-side route handlers, but scope it to server env (not `NEXT_PUBLIC_`) and never log it.
+## Render API Configuration
 
----
+Use the Git-backed Render service defined by `render.yaml`.
 
-## 🟡 Supabase provisioning (manual — no migrations/CI)
+Render service:
 
-Four SQL files must be applied in order; there is **no `supabase/migrations` dir or CLI config**, so this is manual:
+- Name: `recoup-api`
+- Runtime: `node`
+- Build: `npm run build:api`
+- Start: `npm run start:api`
+- Health check: `/healthz`
+- Node: `22`
+- Port: `4317`
+- Source: same pushed branch/commit SHA used by the Vercel cockpit deploy
 
-1. `create extension pgcrypto` (in `supabase-demo-login-schema.sql`)
-2. `docs/supabase-memory-schema.sql` — `recoup_memory_records` (RLS forced, service-role only)
-3. `docs/supabase-demo-login-schema.sql` — `recoup_demo_users` + `verify_recoup_demo_login` RPC + seed
-4. `docs/Tools_data/supabase_schema.sql` + `docs/Tools_data/seed_data.sql` — source/evidence + **release-owner `recoup_config`** (required for B1 healthz)
+Nonsecret Render constants are committed in `render.yaml`:
 
-Notes:
-- Demo password `Welcome#123` is committed (bcrypt-seeded) in `supabase-demo-login-schema.sql` — fine for a demo, but it's a public credential; rotate if the repo is shared.
-- Seed `default_route` for Maya is `/forensics` (legacy); audited route is `/forensics/shadcn`. Confirm the prod landing route matches the demo you show.
+| Key | Value |
+|---|---|
+| `NODE_VERSION` | `22` |
+| `PORT` | `4317` |
+| `RECOUP_MEMORY_BACKEND` | `supabase` |
+| `RECOUP_SUPABASE_MEMORY_TABLE` | `recoup_memory_records` |
+| `RECOUP_DATA_MODE` | `real-backend` |
+| `RECOUP_COCKPIT_HUMAN_PRINCIPAL` | `human:maya-lead` |
+| `RECOUP_MCP_CLIENT_CAPABILITIES` | `read` |
+| `RECOUP_MCP_CLIENT_PRINCIPAL` | `human:maya-lead` |
 
----
+Render secrets/provider-specific values must be set in Render, not committed:
 
-## 🟡 Render specifics
+| Key | Source |
+|---|---|
+| `OPENAI_API_KEY` | `.env.local` / owner secret |
+| `OPENAI_EVIDENCE_VECTOR_STORE_ID` | `.env.local` / owner secret |
+| `SUPABASE_URL` | `.env.local` / Supabase project |
+| `SUPABASE_SERVICE_ROLE_KEY` | `.env.local` / Supabase project |
+| `RECOUP_COCKPIT_ALLOWED_ORIGINS` | Final Vercel URL, exact comma-separated origins |
+| `RECOUP_COCKPIT_AUTH_TOKEN` | `.env.local` / owner secret |
+| `RECOUP_DEMO_SESSION_SECRET` | `.env.local` / owner secret |
+| `RECOUP_MCP_AUTH_TOKEN` | `.env.local` / owner secret or generated deployment secret |
+| `SAP_ODATA_BASE_URL` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_CLIENT_ID` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_CLIENT` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_USERID` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_TOKEN_URL` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_SCOPE` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_TENANT` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_CLIENT_SECRET` | `.env.local` / SAP sandbox |
 
-- **Runtime is `tsx` (TypeScript, not compiled):** `start:api = tsx src/services/cockpitApi.ts`; `build:api = typecheck only` (no emit). `tsx` is a **devDependency**. Render keeps `node_modules` from build and default install includes devDeps, so it works — but it's fragile. Safer: move `tsx` to `dependencies` or add a real compile step.
-- **API binds all interfaces** (`listen(port, cb)` — no host) ✅ Render-compatible.
-- **MCP server is NOT in `render.yaml`** and binds `127.0.0.1` (`server.ts:389`). Current demo doesn't need it deployed (MCP is off the runtime path). **If you adopt ADR-001/SPEC-001 (agents via MCP), you must add the MCP service and bind `0.0.0.0`.**
-- `NODE_VERSION=22` ✅ matches `engines: >=22 <26`.
+Do not set `RECOUP_MCP_URL` for the initial production deploy. That keeps the MCP server private to the Render API process.
 
----
+Supabase must be prepared before Render health can pass. Apply or verify the seed block in `docs/supabase-memory-schema.sql` for the active release owner-input rows, then run `npm.cmd run verify:release`. A local fixture pass is not enough for production readiness; the deployed Render `/healthz` endpoint is the final source-health gate.
 
-## 🟢 What's already good
+## Vercel Cockpit Configuration
 
-- Fully **env-driven**, **fail-closed**, **no secrets in source** (only the demo bcrypt seed in SQL).
-- `render.yaml` health check, Node version, and `sync:false` secret placeholders are set up correctly.
-- `vercel.json` declares framework/install/build cleanly.
-- API binds `0.0.0.0`; CORS, correlation IDs, constant-time auth all production-shaped.
-- The app **degrades safely**: missing sources produce explicit 503 `missingSource` states rather than crashes.
+Deploy from the repo root using `vercel.json`.
 
----
+Vercel build contract:
 
-## Pre-deploy checklist (in order)
+- Framework: `nextjs`
+- Install: `npm ci`
+- Build: `npm run build:cockpit`
+- Output: `cockpit/.next`
 
-1. [ ] Provision Supabase; apply all 4 SQL files; seed `recoup_config` (release-owner run-control) — **required or healthz 503s (B1)**.
-2. [ ] Verify lockfile committed and in sync (`vercel.json` uses `npm ci`).
-3. [ ] Render: set **all** env incl. `RECOUP_MEMORY_BACKEND=supabase`, `RECOUP_DATA_MODE` (omit→real-backend), Supabase creds, auth token, demo secret (B4).
-4. [ ] Render: confirm `tsx` resolves at runtime (or move to deps).
-5. [ ] Deploy Render API; confirm `GET /healthz` → 200.
-6. [ ] Vercel: set `RECOUP_API_URL` + `NEXT_PUBLIC_RECOUP_API_URL` → Render URL; Supabase creds; demo secret; auth token/principal.
-7. [ ] **Render: set `RECOUP_COCKPIT_ALLOWED_ORIGINS` to the Vercel prod (and preview) domains (B2).**
-8. [ ] Vercel: **test deploy** and confirm `app/api/*` route handlers and server components run as functions (not static) — validates B3.
-9. [ ] Smoke test: login as Maya → `/forensics/shadcn` loads → click row → run a query → approval gate → confirm no 403/503.
-10. [ ] (If using MCP narrative) add MCP to Render, bind `0.0.0.0`, set MCP env.
+Vercel runtime/build env:
 
-## Bottom line
+| Key | Value |
+|---|---|
+| `RECOUP_API_URL` | Render API URL |
+| `NEXT_PUBLIC_RECOUP_API_URL` | Render API URL |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `RECOUP_DEMO_SESSION_SECRET` | demo-session signing secret |
+| `RECOUP_COCKPIT_AUTH_TOKEN` | backend read/auth token |
+| `RECOUP_COCKPIT_HUMAN_PRINCIPAL` | `human:maya-lead` |
+| `RECOUP_SUPABASE_MEMORY_TABLE` | `recoup_memory_records` |
 
-The solution is **architecturally deploy-ready** (env-driven, fail-closed, configs present) but **not yet wired for a clean first deploy**. The four blockers — healthz/Supabase ordering, CORS origins, Vercel monorepo packaging, and the missing `RECOUP_MEMORY_BACKEND` — will each break the demo if not handled. Do a **dry-run deploy to staging** before relying on it for judging; B3 (Vercel packaging) is the one I'd validate first because it's the least certain.
+The Vercel monorepo packaging shape must be validated by the deployed site, because `cockpit/` has no separate `package.json`. A successful deploy is not enough; verify API route handlers and server components at the deployed URL.
+
+## Deployment Sequence
+
+1. Run local proof pack:
+
+```powershell
+npm.cmd run verify
+npm.cmd run test:e2e:maya-real
+npm.cmd run test -- tests/invariants/deployment-readiness.test.ts
+```
+
+2. Commit and push the exact branch:
+
+```powershell
+git status -sb
+git add .
+git commit -m "Deploy Maya MCP data-plane release"
+git push origin <branch>
+git rev-parse HEAD
+```
+
+3. Create or update the Render `recoup-api` service from the pushed branch and record the deployed commit SHA.
+
+4. Set Render env vars. Use provider APIs/CLI; never print secret values.
+
+5. Wait for Render deploy live. Verify:
+
+```text
+GET <render-url>/healthz -> 200
+GET <render-url>/forensics with backend auth headers -> 200
+GET <render-url>/connectors with backend auth headers -> 200
+```
+
+6. Deploy Vercel cockpit from the same pushed branch/commit with the Render API URL in `RECOUP_API_URL` and `NEXT_PUBLIC_RECOUP_API_URL`.
+
+7. Update Render `RECOUP_COCKPIT_ALLOWED_ORIGINS` to include the exact Vercel deployment URL. Redeploy or restart Render if the environment update does not take effect immediately.
+
+8. Run production smoke tests from the Vercel URL:
+
+| Step | Expected Result |
+|---|---|
+| Open `/login` | Login page renders with no framework error. |
+| Login as Maya | Session cookie created; route reaches Maya cockpit. |
+| Open `/forensics/shadcn` | Worklist, source readiness, and selected case render from backend. |
+| Source readiness | SAP OData and MCP show connected/ready when backend is configured. |
+| Run Maya query | Response includes cited answer and deterministic basis. |
+| Agent trace | `Forensics Investigator -> query.answer -> sap_odata -> Recovery Drafter`. |
+| Approval gate | Human approval remains required; no external action executes automatically. |
+| Logs | No 403 CORS, no 503 source/config failure, no secret values printed. |
+
+## Rollback
+
+- Vercel: redeploy/promote the previous successful deployment.
+- Render: roll back to the previous deploy from the Render service deploy list.
+- Emergency safe mode: remove live OpenAI/SAP env or set `RECOUP_COCKPIT_ALLOWED_ORIGINS` to an empty/nonmatching value to fail closed on unsafe writes.
+
+## Known Risks
+
+| Risk | Mitigation |
+|---|---|
+| Render and Vercel deploy different commits | Push a clean branch first, record `git rev-parse HEAD`, and configure both providers to deploy that branch/commit. |
+| Supabase release owner-input rows absent or invalid | Render `/healthz` returns 503; seed/verify the four active `recoup_config` release owner-input rows, `config_version=1`, hashes, and human approval before treating production smoke as failed for app code. |
+| Vercel route packaging mismatch | Validate `/api/*` routes and server components on the deployed URL. |
+| CORS mismatch after Vercel deploy | Update `RECOUP_COCKPIT_ALLOWED_ORIGINS` with the exact Vercel URL. |
+| Render free/starter cold start | Run smoke test once before the demo and keep service warm. |
+| Public MCP exposure | Do not set `RECOUP_MCP_URL` and do not create a public MCP service for the initial deploy. |
+
+## Completion Criteria
+
+Deployment is complete only when:
+
+- Git branch is pushed.
+- Render API deploy is live and `/healthz` is 200.
+- Vercel cockpit deploy is live.
+- Render CORS includes the final Vercel origin.
+- Production browser smoke test passes through Maya query.
+- The final report includes a step-by-step table with command/deploy/test evidence and URLs.

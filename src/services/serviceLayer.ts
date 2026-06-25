@@ -53,6 +53,10 @@ interface ServiceTool {
 export interface ServiceInvocationContext {
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig?: GovernedConfigValues;
+  queryAnswerScope?: {
+    recordIds: string[];
+    selectedLineId: string;
+  };
   r1SapMetadata?: SapODataMetadataInput;
   r1SapReadAdapter?: SapODataReadOnlyAdapter;
   requireSupabaseSapEvidence?: boolean;
@@ -313,12 +317,7 @@ export const serviceTools = {
   },
   "query.answer": {
     schema: queryAnswerToolSchema,
-    handler: (input, context) =>
-      answerOfflineQuery({
-        ...queryAnswerToolSchema.parse(input),
-        governedConfig: readGovernedConfig(context),
-        source: readSourcePort(context)
-      })
+    handler: (input, context) => answerSourceBackedSelectedEvidenceQuery(input, context)
   },
   "retrieval.docs": {
     schema: DeductionLineSchema,
@@ -479,6 +478,69 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
   throw new Error("Action not found.");
 }
 
+function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: ServiceInvocationContext): unknown {
+  const parsed = queryAnswerToolSchema.parse(input);
+  assertQueryAnswerWithinSelectedScope(parsed, context.queryAnswerScope);
+  const governedConfig = readGovernedConfig(context);
+  const source = readSourcePort(context);
+  const answer = answerOfflineQuery({
+    ...parsed,
+    governedConfig,
+    source
+  });
+  const settlementRun = source.loadSettlementRun();
+  const selectedLine = settlementRun.deductionLines.find((line) => line.lineId === parsed.selectedLineId);
+  if (selectedLine === undefined) {
+    throw new Error("query.answer selectedLineId was not found in the canonical source snapshot.");
+  }
+
+  const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine);
+
+  return {
+    ...answer,
+    sourceReadStatus: "source_backed_selected_scope",
+    sourceReads: {
+      canonicalModel: "EvidenceDocument",
+      sapEvidence: sapEvidence.map(canonicalEvidenceSummary),
+      selectedLineId: selectedLine.lineId,
+      selectedRecordIds: [...parsed.recordIds]
+    }
+  };
+}
+
+function assertQueryAnswerWithinSelectedScope(
+  input: { recordIds: readonly string[]; selectedLineId: string },
+  scope: ServiceInvocationContext["queryAnswerScope"]
+): void {
+  if (scope === undefined) {
+    return;
+  }
+
+  const inputRecordIds = dedupeStringValues(input.recordIds);
+  const scopeRecordIds = dedupeStringValues(scope.recordIds);
+  const sameRecordScope =
+    inputRecordIds.length === scopeRecordIds.length &&
+    scopeRecordIds.every((recordId) => inputRecordIds.includes(recordId));
+
+  if (input.selectedLineId !== scope.selectedLineId || !sameRecordScope) {
+    throw new Error("query.answer input is outside the selected evidence scope.");
+  }
+}
+
+function dedupeStringValues(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function canonicalEvidenceSummary(document: EvidenceDocument): EvidenceDocument {
+  return {
+    documentId: document.documentId,
+    documentType: document.documentType,
+    recordIds: [...document.recordIds],
+    source: document.source,
+    summary: document.summary
+  };
+}
+
 function readVerifiedHumanPrincipal(context: ServiceInvocationContext): string {
   const principal = context.verifiedHumanPrincipal?.trim();
   if (principal === undefined || !principal.startsWith("human:")) {
@@ -526,6 +588,26 @@ function retrieveSapEvidenceOrThrow(
   }
 
   throw new Error("Supabase SAP evidence source required for retrieval.sap.");
+}
+
+function retrieveQueryAnswerSapEvidenceOrThrow(
+  context: ServiceInvocationContext,
+  line: DeductionLine
+): EvidenceDocument[] {
+  if (context.sapEvidenceSource === undefined) {
+    if (context.requireSupabaseSapEvidence === true) {
+      throw new Error("Supabase SAP evidence source required for query.answer.");
+    }
+
+    return [];
+  }
+
+  const evidence = [...context.sapEvidenceSource.readEvidence(line)];
+  if (context.requireSupabaseSapEvidence === true && evidence.length === 0) {
+    throw new Error("Supabase SAP evidence rows required for query.answer.");
+  }
+
+  return evidence;
 }
 
 function readR1Source(

@@ -14,7 +14,7 @@ import {
   type ForensicsRun,
   type RunForensicsInvestigationOptions
 } from "../agents/forensics.js";
-import type { AgentHookAuditReceipt } from "./conductor.js";
+import { liveSdkAgentHookDeterministicBasis, type AgentHookAuditReceipt } from "./conductor.js";
 import type { ServiceInvocationContext } from "./serviceLayer.js";
 
 export type { ForensicsQueryTraceEvent, ForensicsQueryTracePhase };
@@ -195,7 +195,14 @@ export async function runForensicsQuerySessionWithLiveAgents(
   const liveRun = await collectLiveForensicsAgentRun({
     ...liveAgentTrace,
     agentHookRecordIds: liveAgentRecordIds,
-    input: buildLiveForensicsQueryInput(request)
+    input: buildLiveForensicsQueryInput(request),
+    mcpServiceContext: {
+      ...input.serviceContext,
+      queryAnswerScope: {
+        recordIds: liveAgentRecordIds,
+        selectedLineId: request.selectedLineId
+      }
+    }
   });
 
   if (liveRun.status !== "completed") {
@@ -216,6 +223,13 @@ export async function runForensicsQuerySessionWithLiveAgents(
     return blockedLiveAgentQueryResponse(
       "blocked_live_agent_trace",
       "Live Agents SDK trace did not include the required Forensics-to-Recovery handoff."
+    );
+  }
+
+  if (!hasSelectedEvidenceMcpQueryAnswer(liveRun.hookReceipts, request.selectedLineId, liveAgentRecordIds)) {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Live Agents SDK trace did not include a successful selected-evidence MCP query.answer source read."
     );
   }
 
@@ -417,6 +431,9 @@ function buildLiveForensicsQueryInput(input: {
     `Question: ${input.question}`,
     `Selected line: ${input.selectedLineId}`,
     `Selected record IDs: ${dedupeRecordIds([input.selectedLineId, ...input.recordIds]).join(", ")}.`,
+    "Step 1: call the SDK-visible governed MCP function tool query_answer (Recoup service query.answer) exactly once with this question, selectedLineId, and selected record IDs.",
+    "Step 2: after query_answer returns any result: Do not call query_answer again. Immediately call the Agents SDK handoff function transfer_to_Recovery_Drafter to hand off to Recovery Drafter.",
+    "Do not call actions.*, decisions.*, approvals.*, or core.* tools.",
     "Acknowledge the selected evidence scope, then hand off to Recovery Drafter for draft-only recovery context.",
     "Return only concise lifecycle status. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions."
   ].join("\n");
@@ -426,9 +443,10 @@ function buildLiveAgentQueryTrace(
   receipts: readonly AgentHookAuditReceipt[],
   scopedRecordIds: readonly string[]
 ): SourceAnnotatedForensicsQueryTraceEvent[] {
-  return receipts.map((receipt, index) => {
+  return dedupeLiveAgentReceipts(receipts).map((receipt, index) => {
     const phase = liveQueryTracePhaseForReceipt(receipt, index);
     const sourceMetadata = traceSourceMetadataForReceipt(receipt);
+    const toolName = normalizeLiveMcpToolName(receipt.toolName);
     return {
       agentName: receipt.agentName,
       deterministicBasis: liveForensicsQueryAnswerGuardBasis,
@@ -441,9 +459,33 @@ function buildLiveAgentQueryTrace(
       recordIds: dedupeRecordIds([...receipt.recordIds, ...scopedRecordIds]),
       retrievalSource: sourceMetadata.retrievalSource,
       sourceKind: sourceMetadata.sourceKind,
-      ...(receipt.toolName === undefined ? {} : { toolName: receipt.toolName })
+      ...(toolName === undefined ? {} : { toolName })
     };
   });
+}
+
+function dedupeLiveAgentReceipts(receipts: readonly AgentHookAuditReceipt[]): AgentHookAuditReceipt[] {
+  const seen = new Set<string>();
+  const deduped: AgentHookAuditReceipt[] = [];
+
+  for (const receipt of receipts) {
+    const key = [
+      receipt.deterministicBasis,
+      receipt.hook,
+      receipt.agentName,
+      receipt.nextAgentName ?? "",
+      normalizeLiveMcpToolName(receipt.toolName) ?? "",
+      dedupeRecordIds(receipt.recordIds).join("\u001F")
+    ].join("\u001E");
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(receipt);
+  }
+
+  return deduped;
 }
 
 function liveQueryTracePhaseForReceipt(
@@ -476,6 +518,53 @@ function findHookReceipt(
   hook: AgentHookAuditReceipt["hook"]
 ): AgentHookAuditReceipt | undefined {
   return receipts.find((receipt) => receipt.hook === hook);
+}
+
+function hasSelectedEvidenceMcpQueryAnswer(
+  receipts: readonly AgentHookAuditReceipt[],
+  selectedLineId: string,
+  scopedRecordIds: readonly string[]
+): boolean {
+  return receipts.some(
+    (receipt) =>
+      receipt.deterministicBasis === liveSdkAgentHookDeterministicBasis &&
+      receipt.hook === "agent_tool_end" &&
+      normalizeLiveMcpToolName(receipt.toolName) === "query.answer" &&
+      receipt.toolInputSelectedLineId === selectedLineId &&
+      receipt.toolOutputSelectedLineId === selectedLineId &&
+      hasSameRecordScope(receipt.toolInputRecordIds, scopedRecordIds) &&
+      hasSameRecordScope(receipt.toolOutputSelectedRecordIds, scopedRecordIds) &&
+      receipt.toolOutputSourceReadStatus === "source_backed_selected_scope" &&
+      receipt.toolOutputCanonicalModel === "EvidenceDocument" &&
+      hasSapEvidenceForSelectedScope(receipt.toolOutputSapEvidenceRecordIds, selectedLineId, scopedRecordIds)
+  );
+}
+
+function hasSameRecordScope(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+  if (actual === undefined) {
+    return false;
+  }
+
+  const actualIds = dedupeRecordIds(actual);
+  const expectedIds = dedupeRecordIds(expected);
+  return actualIds.length === expectedIds.length && expectedIds.every((recordId) => actualIds.includes(recordId));
+}
+
+function hasSapEvidenceForSelectedScope(
+  actual: readonly string[] | undefined,
+  selectedLineId: string,
+  scopedRecordIds: readonly string[]
+): boolean {
+  if (actual === undefined) {
+    return false;
+  }
+
+  const actualIds = dedupeRecordIds(actual);
+  const scopedIds = dedupeRecordIds(scopedRecordIds);
+  return (
+    actualIds.includes(selectedLineId) &&
+    actualIds.some((recordId) => recordId !== selectedLineId && scopedIds.includes(recordId))
+  );
 }
 
 function traceSourceMetadataForCitations(citations: readonly ForensicsQueryCitation[]): {
@@ -511,7 +600,10 @@ function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   retrievalSource: ForensicsQueryTraceRetrievalSource;
   sourceKind: ForensicsQueryTraceSourceKind;
 } {
-  const toolName = receipt.toolName?.toLowerCase() ?? "";
+  const toolName = normalizeLiveMcpToolName(receipt.toolName)?.toLowerCase() ?? "";
+  if ((receipt.toolOutputSapEvidenceRecordIds?.length ?? 0) > 0) {
+    return { retrievalSource: "sap_odata", sourceKind: "sap_odata" };
+  }
   if (toolName.includes("sap")) {
     return { retrievalSource: "sap_odata", sourceKind: "sap_odata" };
   }
@@ -523,6 +615,10 @@ function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   }
 
   return { retrievalSource: "agent_trace", sourceKind: "agent_trace" };
+}
+
+function normalizeLiveMcpToolName(toolName: string | undefined): string | undefined {
+  return toolName?.replaceAll("_", ".");
 }
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {

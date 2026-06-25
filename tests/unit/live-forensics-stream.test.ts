@@ -3,6 +3,7 @@ import {
   runOpenAIForensicsAgentStream,
   streamLiveForensicsTraceEvents,
   type LiveForensicsOpenAiRunner,
+  type LiveForensicsMcpGateway,
   type LiveForensicsStreamRunner
 } from "../../src/agents/liveForensicsStream.js";
 import type { RunStreamEvent } from "../../src/agents/openAiAgentsSdk.js";
@@ -412,6 +413,249 @@ describe("live forensics Agents SDK stream", () => {
     expect(JSON.stringify(receipts)).not.toContain("secret final output");
   });
 
+  it("connects MCP before the live OpenAI run and closes it after the stream is consumed", async () => {
+    const receipts: AgentHookAuditReceipt[] = [];
+    const fakeRunner = new FakeOpenAiRunner();
+    const mcpServer = { name: "recoup-governed-data-plane" } as LiveForensicsMcpGateway["mcpServers"][number];
+    const calls: string[] = [];
+    const gateway: LiveForensicsMcpGateway = {
+      mcpServers: [mcpServer],
+      close() {
+        calls.push("close");
+        return Promise.resolve();
+      },
+      connect() {
+        calls.push("connect");
+        return Promise.resolve();
+      }
+    };
+
+    const stream = await runOpenAIForensicsAgentStream(
+      {
+        agentHookAudit: {
+          onReceipt: (receipt) => receipts.push(receipt),
+          recordIds: ["S6-L1", "INV-S6-1"]
+        },
+        apiKey: "sk-test-secret",
+        input: "status only",
+        maxTurns: 7
+      },
+      fakeRunner,
+      {
+        mcpGatewayFactory: () => Promise.resolve(gateway)
+      }
+    );
+
+    expect(calls).toEqual(["connect"]);
+    expect(fakeRunner.lastAgent?.name).toBe("Forensics Investigator");
+    expect(fakeRunner.lastAgent?.mcpServers).toBe(gateway.mcpServers);
+    expect(fakeRunner.lastAgent?.modelSettings).toEqual({
+      reasoning: { effort: "high" },
+      text: { verbosity: "low" }
+    });
+    expect(receipts.some((receipt) => receipt.hook === "agent_start")).toBe(true);
+
+    await collect(stream);
+
+    expect(calls).toEqual(["connect", "close"]);
+  });
+
+  it("records governed MCP source receipts from SDK tool run-item events", async () => {
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield sdkToolEvent("tool_called", "query_answer", "Forensics Investigator");
+      yield sdkToolEvent("tool_output", "query_answer", "Forensics Investigator");
+    };
+
+    const events = await collect(
+      streamLiveForensicsTraceEvents({
+        agentHookRecordIds: ["S6-L1", "INV-S6-1"],
+        env: { OPENAI_API_KEY: "sk-test-secret" },
+        maxTurns: 7,
+        retryCap: 0,
+        runner
+      })
+    );
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        {
+          type: "status",
+          payload: {
+            kind: "agent-boundary",
+            text: "Agent hook audit receipt recorded: agent_tool_start Forensics Investigator."
+          }
+        },
+        {
+          type: "status",
+          payload: {
+            kind: "agent-boundary",
+            text: "Agent hook audit receipt recorded: agent_tool_end Forensics Investigator."
+          }
+        }
+      ])
+    );
+  });
+
+  it("records selected-evidence proof metadata from SDK query.answer input and output", async () => {
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield sdkToolEvent("tool_called", "query_answer", "Forensics Investigator", {
+        arguments: {
+          question: "Why is this recoverable?",
+          recordIds: selectedRecordIds,
+          selectedLineId: "S6-L1"
+        }
+      });
+      yield sdkToolEvent("tool_output", "query_answer", "Forensics Investigator", {
+        output: {
+          text: JSON.stringify({
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "EvidenceDocument",
+              sapEvidence: [
+                {
+                  documentId: "SAP-INV-S6-1",
+                  documentType: "invoice",
+                  recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+                  source: "sap",
+                  summary: "Supabase SAP source row for S6 invoice."
+                }
+              ],
+              selectedLineId: "S6-L1",
+              selectedRecordIds
+            }
+          }),
+          type: "text"
+        }
+      });
+    };
+
+    await collect(
+      streamLiveForensicsTraceEvents({
+        agentHookRecordIds: selectedRecordIds,
+        env: { OPENAI_API_KEY: "sk-test-secret" },
+        maxTurns: 7,
+        onAgentHookReceipt: (receipt) => receipts.push(receipt),
+        retryCap: 0,
+        runner
+      })
+    );
+
+    const toolEndReceipt = receipts.find((receipt) => receipt.hook === "agent_tool_end");
+    expect(toolEndReceipt).toMatchObject({
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S6-L1",
+      toolName: "query.answer",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSapEvidenceRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+      toolOutputSelectedLineId: "S6-L1",
+      toolOutputSelectedRecordIds: selectedRecordIds,
+      toolOutputSourceReadStatus: "source_backed_selected_scope"
+    });
+  });
+
+  it("preserves selected-evidence input proof when SDK tool output omits the call id", async () => {
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield sdkToolEvent("tool_called", "query_answer", "Forensics Investigator", {
+        arguments: {
+          recordIds: selectedRecordIds,
+          selectedLineId: "S6-L1"
+        },
+        call_id: "query-answer-call-1"
+      });
+      yield sdkToolEvent("tool_output", "query_answer", "Forensics Investigator", {
+        output: {
+          text: JSON.stringify({
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "EvidenceDocument",
+              sapEvidence: [
+                {
+                  recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+                  source: "sap"
+                }
+              ],
+              selectedLineId: "S6-L1",
+              selectedRecordIds
+            }
+          }),
+          type: "text"
+        }
+      });
+    };
+
+    await collect(
+      streamLiveForensicsTraceEvents({
+        agentHookRecordIds: selectedRecordIds,
+        env: { OPENAI_API_KEY: "sk-test-secret" },
+        maxTurns: 7,
+        onAgentHookReceipt: (receipt) => receipts.push(receipt),
+        retryCap: 0,
+        runner
+      })
+    );
+
+    expect(receipts.find((receipt) => receipt.hook === "agent_tool_end")).toMatchObject({
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S6-L1",
+      toolName: "query.answer",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSapEvidenceRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+      toolOutputSelectedLineId: "S6-L1",
+      toolOutputSelectedRecordIds: selectedRecordIds,
+      toolOutputSourceReadStatus: "source_backed_selected_scope"
+    });
+  });
+
+  it("does not treat a direct pre-run MCP call as a live SDK tool receipt", async () => {
+    const receipts: AgentHookAuditReceipt[] = [];
+    const fakeRunner = new FakeOpenAiRunner();
+    const toolCalls: Array<{ args: Record<string, unknown> | null; toolName: string }> = [];
+    const mcpServer = {
+      name: "recoup-governed-data-plane",
+      callTool(toolName: string, args: Record<string, unknown> | null) {
+        toolCalls.push({ args, toolName });
+        return Promise.resolve([{ text: "{\"status\":\"disabled_offline_safe\"}", type: "text" }]);
+      },
+      close: () => Promise.resolve(),
+      connect: () => Promise.resolve(),
+      invalidateToolsCache: () => Promise.resolve(),
+      listTools: () => Promise.resolve([])
+    } as unknown as LiveForensicsMcpGateway["mcpServers"][number];
+    const gateway: LiveForensicsMcpGateway = {
+      mcpServers: [mcpServer],
+      close: () => Promise.resolve(),
+      connect: () => Promise.resolve()
+    };
+
+    await runOpenAIForensicsAgentStream(
+      {
+        agentHookAudit: {
+          onReceipt: (receipt) => receipts.push(receipt),
+          recordIds: ["S6-L1", "INV-S6-1"]
+        },
+        apiKey: "sk-test-secret",
+        input: "status only",
+        maxTurns: 7
+      },
+      fakeRunner,
+      {
+        mcpGatewayFactory: () => Promise.resolve(gateway)
+      }
+    );
+
+    expect(toolCalls).toEqual([]);
+    expect(receipts.map((receipt) => [receipt.hook, receipt.toolName])).not.toEqual(
+      expect.arrayContaining([["agent_tool_end", "query.answer"]])
+    );
+  });
+
   it("fails closed to deterministic run status when the live runner throws", async () => {
     const runner: LiveForensicsStreamRunner = () => Promise.reject(new Error("network secret sk-should-not-leak"));
 
@@ -498,6 +742,7 @@ type Listener = (...args: unknown[]) => void;
 
 class FakeOpenAiRunner implements LiveForensicsOpenAiRunner {
   private readonly listeners = new Map<string, Listener>();
+  lastAgent?: Parameters<LiveForensicsOpenAiRunner["run"]>[0];
   lastRunOptions?: { maxTurns: number; signal?: AbortSignal; stream: true };
 
   listenerNames(): string[] {
@@ -510,10 +755,11 @@ class FakeOpenAiRunner implements LiveForensicsOpenAiRunner {
   }
 
   run(
-    _agent: Parameters<LiveForensicsOpenAiRunner["run"]>[0],
+    agent: Parameters<LiveForensicsOpenAiRunner["run"]>[0],
     _input: string,
     options: { maxTurns: number; signal?: AbortSignal; stream: true }
   ): Promise<AsyncIterable<RunStreamEvent>> {
+    this.lastAgent = agent;
     this.lastRunOptions = options;
     this.listeners.get("agent_start")?.({}, { name: "Forensics Investigator" });
     this.listeners.get("agent_end")?.({}, { name: "Forensics Investigator" }, "secret final output");
@@ -529,3 +775,23 @@ const emptyStreamEvents: AsyncIterable<RunStreamEvent> = {
     };
   }
 };
+
+function sdkToolEvent(
+  name: "tool_called" | "tool_output",
+  toolName: string,
+  agentName: string,
+  rawItemOverrides: Record<string, unknown> = {}
+): RunStreamEvent {
+  return {
+    item: {
+      agent: { name: agentName },
+      rawItem: {
+        ...rawItemOverrides,
+        name: toolName,
+        type: name === "tool_called" ? "function_call" : "function_call_result"
+      }
+    },
+    name,
+    type: "run_item_stream_event"
+  } as unknown as RunStreamEvent;
+}

@@ -197,7 +197,7 @@ describe("integration contract", () => {
 
   it("exposes only whitelisted service tools through the MCP facade", async () => {
     const { createMcpToolFacade } = await import("../../src/mcp/server.js");
-    const facade = createMcpToolFacade({ serviceContext: { governedConfig, source } });
+    const facade = createMcpToolFacade({ serviceContext: { ...fixtureForensicsServiceContext, governedConfig, source } });
 
     expect(facade.listTools().map((tool) => tool.name).sort()).toEqual([
       "actions.draftOutreach",
@@ -225,7 +225,11 @@ describe("integration contract", () => {
         selectedLineId: "S3-L1"
       })
     ).toMatchObject({
-      status: "disabled_offline_safe"
+      sourceReadStatus: "source_backed_selected_scope",
+      sourceReads: {
+        canonicalModel: "EvidenceDocument",
+        selectedLineId: "S3-L1"
+      }
     });
     expect(facade.callTool("sources.r1Read", { need: "payment-history", customerId: "USCU_S04" })).toMatchObject({
       need: "payment-history",

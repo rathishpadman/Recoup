@@ -767,6 +767,7 @@ describe("S5 cockpit API", () => {
       emitForensicsHandoffReceipts(request);
       return (async function* stream() {
         await Promise.resolve();
+        yield* sdkSelectedEvidenceToolEvents(selectedLiveQueryRecordIds(request));
         yield {
           data: {
             delta: rawModelText,
@@ -874,6 +875,7 @@ describe("S5 cockpit API", () => {
       emitForensicsHandoffReceipts(request);
       return (async function* stream() {
         await Promise.resolve();
+        yield* sdkSelectedEvidenceToolEvents(selectedLiveQueryRecordIds(request));
         yield {
           data: {
             delta: "Live query answer candidate suppressed.",
@@ -975,6 +977,7 @@ describe("S5 cockpit API", () => {
       emitForensicsHandoffReceipts(request);
       return (async function* stream() {
         await Promise.resolve();
+        yield* sdkSelectedEvidenceToolEvents(selectedLiveQueryRecordIds(request));
         yield {
           data: {
             delta: "Live query answer candidate suppressed.",
@@ -1756,7 +1759,7 @@ describe("S5 cockpit API", () => {
       }
 
       emitForensicsHandoffReceipts(request);
-      return liveQueryDeltaStream("Retried live query answer candidate suppressed.");
+      return liveQueryDeltaStream("Retried live query answer candidate suppressed.", selectedLiveQueryRecordIds(request));
     });
     const { baseUrl, server } = await listen({
       env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
@@ -1788,6 +1791,7 @@ describe("S5 cockpit API", () => {
       emitForensicsHandoffReceipts(request);
       return (async function* stream() {
         await Promise.resolve();
+        yield* sdkSelectedEvidenceToolEvents(selectedLiveQueryRecordIds(request));
         yield {
           data: {
             delta: "Token overrun live query answer candidate suppressed.",
@@ -4309,9 +4313,13 @@ function emitForensicsHandoffReceipts(request: Parameters<LiveForensicsStreamRun
   );
 }
 
-function liveQueryDeltaStream(delta: string): AsyncIterable<unknown> {
+function liveQueryDeltaStream(
+  delta: string,
+  recordIds: readonly string[] = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"]
+): AsyncIterable<unknown> {
   return (async function* stream() {
     await Promise.resolve();
+    yield* sdkSelectedEvidenceToolEvents(recordIds);
     yield {
       data: {
         delta,
@@ -4325,8 +4333,72 @@ function liveQueryDeltaStream(delta: string): AsyncIterable<unknown> {
 function liveQueryRunnerWithForensicsHandoff(): ReturnType<typeof vi.fn<LiveForensicsStreamRunner>> {
   return vi.fn<LiveForensicsStreamRunner>((request) => {
     emitForensicsHandoffReceipts(request);
-    return liveQueryDeltaStream("Live query answer candidate suppressed by Recoup output guard.");
+    return liveQueryDeltaStream(
+      "Live query answer candidate suppressed by Recoup output guard.",
+      selectedLiveQueryRecordIds(request)
+    );
   });
+}
+
+function selectedLiveQueryRecordIds(request: Parameters<LiveForensicsStreamRunner>[0]): string[] {
+  return request.agentHookAudit?.recordIds ?? ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];
+}
+
+function sdkSelectedEvidenceToolEvents(recordIds: readonly string[]): unknown[] {
+  return [
+    sdkSelectedEvidenceToolEvent("tool_called", recordIds),
+    sdkSelectedEvidenceToolEvent("tool_output", recordIds)
+  ];
+}
+
+function sdkSelectedEvidenceToolEvent(name: "tool_called" | "tool_output", recordIds: readonly string[]): unknown {
+  const scopedRecordIds = recordIds.length === 0 ? ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"] : [...recordIds];
+  const selectedLineId = scopedRecordIds[0] ?? "S6-L1";
+  const sapEvidenceRecordIds = buildSapEvidenceProofRecordIds(selectedLineId, scopedRecordIds);
+
+  return {
+    item: {
+      agent: { name: "Forensics Investigator" },
+      rawItem: {
+        ...(name === "tool_called"
+          ? {
+              arguments: {
+                question: "Why is this recoverable?",
+                recordIds: scopedRecordIds,
+                selectedLineId
+              }
+            }
+          : {
+              output: {
+                sourceReadStatus: "source_backed_selected_scope",
+                sourceReads: {
+                  canonicalModel: "EvidenceDocument",
+                  sapEvidence: [
+                    {
+                      documentId: sapEvidenceRecordIds.find((recordId) => recordId.startsWith("SAP-")) ?? "SAP-INV-S6-1",
+                      documentType: "invoice",
+                      recordIds: sapEvidenceRecordIds,
+                      source: "sap",
+                      summary: `Supabase SAP source row for ${selectedLineId}.`
+                    }
+                  ],
+                  selectedLineId,
+                  selectedRecordIds: scopedRecordIds
+                }
+              }
+            }),
+        name: "query_answer",
+        type: name === "tool_called" ? "function_call" : "function_call_result"
+      }
+    },
+    name,
+    type: "run_item_stream_event"
+  };
+}
+
+function buildSapEvidenceProofRecordIds(selectedLineId: string, scopedRecordIds: readonly string[]): string[] {
+  const sapScopedIds = scopedRecordIds.filter((recordId) => recordId.startsWith("SAP-") || recordId.startsWith("INV-"));
+  return Array.from(new Set([selectedLineId, ...sapScopedIds]));
 }
 
 async function listenWithoutGovernedConfig(

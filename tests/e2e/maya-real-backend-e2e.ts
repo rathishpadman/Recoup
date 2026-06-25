@@ -10,7 +10,7 @@ import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type Page, type Response as PlaywrightResponse } from "playwright";
+import { chromium, type Browser, type Page, type Request as PlaywrightRequest, type Response as PlaywrightResponse } from "playwright";
 import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/localRuntimeEnv.ts";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 
@@ -33,6 +33,7 @@ interface ManagedApiServer {
 interface ObservedApiCall {
   method: string;
   path: string;
+  requestBodyText?: string;
   responseBodyText?: string;
   source: ApiRequestSource;
   status?: number;
@@ -173,6 +174,7 @@ interface QueryTraceEvent {
   message?: string;
   nextAgentName?: string;
   phase: string;
+  receiptDeterministicBasis?: string;
   recordIds: string[];
   retrievalSource?: string;
   sourceKind?: string;
@@ -200,8 +202,9 @@ interface ForensicsQueryResponse {
 
 interface ForensicsQueryE2EResult {
   appResponse: ForensicsQueryResponse;
-  appResponseSource: "backend_recorder_fallback" | "browser_response";
+  appResponseSource: "browser_response";
   backendResponse: ForensicsQueryResponse;
+  durationMs: number;
   scenario: RealMayaQueryScenario;
 }
 
@@ -232,6 +235,7 @@ const requestedAppPort = Number(readEnvValue("RECOUP_E2E_COCKPIT_PORT", "3000"))
 const explicitApiUrl = isConfigured(process.env.RECOUP_E2E_API_URL ?? localEnv.RECOUP_E2E_API_URL);
 const reuseCockpitRequested = readBooleanEnv("RECOUP_E2E_REUSE_COCKPIT");
 const demoPassword = readEnvValue("RECOUP_E2E_DEMO_PASSWORD", "Welcome#123");
+const queryResponseTimeoutMs = 120_000;
 const observedCalls: ObservedApiCall[] = [];
 const fixtureProcessStarted = false;
 const screenshotDir = join("output", "playwright", "e2e", "real-backend");
@@ -256,6 +260,12 @@ const realMayaQueryScenarios = [
     operatorIntent: "Maya needs live Forensics-to-Recovery handoff proof while preserving human approval gates.",
     question:
       "Using only this selected evidence packet, have Forensics hand off to Recovery Drafter and confirm whether the recovery draft remains human-approval-gated. Which cited record IDs support that?"
+  },
+  {
+    id: "valid-deduction-counterfactual",
+    operatorIntent: "Maya needs to distinguish a valid deduction proof pattern from the selected recoverable case.",
+    question:
+      "What cited evidence would make this a valid deduction, and which selected SAP or document records show that this case does not meet that valid-deduction pattern?"
   }
 ] as const satisfies readonly RealMayaQueryScenario[];
 
@@ -551,11 +561,15 @@ async function runEvidenceQuery(
   apiServer.recorder.clear();
   await assertVisibleSelectedEvidenceScope(page, detail);
   await assertRenderedPromptChipsMatchBackend(page, detail);
+  const queryStartedAt = Date.now();
   const queryRequestPromise = page.waitForRequest((request) => {
     const url = new URL(request.url());
-    return url.pathname === "/api/forensics/query" && request.method() === "POST";
+    return (
+      url.pathname === "/api/forensics/query" &&
+      request.method() === "POST" &&
+      isSubmittedQueryScope(safePostDataJson(request), scenario, detail)
+    );
   });
-  const queryResponsePromise = waitForAppJsonResponse(page, "POST", "/api/forensics/query", 60_000);
   await page.getByTestId("maya-query-input").fill(scenario.question);
   await page.getByRole("button", { name: /^Run query$/u }).click();
   const queryRequest = await queryRequestPromise;
@@ -564,18 +578,23 @@ async function runEvidenceQuery(
   const backendResponse = await apiServer.recorder.waitForJsonResponse<ForensicsQueryResponse>(
     "POST",
     "/forensics/query",
-    20_000
+    queryResponseTimeoutMs,
+    (response, call) =>
+      isSubmittedQueryScope(safeJsonParse(call.requestBodyText), scenario, detail) &&
+      Array.isArray(response.trace) &&
+      response.trace.length > 0
   );
-  const response = await settleOptionalResponse(queryResponsePromise);
-  if (response === undefined) {
-    console.log(`MAYA_APP_QUERY_RESPONSE_FALLBACK ${scenario.id}`);
-    return { appResponse: backendResponse, appResponseSource: "backend_recorder_fallback", backendResponse, scenario };
+  const queryResponse = await queryRequest.response();
+  if (queryResponse === null) {
+    throw new Error(`Maya forensics query ${scenario.id} did not receive a browser response.`);
   }
-
-  const appResponse = await readRequiredJsonResponse<ForensicsQueryResponse>(response, "Maya forensics query");
+  const appResponse = await readRequiredJsonResponse<ForensicsQueryResponse>(
+    queryResponse,
+    "Maya forensics query"
+  );
   assertAppQueryResponseMatchesBackend(backendResponse, appResponse);
 
-  return { appResponse, appResponseSource: "browser_response", backendResponse, scenario };
+  return { appResponse, appResponseSource: "browser_response", backendResponse, durationMs: Date.now() - queryStartedAt, scenario };
 }
 
 async function assertClosingRunningQueryResetsParentTrace(
@@ -628,10 +647,34 @@ function logRealMayaQueryResult(
       answer,
       citationRecordIds: result.backendResponse.citations.map((citation) => citation.recordId),
       deterministicBasis,
+      durationMs: result.durationMs,
+      mcpTrace: result.backendResponse.trace
+        .filter(
+          (event) =>
+            event.receiptDeterministicBasis === "OpenAI Agents SDK RunHooks lifecycle event" &&
+            (event.toolName === "query.answer" || event.toolName === "retrieval.sap")
+        )
+        .map((event) => ({
+          agentName: event.agentName,
+          hook: event.hook,
+          retrievalSource: event.retrievalSource ?? null,
+          sourceKind: event.sourceKind ?? null,
+          toolName: event.toolName ?? null
+        })),
       operatorIntent: result.scenario.operatorIntent,
       question: result.scenario.question,
       scenarioId: result.scenario.id,
       selectedLineId: detail.selected.lineId,
+      trace: result.backendResponse.trace.map((event) => ({
+        agentName: event.agentName,
+        hook: event.hook,
+        label: event.label,
+        nextAgentName: event.nextAgentName ?? null,
+        phase: event.phase,
+        retrievalSource: event.retrievalSource ?? null,
+        sourceKind: event.sourceKind ?? null,
+        toolName: event.toolName ?? null
+      })),
       traceRows: result.backendResponse.trace.length
     })}`
   );
@@ -669,6 +712,26 @@ function assertQueryResponseBackedByTrace(
   assert(
     response.trace.some((event) => event.hook === "agent_handoff" && event.nextAgentName === "Recovery Drafter"),
     "Maya query trace did not include a visible Forensics-to-Recovery handoff."
+  );
+  assert(
+    response.trace.some(
+      (event) =>
+        event.hook === "agent_tool_end" &&
+        (event.toolName === "query.answer" || event.toolName === "retrieval.sap") &&
+        event.receiptDeterministicBasis === "OpenAI Agents SDK RunHooks lifecycle event"
+    ),
+    "Maya query trace did not include a real SDK MCP source tool output receipt."
+  );
+  assert(
+    response.trace.some(
+      (event) =>
+        event.hook === "agent_tool_end" &&
+        event.toolName === "query.answer" &&
+        event.receiptDeterministicBasis === "OpenAI Agents SDK RunHooks lifecycle event" &&
+        event.retrievalSource === "sap_odata" &&
+        event.sourceKind === "sap_odata"
+    ),
+    "Maya query trace did not surface the real SDK MCP query.answer output as SAP OData provenance."
   );
 }
 
@@ -740,6 +803,58 @@ function assertBrowserSubmittedQueryScope(
     [...detail.selected.evidencePack.recordIds].sort(),
     `Maya browser submitted selected evidence scope for ${scenario.id}`
   );
+}
+
+function isSubmittedQueryScope(
+  payload: unknown,
+  scenario: RealMayaQueryScenario,
+  detail: ForensicsWorkItemDetailModel
+): boolean {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+
+  const submitted = payload as { question?: unknown; recordIds?: unknown; selectedLineId?: unknown };
+  if (submitted.question !== scenario.question || submitted.selectedLineId !== detail.selected.lineId) {
+    return false;
+  }
+  if (!Array.isArray(submitted.recordIds)) {
+    return false;
+  }
+
+  return sameRecordIds(
+    submitted.recordIds.map((recordId) => String(recordId)).sort(),
+    [...detail.selected.evidencePack.recordIds].sort()
+  );
+}
+
+function safePostDataJson(request: PlaywrightRequest): unknown {
+  try {
+    return request.postDataJSON() as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeJsonParse(value: string | undefined): unknown {
+  if (value === undefined || value.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameRecordIds(left: readonly string[], right: readonly string[]): boolean {
+  try {
+    assertSameRecordIds(left, right, "Maya query request matcher");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function assertLiveAgentModelExecution(response: ForensicsQueryResponse): void {
@@ -2033,6 +2148,9 @@ async function proxyRequestToRealBackend(
     const targetUrl = new URL(requestPath, `${targetBaseUrl}/`);
     const method = request.method ?? "GET";
     const body = await readIncomingBody(request);
+    if (body.length > 0 && method !== "GET" && method !== "HEAD") {
+      recorder.recordRequestBody(call, body.toString("utf8"));
+    }
     const requestInit: RequestInit = {
       cache: "no-store",
       headers: copyProxyHeaders(request.headers),
@@ -2227,6 +2345,10 @@ class ApiCallRecorder {
     return call;
   }
 
+  recordRequestBody(call: ObservedApiCall, requestBodyText: string): void {
+    call.requestBodyText = requestBodyText;
+  }
+
   recordResponse(call: ObservedApiCall, status: number, responseBodyText: string): void {
     call.status = status;
     call.responseBodyText = responseBodyText;
@@ -2247,27 +2369,61 @@ class ApiCallRecorder {
     throw new Error(`Did not observe real backend call ${normalizedMethod} ${normalizedPath}.`);
   }
 
-  async waitForJsonResponse<T>(method: string, path: string, timeoutMs: number): Promise<T> {
+  async waitForJsonResponse<T>(
+    method: string,
+    path: string,
+    timeoutMs: number,
+    predicate: (body: T, call: ObservedApiCall) => boolean = () => true
+  ): Promise<T> {
     const normalizedMethod = method.toUpperCase();
     const normalizedPath = normalizeObservedPath(path);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const call = this.calls.find(
-        (candidate) =>
-          candidate.method === normalizedMethod &&
-          candidate.path === normalizedPath &&
-          candidate.responseBodyText !== undefined
-      );
-      if (call?.responseBodyText !== undefined) {
+      for (const call of this.calls) {
+        if (call.method !== normalizedMethod || call.path !== normalizedPath || call.responseBodyText === undefined) {
+          continue;
+        }
         assert(call.status !== undefined && call.status >= 200 && call.status < 300, `Backend ${normalizedMethod} ${normalizedPath} failed with ${String(call.status)}: ${call.responseBodyText}`);
 
-        return JSON.parse(call.responseBodyText) as T;
+        const parsed = JSON.parse(call.responseBodyText) as T;
+        if (predicate(parsed, call)) {
+          return parsed;
+        }
       }
       await delay(250);
     }
 
-    throw new Error(`Did not observe real backend response body ${normalizedMethod} ${normalizedPath}.`);
+    throw new Error(
+      `Did not observe real backend response body ${normalizedMethod} ${normalizedPath}. Candidates=${JSON.stringify(
+        this.calls
+          .filter((call) => call.method === normalizedMethod && call.path === normalizedPath)
+          .map((call) => summarizeObservedCall(call))
+      )}`
+    );
   }
+}
+
+function summarizeObservedCall(call: ObservedApiCall): Record<string, unknown> {
+  const requestBody = safeJsonParse(call.requestBodyText);
+  const responseBody = safeJsonParse(call.responseBodyText);
+  const requestRecord = typeof requestBody === "object" && requestBody !== null ? (requestBody as Record<string, unknown>) : {};
+  const responseRecord = typeof responseBody === "object" && responseBody !== null ? (responseBody as Record<string, unknown>) : {};
+  const modelExecution =
+    typeof responseRecord.modelExecution === "object" && responseRecord.modelExecution !== null
+      ? (responseRecord.modelExecution as Record<string, unknown>)
+      : {};
+  const trace = Array.isArray(responseRecord.trace) ? responseRecord.trace : [];
+
+  return {
+    hasRequestBody: call.requestBodyText !== undefined,
+    mode: typeof modelExecution.mode === "string" ? modelExecution.mode : null,
+    question: typeof requestRecord.question === "string" ? requestRecord.question : null,
+    recordIds: Array.isArray(requestRecord.recordIds) ? requestRecord.recordIds.map((recordId) => String(recordId)) : null,
+    reason: typeof modelExecution.reason === "string" ? modelExecution.reason : null,
+    selectedLineId: typeof requestRecord.selectedLineId === "string" ? requestRecord.selectedLineId : null,
+    status: call.status ?? null,
+    traceRows: trace.length
+  };
 }
 
 await main();

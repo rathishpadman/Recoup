@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   containmentIntentAgent,
   conversationalQueryAgent,
+  createForensicsInvestigatorAgent,
+  createRecoveryDrafterAgent,
   forensicsInvestigatorAgent,
   recoupAgentRoster,
   recoveryDrafterAgent,
@@ -10,6 +12,7 @@ import {
   s4AgentBoundary,
   sentinelAgent
 } from "../../src/agents/agentRuntime.js";
+import type { MCPServer } from "../../src/agents/openAiAgentsSdk.js";
 import { agentPromptFileNames, loadAgentPrompt } from "../../src/agents/prompts.js";
 
 describe("agent runtime roster", () => {
@@ -87,6 +90,22 @@ describe("agent runtime roster", () => {
       text: { verbosity: "low" }
     });
     expect(conversationalQueryAgent.modelSettings).toEqual({});
+  });
+
+  it("constructs live Maya agents with governed MCP servers without mutating offline singletons", () => {
+    const mcpServers = [{ name: "recoup-governed-data-plane" }] as unknown as MCPServer[];
+    const recoveryAgent = createRecoveryDrafterAgent({ mcpServers });
+    const forensicsAgent = createForensicsInvestigatorAgent({ mcpServers });
+
+    expect(recoveryAgent.mcpServers).toBe(mcpServers);
+    expect(forensicsAgent.mcpServers).toBe(mcpServers);
+    expect(forensicsAgent.handoffs).toHaveLength(1);
+    expect(forensicsAgent.modelSettings).toEqual({
+      reasoning: { effort: "high" },
+      text: { verbosity: "low" }
+    });
+    expect(recoveryDrafterAgent.mcpServers).toEqual([]);
+    expect(forensicsInvestigatorAgent.mcpServers).toEqual([]);
   });
 
   it("loads every agent instruction from src/prompts/*.md", () => {

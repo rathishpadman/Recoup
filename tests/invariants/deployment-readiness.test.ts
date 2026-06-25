@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 interface PackageJson {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   engines?: {
     node?: string;
   };
@@ -27,9 +29,9 @@ const serverSecretKeys = [
 
 const requiredRenderPromptedEnvKeys = [
   "OPENAI_API_KEY",
+  "OPENAI_EVIDENCE_VECTOR_STORE_ID",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "RECOUP_SUPABASE_MEMORY_TABLE",
   "RECOUP_COCKPIT_ALLOWED_ORIGINS",
   "RECOUP_COCKPIT_AUTH_TOKEN",
   "RECOUP_DEMO_SESSION_SECRET",
@@ -43,6 +45,15 @@ const requiredRenderPromptedEnvKeys = [
   "SAP_ODATA_TENANT",
   "SAP_ODATA_CLIENT_SECRET"
 ] as const;
+
+const requiredRenderValueEnvKeys = {
+  RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead",
+  RECOUP_DATA_MODE: "real-backend",
+  RECOUP_MCP_CLIENT_CAPABILITIES: "read",
+  RECOUP_MCP_CLIENT_PRINCIPAL: "human:maya-lead",
+  RECOUP_MEMORY_BACKEND: "supabase",
+  RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+} as const;
 
 function readEnvExample(): Map<string, string> {
   return new Map(
@@ -115,6 +126,17 @@ describe("deployment readiness scripts", () => {
       "start:cockpit": "next start cockpit"
     });
   });
+
+  it("keeps the Render API start runner available to production installs", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
+
+    if (packageJson.scripts?.["start:api"] !== "tsx src/services/cockpitApi.ts") {
+      return;
+    }
+
+    expect(packageJson.dependencies?.tsx).toBeDefined();
+    expect(packageJson.devDependencies?.tsx).toBeUndefined();
+  });
 });
 
 describe("deployment readiness manifests", () => {
@@ -142,6 +164,13 @@ describe("deployment readiness manifests", () => {
       expect(declaration).toMatch(/^\s*sync:\s+false\s*$/mu);
       expect(declaration).not.toMatch(/^\s*value:\s*\S+/mu);
     }
+
+    for (const [envKey, expectedValue] of Object.entries(requiredRenderValueEnvKeys)) {
+      const declaration = envVars.get(envKey);
+      expect(declaration, `${envKey} must be declared in Render envVars`).toBeDefined();
+      expect(declaration).toMatch(new RegExp(`^\\s*value:\\s+${expectedValue}\\s*$`, "mu"));
+      expect(declaration).not.toMatch(/^\s*sync:\s+false\s*$/mu);
+    }
   });
 
   it("defines the root Vercel cockpit build contract without repo-committed env values", () => {
@@ -166,6 +195,7 @@ describe("deployment readiness env example", () => {
     const envExample = readEnvExample();
 
     expect(envExample.get("PORT")).toBe("4317");
+    expect(envExample.get("RECOUP_DATA_MODE")).toBe("");
     expect(envExample.get("RECOUP_API_URL")).toBe("");
     expect(envExample.get("NEXT_PUBLIC_RECOUP_API_URL")).toBe("");
 

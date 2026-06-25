@@ -31,6 +31,8 @@ import {
   type SupabaseRiskObservationSourceConfig
 } from "../adapters/supabaseSyntheticSource.js";
 
+const queryAnswerScopeHeaderName = "x-recoup-query-answer-scope";
+
 export interface McpToolDescriptor {
   name: string;
   inputSchema: {
@@ -51,11 +53,13 @@ export type McpToolFacadeOptions = ToolPermissionContext & {
 export interface StartMcpHttpServerInput {
   env?: RuntimeEnv;
   port?: number;
+  serviceContext?: ServiceInvocationContext;
 }
 
 export interface McpHttpAppOptions {
   env?: RuntimeEnv;
   memoryFetcher?: SupabaseMemoryFetch;
+  serviceContext?: ServiceInvocationContext;
 }
 
 export interface McpSdkServerOptions {
@@ -140,7 +144,10 @@ export function createMcpHttpApp(options: McpHttpAppOptions = {}): Express {
 
   app.post("/mcp/tools/:name/call", async (request, response) => {
     try {
-      const serviceContext = await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher);
+      const serviceContext = mergeMcpRequestServiceContext(
+        options.serviceContext ?? (await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher)),
+        request
+      );
       const callFacade = createMcpToolFacade({
         ...actorContext,
         ...(serviceContext === undefined ? {} : { serviceContext })
@@ -173,14 +180,13 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
     ...(options.actorContext ?? {}),
     ...(options.serviceContext === undefined ? {} : { serviceContext: options.serviceContext })
   });
-  const passthroughInput = z.object({}).passthrough();
 
   for (const tool of facade.listTools()) {
     server.registerTool(
       tool.name,
       {
         description: tool.inputSchema.description,
-        inputSchema: passthroughInput,
+        inputSchema: mcpSdkInputSchemaForTool(tool.name),
         annotations: {
           destructiveHint: false,
           idempotentHint: true,
@@ -188,11 +194,11 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
           readOnlyHint: serviceToolMetadata[tool.name as keyof typeof serviceToolMetadata].sideEffectClass === "none"
         }
       },
-      (args) => ({
+      (args: unknown) => ({
         content: [
           {
             text: JSON.stringify(facade.callTool(tool.name, args)),
-            type: "text"
+            type: "text" as const
           }
         ]
       })
@@ -200,6 +206,18 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
   }
 
   return server;
+}
+
+function mcpSdkInputSchemaForTool(toolName: string) {
+  if (toolName === "query.answer") {
+    return {
+      question: z.string().min(1).max(500),
+      recordIds: z.array(z.string().min(1)).min(1),
+      selectedLineId: z.string().min(1)
+    };
+  }
+
+  return z.object({}).passthrough();
 }
 
 export function createMcpTransport(): StreamableHTTPServerTransport {
@@ -234,7 +252,10 @@ export function createMcpStreamableHttpApp(options: McpHttpAppOptions = {}): Exp
 
       if (transport === undefined && sessionId === undefined && isInitializeRequest(request.body)) {
         transport = createSessionTransport(transports);
-        const serviceContext = await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher);
+        const serviceContext = mergeMcpRequestServiceContext(
+          options.serviceContext ?? (await loadOptionalMcpServiceContext(runtimeEnv, options.memoryFetcher)),
+          request
+        );
         await createMcpSdkServer({
           actorContext: buildMcpActorContext(runtimeEnv),
           ...(serviceContext === undefined ? {} : { serviceContext })
@@ -382,7 +403,10 @@ function riskObservationSourcesFromGovernedConfig(
 
 export async function startMcpHttpServer(input: StartMcpHttpServerInput = {}): Promise<StartedMcpHttpServer> {
   const runtimeEnv = input.env ?? process.env;
-  const app = createMcpStreamableHttpApp({ env: runtimeEnv });
+  const app = createMcpStreamableHttpApp({
+    env: runtimeEnv,
+    ...(input.serviceContext === undefined ? {} : { serviceContext: input.serviceContext })
+  });
   const port = input.port ?? readMcpPort(runtimeEnv.MCP_PORT);
 
   return new Promise((resolve) => {
@@ -548,11 +572,49 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function mergeMcpRequestServiceContext(
+  serviceContext: ServiceInvocationContext | undefined,
+  request: express.Request
+): ServiceInvocationContext | undefined {
+  const queryAnswerScope = readQueryAnswerScopeHeader(request.headers[queryAnswerScopeHeaderName]);
+  if (queryAnswerScope === undefined) {
+    return serviceContext;
+  }
+
+  return {
+    ...(serviceContext ?? {}),
+    queryAnswerScope
+  };
+}
+
+function readQueryAnswerScopeHeader(value: string | string[] | undefined): ServiceInvocationContext["queryAnswerScope"] {
+  const encoded = Array.isArray(value) ? value[0] : value;
+  if (encoded === undefined || encoded.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as unknown;
+    return z
+      .object({
+        recordIds: z.array(z.string().min(1)).min(1),
+        selectedLineId: z.string().min(1)
+      })
+      .parse(decoded);
+  } catch {
+    throw new Error("Invalid query.answer scope header.");
+  }
+}
+
+async function startMcpCli(): Promise<void> {
   const server = await startMcpHttpServer({ env: loadLocalRuntimeEnv() });
   console.log(`Recoup MCP StreamableHTTP listening on ${server.baseUrl}${server.endpoint}`);
 
   process.once("SIGTERM", () => {
     void server.close();
   });
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void startMcpCli();
 }

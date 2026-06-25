@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import {
   invokeServiceTool,
   type ServiceSapEvidenceSource,
@@ -176,6 +178,63 @@ describe("retrieval tools", () => {
         requireSupabaseSyntheticEvidence: true
       })
     ).toThrow("Supabase synthetic evidence source required for retrieval.bureau.");
+  });
+
+  it("fails closed when query.answer requires SAP evidence but the source is missing or empty", () => {
+    const queryInput = {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    };
+    const source = new SyntheticSource({ seed: 42 });
+
+    expect(() =>
+      invokeServiceTool("query.answer", queryInput, {
+        governedConfig: day1GovernedConfigSeed.values,
+        requireSupabaseSapEvidence: true,
+        source
+      })
+    ).toThrow("Supabase SAP evidence source required for query.answer.");
+
+    expect(() =>
+      invokeServiceTool("query.answer", queryInput, {
+        governedConfig: day1GovernedConfigSeed.values,
+        requireSupabaseSapEvidence: true,
+        sapEvidenceSource: {
+          readEvidence() {
+            return [];
+          }
+        },
+        source
+      })
+    ).toThrow("Supabase SAP evidence rows required for query.answer.");
+  });
+
+  it("blocks query.answer before source reads when input is outside the selected Maya scope", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Can I cite this other line?",
+      recordIds: ["S6-L1", "INV-S6-1"],
+      selectedLineId: "S6-L1"
+    };
+    const sapEvidenceSource = {
+      readEvidence() {
+        throw new Error("SAP evidence source must not be read for out-of-scope query.answer input.");
+      }
+    };
+
+    expect(() =>
+      invokeServiceTool("query.answer", queryInput, {
+        governedConfig: day1GovernedConfigSeed.values,
+        queryAnswerScope: {
+          recordIds: ["S3-L1", "INV-S3-1"],
+          selectedLineId: "S3-L1"
+        },
+        requireSupabaseSapEvidence: true,
+        sapEvidenceSource,
+        source
+      })
+    ).toThrow("query.answer input is outside the selected evidence scope.");
   });
 
   it("does not mislabel enterprise connector IDs as document-repository evidence", () => {

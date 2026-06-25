@@ -64,6 +64,13 @@ const AgentHookAuditReceiptSchema = z.object({
   agentName: z.string().min(1),
   nextAgentName: z.string().min(1).optional(),
   toolName: z.string().min(1).optional(),
+  toolInputRecordIds: z.array(z.string().min(1)).min(1).optional(),
+  toolInputSelectedLineId: z.string().min(1).optional(),
+  toolOutputCanonicalModel: z.string().min(1).optional(),
+  toolOutputSapEvidenceRecordIds: z.array(z.string().min(1)).min(1).optional(),
+  toolOutputSelectedLineId: z.string().min(1).optional(),
+  toolOutputSelectedRecordIds: z.array(z.string().min(1)).min(1).optional(),
+  toolOutputSourceReadStatus: z.string().min(1).optional(),
   recordIds: z.array(z.string().min(1)).min(1),
   deterministicBasis: z.enum([liveSdkAgentHookDeterministicBasis, deterministicForensicsHookAuditBasis])
 });
@@ -77,11 +84,28 @@ export interface AgentHookAuditReceiptInput {
   nextAgentName?: string;
   recordIds: string[];
   toolName?: string;
+  toolInputRecordIds?: string[];
+  toolInputSelectedLineId?: string;
+  toolOutputCanonicalModel?: string;
+  toolOutputSapEvidenceRecordIds?: string[];
+  toolOutputSelectedLineId?: string;
+  toolOutputSelectedRecordIds?: string[];
+  toolOutputSourceReadStatus?: string;
 }
 
 export interface AgentHookReceiptRegistrationOptions {
   recordIds: string[];
 }
+
+type SdkToolInputProof = Pick<AgentHookAuditReceiptInput, "toolInputRecordIds" | "toolInputSelectedLineId">;
+type SdkToolOutputProof = Pick<
+  AgentHookAuditReceiptInput,
+  | "toolOutputCanonicalModel"
+  | "toolOutputSapEvidenceRecordIds"
+  | "toolOutputSelectedLineId"
+  | "toolOutputSelectedRecordIds"
+  | "toolOutputSourceReadStatus"
+>;
 
 interface RunHookEmitter {
   on(type: string, listener: (...args: unknown[]) => void): unknown;
@@ -175,6 +199,17 @@ export function createAgentHookAuditReceipt(input: AgentHookAuditReceiptInput): 
     agentName: input.agentName,
     ...(input.nextAgentName === undefined ? {} : { nextAgentName: input.nextAgentName }),
     ...(input.toolName === undefined ? {} : { toolName: input.toolName }),
+    ...(input.toolInputRecordIds === undefined ? {} : { toolInputRecordIds: [...input.toolInputRecordIds] }),
+    ...(input.toolInputSelectedLineId === undefined ? {} : { toolInputSelectedLineId: input.toolInputSelectedLineId }),
+    ...(input.toolOutputCanonicalModel === undefined ? {} : { toolOutputCanonicalModel: input.toolOutputCanonicalModel }),
+    ...(input.toolOutputSapEvidenceRecordIds === undefined
+      ? {}
+      : { toolOutputSapEvidenceRecordIds: [...input.toolOutputSapEvidenceRecordIds] }),
+    ...(input.toolOutputSelectedLineId === undefined ? {} : { toolOutputSelectedLineId: input.toolOutputSelectedLineId }),
+    ...(input.toolOutputSelectedRecordIds === undefined
+      ? {}
+      : { toolOutputSelectedRecordIds: [...input.toolOutputSelectedRecordIds] }),
+    ...(input.toolOutputSourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: input.toolOutputSourceReadStatus }),
     recordIds: [...input.recordIds],
     deterministicBasis: input.deterministicBasis ?? liveSdkAgentHookDeterministicBasis
   } as const;
@@ -203,23 +238,29 @@ export function registerRunHookAuditReceipts(
       })
     );
   });
-  hooks.on("agent_tool_start", (_context, agent, tool) => {
+  hooks.on("agent_tool_start", (_context, agent, tool, details) => {
+    const inputProof = selectedEvidenceToolInputProof(readToolCallStructuredPayload(details));
     onReceipt(
       createAgentHookAuditReceipt({
         hook: "agent_tool_start",
         agentName: readName(agent),
         recordIds: options.recordIds,
-        toolName: readName(tool)
+        toolName: readName(tool),
+        ...(inputProof === undefined ? {} : inputProof)
       })
     );
   });
-  hooks.on("agent_tool_end", (_context, agent, tool) => {
+  hooks.on("agent_tool_end", (_context, agent, tool, result, details) => {
+    const inputProof = selectedEvidenceToolInputProof(readToolCallStructuredPayload(details));
+    const outputProof = selectedEvidenceToolOutputProof(normalizeStructuredPayload(result));
     onReceipt(
       createAgentHookAuditReceipt({
         hook: "agent_tool_end",
         agentName: readName(agent),
         recordIds: options.recordIds,
-        toolName: readName(tool)
+        toolName: readName(tool),
+        ...(inputProof === undefined ? {} : inputProof),
+        ...(outputProof === undefined ? {} : outputProof)
       })
     );
   });
@@ -229,6 +270,189 @@ function readName(value: unknown): string {
   return typeof value === "object" && value !== null && "name" in value && typeof value.name === "string"
     ? value.name
     : "unknown";
+}
+
+function readToolCallStructuredPayload(details: unknown): unknown {
+  const toolCall = toRecord(toRecord(details)?.toolCall);
+  if (toolCall === undefined) {
+    return undefined;
+  }
+
+  const json = readToJsonRecord(toolCall);
+  const records = [toolCall, toRecord(toolCall.rawItem), toRecord(json?.rawItem), json];
+  for (const record of records) {
+    if (record === undefined) {
+      continue;
+    }
+    const payload = readStructuredPayloadFromRecord(record, ["arguments", "argumentsJson", "arguments_json", "args", "input", "params"]);
+    if (payload !== undefined) {
+      return payload;
+    }
+  }
+
+  return undefined;
+}
+
+function readStructuredPayloadFromRecord(record: Record<string, unknown>, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    if (!(key in record)) {
+      continue;
+    }
+
+    const payload = normalizeStructuredPayload(record[key]);
+    if (payload !== undefined) {
+      return payload;
+    }
+  }
+
+  return undefined;
+}
+
+function selectedEvidenceToolInputProof(payload: unknown): SdkToolInputProof | undefined {
+  const payloadRecord = toRecord(payload);
+  if (payloadRecord === undefined) {
+    return undefined;
+  }
+
+  const selectedLineId = readNonEmptyString(payloadRecord.selectedLineId);
+  const recordIds = readStringArray(payloadRecord.recordIds);
+  if (selectedLineId === undefined && recordIds === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(recordIds === undefined ? {} : { toolInputRecordIds: recordIds }),
+    ...(selectedLineId === undefined ? {} : { toolInputSelectedLineId: selectedLineId })
+  };
+}
+
+function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof | undefined {
+  const payloadRecord = toRecord(payload);
+  const sourceReads = toRecord(payloadRecord?.sourceReads);
+  if (payloadRecord === undefined || sourceReads === undefined) {
+    return undefined;
+  }
+
+  const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
+  const sapEvidenceRecordIds = collectSapEvidenceRecordIds(sourceReads.sapEvidence);
+  const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
+  const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
+  const sourceReadStatus = readNonEmptyString(payloadRecord.sourceReadStatus);
+  const outputProof: SdkToolOutputProof = {
+    ...(canonicalModel === undefined ? {} : { toolOutputCanonicalModel: canonicalModel }),
+    ...(sapEvidenceRecordIds.length === 0 ? {} : { toolOutputSapEvidenceRecordIds: sapEvidenceRecordIds }),
+    ...(selectedLineId === undefined ? {} : { toolOutputSelectedLineId: selectedLineId }),
+    ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
+    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus })
+  };
+
+  return Object.keys(outputProof).length === 0 ? undefined : outputProof;
+}
+
+function normalizeStructuredPayload(value: unknown): unknown {
+  if (typeof value === "string") {
+    try {
+      return normalizeStructuredPayload(JSON.parse(value) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const entryRecord = toRecord(entry);
+      if (typeof entryRecord?.text === "string") {
+        const parsedText = normalizeStructuredPayload(entryRecord.text);
+        if (parsedText !== undefined) {
+          return parsedText;
+        }
+      }
+      const normalizedEntry = normalizeStructuredPayload(entry);
+      if (isRecord(normalizedEntry)) {
+        return normalizedEntry;
+      }
+    }
+
+    return undefined;
+  }
+  const valueRecord = toRecord(value);
+  if (valueRecord === undefined) {
+    return undefined;
+  }
+  if (typeof valueRecord.text === "string") {
+    const textPayload = normalizeStructuredPayload(valueRecord.text);
+    if (textPayload !== undefined) {
+      return textPayload;
+    }
+  }
+  if (Array.isArray(valueRecord.content)) {
+    const contentPayload = normalizeStructuredPayload(valueRecord.content);
+    if (contentPayload !== undefined) {
+      return contentPayload;
+    }
+  }
+  if (valueRecord.structuredContent !== undefined) {
+    const structuredContent = normalizeStructuredPayload(valueRecord.structuredContent);
+    if (structuredContent !== undefined) {
+      return structuredContent;
+    }
+  }
+
+  return valueRecord;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const values = dedupeStrings(value.filter((entry): entry is string => typeof entry === "string"));
+  return values.length === 0 ? undefined : values;
+}
+
+function collectSapEvidenceRecordIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const recordIds: string[] = [];
+  for (const evidence of value) {
+    const evidenceRecord = toRecord(evidence);
+    const evidenceRecordIds = readStringArray(evidenceRecord?.recordIds);
+    if (evidenceRecordIds !== undefined) {
+      recordIds.push(...evidenceRecordIds);
+    }
+  }
+
+  return dedupeStrings(recordIds);
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function readToJsonRecord(value: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const toJSON = value?.toJSON;
+  if (typeof toJSON !== "function") {
+    return undefined;
+  }
+
+  try {
+    return toRecord(toJSON.call(value));
+  } catch {
+    return undefined;
+  }
 }
 
 function readPhaseBudget(config: RunControlConfig, phase: RunControlPhase): RunControlConfig["phases"][RunControlPhase] {

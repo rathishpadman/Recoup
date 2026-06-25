@@ -4,12 +4,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { describe, expect, it } from "vitest";
+import { day1GovernedConfigSeed } from "../../config/governed.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import {
   createMcpHttpApp,
   createMcpStreamableHttpApp,
   createMcpTransport,
   startMcpHttpServer
 } from "../../src/mcp/server.js";
+import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
 
 const mcpAuthEnv = {
   RECOUP_MCP_AUTH_TOKEN: "test-mcp-token",
@@ -100,6 +103,47 @@ describe("production MCP transport", () => {
     }
   });
 
+  it("uses injected service context for legacy MCP facade tool calls", async () => {
+    const app = createMcpHttpApp({
+      env: mcpAuthEnv,
+      serviceContext: {
+        ...fixtureForensicsServiceContext,
+        governedConfig: day1GovernedConfigSeed.values,
+        source: new SyntheticSource({ seed: 42 })
+      }
+    });
+    const server = await listen(app);
+
+    try {
+      const response = await fetch(`${server.baseUrl}/mcp/tools/query.answer/call`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: {
+          ...mcpAuthHeaders,
+          "content-type": "application/json"
+        },
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        result?: { sourceReadStatus?: string; sourceReads?: { canonicalModel?: string; sapEvidence?: unknown[] } };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.result).toMatchObject({
+        sourceReadStatus: "source_backed_selected_scope",
+        sourceReads: {
+          canonicalModel: "EvidenceDocument"
+        }
+      });
+      expect(body.result?.sourceReads?.sapEvidence).toHaveLength(1);
+    } finally {
+      await close(server.server);
+    }
+  });
+
   it("rejects unauthenticated StreamableHTTP requests when MCP auth is configured", async () => {
     const app = createMcpStreamableHttpApp({ env: mcpAuthEnv });
     const server = await listen(app);
@@ -172,6 +216,147 @@ describe("production MCP transport", () => {
       expect(toolNames).toContain("agent_tool_sentinel_position");
       expect(toolNames).toContain("agent_tool_containment_intent_position");
       expect(toolNames).not.toContain("approvals.decide");
+
+      const queryAnswerTool = tools.tools.find((tool) => tool.name === "query.answer");
+      expect(queryAnswerTool?.inputSchema).toMatchObject({
+        properties: {
+          question: { type: "string" },
+          recordIds: {
+            items: { type: "string" },
+            type: "array"
+          },
+          selectedLineId: { type: "string" }
+        },
+        required: ["question", "recordIds", "selectedLineId"],
+        type: "object"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("preserves non-query tool arguments through authenticated StreamableHTTP", async () => {
+    const server = await startMcpHttpServer({
+      env: { ...mcpAuthEnv, MCP_PORT: "0" },
+      serviceContext: {
+        ...fixtureForensicsServiceContext,
+        governedConfig: day1GovernedConfigSeed.values,
+        source: new SyntheticSource({ seed: 42 })
+      }
+    });
+    const client = new Client({ name: "recoup-audit-client", version: "0.1.0" }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(`${server.baseUrl}${server.endpoint}`), {
+      requestInit: { headers: mcpAuthHeaders }
+    });
+
+    try {
+      await client.connect(transport as unknown as Transport);
+      const result = await client.callTool({
+        arguments: { caseId: "ARB-HARBOR-ORDER-640K" },
+        name: "audit.read"
+      });
+      const body = readMcpTextResult(result) as { auditTrailValid?: boolean; caseId?: string };
+
+      expect(result).not.toMatchObject({ isError: true });
+      expect(body).toMatchObject({
+        auditTrailValid: true,
+        caseId: "ARB-HARBOR-ORDER-640K"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("enforces request-bound query.answer scope through authenticated StreamableHTTP", async () => {
+    const server = await startMcpHttpServer({
+      env: { ...mcpAuthEnv, MCP_PORT: "0" },
+      serviceContext: {
+        ...fixtureForensicsServiceContext,
+        governedConfig: day1GovernedConfigSeed.values,
+        source: new SyntheticSource({ seed: 42 })
+      }
+    });
+    const client = new Client({ name: "recoup-scoped-query-client", version: "0.1.0" }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(`${server.baseUrl}${server.endpoint}`), {
+      requestInit: {
+        headers: {
+          ...mcpAuthHeaders,
+          "x-recoup-query-answer-scope":
+            "eyJyZWNvcmRJZHMiOlsiUzYtTDEiLCJJTlYtUzYtMSIsIlNBUC1JTlYtUzYtMSIsIlBSSUNFLUNMQVVTRS0xIl0sInNlbGVjdGVkTGluZUlkIjoiUzYtTDEifQ"
+        }
+      }
+    });
+
+    try {
+      await client.connect(transport as unknown as Transport);
+      const result = await client.callTool({
+        arguments: {
+          question: "Why is this recoverable?",
+          recordIds: ["S3-L1", "INV-S3-1"],
+          selectedLineId: "S3-L1"
+        },
+        name: "query.answer"
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      if (!Array.isArray(result.content)) {
+        throw new Error("Expected MCP tool error content to be an array.");
+      }
+      expect(result.content[0]).toMatchObject({
+        text: "query.answer input is outside the selected evidence scope."
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("returns source-backed SAP evidence for scoped query.answer through authenticated StreamableHTTP", async () => {
+    const server = await startMcpHttpServer({
+      env: { ...mcpAuthEnv, MCP_PORT: "0" },
+      serviceContext: {
+        ...fixtureForensicsServiceContext,
+        governedConfig: day1GovernedConfigSeed.values,
+        source: new SyntheticSource({ seed: 42 })
+      }
+    });
+    const client = new Client({ name: "recoup-source-query-client", version: "0.1.0" }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(`${server.baseUrl}${server.endpoint}`), {
+      requestInit: {
+        headers: {
+          ...mcpAuthHeaders,
+          "x-recoup-query-answer-scope":
+            "eyJyZWNvcmRJZHMiOlsiUzYtTDEiLCJJTlYtUzYtMSIsIlNBUC1JTlYtUzYtMSIsIlBSSUNFLUNMQVVTRS0xIl0sInNlbGVjdGVkTGluZUlkIjoiUzYtTDEifQ"
+        }
+      }
+    });
+
+    try {
+      await client.connect(transport as unknown as Transport);
+      const result = await client.callTool({
+        arguments: {
+          question: "Why is this recoverable?",
+          recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        },
+        name: "query.answer"
+      });
+      const body = readMcpTextResult(result) as {
+        sourceReadStatus?: string;
+        sourceReads?: { canonicalModel?: string; sapEvidence?: unknown[]; selectedLineId?: string };
+      };
+
+      expect(result).not.toMatchObject({ isError: true });
+      expect(body).toMatchObject({
+        sourceReadStatus: "source_backed_selected_scope",
+        sourceReads: {
+          canonicalModel: "EvidenceDocument",
+          selectedLineId: "S6-L1"
+        }
+      });
+      expect(body.sourceReads?.sapEvidence).toHaveLength(1);
     } finally {
       await client.close();
       await server.close();
@@ -214,6 +399,22 @@ describe("production MCP transport", () => {
     }
   });
 });
+
+function readMcpTextResult(result: unknown): unknown {
+  if (typeof result !== "object" || result === null || !("content" in result) || !Array.isArray(result.content)) {
+    throw new Error("Expected MCP tool result content to be an array.");
+  }
+  const first: unknown = result.content[0];
+  if (!isMcpTextContent(first)) {
+    throw new Error("Expected MCP tool result text content.");
+  }
+
+  return JSON.parse(first.text) as unknown;
+}
+
+function isMcpTextContent(value: unknown): value is { text: string } {
+  return typeof value === "object" && value !== null && "text" in value && typeof value.text === "string";
+}
 
 async function listen(app: ReturnType<typeof createMcpStreamableHttpApp>): Promise<{ baseUrl: string; server: Server }> {
   return new Promise((resolve) => {

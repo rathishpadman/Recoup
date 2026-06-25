@@ -88,6 +88,102 @@ describe("conductor AgentHooks audit receipts", () => {
     expect(JSON.stringify(receipts)).not.toContain("secret");
   });
 
+  it("records selected-evidence MCP proof from SDK tool hook details and result", () => {
+    const hooks = new FakeRunHooks();
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];
+    const toolCallDetails = {
+      toolCall: {
+        arguments: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: selectedRecordIds,
+          selectedLineId: "S6-L1"
+        })
+      }
+    };
+    const toolResult = JSON.stringify({
+      text: JSON.stringify({
+        sourceReadStatus: "source_backed_selected_scope",
+        sourceReads: {
+          canonicalModel: "EvidenceDocument",
+          sapEvidence: [
+            {
+              recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+              source: "sap"
+            }
+          ],
+          selectedLineId: "S6-L1",
+          selectedRecordIds
+        }
+      }),
+      type: "text"
+    });
+
+    registerRunHookAuditReceipts(hooks, (receipt) => receipts.push(receipt), {
+      recordIds: selectedRecordIds
+    });
+    hooks.emit("agent_tool_start", {}, { name: "Forensics Investigator" }, { name: "query_answer" }, toolCallDetails);
+    hooks.emit("agent_tool_end", {}, { name: "Forensics Investigator" }, { name: "query_answer" }, toolResult, toolCallDetails);
+
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toMatchObject({
+      hook: "agent_tool_start",
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S6-L1",
+      toolName: "query_answer"
+    });
+    expect(receipts[1]).toMatchObject({
+      hook: "agent_tool_end",
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S6-L1",
+      toolName: "query_answer",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSapEvidenceRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+      toolOutputSelectedLineId: "S6-L1",
+      toolOutputSelectedRecordIds: selectedRecordIds,
+      toolOutputSourceReadStatus: "source_backed_selected_scope"
+    });
+    expect(JSON.stringify(receipts)).not.toContain("Why is this recoverable?");
+  });
+
+  it("reads selected-evidence MCP proof from SDK tool-call prototype properties", () => {
+    const hooks = new FakeRunHooks();
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];
+    const toolCall = Object.create({
+      arguments: JSON.stringify({
+        recordIds: selectedRecordIds,
+        selectedLineId: "S6-L1"
+      })
+    }) as Record<string, unknown>;
+    const toolCallDetails = { toolCall };
+    const toolResult = JSON.stringify({
+      text: JSON.stringify({
+        sourceReadStatus: "source_backed_selected_scope",
+        sourceReads: {
+          canonicalModel: "EvidenceDocument",
+          sapEvidence: [{ recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"] }],
+          selectedLineId: "S6-L1",
+          selectedRecordIds
+        }
+      }),
+      type: "text"
+    });
+
+    registerRunHookAuditReceipts(hooks, (receipt) => receipts.push(receipt), {
+      recordIds: selectedRecordIds
+    });
+    hooks.emit("agent_tool_end", {}, { name: "Forensics Investigator" }, { name: "query_answer" }, toolResult, toolCallDetails);
+
+    expect(receipts[0]).toMatchObject({
+      hook: "agent_tool_end",
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S6-L1",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSourceReadStatus: "source_backed_selected_scope"
+    });
+  });
+
   it("rejects hook audit receipts without cited record ids", () => {
     expect(() =>
       createAgentHookAuditReceipt({

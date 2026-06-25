@@ -12,20 +12,32 @@ services:
         value: 4317
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_EVIDENCE_VECTOR_STORE_ID
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: RECOUP_MEMORY_BACKEND
+        value: supabase
       - key: RECOUP_SUPABASE_MEMORY_TABLE
-        sync: false
+        value: recoup_memory_records
+      - key: RECOUP_DATA_MODE
+        value: real-backend
       - key: RECOUP_COCKPIT_ALLOWED_ORIGINS
         sync: false
       - key: RECOUP_COCKPIT_AUTH_TOKEN
         sync: false
       - key: RECOUP_DEMO_SESSION_SECRET
         sync: false
+      - key: RECOUP_COCKPIT_HUMAN_PRINCIPAL
+        value: human:maya-lead
       - key: RECOUP_MCP_AUTH_TOKEN
         sync: false
+      - key: RECOUP_MCP_CLIENT_CAPABILITIES
+        value: read
+      - key: RECOUP_MCP_CLIENT_PRINCIPAL
+        value: human:maya-lead
       - key: SAP_ODATA_BASE_URL
         sync: false
       - key: SAP_ODATA_CLIENT_ID
