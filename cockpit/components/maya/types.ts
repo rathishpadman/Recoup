@@ -1,12 +1,17 @@
-import type { ConnectorReadinessCockpitModel, ForensicsCockpitModel } from "../../app/cockpit-data.ts";
+import type {
+  ConnectorReadinessCockpitModel,
+  ForensicsCockpitModel,
+  ForensicsWorkItemDetailCockpitModel
+} from "../../app/cockpit-data.ts";
 import type { DemoSession } from "../../app/demo-auth.ts";
-import type { RealtimeBrowserSessionSnapshot } from "../../app/realtime-browser-session.ts";
 
 export interface MayaForensicsSurfaceProps {
   connectors: ConnectorReadinessCockpitModel;
   model: ForensicsCockpitModel;
   session: DemoSession;
 }
+
+export type MayaSurfaceSection = "overview" | "worklist" | "cases" | "evidence" | "approvals";
 
 export interface ApprovalGateResponse {
   actionId: string;
@@ -15,7 +20,8 @@ export interface ApprovalGateResponse {
   status?: "human_decided";
 }
 
-export type QueryEvidenceResponse = RealtimeBrowserSessionSnapshot;
+export type QueryEvidenceBackendResponse = import("../../app/cockpit-data.ts").ForensicsQueryResponse;
+export type QueryEvidenceResponse = import("../../app/cockpit-data.ts").ForensicsQueryUiResponse;
 export type MayaActionInboxItem = ForensicsCockpitModel["actionInbox"][number];
 export type MayaApprovalAction = ForensicsCockpitModel["selected"]["approvalActions"][number];
 export type MayaConnector = ConnectorReadinessCockpitModel["connectors"][number];
@@ -24,8 +30,14 @@ export type MayaEvidencePack = ForensicsCockpitModel["selected"]["evidencePack"]
 export type MayaJourneyItem = ForensicsCockpitModel["mayaJourney"][number];
 export type MayaKpiItem = ForensicsCockpitModel["kpiStrip"][number];
 export type MayaMultimodalDock = ForensicsCockpitModel["multimodalDock"];
+
+export interface MayaQueryPromptDockContract extends Omit<MayaMultimodalDock, "promptSuggestions"> {
+  promptSuggestions?: MayaMultimodalDock["promptSuggestions"];
+}
+
 export type MayaRecoveryTracker = ForensicsCockpitModel["recoveryTracker"];
 export type MayaSelectedCase = ForensicsCockpitModel["selected"];
+export type MayaWorkItemDetail = ForensicsWorkItemDetailCockpitModel;
 export type MayaSourceTile = ConnectorReadinessCockpitModel["sourceTiles"][number];
 export type MayaSubAgent = ForensicsCockpitModel["multimodalDock"]["subAgents"][number];
 export type MayaWorklistItem = ForensicsCockpitModel["worklist"][number];

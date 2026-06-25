@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { RunStreamEvent } from "@openai/agents";
 import {
   runOpenAIForensicsAgentStream,
   streamLiveForensicsTraceEvents,
   type LiveForensicsOpenAiRunner,
   type LiveForensicsStreamRunner
 } from "../../src/agents/liveForensicsStream.js";
+import type { RunStreamEvent } from "../../src/agents/openAiAgentsSdk.js";
 import type { AgentHookAuditReceipt } from "../../src/services/conductor.js";
 
 async function collect<T>(events: AsyncIterable<T>): Promise<T[]> {

@@ -7,6 +7,8 @@ import { runRiskMeshClosedLoop } from "./riskMesh.js";
 export interface OfflineQueryInput {
   governedConfig: GovernedConfigValues;
   question: string;
+  recordIds?: string[];
+  selectedLineId?: string;
   source: SourcePort;
 }
 
@@ -29,6 +31,25 @@ export interface CitationParity {
   parity: "same_record_ids";
 }
 
+export interface DeterministicForensicsQueryAnswerInput {
+  basis: string;
+  citationRecordIds: readonly string[];
+  question: string;
+  routing: string;
+  selectedLineId: string;
+  verdict: string;
+}
+
+export function buildDeterministicForensicsQueryAnswer(input: DeterministicForensicsQueryAnswerInput): string {
+  const citationRecordIds = dedupeRecordIds(input.citationRecordIds);
+
+  return [
+    `Line ${input.selectedLineId} is ${input.verdict} and routed to ${input.routing} by deterministic forensics orchestration.`,
+    `Basis: ${input.basis}`,
+    `The answer is limited to cited record IDs: ${citationRecordIds.join(", ")}.`
+  ].join(" ");
+}
+
 export function answerOfflineQuery(input: OfflineQueryInput | undefined): OfflineQueryAnswer {
   const maybeInput = input as Partial<OfflineQueryInput> | undefined;
   if (maybeInput?.governedConfig === undefined) {
@@ -40,6 +61,25 @@ export function answerOfflineQuery(input: OfflineQueryInput | undefined): Offlin
   const queryInput = maybeInput as OfflineQueryInput;
 
   const normalizedQuestion = queryInput.question.trim();
+  if (queryInput.selectedLineId !== undefined && queryInput.recordIds !== undefined) {
+    return {
+      status: "disabled_offline_safe",
+      answer:
+        normalizedQuestion.length === 0
+          ? "Selected evidence query is staged for offline demo only; no live model call was made."
+          : `Selected evidence query for ${queryInput.selectedLineId} is staged for offline demo only; use the cited selected evidence records shown in the cockpit packet.`,
+      citationParity: sameRecordIdCitationParity(queryInput.recordIds),
+      recordIds: [...queryInput.recordIds],
+      deterministicBasis:
+        "query.answer selectedLineId + selected evidence recordIds + offline model-execution block; live Realtime answers must stay scoped to the selected cockpit evidence packet.",
+      modelExecution: "blocked: offline build does not invoke live model calls",
+      plannedModels: {
+        voice: runtimeModels.realtime,
+        text: runtimeModels.fast
+      }
+    };
+  }
+
   const normalizedLower = normalizedQuestion.toLowerCase();
   const asksForHarborRisk =
     normalizedLower.includes("harbor") || normalizedLower.includes("blocked") || normalizedLower.includes("risk");
@@ -101,11 +141,15 @@ function describeArbitrationState(arbitration: ArbitrationResult): string {
 }
 
 function sameRecordIdCitationParity(recordIds: readonly string[]): CitationParity {
-  const citedRecordIds = [...recordIds];
+  const citedRecordIds = dedupeRecordIds(recordIds);
 
   return {
     textRecordIds: citedRecordIds,
     voiceRecordIds: [...citedRecordIds],
     parity: "same_record_ids"
   };
+}
+
+function dedupeRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
 }

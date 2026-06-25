@@ -273,7 +273,7 @@ export function ApprovalGateDialog({
                   void submitDecision(action);
                 }}
                 type="button"
-                variant={decisionButtonVariant(action.decision)}
+                variant={decisionButtonVariant(action.decision, approvalEligibilityUnavailable)}
               >
                 <DecisionIcon decision={action.decision} />
                 {decisionButtonLabel(action.decision)}
@@ -327,7 +327,14 @@ function decisionButtonLabel(decision: MayaApprovalAction["decision"]): string {
   }
 }
 
-function decisionButtonVariant(decision: MayaApprovalAction["decision"]): React.ComponentProps<typeof Button>["variant"] {
+function decisionButtonVariant(
+  decision: MayaApprovalAction["decision"],
+  approvalEligibilityUnavailable: boolean
+): React.ComponentProps<typeof Button>["variant"] {
+  if (approvalEligibilityUnavailable) {
+    return "outline";
+  }
+
   switch (decision) {
     case "approve":
       return "default";

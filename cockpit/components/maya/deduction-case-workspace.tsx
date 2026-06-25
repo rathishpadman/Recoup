@@ -3,6 +3,8 @@
 import * as React from "react";
 import {
   AlertCircleIcon,
+  ChevronLeftIcon,
+  CheckCircle2Icon,
   ClipboardListIcon,
   FileLockIcon,
   FileTextIcon,
@@ -11,6 +13,7 @@ import {
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,17 +28,21 @@ import type {
   MayaActionInboxItem,
   MayaJourneyItem,
   MayaMultimodalDock,
+  QueryEvidenceResponse,
   MayaSelectedCase,
   MayaSourceTile,
+  MayaWorkItemDetail,
   MayaWorklistItem
 } from "./types.ts";
 
 interface DeductionCaseWorkspaceProps {
   actionInbox: MayaActionInboxItem[];
+  auditState: MayaWorkItemDetail["auditState"];
   hasBackendDetail: boolean;
   journey: MayaJourneyItem[];
   multimodalDock: MayaMultimodalDock;
   onReturnToWorklist: () => void;
+  recommendedAction: MayaWorkItemDetail["recommendedAction"];
   selected: MayaSelectedCase;
   selectedWorklistItem: MayaWorklistItem | undefined;
   sourceTiles: MayaSourceTile[];
@@ -43,18 +50,22 @@ interface DeductionCaseWorkspaceProps {
 
 export function DeductionCaseWorkspace({
   actionInbox,
+  auditState,
   hasBackendDetail,
   journey,
   multimodalDock,
   onReturnToWorklist,
+  recommendedAction,
   selected,
   selectedWorklistItem,
   sourceTiles
 }: DeductionCaseWorkspaceProps) {
   const [queryDockOpen, setQueryDockOpen] = React.useState(false);
+  const [queryResponse, setQueryResponse] = React.useState<QueryEvidenceResponse | undefined>();
   const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
+  const isValidDeduction = selectedWorklistItem?.verdict === "valid";
   const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(selected.lineId) ?? -1;
   const selectedLinePosition =
     canShowBackendDetail && selectedLineIndex >= 0
@@ -64,15 +75,27 @@ export function DeductionCaseWorkspace({
   const title = selectedWorklistItem?.scenarioLabel ?? selected.draft.actionLabel;
   const customer = selectedWorklistItem?.customerLabel ?? "Unavailable";
   const selectedActionContext = {
-    actionLabel: selected.draft.actionLabel,
-    basis: selected.draft.basis,
+    actionLabel: recommendedAction.actionLabel,
+    basis: recommendedAction.basis ?? selected.draft.basis,
     recordIds: selected.evidencePack.recordIds,
-    statusLabel: selected.draft.statusLabel
+    statusLabel: auditState.statusLabel
   };
+  const selectedEvidenceIdentity = JSON.stringify({
+    lineId: selected.lineId,
+    recordIds: selected.evidencePack.recordIds
+  });
 
   React.useEffect(() => {
     setApprovalResponse(undefined);
-  }, [selected.lineId]);
+    setQueryResponse(undefined);
+  }, [selectedEvidenceIdentity]);
+
+  function handleQueryDockOpenChange(open: boolean): void {
+    setQueryDockOpen(open);
+    if (!open) {
+      setQueryResponse((current) => (current?.status === "connecting" ? undefined : current));
+    }
+  }
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-case-workspace">
@@ -80,6 +103,17 @@ export function DeductionCaseWorkspace({
         <CardHeader className="gap-4">
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="grid min-w-0 gap-2">
+              <Button
+                className="w-fit"
+                data-testid="maya-case-return-to-worklist"
+                onClick={onReturnToWorklist}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <ChevronLeftIcon aria-hidden="true" data-icon="inline-start" />
+                Return to worklist
+              </Button>
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span>Worklist</span>
                 <span aria-hidden="true">/</span>
@@ -94,7 +128,16 @@ export function DeductionCaseWorkspace({
                   <Badge variant="outline">Contract gap</Badge>
                 ) : (
                   <>
-                    <Badge variant="secondary">{selectedWorklistItem.verdictLabel}</Badge>
+                    <Badge
+                      className="gap-1.5"
+                      data-verdict={selectedWorklistItem.verdict}
+                      variant={isValidDeduction ? "outline" : "secondary"}
+                    >
+                      {selectedWorklistItem.verdict === "valid" ? (
+                        <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                      ) : null}
+                      {selectedWorklistItem.verdictLabel}
+                    </Badge>
                     <Badge variant="outline">{selectedWorklistItem.routingLabel}</Badge>
                     <Badge variant="outline">{selectedWorklistItem.queueLabel}</Badge>
                     <Badge variant="outline">{selectedWorklistItem.confidenceLabel}</Badge>
@@ -154,7 +197,9 @@ export function DeductionCaseWorkspace({
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="evidence">Evidence</TabsTrigger>
-          <TabsTrigger value="trace">Agent Trace</TabsTrigger>
+          <TabsTrigger data-testid="maya-case-agent-trace-tab" value="trace">
+            Agent Trace
+          </TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
         </TabsList>
@@ -178,6 +223,7 @@ export function DeductionCaseWorkspace({
                       <div className="grid gap-3 md:grid-cols-2" data-testid="maya-case-primary-draft-facts">
                         <CaseFact label="Draft action" value={selected.draft.actionLabel} />
                         <CaseFact label="Status" value={selected.draft.statusLabel} />
+                        <CaseFact label="Audit state" value={auditState.statusLabel} />
                       </div>
                       <Separator />
                       <RecordIdStrip recordIds={selected.evidencePack.recordIds} />
@@ -219,7 +265,7 @@ export function DeductionCaseWorkspace({
                     Draft and approval
                   </CardTitle>
                   <CardDescription>
-                    {canShowBackendDetail ? selected.draft.statusLabel : "Unavailable until backend detail maps to this row"}
+                    {canShowBackendDetail ? auditState.statusLabel : "Unavailable until backend detail maps to this row"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
@@ -282,11 +328,12 @@ export function DeductionCaseWorkspace({
           )}
         </TabsContent>
         <TabsContent className="mt-3" value="trace">
-          {canShowBackendDetail ? (
-            <AgentTracePanel response={undefined} subAgents={multimodalDock.subAgents} />
-          ) : (
-            <DetailGapCard title="Agent trace unavailable" />
-          )}
+          <AgentTracePanel
+            evidencePack={selected.evidencePack}
+            recordIds={selected.evidencePack.recordIds}
+            response={queryResponse}
+            selectedLine={selected.lineId}
+          />
         </TabsContent>
         <TabsContent className="mt-3" value="draft">
           {canShowBackendDetail ? (
@@ -319,8 +366,8 @@ export function DeductionCaseWorkspace({
         <QueryEvidenceDock
           dock={multimodalDock}
           evidencePack={selected.evidencePack}
-          onOpenChange={setQueryDockOpen}
-          onResponse={() => undefined}
+          onOpenChange={handleQueryDockOpenChange}
+          onResponse={setQueryResponse}
           open={queryDockOpen}
           recordIds={selected.evidencePack.recordIds}
           selectedLine={selected.lineId}

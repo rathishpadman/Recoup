@@ -2,12 +2,10 @@
 
 import * as React from "react";
 import {
-  BookmarkIcon,
+  CheckCircle2Icon,
   CircleHelpIcon,
-  ListFilterIcon,
   MoreHorizontalIcon,
-  SearchIcon,
-  SlidersHorizontalIcon
+  SearchIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,47 +105,53 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
           ) : (
             <ScrollArea className="h-[calc(100vh-13rem)] min-h-[520px]">
               <div className="flex min-w-0 flex-col gap-1 pr-2">
-                {filteredItems.map((item) => (
-                  <Button
-                    aria-selected={item.lineId === selectedLineId}
-                    className={cn(
-                      "h-auto min-h-[104px] w-full justify-start rounded-md border px-3 py-3 text-left font-normal",
-                      "data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-primary/30"
-                    )}
-                    data-line-id={item.lineId}
-                    data-selected={item.lineId === selectedLineId ? "true" : undefined}
-                    data-state={item.lineId === selectedLineId ? "selected" : undefined}
-                    data-testid="maya-worklist-row"
-                    key={item.lineId}
-                    onClick={() => {
-                      onSelectItem(item);
-                    }}
-                    type="button"
-                    variant="ghost"
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col gap-2">
-                      <span className="flex min-w-0 items-start justify-between gap-2">
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{item.lineId}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                {filteredItems.map((item) => {
+                  const isValidDeduction = item.verdict === "valid";
+
+                  return (
+                    <Button
+                      aria-selected={item.lineId === selectedLineId}
+                      className={cn(
+                        "h-auto min-h-[104px] w-full justify-start rounded-md border px-3 py-3 text-left font-normal",
+                        "data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                      )}
+                      data-line-id={item.lineId}
+                      data-selected={item.lineId === selectedLineId ? "true" : undefined}
+                      data-state={item.lineId === selectedLineId ? "selected" : undefined}
+                      data-testid="maya-worklist-row"
+                      data-verdict={item.verdict}
+                      key={item.lineId}
+                      onClick={() => {
+                        onSelectItem(item);
+                      }}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col gap-2">
+                        <span className="flex min-w-0 items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{item.lineId}</span>
+                            <span className="block truncate text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                          </span>
+                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                         </span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
+                        <span className="line-clamp-2 text-xs text-muted-foreground">{item.customerLabel}</span>
+                        <span className="flex min-w-0 flex-wrap gap-1">
+                          <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant="secondary">
+                            {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
+                            {item.verdictLabel}
+                          </Badge>
+                          <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                            {item.queueLabel}
+                          </Badge>
+                          <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                            {item.evidenceScoreLabel}
+                          </Badge>
+                        </span>
                       </span>
-                      <span className="line-clamp-2 text-xs text-muted-foreground">{item.customerLabel}</span>
-                      <span className="flex min-w-0 flex-wrap gap-1">
-                        <Badge className="h-5 px-1.5 text-[10px]" variant="secondary">
-                          {item.verdictLabel}
-                        </Badge>
-                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
-                          {item.queueLabel}
-                        </Badge>
-                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
-                          {item.evidenceScoreLabel}
-                        </Badge>
-                      </span>
-                    </span>
-                  </Button>
-                ))}
+                    </Button>
+                  );
+                })}
               </div>
             </ScrollArea>
           )}
@@ -186,16 +190,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                 <span>Not exposed on worklist rows: {missingOperationalFields.join(", ")}.</span>
               </TooltipContent>
             </Tooltip>
-            <Button size="sm" type="button" variant="outline">
-              <BookmarkIcon aria-hidden="true" data-icon="inline-start" />
-              Save view
-            </Button>
-            <Button aria-label="Worklist display options" size="icon-sm" type="button" variant="outline">
-              <SlidersHorizontalIcon aria-hidden="true" data-icon="button-icon" />
-            </Button>
           </div>
         </div>
-        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
+        <div className="grid min-w-0 gap-2">
           <InputGroup className="h-9">
             <InputGroupAddon>
               <SearchIcon aria-hidden="true" data-icon="input-addon" />
@@ -210,31 +207,6 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
               value={query}
             />
           </InputGroup>
-          <Button size="sm" type="button" variant="outline">
-            <ListFilterIcon aria-hidden="true" data-icon="inline-start" />
-            Recommended action
-          </Button>
-          <Button size="sm" type="button" variant="outline">
-            Queue
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" type="button" variant="outline">
-                <SlidersHorizontalIcon aria-hidden="true" data-icon="inline-start" />
-                More filters
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Backend fields</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuItem>Scenario</DropdownMenuItem>
-                <DropdownMenuItem>Verdict</DropdownMenuItem>
-                <DropdownMenuItem>Queue</DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>{missingOperationalFields.join(", ")} require backend support</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </CardHeader>
       <CardContent className="min-h-0">
@@ -259,29 +231,33 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredItems.map((item) => (
-                  <TableRow
-                    aria-selected={item.lineId === selectedLineId}
-                    className={cn(
-                      "cursor-pointer align-top outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                      "data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-primary/30"
-                    )}
-                    data-line-id={item.lineId}
-                    data-selected={item.lineId === selectedLineId ? "true" : undefined}
-                    data-state={item.lineId === selectedLineId ? "selected" : undefined}
-                    data-testid="maya-worklist-row"
-                    key={item.lineId}
-                    onClick={() => {
-                      onSelectItem(item);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
+                {filteredItems.map((item) => {
+                  const isValidDeduction = item.verdict === "valid";
+
+                  return (
+                    <TableRow
+                      aria-selected={item.lineId === selectedLineId}
+                      className={cn(
+                        "cursor-pointer align-top outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                        "data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                      )}
+                      data-line-id={item.lineId}
+                      data-selected={item.lineId === selectedLineId ? "true" : undefined}
+                      data-state={item.lineId === selectedLineId ? "selected" : undefined}
+                      data-testid="maya-worklist-row"
+                      data-verdict={item.verdict}
+                      key={item.lineId}
+                      onClick={() => {
                         onSelectItem(item);
-                      }
-                    }}
-                    tabIndex={0}
-                  >
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onSelectItem(item);
+                        }
+                      }}
+                      tabIndex={0}
+                    >
                     <TableCell className="px-2 py-2 align-middle">
                       <Checkbox
                         aria-label={`${item.scenarioLabel} local row selection`}
@@ -290,6 +266,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                           onSelectItem(item);
                         }}
                         onClick={(event) => {
+                          event.stopPropagation();
+                        }}
+                        onKeyDown={(event) => {
                           event.stopPropagation();
                         }}
                       />
@@ -331,11 +310,13 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                     <TableCell className="whitespace-normal px-2 py-2" data-testid="maya-worklist-recommended-action">
                       <div className="flex min-w-0 flex-col items-start gap-1.5">
                         <Badge
-                          className="h-6 max-w-full justify-start truncate px-2 text-[11px] leading-none"
+                          className="h-6 max-w-full justify-start gap-1 truncate px-2 text-[11px] leading-none"
+                          data-verdict={item.verdict}
                           data-testid="maya-verdict-badge"
                           title={item.verdictLabel}
                           variant="secondary"
                         >
+                          {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                           <span className="min-w-0 truncate">{item.verdictLabel}</span>
                         </Badge>
                         <RecommendedActionCell item={item} />
@@ -401,8 +382,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                         </DropdownMenu>
                       </div>
                     </TableCell>
-                  </TableRow>
-                ))}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </ScrollArea>

@@ -15,6 +15,8 @@ export const cockpitHumanProxyIssuedAtHeader = "x-recoup-demo-issued-at";
 export const cockpitHumanProxyNonceHeader = "x-recoup-demo-nonce";
 export const cockpitHumanProxyProofHeader = "x-recoup-demo-proof";
 export const cockpitHumanProxyRoleHeader = "x-recoup-demo-role";
+export const cockpitHumanProxyFutureSkewMs = 30_000;
+export const cockpitHumanProxyIssuedAtFreshnessWindowMs = 5 * 60_000;
 export const defaultCockpitHumanPrincipal = cockpitHumanPrincipalByDemoRole.maya;
 
 export interface CockpitHumanProxyRequestInput {
@@ -146,7 +148,7 @@ function isFreshIssuedAt(value: string): boolean {
   }
 
   const now = Date.now();
-  return issuedAt <= now + 30_000 && now - issuedAt <= 5 * 60_000;
+  return issuedAt <= now + cockpitHumanProxyFutureSkewMs && now - issuedAt <= cockpitHumanProxyIssuedAtFreshnessWindowMs;
 }
 
 function constantTimeEqual(left: string, right: string): boolean {

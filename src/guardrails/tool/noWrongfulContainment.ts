@@ -1,3 +1,5 @@
+import { throwGuardrailTrip } from "../trip.js";
+
 export interface NoWrongfulContainmentGuardInput {
   customerId: string;
   intentLabel: string;
@@ -20,14 +22,26 @@ export function assertNoWrongfulContainment(decision: NoWrongfulContainmentGuard
     decision.intentLabel === "distressed-honest" &&
     decision.deterministicBasis?.gamingThresholds !== approvedGamingThresholdBasis
   ) {
-    throw new Error("Distressed-honest customers cannot be contained without approved gaming thresholds.");
+    throwGuardrailTrip({
+      guardrailName: "no-wrongful-containment",
+      reason: "Distressed-honest customers cannot be contained without approved gaming thresholds.",
+      recordIds: decision.recordIds
+    });
   }
 
   if (decision.recordIds.length === 0 || decision.deterministicBasis?.noWrongfulContainment !== true) {
-    throw new Error("Containment decisions require cited records and no-wrongful-containment basis.");
+    throwGuardrailTrip({
+      guardrailName: "no-wrongful-containment",
+      reason: "Containment decisions require cited records and no-wrongful-containment basis.",
+      recordIds: decision.recordIds
+    });
   }
 
   if (decision.deterministicBasis.gamingThresholds !== approvedGamingThresholdBasis) {
-    throw new Error("Containment decisions require approved gaming thresholds.");
+    throwGuardrailTrip({
+      guardrailName: "no-wrongful-containment",
+      reason: "Containment decisions require approved gaming thresholds.",
+      recordIds: decision.recordIds
+    });
   }
 }

@@ -55,6 +55,8 @@ export const supportedAgentHookEvents = [
   "agent_tool_start",
   "agent_tool_end"
 ] as const;
+export const liveSdkAgentHookDeterministicBasis = "OpenAI Agents SDK RunHooks lifecycle event" as const;
+export const deterministicForensicsHookAuditBasis = "Recoup deterministic forensics hook audit event" as const;
 
 const AgentHookAuditReceiptSchema = z.object({
   eventType: z.literal("AgentHookAuditReceipt"),
@@ -63,13 +65,14 @@ const AgentHookAuditReceiptSchema = z.object({
   nextAgentName: z.string().min(1).optional(),
   toolName: z.string().min(1).optional(),
   recordIds: z.array(z.string().min(1)).min(1),
-  deterministicBasis: z.literal("OpenAI Agents SDK RunHooks lifecycle event")
+  deterministicBasis: z.enum([liveSdkAgentHookDeterministicBasis, deterministicForensicsHookAuditBasis])
 });
 
 export type AgentHookAuditReceipt = z.infer<typeof AgentHookAuditReceiptSchema>;
 
 export interface AgentHookAuditReceiptInput {
   agentName: string;
+  deterministicBasis?: AgentHookAuditReceipt["deterministicBasis"];
   hook: (typeof supportedAgentHookEvents)[number];
   nextAgentName?: string;
   recordIds: string[];
@@ -173,7 +176,7 @@ export function createAgentHookAuditReceipt(input: AgentHookAuditReceiptInput): 
     ...(input.nextAgentName === undefined ? {} : { nextAgentName: input.nextAgentName }),
     ...(input.toolName === undefined ? {} : { toolName: input.toolName }),
     recordIds: [...input.recordIds],
-    deterministicBasis: "OpenAI Agents SDK RunHooks lifecycle event"
+    deterministicBasis: input.deterministicBasis ?? liveSdkAgentHookDeterministicBasis
   } as const;
 
   return AgentHookAuditReceiptSchema.parse(receipt);

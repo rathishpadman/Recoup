@@ -6,17 +6,19 @@ import {
   type ConnectorReadiness,
   type SupabaseToolDataSchemaProbe
 } from "../adapters/connectorRegistry.js";
+import type { SourceHealthResult } from "./sourceHealth.js";
 import type { SourcePort } from "../adapters/source.js";
 import { recoupAgentRoster } from "../agents/agentRuntime.js";
 import { assessCrestlineM6Containment, type CrestlineM6ContainmentAssessment } from "../agents/containment.js";
 import { runForensicsInvestigation, type DeductionDecision, type ForensicsTraceEvent } from "../agents/forensics.js";
 import { recoupHandoffGraph } from "../agents/handoffGraph.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
-import type { ServiceInvocationContext } from "./serviceLayer.js";
+import { serviceToolMetadata, type ServiceInvocationContext } from "./serviceLayer.js";
 import { memoryCategories, type MemoryCategory, type MemoryRecord } from "../memory/schema.js";
 import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { money, type Money } from "../types/money.js";
 import { cockpitDemoProfiles } from "../../config/cockpitDemoProfiles.js";
+import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataProvenance.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
 export type ForensicsSseEvent = ForensicsTraceEvent;
@@ -67,6 +69,7 @@ export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
   kpiStrip: Array<{
     label: string;
+    provenance: MayaFieldProvenance;
     support: string;
     value: string;
   }>;
@@ -74,12 +77,14 @@ export interface ForensicsCockpitModel {
   selected: {
     lineId: string;
     evidencePack: {
+      provenance: MayaFieldProvenance;
       recordIds: string[];
       documents: Array<{
         citationId: string;
         description: string;
         documentId: string;
         documentType: string;
+        provenance: MayaFieldProvenance;
         relevance: string;
         sourceLabel: string;
         summary: string;
@@ -94,10 +99,12 @@ export interface ForensicsCockpitModel {
       statusLabel: string;
       amount: string;
       basis: string;
+      provenance: MayaFieldProvenance;
     };
     approvalActions: Array<{
       decision: ApprovalAction;
       label: string;
+      provenance: MayaFieldProvenance;
       requiresReason: boolean;
     }>;
   };
@@ -110,20 +117,29 @@ export interface ForensicsCockpitModel {
     status: "pending_human";
     statusLabel: string;
     basis: string;
+    provenance: MayaFieldProvenance;
   }>;
   multimodalDock: {
     languageLabel: string;
     modeOptions: string[];
     policyLabel: string;
     promptPlaceholder: string;
+    promptSuggestions: Array<{
+      label: string;
+      provenance: MayaFieldProvenance;
+      question: string;
+      recordIds: string[];
+    }>;
     transcript: {
       english: string;
       native: string;
     };
+    provenance: MayaFieldProvenance;
     subAgents: Array<{
       artifacts: string;
       keyArtifact: string;
       name: string;
+      provenance: MayaFieldProvenance;
       query: string;
       source: string;
       statusLabel: string;
@@ -131,6 +147,7 @@ export interface ForensicsCockpitModel {
   };
   mayaJourney: Array<{
     label: string;
+    provenance: MayaFieldProvenance;
     recordIds: string[];
     status: string;
     timestamp: string;
@@ -141,12 +158,13 @@ export interface ForensicsCockpitModel {
     projectedBilling: string;
     recoveryLines: number;
     billingLines: number;
+    provenance: MayaFieldProvenance;
   };
-  retrievalStatus: Array<{ source: string; status: "ready"; count: number }>;
+  retrievalStatus: Array<{ source: string; status: "ready"; count: number; provenance: MayaFieldProvenance }>;
   containmentPanel: {
     actionPostureLabel: string;
     behavioralEvidenceIds: string[];
-    basisRows: Array<{ label: string; value: string }>;
+    basisRows: Array<{ label: string; value: string; provenance: MayaFieldProvenance }>;
     componentReadoutLabel: string;
     customerId: string;
     customerLabel: string;
@@ -155,15 +173,52 @@ export interface ForensicsCockpitModel {
       recordIds: string[];
       status: string;
       target: string;
+      provenance: MayaFieldProvenance;
     };
     intentLabel: string;
     postureLabel: string;
+    provenance: MayaFieldProvenance;
     recordIds: string[];
     recordStripLabel: string;
     statusLabel: string;
   };
   whatChanged: string;
   aiInsight: string;
+}
+
+export interface ForensicsWorkItemDetailCockpitModel {
+  surface: "forensics-work-item-detail";
+  lineId: string;
+  workItem: WorklistItem;
+  selected: ForensicsCockpitModel["selected"];
+  recommendedAction: ForensicsCockpitModel["actionInbox"][number];
+  recoveryDraft: ForensicsCockpitModel["selected"]["draft"];
+  approvalState: {
+    actions: ForensicsCockpitModel["selected"]["approvalActions"];
+    provenance: MayaFieldProvenance;
+    status: "pending_human";
+    statusLabel: string;
+  };
+  auditState: {
+    provenance: MayaFieldProvenance;
+    recordIds: string[];
+    status: "pending_human";
+    statusLabel: string;
+  };
+  actionInbox: ForensicsCockpitModel["actionInbox"];
+  multimodalDock: ForensicsCockpitModel["multimodalDock"];
+  mayaJourney: ForensicsCockpitModel["mayaJourney"];
+  retrievalStatus: ForensicsCockpitModel["retrievalStatus"];
+}
+
+export class ForensicsWorkItemNotFoundError extends Error {
+  readonly lineId: string;
+
+  constructor(lineId: string) {
+    super(`Forensics work item not found: ${lineId}.`);
+    this.name = "ForensicsWorkItemNotFoundError";
+    this.lineId = lineId;
+  }
 }
 
 export interface WorklistItem {
@@ -185,6 +240,7 @@ export interface WorklistItem {
   confidenceLabel: string;
   evidenceScoreLabel: string;
   evidenceLabel: string;
+  provenance: MayaFieldProvenance;
   queueLabel: string;
 }
 
@@ -507,18 +563,23 @@ export interface AgentGraphCockpitModel {
 
 export interface ConnectorReadinessCockpitModel {
   surface: "connector-readiness";
+  checkedAtIso: string;
   connectors: ConnectorReadiness[];
   lastRefreshedLabel: string;
+  provenance: MayaFieldProvenance;
+  sourceHealth: SourceHealthResult[];
   sourceTiles: SourceReadinessTile[];
 }
 
 export interface SourceReadinessTile {
+  checkedAtIso: string;
   detail: string;
   key: string;
   label: string;
   mark: string;
   modeLabel: string;
   proofItems: string[];
+  provenance: MayaFieldProvenance;
   stateLabel: string;
   statusTone: "ready" | "synthetic" | "blocked";
   summary: string;
@@ -543,78 +604,141 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
   if (selectedAction === undefined) {
     throw new Error(`Missing action for selected line ${selectedDecision.lineId}.`);
   }
+  const settlementRecordIds = dataset.manifest.lineIds;
+  const recoveryRecordIds = dataset.deductionLines.filter((line) => line.routing === "recovery").map((line) => line.lineId);
+  const billingRecordIds = dataset.deductionLines.filter((line) => line.routing === "billing").map((line) => line.lineId);
+  const actionRecordIds = uniqueStrings(run.actions.flatMap((action) => action.recordIds));
+  const retrievalStatus = buildRetrievalStatusRows(selectedDecision.evidenceDocuments);
+  const evidenceSourceRecordIds = uniqueStrings(
+    selectedDecision.evidenceDocuments.flatMap((document) => document.recordIds)
+  );
 
   return {
     surface: "forensics-analyst",
     kpiStrip: [
-      { label: "Open scenarios", value: String(dataset.manifest.scenarioIds.length), support: `${String(dataset.rollup.totalLines)} lines collapsed` },
-      { label: "Exposure", value: formatMoney(dataset.rollup.totalAmount), support: "USD" },
-      { label: "Recovery queue", value: formatMoney(dataset.rollup.recoveryAmount), support: `${String(dataset.rollup.recoveryLines)} drafts` },
-      { label: "Billing protection", value: formatMoney(dataset.rollup.validAmount), support: `${String(dataset.rollup.validLines)} route-to-Billing drafts` },
-      { label: "Pending decisions", value: String(run.actions.length), support: "HITL required" },
-      { label: "Evidence sources", value: String(4), support: "SAP, Docs, TPM, Bureau" }
+      {
+        label: "Open scenarios",
+        value: String(dataset.manifest.scenarioIds.length),
+        support: `${String(dataset.rollup.totalLines)} lines collapsed`,
+        provenance: businessProvenance("kpiStrip.openScenarios", {
+          sourceKind: "derived_backend",
+          sourceName: "Settlement rollup read model",
+          recordIds: settlementRecordIds,
+          deterministicBasis: "unique scenarioId count from buildSettlementDataset settlement source rows"
+        })
+      },
+      {
+        label: "Exposure",
+        value: formatMoney(dataset.rollup.totalAmount),
+        support: "USD",
+        provenance: businessProvenance("kpiStrip.exposure", {
+          sourceKind: "derived_backend",
+          sourceName: "Settlement rollup read model",
+          recordIds: settlementRecordIds,
+          deterministicBasis: "sum of Supabase settlement source deduction line amounts in buildSettlementDataset"
+        })
+      },
+      {
+        label: "Recovery queue",
+        value: formatMoney(dataset.rollup.recoveryAmount),
+        support: `${String(dataset.rollup.recoveryLines)} drafts`,
+        provenance: businessProvenance("kpiStrip.recoveryQueue", {
+          sourceKind: "derived_backend",
+          sourceName: "Forensics recovery action read model",
+          recordIds: recoveryRecordIds,
+          deterministicBasis: "sum of source lines routed recovery by runForensicsInvestigation decisions"
+        })
+      },
+      {
+        label: "Billing protection",
+        value: formatMoney(dataset.rollup.validAmount),
+        support: `${String(dataset.rollup.validLines)} route-to-Billing drafts`,
+        provenance: businessProvenance("kpiStrip.billingProtection", {
+          sourceKind: "derived_backend",
+          sourceName: "Forensics Billing prevention read model",
+          recordIds: billingRecordIds,
+          deterministicBasis: "sum of source lines routed billing by runForensicsInvestigation decisions"
+        })
+      },
+      {
+        label: "Pending decisions",
+        value: String(run.actions.length),
+        support: "HITL required",
+        provenance: businessProvenance("kpiStrip.pendingDecisions", {
+          sourceKind: "derived_backend",
+          sourceName: "HITL action queue read model",
+          recordIds: actionRecordIds,
+          deterministicBasis: "runForensicsInvestigation actions filtered to pending_human draft actions"
+        })
+      },
+      {
+        label: "Evidence sources",
+        value: String(retrievalStatus.length),
+        support: retrievalStatus.map((row) => row.source).join(", "),
+        provenance: businessProvenance("kpiStrip.evidenceSources", {
+          sourceKind: "derived_backend",
+          sourceName: "Selected evidence source rollup",
+          recordIds: evidenceSourceRecordIds,
+          deterministicBasis: "unique source labels from selected decision evidenceDocuments returned by runForensicsInvestigation"
+        })
+      }
     ],
     worklist: buildScenarioWorklist(dataset, run.decisions),
-    selected: {
-      lineId: selectedDecision.lineId,
-      evidencePack: {
-        recordIds: selectedDecision.recordIds,
-        documents: selectedDecision.evidenceDocuments.map((document, index) => evidenceDocumentView(document, index))
-      },
-      draft: {
-        actionId: selectedAction.actionId,
-        actionLabel: actionLabel(selectedAction.actionType),
-        actionType: selectedAction.actionType,
-        status: selectedAction.status,
-        statusLabel: statusLabel(selectedAction.status),
-        amount: formatMoney(selectedAction.proposedAmount),
-        basis: selectedAction.basis
-      },
-      approvalActions: [
-        { decision: "approve", label: "Approve draft", requiresReason: false },
-        { decision: "modify", label: "Modify", requiresReason: true },
-        { decision: "reject", label: "Reject", requiresReason: true }
-      ]
-    },
-    actionInbox: run.actions.map((action) => ({
-      actionId: action.actionId,
-      actionLabel: actionLabel(action.actionType),
-      actionType: action.actionType,
-      lineId: action.lineId,
-      amount: formatMoney(action.proposedAmount),
-      status: action.status,
-      statusLabel: statusLabel(action.status),
-      basis: action.basis
-    })),
+    selected: buildSelectedForensicsCase(selectedDecision, selectedAction),
+    actionInbox: buildForensicsActionInbox(run.actions),
     multimodalDock: {
       languageLabel: "Spanish ready",
       modeOptions: ["Type", "Talk"],
       policyLabel: "voice/text citation parity",
       promptPlaceholder: "Ask why this deduction is invalid, with cited evidence only.",
+      promptSuggestions: buildQueryPromptSuggestions(selectedDecision, run.trace),
       transcript: {
         native: "¿Por qué es inválida esta deducción?",
         english: "Why is this deduction invalid? Answer from the cited POD and invoice records only."
       },
-      subAgents: buildMultimodalSubAgents(selectedDecision)
+      provenance: businessProvenance("multimodalDock", {
+        sourceKind: "agent_trace",
+        sourceName: "Forensics trace context read model",
+        recordIds: selectedDecision.recordIds,
+        deterministicBasis: "runForensicsInvestigation trace rows grouped for cited voice/text query context"
+      }),
+      subAgents: buildTraceContextRows(selectedDecision, run.trace)
     },
     mayaJourney: [
       {
         label: "Ingest",
         recordIds: dataset.deductionLines.slice(0, 3).map((line) => line.lineId),
         status: "complete",
-        timestamp: journeyStepLabel(0, 6)
+        timestamp: journeyStepLabel(0, 6),
+        provenance: journeyProvenance(
+          "Ingest",
+          dataset.deductionLines.slice(0, 3).map((line) => line.lineId),
+          "settlement source ingestion order"
+        )
       },
       {
         label: "POD retrieval",
         recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("POD-")),
         status: "complete",
-        timestamp: journeyStepLabel(1, 6)
+        timestamp: journeyStepLabel(1, 6),
+        provenance: journeyProvenance(
+          "POD retrieval",
+          selectedDecision.recordIds.filter((recordId) => recordId.startsWith("POD-")),
+          "retrieval.docs evidence document records",
+          selectedDecision.recordIds
+        )
       },
       {
         label: "Contract read",
         recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("INV-")),
         status: "complete",
-        timestamp: journeyStepLabel(2, 6)
+        timestamp: journeyStepLabel(2, 6),
+        provenance: journeyProvenance(
+          "Contract read",
+          selectedDecision.recordIds.filter((recordId) => recordId.startsWith("INV-")),
+          "SAP invoice and contract evidence records",
+          selectedDecision.recordIds
+        )
       },
       {
         label: "TPM match",
@@ -622,19 +746,29 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
           .filter((document) => document.source === "tpm")
           .map((document) => document.documentId),
         status: "complete",
-        timestamp: journeyStepLabel(3, 6)
+        timestamp: journeyStepLabel(3, 6),
+        provenance: journeyProvenance(
+          "TPM match",
+          selectedDecision.evidenceDocuments
+            .filter((document) => document.source === "tpm")
+            .map((document) => document.documentId),
+          "retrieval.tpm evidence document records",
+          selectedDecision.recordIds
+        )
       },
       {
         label: "Assemble",
         recordIds: selectedDecision.recordIds,
         status: "complete",
-        timestamp: journeyStepLabel(4, 6)
+        timestamp: journeyStepLabel(4, 6),
+        provenance: journeyProvenance("Assemble", selectedDecision.recordIds, "selected decision evidence pack assembly")
       },
       {
         label: "Scored",
         recordIds: selectedDecision.recordIds,
         status: "pending human",
-        timestamp: journeyStepLabel(5, 6)
+        timestamp: journeyStepLabel(5, 6),
+        provenance: journeyProvenance("Scored", selectedDecision.recordIds, "deduction verdict and routing decision basis")
       }
     ],
     recoveryTracker: {
@@ -642,17 +776,93 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
       projectedRecovery: formatMoney(dataset.rollup.recoveryAmount),
       projectedBilling: formatMoney(dataset.rollup.validAmount),
       recoveryLines: dataset.rollup.recoveryLines,
-      billingLines: dataset.rollup.validLines
+      billingLines: dataset.rollup.validLines,
+      provenance: businessProvenance("recoveryTracker", {
+        sourceKind: "derived_backend",
+        sourceName: "Settlement recovery rollup read model",
+        recordIds: settlementRecordIds,
+        deterministicBasis: "buildSettlementDataset rollups from Supabase settlement source rows"
+      })
     },
-    retrievalStatus: [
-      { source: "SAP", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.sap").length },
-      { source: "Docs", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.docs").length },
-      { source: "TPM", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.tpm").length },
-      { source: "Bureau", status: "ready", count: run.trace.filter((event) => event.type === "status" && event.payload.toolName === "retrieval.bureau").length }
-    ],
+    retrievalStatus,
     containmentPanel: buildContainmentPanel(containmentCandidate, dataset.customers),
     whatChanged: `${String(dataset.rollup.recoveryLines)} recovery drafts and ${String(dataset.rollup.validLines)} Billing prevention drafts are staged for human review.`,
     aiInsight: "Every proposed amount is bound to a deterministic decision delta; live model execution remains blocked in the offline harness."
+  };
+}
+
+export function buildForensicsWorkItemDetailCockpitModel(
+  options: CockpitModelGovernanceOptions | undefined,
+  lineId: string
+): ForensicsWorkItemDetailCockpitModel {
+  const governedConfig = readGovernedCockpitConfig(options);
+  const settlementSource = readSettlementSource(options);
+  const serviceContext = readForensicsServiceContext(options);
+  const dataset = buildSettlementDataset(settlementSource);
+  const line = dataset.deductionLines.find((candidate) => candidate.lineId === lineId);
+  if (line === undefined) {
+    throw new ForensicsWorkItemNotFoundError(lineId);
+  }
+
+  const run = runForensicsInvestigation({ governedConfig, serviceContext, source: settlementSource });
+  const selectedDecision = run.decisions.find((decision) => decision.lineId === lineId);
+  if (selectedDecision === undefined) {
+    throw new Error(`Missing Forensics decision for requested line ${lineId}.`);
+  }
+  if (selectedDecision.evidenceDocuments.length === 0) {
+    throw new Error(`Missing evidence pack for requested line ${lineId}.`);
+  }
+
+  const selectedAction = run.actions.find((action) => action.lineId === lineId);
+  if (selectedAction === undefined) {
+    throw new Error(`Missing action for requested line ${lineId}.`);
+  }
+
+  const workItem = buildScenarioWorklist(dataset, run.decisions).find((item) => item.lineIds.includes(lineId));
+  if (workItem === undefined) {
+    throw new Error(`Missing worklist item for requested line ${lineId}.`);
+  }
+
+  const selected = buildSelectedForensicsCase(selectedDecision, selectedAction);
+  const actionInbox = buildForensicsActionInbox(run.actions);
+  const recommendedAction = actionInbox.find((action) => action.lineId === lineId);
+  if (recommendedAction === undefined) {
+    throw new Error(`Missing recommended action for requested line ${lineId}.`);
+  }
+
+  return {
+    surface: "forensics-work-item-detail",
+    lineId,
+    workItem,
+    selected,
+    recommendedAction,
+    recoveryDraft: selected.draft,
+    approvalState: {
+      actions: selected.approvalActions,
+      provenance: businessProvenance("workItemDetail.approvalState", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics HITL approval state",
+        recordIds: selectedAction.recordIds,
+        deterministicBasis: `action ${selectedAction.actionId} status ${selectedAction.status}; requiresHumanApproval ${String(selectedAction.requiresHumanApproval)}`
+      }),
+      status: selectedAction.status,
+      statusLabel: selected.draft.statusLabel
+    },
+    auditState: {
+      provenance: businessProvenance("workItemDetail.auditState", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics draft audit state",
+        recordIds: selectedAction.recordIds,
+        deterministicBasis: `action ${selectedAction.actionId} dispatchedExternally ${String(selectedAction.dispatchedExternally)}; audit remains pending until human approval`
+      }),
+      recordIds: selectedAction.recordIds,
+      status: selectedAction.status,
+      statusLabel: "Awaiting human approval"
+    },
+    actionInbox,
+    multimodalDock: buildSelectedMultimodalDock(selectedDecision, run.trace),
+    mayaJourney: buildSelectedMayaJourney(dataset, selectedDecision),
+    retrievalStatus: buildRetrievalStatusRows(selectedDecision.evidenceDocuments)
   };
 }
 
@@ -1223,16 +1433,36 @@ export function buildAgentGraphModel(): AgentGraphCockpitModel {
 }
 
 export function buildConnectorReadinessModel(
-  availableCredentialEnvNames: readonly string[] = [],
-  toolDataSchemaProbe?: SupabaseToolDataSchemaProbe
+  availableCredentialEnvNames: readonly string[],
+  toolDataSchemaProbe: SupabaseToolDataSchemaProbe | undefined,
+  sourceHealthResults: readonly SourceHealthResult[]
 ): ConnectorReadinessCockpitModel {
+  if (arguments.length < 3 || sourceHealthResults.length === 0) {
+    throw new Error("Connector readiness model requires backend source health.");
+  }
+
   const connectors = buildConnectorReadiness([], availableCredentialEnvNames, toolDataSchemaProbe);
+  const checkedAtIso = mostRecentSourceHealthCheckedAt(sourceHealthResults);
+  if (checkedAtIso === undefined) {
+    throw new Error("Connector readiness model requires backend source health.");
+  }
+  const sourceHealth = [...sourceHealthResults];
+  const connectorRecordIds = connectorReadinessRecordIds(connectors);
+  const sourceHealthRecordIds = uniqueStrings(sourceHealth.flatMap((result) => result.recordIds));
 
   return {
     surface: "connector-readiness",
+    checkedAtIso,
     connectors,
-    lastRefreshedLabel: "Refreshed 08:24 AM",
-    sourceTiles: buildSourceReadinessTiles(connectors)
+    lastRefreshedLabel: `${String(sourceHealth.length)} source health rows checked at ${checkedAtIso}`,
+    provenance: businessProvenance("connectorReadiness", {
+      sourceKind: "derived_backend",
+      sourceName: "Connector readiness and source health registry",
+      recordIds: uniqueStrings([...connectorRecordIds, ...sourceHealthRecordIds]),
+      deterministicBasis: "buildConnectorReadiness output joined to SourceHealthResult checkedAtIso values from backend source probes"
+    }),
+    sourceHealth,
+    sourceTiles: buildSourceReadinessTiles(connectors, sourceHealth)
   };
 }
 
@@ -1279,6 +1509,12 @@ function buildScenarioWorklist(
       confidenceLabel: confidenceLabel(firstDecision.confidence),
       evidenceScoreLabel: String(recordIds.length),
       evidenceLabel: `${String(recordIds.length)} artifacts`,
+      provenance: businessProvenance(`worklist.${scenarioId}`, {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics scenario worklist read model",
+        recordIds,
+        deterministicBasis: `scenario ${scenarioId} grouped from settlement source lines and runForensicsInvestigation decisions`
+      }),
       queueLabel: firstDecision.routing === "recovery" ? "Review" : "Billing"
     };
   });
@@ -1494,11 +1730,31 @@ function buildContainmentPanel(
     actionPostureLabel: "No hold or freeze action staged",
     behavioralEvidenceIds: candidate.behavioralEvidenceIds,
     basisRows: [
-      { label: "Gaming gate", value: candidate.deterministicBasis.gamingThresholds },
-      { label: "Invalid shortage lines", value: String(components.invalidShortageLineCount) },
-      { label: "Invalid pricing lines", value: String(components.invalidPricingLineCount) },
-      { label: "Promo correlation", value: String(components.promoCorrelationCount) },
-      { label: "Configured window", value: `${String(components.windowDays)} days` }
+      {
+        label: "Gaming gate",
+        value: candidate.deterministicBasis.gamingThresholds,
+        provenance: containmentProvenance(candidate, "gamingThresholds")
+      },
+      {
+        label: "Invalid shortage lines",
+        value: String(components.invalidShortageLineCount),
+        provenance: containmentProvenance(candidate, "rScoreComponents.invalidShortageLineCount")
+      },
+      {
+        label: "Invalid pricing lines",
+        value: String(components.invalidPricingLineCount),
+        provenance: containmentProvenance(candidate, "rScoreComponents.invalidPricingLineCount")
+      },
+      {
+        label: "Promo correlation",
+        value: String(components.promoCorrelationCount),
+        provenance: containmentProvenance(candidate, "rScoreComponents.promoCorrelationCount")
+      },
+      {
+        label: "Configured window",
+        value: `${String(components.windowDays)} days`,
+        provenance: containmentProvenance(candidate, "rScoreComponents.windowDays")
+      }
     ],
     componentReadoutLabel: "Day-1 deterministic component readout; production R-score/R-drift remains out of scope.",
     customerId: candidate.customerId,
@@ -1507,10 +1763,12 @@ function buildContainmentPanel(
       label: "David / Risk Mesh reference",
       recordIds: candidate.recordIds,
       status: "review-only handoff",
-      target: "Risk Mesh"
+      target: "Risk Mesh",
+      provenance: containmentProvenance(candidate, "risk mesh review-only handoff")
     },
     intentLabel: candidate.intentLabel,
     postureLabel: "HITL risk review only",
+    provenance: containmentProvenance(candidate, "assessCrestlineM6Containment read model"),
     recordIds: candidate.recordIds,
     recordStripLabel: "Containment review record IDs",
     statusLabel: "Gaming-gate review candidate"
@@ -1576,12 +1834,289 @@ function buildSettlementDataset(source: SourcePort): SettlementDataset {
   };
 }
 
+function businessProvenance(fieldName: string, provenance: MayaFieldProvenance): MayaFieldProvenance {
+  assertBusinessProvenance(fieldName, provenance);
+
+  return provenance;
+}
+
+function approvalControlProvenance(decision: ApprovalAction): MayaFieldProvenance {
+  return businessProvenance(`approvalActions.${decision}`, {
+    sourceKind: "operator_session",
+    sourceName: "Maya operator approval controls",
+    recordIds: [],
+    deterministicBasis: `${decision} control exposes the operator-session HITL decision choice only`
+  });
+}
+
+function buildSelectedForensicsCase(
+  selectedDecision: DeductionDecision,
+  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number]
+): ForensicsCockpitModel["selected"] {
+  return {
+    lineId: selectedDecision.lineId,
+    evidencePack: {
+      provenance: businessProvenance("selected.evidencePack", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics selected decision evidence pack",
+        recordIds: selectedDecision.recordIds,
+        deterministicBasis: `requested decision ${selectedDecision.decisionId} evidenceDocuments from runForensicsInvestigation`
+      }),
+      recordIds: selectedDecision.recordIds,
+      documents: selectedDecision.evidenceDocuments.map((document, index) => evidenceDocumentView(document, index))
+    },
+    draft: {
+      actionId: selectedAction.actionId,
+      actionLabel: actionLabel(selectedAction.actionType),
+      actionType: selectedAction.actionType,
+      status: selectedAction.status,
+      statusLabel: statusLabel(selectedAction.status),
+      amount: formatMoney(selectedAction.proposedAmount),
+      basis: selectedAction.basis,
+      provenance: businessProvenance("selected.draft", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics draft action",
+        recordIds: selectedAction.recordIds,
+        deterministicBasis: `action ${selectedAction.actionId} amountSource ${selectedAction.amountSource}; ${selectedAction.basis}`
+      })
+    },
+    approvalActions: [
+      { decision: "approve", label: "Approve draft", requiresReason: false, provenance: approvalControlProvenance("approve") },
+      { decision: "modify", label: "Modify", requiresReason: true, provenance: approvalControlProvenance("modify") },
+      { decision: "reject", label: "Reject", requiresReason: true, provenance: approvalControlProvenance("reject") }
+    ]
+  };
+}
+
+function buildForensicsActionInbox(
+  actions: ReturnType<typeof runForensicsInvestigation>["actions"]
+): ForensicsCockpitModel["actionInbox"] {
+  return actions.map((action) => ({
+    actionId: action.actionId,
+    actionLabel: actionLabel(action.actionType),
+    actionType: action.actionType,
+    lineId: action.lineId,
+    amount: formatMoney(action.proposedAmount),
+    status: action.status,
+    statusLabel: statusLabel(action.status),
+    basis: action.basis,
+    provenance: businessProvenance(`actionInbox.${action.actionId}`, {
+      sourceKind: "derived_backend",
+      sourceName: "Forensics HITL action queue",
+      recordIds: action.recordIds,
+      deterministicBasis: `runForensicsInvestigation action ${action.actionId} amountSource ${action.amountSource}`
+    })
+  }));
+}
+
+function buildSelectedMultimodalDock(
+  selectedDecision: DeductionDecision,
+  trace: ForensicsTraceEvent[]
+): ForensicsCockpitModel["multimodalDock"] {
+  return {
+    languageLabel: "Spanish ready",
+    modeOptions: ["Type", "Talk"],
+    policyLabel: "voice/text citation parity",
+    promptPlaceholder: "Ask why this deduction is invalid, with cited evidence only.",
+    promptSuggestions: buildQueryPromptSuggestions(selectedDecision, trace),
+    transcript: {
+      native: "Â¿Por quÃ© es invÃ¡lida esta deducciÃ³n?",
+      english: "Why is this deduction invalid? Answer from the cited POD and invoice records only."
+    },
+    provenance: businessProvenance("multimodalDock", {
+      sourceKind: "agent_trace",
+      sourceName: "Forensics trace context read model",
+      recordIds: selectedDecision.recordIds,
+      deterministicBasis: "runForensicsInvestigation trace rows grouped for cited voice/text query context"
+    }),
+    subAgents: buildTraceContextRows(selectedDecision, trace)
+  };
+}
+
+function buildSelectedMayaJourney(
+  dataset: SettlementDataset,
+  selectedDecision: DeductionDecision
+): ForensicsCockpitModel["mayaJourney"] {
+  return [
+    {
+      label: "Ingest",
+      recordIds: dataset.deductionLines.slice(0, 3).map((line) => line.lineId),
+      status: "complete",
+      timestamp: journeyStepLabel(0, 6),
+      provenance: journeyProvenance(
+        "Ingest",
+        dataset.deductionLines.slice(0, 3).map((line) => line.lineId),
+        "settlement source ingestion order"
+      )
+    },
+    {
+      label: "POD retrieval",
+      recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("POD-")),
+      status: "complete",
+      timestamp: journeyStepLabel(1, 6),
+      provenance: journeyProvenance(
+        "POD retrieval",
+        selectedDecision.recordIds.filter((recordId) => recordId.startsWith("POD-")),
+        "retrieval.docs evidence document records",
+        selectedDecision.recordIds
+      )
+    },
+    {
+      label: "Contract read",
+      recordIds: selectedDecision.recordIds.filter((recordId) => recordId.startsWith("INV-")),
+      status: "complete",
+      timestamp: journeyStepLabel(2, 6),
+      provenance: journeyProvenance(
+        "Contract read",
+        selectedDecision.recordIds.filter((recordId) => recordId.startsWith("INV-")),
+        "SAP invoice and contract evidence records",
+        selectedDecision.recordIds
+      )
+    },
+    {
+      label: "TPM match",
+      recordIds: selectedDecision.evidenceDocuments
+        .filter((document) => document.source === "tpm")
+        .map((document) => document.documentId),
+      status: "complete",
+      timestamp: journeyStepLabel(3, 6),
+      provenance: journeyProvenance(
+        "TPM match",
+        selectedDecision.evidenceDocuments
+          .filter((document) => document.source === "tpm")
+          .map((document) => document.documentId),
+        "retrieval.tpm evidence document records",
+        selectedDecision.recordIds
+      )
+    },
+    {
+      label: "Assemble",
+      recordIds: selectedDecision.recordIds,
+      status: "complete",
+      timestamp: journeyStepLabel(4, 6),
+      provenance: journeyProvenance("Assemble", selectedDecision.recordIds, "selected decision evidence pack assembly")
+    },
+    {
+      label: "Scored",
+      recordIds: selectedDecision.recordIds,
+      status: "pending human",
+      timestamp: journeyStepLabel(5, 6),
+      provenance: journeyProvenance("Scored", selectedDecision.recordIds, "deduction verdict and routing decision basis")
+    }
+  ];
+}
+
+function buildRetrievalStatusRows(
+  evidenceDocuments: DeductionDecision["evidenceDocuments"]
+): ForensicsCockpitModel["retrievalStatus"] {
+  const documentsBySourceLabel = new Map<string, DeductionDecision["evidenceDocuments"]>();
+
+  for (const document of evidenceDocuments) {
+    const sourceLabel = evidenceSourceLabels[document.source];
+    documentsBySourceLabel.set(sourceLabel, [...(documentsBySourceLabel.get(sourceLabel) ?? []), document]);
+  }
+
+  return [...documentsBySourceLabel.entries()].map(([sourceLabel, documents]) => {
+    const recordIds = uniqueStrings(documents.flatMap((document) => document.recordIds));
+
+    return {
+      source: sourceLabel,
+      status: "ready",
+      count: documents.length,
+      provenance: businessProvenance(`retrievalStatus.${sourceLabel}`, {
+        sourceKind: "derived_backend",
+        sourceName: `${sourceLabel} selected evidence records`,
+        recordIds,
+        deterministicBasis: "grouped selected decision evidenceDocuments by sourceLabel; trace status events lack row-level record IDs"
+      })
+    };
+  });
+}
+
+function journeyProvenance(
+  label: string,
+  recordIds: string[],
+  deterministicBasis: string,
+  fallbackRecordIds: string[] = recordIds
+): MayaFieldProvenance {
+  return businessProvenance(`mayaJourney.${label}`, {
+    sourceKind: "derived_backend",
+    sourceName: "Maya forensics journey read model",
+    recordIds: recordIds.length > 0 ? recordIds : fallbackRecordIds,
+    deterministicBasis
+  });
+}
+
+function traceContextProvenance(toolName: string, recordIds: string[]): MayaFieldProvenance {
+  return businessProvenance(`multimodalDock.subAgents.${toolName}`, {
+    sourceKind: "agent_trace",
+    sourceName: "Forensics trace context read model",
+    recordIds,
+    deterministicBasis: `runForensicsInvestigation trace context grouped by ${toolName}`
+  });
+}
+
+function queryPromptProvenance(
+  fieldName: string,
+  recordIds: string[],
+  deterministicBasis: string
+): MayaFieldProvenance {
+  return businessProvenance(`multimodalDock.promptSuggestions.${fieldName}`, {
+    sourceKind: "agent_trace",
+    sourceName: "Maya query prompt read model",
+    recordIds,
+    deterministicBasis
+  });
+}
+
+function containmentProvenance(
+  candidate: CrestlineM6ContainmentAssessment,
+  deterministicBasis: string
+): MayaFieldProvenance {
+  return businessProvenance(`containmentPanel.${deterministicBasis}`, {
+    sourceKind: "derived_backend",
+    sourceName: "Behavioral containment assessment read model",
+    recordIds: candidate.recordIds,
+    deterministicBasis
+  });
+}
+
+function evidenceDocumentSourceKind(
+  source: DeductionDecision["evidenceDocuments"][number]["source"]
+): MayaFieldProvenance["sourceKind"] {
+  if (source === "sap") {
+    return "sap_odata";
+  }
+  if (source === "supabase") {
+    return "supabase";
+  }
+
+  return "supabase";
+}
+
+function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[] {
+  return uniqueStrings(
+    connectors.flatMap((connector) => [
+      connector.name,
+      ...connector.requiredInputs,
+      ...(connector.sourceTableName === undefined ? [] : [connector.sourceTableName]),
+      ...(connector.toolDataTableNames ?? [])
+    ])
+  );
+}
+
 function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][number], index: number) {
   return {
     citationId: citationId(document.source, index),
     description: document.summary,
     documentId: document.documentId,
     documentType: document.documentType,
+    provenance: businessProvenance(`selected.evidencePack.documents.${document.documentId}`, {
+      sourceKind: evidenceDocumentSourceKind(document.source),
+      sourceName: evidenceSourceLabels[document.source],
+      recordIds: document.recordIds,
+      deterministicBasis: `evidence document ${document.documentId} returned by ${document.source} retrieval source`
+    }),
     relevance: index === 0 ? "Primary" : "Supporting",
     sourceLabel: evidenceSourceLabels[document.source],
     summary: document.summary,
@@ -1589,57 +2124,126 @@ function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][n
   };
 }
 
-function buildMultimodalSubAgents(selectedDecision: DeductionDecision): ForensicsCockpitModel["multimodalDock"]["subAgents"] {
+function buildTraceContextRows(
+  selectedDecision: DeductionDecision,
+  trace: ForensicsTraceEvent[]
+): ForensicsCockpitModel["multimodalDock"]["subAgents"] {
   const documents = selectedDecision.evidenceDocuments;
   const podDocuments = documents.filter((document) => document.documentType === "POD");
   const sapDocuments = documents.filter((document) => document.source === "sap");
   const contractDocuments = documents.filter((document) => document.documentType === "contract");
   const tpmDocuments = documents.filter((document) => document.source === "tpm");
+  const toolStatusCount = (toolName: string): number =>
+    trace.filter((event) => event.type === "status" && event.payload.toolName === toolName).length;
 
   return [
     {
       name: "POD-Retriever",
-      source: "3PL POD",
-      query: "signed delivery proof",
-      artifacts: String(podDocuments.length),
+      source: "Forensics trace",
+      query: "retrieval.docs evidence context",
+      artifacts: String(toolStatusCount("retrieval.docs")),
       keyArtifact: podDocuments[0]?.documentId ?? "No POD returned",
-      statusLabel: podDocuments.length > 0 ? "Completed" : "No match"
+      statusLabel: podDocuments.length > 0 ? "Completed" : "No match",
+      provenance: traceContextProvenance("retrieval.docs", selectedDecision.recordIds)
     },
     {
       name: "Contract-Reader",
-      source: "Contract Repo",
-      query: "allowance and exception terms",
-      artifacts: String(contractDocuments.length),
+      source: "Forensics trace",
+      query: "retrieval.sap invoice context",
+      artifacts: String(toolStatusCount("retrieval.sap")),
       keyArtifact: contractDocuments[0]?.documentId ?? sapDocuments[0]?.documentId ?? "No contract required",
-      statusLabel: contractDocuments.length > 0 || sapDocuments.length > 0 ? "Completed" : "No match"
+      statusLabel: contractDocuments.length > 0 || sapDocuments.length > 0 ? "Completed" : "No match",
+      provenance: traceContextProvenance("retrieval.sap", selectedDecision.recordIds)
     },
     {
       name: "TPM-Matcher",
-      source: "TPM",
-      query: "promotion and accrual match",
-      artifacts: String(tpmDocuments.length),
+      source: "Forensics trace",
+      query: "retrieval.tpm promotion context",
+      artifacts: String(toolStatusCount("retrieval.tpm")),
       keyArtifact: tpmDocuments[0]?.documentId ?? "No TPM artifact required",
-      statusLabel: tpmDocuments.length > 0 ? "Completed" : "Not applicable"
+      statusLabel: tpmDocuments.length > 0 ? "Completed" : "Not applicable",
+      provenance: traceContextProvenance("retrieval.tpm", selectedDecision.recordIds)
     }
   ];
 }
 
-function buildSourceReadinessTiles(connectors: ConnectorReadiness[]): SourceReadinessTile[] {
-  const connectorsByName = new Map(connectors.map((connector) => [connector.name, connector]));
-  const sourceTileOrder = [
-    sourceTileFromConnector(requiredConnector(connectorsByName, "sap-odata")),
-    sourceTileFromConnector(requiredConnector(connectorsByName, "tpm")),
-    podSourceTile(),
-    sourceTileFromConnector(requiredConnector(connectorsByName, "bureau")),
-    remittanceEdiTile(requiredConnector(connectorsByName, "remittance"), requiredConnector(connectorsByName, "edi-remittance")),
-    sourceTileFromConnector(requiredConnector(connectorsByName, "docs-repo")),
+function buildQueryPromptSuggestions(
+  selectedDecision: DeductionDecision,
+  trace: ForensicsTraceEvent[]
+): ForensicsCockpitModel["multimodalDock"]["promptSuggestions"] {
+  const traceRows = buildTraceContextRows(selectedDecision, trace);
+  const sourcePrompts = selectedDecision.evidenceDocuments.slice(0, 2).map((document) => {
+    const sourceLabel = evidenceSourceLabels[document.source];
+    const recordIds = uniqueStrings(document.recordIds.length > 0 ? document.recordIds : selectedDecision.recordIds);
+
+    return {
+      label: `${sourceLabel} evidence`,
+      question: `What does the ${sourceLabel} evidence say about this selected deduction?`,
+      recordIds,
+      provenance: queryPromptProvenance(
+        document.documentId,
+        recordIds,
+        `prompt derived from selected decision ${selectedDecision.decisionId} evidence document ${document.documentId}`
+      )
+    };
+  });
+  const handoffTrace = traceRows.find((row) => row.name === "Contract-Reader") ?? traceRows[0];
+  const routeRecordIds = uniqueStrings(selectedDecision.recordIds);
+
+  return [
+    ...sourcePrompts,
     {
+      label: handoffTrace === undefined ? "Decision basis" : `${handoffTrace.name} basis`,
+      question: "Which cited records support the current route and human approval gate?",
+      recordIds: routeRecordIds,
+      provenance: queryPromptProvenance(
+        "decision-route",
+        routeRecordIds,
+        `prompt derived from selected decision ${selectedDecision.decisionId} route ${selectedDecision.routing} and grouped trace context`
+      )
+    }
+  ];
+}
+
+function buildSourceReadinessTiles(
+  connectors: ConnectorReadiness[],
+  sourceHealth: readonly SourceHealthResult[]
+): SourceReadinessTile[] {
+  const connectorsByName = new Map(connectors.map((connector) => [connector.name, connector]));
+  const healthBySourceName = new Map(sourceHealth.map((health) => [health.sourceName, health]));
+  const checkedAtIso = mostRecentSourceHealthCheckedAt(sourceHealth) ?? new Date().toISOString();
+  const sap = requiredConnector(connectorsByName, "sap-odata");
+  const tpm = requiredConnector(connectorsByName, "tpm");
+  const bureau = requiredConnector(connectorsByName, "bureau");
+  const remittance = requiredConnector(connectorsByName, "remittance");
+  const edi = requiredConnector(connectorsByName, "edi-remittance");
+  const docs = requiredConnector(connectorsByName, "docs-repo");
+  const sourceTileOrder = [
+    sourceTileFromConnector(sap, requiredSourceHealth(healthBySourceName, sap.name)),
+    sourceTileFromConnector(tpm, requiredSourceHealth(healthBySourceName, tpm.name)),
+    podSourceTile(requiredSourceHealth(healthBySourceName, docs.name)),
+    sourceTileFromConnector(bureau, requiredSourceHealth(healthBySourceName, bureau.name)),
+    remittanceEdiTile(
+      remittance,
+      edi,
+      requiredSourceHealth(healthBySourceName, remittance.name),
+      requiredSourceHealth(healthBySourceName, edi.name)
+    ),
+    sourceTileFromConnector(docs, requiredSourceHealth(healthBySourceName, docs.name)),
+    {
+      checkedAtIso,
       detail: "Public tool facade filters draft actions behind HITL and audit policy.",
       key: "mcp",
       label: "MCP",
       mark: "M",
       modeLabel: "Read-only tools",
       proofItems: ["tools filtered", "draft-only actions", "no ERP write-back"],
+      provenance: businessProvenance("sourceTiles.mcp", {
+        sourceKind: "derived_backend",
+        sourceName: "Service tool metadata registry",
+        recordIds: Object.keys(serviceToolMetadata),
+        deterministicBasis: "serviceToolMetadata visibility and sideEffectClass values"
+      }),
       stateLabel: "Connected",
       statusTone: "ready",
       summary: "Draft tools gated"
@@ -1649,32 +2253,33 @@ function buildSourceReadinessTiles(connectors: ConnectorReadiness[]): SourceRead
   return sourceTileOrder;
 }
 
-function sourceTileFromConnector(connector: ConnectorReadiness): SourceReadinessTile {
+function sourceTileFromConnector(connector: ConnectorReadiness, health: SourceHealthResult): SourceReadinessTile {
   const display = connectorDisplay[connector.name];
-  const missingCount = connector.missingCredentialEnvNames.length + connector.missingSourceContractInputs.length;
-  const statusTone: SourceReadinessTile["statusTone"] =
-    connector.status === "ready_synthetic" ? "synthetic" : connector.status === "ready" ? "ready" : "blocked";
+  const statusTone = sourceHealthStatusTone(health);
 
   return {
-    detail: connector.reason,
+    checkedAtIso: health.checkedAtIso,
+    detail: health.lastError ?? connector.reason,
     key: display.key,
     label: display.label,
     mark: display.mark,
-    modeLabel: connector.sourceMode === "synthetic_static_table" ? "Synthetic table" : "Live read",
-    proofItems: [
-      "read-only",
-      "external writes blocked",
-      missingCount === 0 ? "inputs present" : `${String(missingCount)} inputs open`
-    ],
-    stateLabel: statusTone === "blocked" ? "Setup" : statusTone === "synthetic" ? "Synthetic" : "Connected",
+    modeLabel: sourceHealthModeLabel(health),
+    proofItems: health.proofItems,
+    provenance: sourceHealthProvenance(`sourceTiles.${display.key}`, display.label, health),
+    stateLabel: sourceHealthStateLabel(health),
     statusTone,
-    summary: connector.status === "ready_synthetic" ? "Schema verified" : connector.status === "ready" ? "Connected" : "Input required"
+    summary: sourceHealthSummary(health)
   };
 }
 
-function remittanceEdiTile(remittance: ConnectorReadiness, edi: ConnectorReadiness): SourceReadinessTile {
-  const remittanceTile = sourceTileFromConnector(remittance);
-  const ediTile = sourceTileFromConnector(edi);
+function remittanceEdiTile(
+  remittance: ConnectorReadiness,
+  edi: ConnectorReadiness,
+  remittanceHealth: SourceHealthResult,
+  ediHealth: SourceHealthResult
+): SourceReadinessTile {
+  const remittanceTile = sourceTileFromConnector(remittance, remittanceHealth);
+  const ediTile = sourceTileFromConnector(edi, ediHealth);
   const statusTone: SourceReadinessTile["statusTone"] =
     remittanceTile.statusTone === "blocked" || ediTile.statusTone === "blocked"
       ? "blocked"
@@ -1684,28 +2289,46 @@ function remittanceEdiTile(remittance: ConnectorReadiness, edi: ConnectorReadine
 
   return {
     detail: `${remittance.reason} ${edi.reason}`,
+    checkedAtIso: mostRecentSourceHealthCheckedAt([remittanceHealth, ediHealth]) ?? remittanceHealth.checkedAtIso,
     key: "remittance-edi",
     label: "Remittance / EDI",
     mark: "R",
     modeLabel: statusTone === "ready" ? "Live read" : "Synthetic table",
     proofItems: uniqueStrings([...remittanceTile.proofItems, ...ediTile.proofItems]),
+    provenance: businessProvenance("sourceTiles.remittance-edi", {
+      sourceKind: remittanceHealth.status === "connected" && ediHealth.status === "connected" ? "supabase" : "derived_backend",
+      sourceName: "Supabase remittance and EDI source health",
+      recordIds: uniqueStrings([...remittanceHealth.recordIds, ...ediHealth.recordIds]),
+      deterministicBasis: `merged remittance and edi-remittance SourceHealthResult statuses ${remittanceHealth.status}/${ediHealth.status} from ConnectorReadiness credential/schema probe/read-only proof flags`,
+      checkedAtIso: mostRecentSourceHealthCheckedAt([remittanceHealth, ediHealth]) ?? remittanceHealth.checkedAtIso
+    }),
     stateLabel: statusTone === "blocked" ? "Setup" : statusTone === "synthetic" ? "Synthetic" : "Connected",
     statusTone,
     summary: statusTone === "blocked" ? "Input required" : "Payment advice verified"
   };
 }
 
-function podSourceTile(): SourceReadinessTile {
+function podSourceTile(docsHealth: SourceHealthResult): SourceReadinessTile {
+  const statusTone = sourceHealthStatusTone(docsHealth);
+
   return {
-    detail: "POD artifacts are available from the governed synthetic document set until the live 3PL contract is approved.",
+    checkedAtIso: docsHealth.checkedAtIso,
+    detail: docsHealth.lastError ?? "POD artifacts follow the governed document repository source health.",
     key: "pod-3pl",
     label: "3PL POD",
     mark: "P",
-    modeLabel: "Synthetic evidence",
-    proofItems: ["read-only", "external writes blocked", "synthetic labelled"],
-    stateLabel: "Synthetic",
-    statusTone: "synthetic",
-    summary: "Signed delivery proof"
+    modeLabel: docsHealth.sourceMode === "synthetic_static_table" ? "Synthetic evidence" : sourceHealthModeLabel(docsHealth),
+    proofItems: uniqueStrings([...docsHealth.proofItems, "POD evidence source"]),
+    provenance: businessProvenance("sourceTiles.pod-3pl", {
+      sourceKind: docsHealth.status === "connected" ? "supabase" : "derived_backend",
+      sourceName: "POD document source health",
+      recordIds: docsHealth.recordIds,
+      deterministicBasis: `POD tile derived from docs-repo SourceHealthResult status ${docsHealth.status} from ConnectorReadiness credential/schema probe/read-only proof flags`,
+      checkedAtIso: docsHealth.checkedAtIso
+    }),
+    stateLabel: sourceHealthStateLabel(docsHealth),
+    statusTone,
+    summary: sourceHealthSummary(docsHealth)
   };
 }
 
@@ -1719,6 +2342,110 @@ function requiredConnector(
   }
 
   return connector;
+}
+
+function requiredSourceHealth(
+  healthBySourceName: Map<string, SourceHealthResult>,
+  sourceName: ConnectorReadiness["name"]
+): SourceHealthResult {
+  const health = healthBySourceName.get(sourceName);
+  if (health === undefined) {
+    throw new Error(`Missing source health for ${sourceName}.`);
+  }
+
+  return health;
+}
+
+function sourceHealthStatusTone(health: SourceHealthResult): SourceReadinessTile["statusTone"] {
+  if (health.status !== "connected") {
+    return "blocked";
+  }
+
+  return health.sourceMode === "synthetic_static_table" ? "synthetic" : "ready";
+}
+
+function sourceHealthModeLabel(health: SourceHealthResult): string {
+  if (health.sourceMode === "live") {
+    return "Live read";
+  }
+
+  if (health.sourceMode === "synthetic_static_table") {
+    return "Synthetic table";
+  }
+
+  return "Unavailable";
+}
+
+function sourceHealthStateLabel(health: SourceHealthResult): string {
+  if (health.status !== "connected") {
+    if (health.proofItems.includes("source probe failed")) {
+      return "Probe failed";
+    }
+
+    return "Setup";
+  }
+
+  return health.sourceMode === "synthetic_static_table" ? "Synthetic" : "Connected";
+}
+
+function sourceHealthSummary(health: SourceHealthResult): string {
+  if (health.status === "blocked") {
+    if (health.proofItems.includes("source probe failed")) {
+      return "Live probe failed";
+    }
+
+    return "Input required";
+  }
+
+  if (health.status === "degraded") {
+    return "Probe degraded";
+  }
+
+  return health.sourceMode === "synthetic_static_table" ? "Schema verified" : "Connected";
+}
+
+function sourceHealthProvenance(
+  fieldName: string,
+  sourceLabel: string,
+  health: SourceHealthResult
+): MayaFieldProvenance {
+  const snapshotBasis = health.proofItems.includes("supabase source-health snapshot")
+    ? " and supabase source-health snapshot proof"
+    : "";
+
+  return businessProvenance(fieldName, {
+    sourceKind: sourceHealthProvenanceKind(health),
+    sourceName: `${sourceLabel} source health`,
+    recordIds: health.recordIds,
+    deterministicBasis: `SourceHealthResult status ${health.status} from ConnectorReadiness credential/schema probe/read-only proof flags${snapshotBasis} and sourceMode ${health.sourceMode}`,
+    checkedAtIso: health.checkedAtIso
+  });
+}
+
+function sourceHealthProvenanceKind(health: SourceHealthResult): MayaFieldProvenance["sourceKind"] {
+  if (health.status !== "connected") {
+    return "derived_backend";
+  }
+
+  if (health.sourceName === "sap-odata") {
+    return "sap_odata";
+  }
+
+  if (health.sourceMode === "synthetic_static_table") {
+    return "supabase";
+  }
+
+  return "derived_backend";
+}
+
+function mostRecentSourceHealthCheckedAt(sourceHealth: readonly SourceHealthResult[] | undefined): string | undefined {
+  if (sourceHealth === undefined || sourceHealth.length === 0) {
+    return undefined;
+  }
+
+  return sourceHealth.reduce((latest, health) => {
+    return Date.parse(health.checkedAtIso) >= Date.parse(latest) ? health.checkedAtIso : latest;
+  }, sourceHealth[0]?.checkedAtIso ?? "");
 }
 
 const partialHoldCriterionLabels = {

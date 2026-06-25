@@ -57,8 +57,8 @@
   --secondary-foreground: var(--text-primary);
   --muted: var(--bg-subtle);
   --muted-foreground: var(--text-muted);
-  --accent: var(--color-primary-tint);
-  --accent-foreground: var(--color-primary-deep);
+  --accent: var(--bg-subtle);
+  --accent-foreground: var(--text-primary);
   --destructive: var(--status-danger-text);
   --destructive-foreground: var(--white);
   --border: var(--border-default);
@@ -69,11 +69,11 @@
   --chart-3: var(--aging-31-60);
   --chart-4: var(--aging-61-90);
   --chart-5: var(--aging-90plus);
-  --sidebar: var(--color-primary-deep);
+  --sidebar: var(--neutral-900);
   --sidebar-foreground: var(--neutral-100);
-  --sidebar-primary: var(--color-primary);
+  --sidebar-primary: var(--neutral-700);
   --sidebar-primary-foreground: var(--white);
-  --sidebar-accent: var(--neutral-800);
+  --sidebar-accent: var(--neutral-700);
   --sidebar-accent-foreground: var(--neutral-100);
   --sidebar-border: var(--neutral-700);
   --sidebar-ring: var(--focus-ring);
@@ -315,7 +315,7 @@ p {
 }
 
 .module-map-row.active {
-  background: color-mix(in srgb, var(--color-primary) 36%, transparent);
+  background: var(--neutral-700);
   border-color: transparent;
   color: var(--white);
 }

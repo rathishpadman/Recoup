@@ -5,14 +5,8 @@ import {
   CheckCircle2Icon,
   CircleAlertIcon,
   ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronsLeftIcon,
-  ChevronsRightIcon,
-  Columns3Icon,
   FileSearchIcon,
   FlaskConicalIcon,
-  FilterIcon,
-  NotebookPenIcon,
   RotateCwIcon,
   ShieldAlertIcon,
   UserRoundCheckIcon
@@ -30,7 +24,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { MayaForensicsSurfaceProps, MayaWorklistItem } from "./types.ts";
+import {
+  beginWorkItemDetailRequest,
+  cancelWorkItemDetailRequest,
+  isCurrentWorkItemDetailRequest
+} from "./work-item-detail-request-gate.ts";
+import type {
+  MayaForensicsSurfaceProps,
+  MayaSourceTile,
+  MayaSurfaceSection,
+  MayaWorkItemDetail,
+  MayaWorklistItem
+} from "./types.ts";
 
 const missingBeatTwelveFields = [
   "Priority",
@@ -46,6 +51,64 @@ interface BeatTwelveMetricCard {
   label: string;
   support: string;
   value: string;
+}
+
+type WorkItemDetailLoadState =
+  | { lineId: string; state: "loading" }
+  | {
+      correlationId?: string | undefined;
+      lineId: string;
+      message: string;
+      missingSource?: string | undefined;
+      state: "error";
+      status?: number | undefined;
+    };
+
+interface WorkItemDetailErrorBody {
+  correlationId?: string | undefined;
+  error?: string | undefined;
+  missingSource?: string | undefined;
+}
+
+class WorkItemDetailFetchError extends Error {
+  readonly correlationId: string | undefined;
+  readonly missingSource: string | undefined;
+  readonly status: number;
+
+  constructor(status: number, body: WorkItemDetailErrorBody | undefined) {
+    super(body?.error ?? `Forensics work item detail request failed with status ${status.toString()}.`);
+    this.name = "WorkItemDetailFetchError";
+    this.correlationId = body?.correlationId;
+    this.missingSource = body?.missingSource;
+    this.status = status;
+  }
+}
+
+async function fetchForensicsWorkItemDetail(lineId: string): Promise<MayaWorkItemDetail> {
+  const response = await fetch("/api/forensics/work-items/" + encodeURIComponent(lineId), { cache: "no-store" });
+  if (!response.ok) {
+    throw new WorkItemDetailFetchError(response.status, await readWorkItemDetailErrorBody(response));
+  }
+
+  return (await response.json()) as MayaWorkItemDetail;
+}
+
+async function readWorkItemDetailErrorBody(response: Response): Promise<WorkItemDetailErrorBody | undefined> {
+  try {
+    const body = (await response.json()) as unknown;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return undefined;
+    }
+
+    const record = body as Record<string, unknown>;
+    return {
+      correlationId: typeof record.correlationId === "string" ? record.correlationId : undefined,
+      error: typeof record.error === "string" ? record.error : undefined,
+      missingSource: typeof record.missingSource === "string" ? record.missingSource : undefined
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function beatTwelveMetricCards(
@@ -83,16 +146,56 @@ function beatTwelveMetricCards(
   ];
 }
 
+function beatTwelveSourceReadinessTone(sourceTiles: MayaForensicsSurfaceProps["connectors"]["sourceTiles"]): MayaSourceTile["statusTone"] {
+  if (sourceTiles.length === 0 || sourceTiles.some((source) => source.statusTone === "blocked")) {
+    return "blocked";
+  }
+
+  if (sourceTiles.some((source) => source.statusTone === "synthetic")) {
+    return "synthetic";
+  }
+
+  return "ready";
+}
+
+function beatTwelveSourceReadinessClass(statusTone: MayaSourceTile["statusTone"]): string {
+  if (statusTone === "ready") {
+    return "text-[color:var(--status-success-text)]";
+  }
+
+  if (statusTone === "blocked") {
+    return "text-destructive";
+  }
+
+  return "text-muted-foreground";
+}
+
+function beatTwelveSourceReadinessIcon(statusTone: MayaSourceTile["statusTone"]) {
+  if (statusTone === "ready") {
+    return <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />;
+  }
+
+  if (statusTone === "blocked") {
+    return <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />;
+  }
+
+  return <FlaskConicalIcon aria-hidden="true" data-icon="inline-start" />;
+}
+
 export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
+  const [activeSection, setActiveSection] = React.useState<MayaSurfaceSection>("overview");
   const [selectedWorklistItem, setSelectedWorklistItem] = React.useState<MayaWorklistItem | undefined>();
   const [openedCaseWorklistItem, setOpenedCaseWorklistItem] = React.useState<MayaWorklistItem | undefined>();
+  const [openedCaseDetail, setOpenedCaseDetail] = React.useState<MayaWorkItemDetail | undefined>();
+  const [workItemDetailLoadState, setWorkItemDetailLoadState] = React.useState<WorkItemDetailLoadState | undefined>();
   const [returnContextLineId, setReturnContextLineId] = React.useState<string | undefined>();
+  const detailRequestSequence = React.useRef(0);
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
     [model.selected.lineId, model.worklist]
   );
-  const fallbackSelectedWorklistItem = model.worklist.at(0);
-  const initialSelectedWorklistItem = backendSelectedWorklistItem ?? fallbackSelectedWorklistItem;
+  const backendSelectionUnavailable = backendSelectedWorklistItem === undefined;
+  const initialSelectedWorklistItem = backendSelectedWorklistItem;
   const visibleSelectedWorklistItem = selectedWorklistItem ?? initialSelectedWorklistItem;
   let selectedHasBackendDetail = false;
   if (selectedWorklistItem !== undefined) {
@@ -105,18 +208,48 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       ? visibleSelectedWorklistItem
       : undefined;
   const hasLocalReturnContext = returnedWorklistItem !== undefined;
-  const openedCaseHasBackendDetail =
-    openedCaseWorklistItem !== undefined && openedCaseWorklistItem.lineIds.includes(model.selected.lineId);
+  const activeCaseDetail =
+    openedCaseDetail !== undefined &&
+    openedCaseWorklistItem !== undefined &&
+    openedCaseDetail.lineId === openedCaseWorklistItem.lineId
+      ? openedCaseDetail
+      : undefined;
+  const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
+
+  const openInvestigationForItem = React.useCallback(async (item: MayaWorklistItem) => {
+    const requestId = beginWorkItemDetailRequest(detailRequestSequence);
+    setActiveSection("cases");
+    setReturnContextLineId(undefined);
+    setSelectedWorklistItem(item);
+    setOpenedCaseWorklistItem(item);
+    setOpenedCaseDetail(undefined);
+    setWorkItemDetailLoadState({ lineId: item.lineId, state: "loading" });
+
+    try {
+      const detail = await fetchForensicsWorkItemDetail(item.lineId);
+      if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
+        return;
+      }
+
+      setOpenedCaseDetail(detail);
+      setOpenedCaseWorklistItem(detail.workItem);
+      setSelectedWorklistItem(detail.workItem);
+      setWorkItemDetailLoadState(undefined);
+    } catch (error) {
+      if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
+        return;
+      }
+
+      setOpenedCaseDetail(undefined);
+      setWorkItemDetailLoadState(toWorkItemDetailLoadError(item.lineId, error));
+    }
+  }, []);
 
   const handleSelectWorklistItem = React.useCallback(
     (item: MayaWorklistItem) => {
-      setSelectedWorklistItem(item);
-      setReturnContextLineId(undefined);
-      if (openedCaseWorklistItem !== undefined) {
-        setOpenedCaseWorklistItem(item);
-      }
+      void openInvestigationForItem(item);
     },
-    [openedCaseWorklistItem]
+    [openInvestigationForItem]
   );
 
   const handleReturnToWorklist = React.useCallback(() => {
@@ -124,10 +257,29 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       return;
     }
 
+    cancelWorkItemDetailRequest(detailRequestSequence);
+    setActiveSection("worklist");
     setSelectedWorklistItem(openedCaseWorklistItem);
     setReturnContextLineId(openedCaseWorklistItem.lineId);
     setOpenedCaseWorklistItem(undefined);
+    setOpenedCaseDetail(undefined);
+    setWorkItemDetailLoadState(undefined);
   }, [openedCaseWorklistItem]);
+
+  const handleSurfaceSectionChange = React.useCallback((section: MayaSurfaceSection) => {
+    setActiveSection(section);
+    cancelWorkItemDetailRequest(detailRequestSequence);
+    setOpenedCaseWorklistItem(undefined);
+    setOpenedCaseDetail(undefined);
+    setWorkItemDetailLoadState(undefined);
+    setReturnContextLineId(undefined);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      cancelWorkItemDetailRequest(detailRequestSequence);
+    };
+  }, []);
 
   React.useEffect(() => {
     if (openedCaseWorklistItem === undefined && returnContextLineId !== undefined) {
@@ -135,14 +287,453 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     }
   }, [openedCaseWorklistItem, returnContextLineId]);
 
+  function renderMayaRootSection(): React.ReactNode {
+    switch (activeSection) {
+      case "overview":
+        return (
+          <section className="flex min-w-0 flex-col gap-3" data-testid="maya-root-section-overview">
+            <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
+            <SourceReadinessStrip connectors={connectors} />
+            {validDeductionCount > 0 ? (
+              <Alert data-testid="maya-valid-deduction-signal">
+                <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                <AlertTitle>Fetched valid rows</AlertTitle>
+                <AlertDescription>
+                  <Badge className="mr-2" variant="secondary">
+                    {validDeductionCount.toString()}
+                  </Badge>
+                  Backend worklist rows carry verdict labels from the read model.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </section>
+        );
+      case "worklist":
+        return renderWorklistSection();
+      case "cases":
+        return renderCasesSection();
+      case "evidence":
+        return (
+          <section
+            className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
+            data-testid="maya-root-section-evidence"
+          >
+            <Card className="rounded-lg shadow-none" size="sm">
+              <CardHeader>
+                <CardTitle className="text-base">Selected evidence</CardTitle>
+                <CardDescription>
+                  {visibleSelectedWorklistItem === undefined
+                    ? "Select a fetched row to inspect evidence readiness."
+                    : visibleSelectedWorklistItem.lineId}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                {visibleSelectedWorklistItem === undefined ? (
+                  <MayaEmptyState description="No row is selected for evidence review." title="Select a case" />
+                ) : (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <DetailStateFact label="Evidence score" value={visibleSelectedWorklistItem.evidenceScoreLabel} />
+                      <DetailStateFact
+                        label="Documents"
+                        value={selectedHasBackendDetail ? model.selected.evidencePack.documents.length.toString() : "Contract gap"}
+                      />
+                      <DetailStateFact label="Readiness" value={visibleSelectedWorklistItem.evidenceLabel} />
+                    </div>
+                    <Alert>
+                      <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
+                      <AlertTitle>{selectedHasBackendDetail ? "Backend evidence attached" : "Contract gap"}</AlertTitle>
+                      <AlertDescription>
+                        {selectedHasBackendDetail
+                          ? "The selected backend detail packet exposes evidence documents and record IDs."
+                          : "Row-switched evidence documents are unavailable until the backend exposes detail for this row."}
+                      </AlertDescription>
+                    </Alert>
+                    <Button
+                      className="w-fit"
+                      onClick={() => {
+                        void openInvestigationForItem(visibleSelectedWorklistItem);
+                      }}
+                      size="sm"
+                      type="button"
+                    >
+                      <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
+                      Open investigation
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="rounded-lg shadow-none" size="sm">
+              <CardHeader>
+                <CardTitle className="text-base">Source readiness</CardTitle>
+                <CardDescription>{connectors.lastRefreshedLabel}</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                {connectors.sourceTiles.map((source) => (
+                  <div className="grid gap-1 rounded-md border bg-muted/20 p-3" data-status-tone={source.statusTone} key={source.key}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{source.label}</span>
+                      <Badge variant="outline">{source.stateLabel}</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{source.modeLabel}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        );
+      case "approvals":
+        return (
+          <section className="min-w-0" data-testid="maya-root-section-approvals">
+            <Card className="rounded-lg shadow-none" size="sm">
+              <CardHeader>
+                <CardTitle className="text-base">Action inbox</CardTitle>
+                <CardDescription>Backend HITL posture from fetched action rows.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {model.actionInbox.length === 0 ? (
+                  <MayaEmptyState description="The read model returned no pending human actions." title="No pending HITL actions" />
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Line</TableHead>
+                        <TableHead>Action</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {model.actionInbox.map((item) => (
+                        <TableRow key={item.actionId}>
+                          <TableCell>{item.lineId}</TableCell>
+                          <TableCell>{item.actionLabel}</TableCell>
+                          <TableCell>{item.statusLabel ?? "Unavailable"}</TableCell>
+                          <TableCell className="tabular-nums">{item.amount}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+        );
+    }
+  }
+
+  function renderWorklistSection(): React.ReactNode {
+    return (
+      <section
+        className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
+        data-testid="maya-root-section-worklist"
+      >
+        <section className="min-w-0" aria-label="Maya queue">
+          <DeductionWorklistTable
+            items={model.worklist}
+            onSelectItem={handleSelectWorklistItem}
+            {...(visibleSelectedWorklistItem === undefined ? {} : { selectedLineId: visibleSelectedWorklistItem.lineId })}
+          />
+        </section>
+        <aside className="min-w-0" aria-label="Work item starter">
+          <Card className="min-h-[568px] rounded-lg shadow-none" data-testid="maya-work-item-pane" size="sm">
+            {visibleSelectedWorklistItem === undefined ? (
+              <CardContent className="flex min-h-[568px] flex-col items-center justify-center px-8">
+                {backendSelectionUnavailable && model.worklist.length > 0 ? (
+                  <Alert className="mb-4" variant="destructive">
+                    <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
+                    <AlertTitle>Backend-selected line unavailable</AlertTitle>
+                    <AlertDescription>
+                      The backend selected line is not present in the fetched worklist. Select a row to request its
+                      governed detail packet; no fallback business values are displayed.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                <MayaEmptyState
+                  description="View details, evidence, and workflow actions for the selected item."
+                  title="Select a deduction to open its work item"
+                />
+              </CardContent>
+            ) : (
+              <>
+                <CardHeader>
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="grid min-w-0 gap-1">
+                      <CardTitle className="truncate">{visibleSelectedWorklistItem.customerLabel}</CardTitle>
+                      <CardDescription className="truncate">{visibleSelectedWorklistItem.lineId}</CardDescription>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                      {hasLocalReturnContext ? (
+                        <Badge data-testid="maya-return-local-focus-badge" variant="secondary">
+                          Local focus
+                        </Badge>
+                      ) : null}
+                      <Badge variant="outline">Advisory only</Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-5">
+                  <div className="flex min-w-0 flex-col gap-4" data-testid="maya-selected-work-item">
+                    {hasLocalReturnContext ? (
+                      <Alert data-testid="maya-local-return-context">
+                        <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
+                        <AlertTitle>Audit status unavailable</AlertTitle>
+                        <AlertDescription>
+                          Returned locally from the Audit tab. Local focus only; no backend queue update or audit refresh is inferred.
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                    <div className="grid gap-1">
+                      <p className="text-sm text-muted-foreground">Scenario</p>
+                      <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.scenarioLabel}</h2>
+                      <div className="flex flex-wrap gap-1" aria-label="Selected work item line IDs">
+                        {visibleSelectedWorklistItem.lineIds.map((lineId) => (
+                          <Badge key={`selected-${lineId}`} variant="outline">
+                            {lineId}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <Separator />
+                    <div className="grid gap-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Amount</span>
+                        <strong className="tabular-nums">{visibleSelectedWorklistItem.amount}</strong>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Verdict</span>
+                        <Badge data-verdict={visibleSelectedWorklistItem.verdict} variant="secondary">
+                          {visibleSelectedWorklistItem.verdict === "valid" ? (
+                            <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                          ) : null}
+                          {visibleSelectedWorklistItem.verdictLabel}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Queue</span>
+                        <span>{visibleSelectedWorklistItem.queueLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Routing</span>
+                        <span>{visibleSelectedWorklistItem.routingLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Evidence</span>
+                        <span>{visibleSelectedWorklistItem.evidenceScoreLabel}</span>
+                      </div>
+                    </div>
+                    <Separator />
+                    <div className="grid gap-3">
+                      <div
+                        className="grid gap-2 rounded-lg border bg-muted/35 p-3"
+                        data-testid="maya-selected-advisory-callout"
+                      >
+                        <div className="flex items-center gap-2">
+                          <UserRoundCheckIcon aria-hidden="true" data-icon="inline-start" />
+                          <p className="text-sm font-medium">Recommended action</p>
+                        </div>
+                        <p className="text-sm">{visibleSelectedWorklistItem.recommendedActionLabel}</p>
+                        <p className="text-xs text-muted-foreground">Advisory only. Human approval remains required for external action.</p>
+                        <Badge className="justify-self-start" variant="outline">
+                          {visibleSelectedWorklistItem.confidenceLabel}
+                        </Badge>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <p className="text-sm font-medium">Read-model detail packet</p>
+                        <p className="text-sm text-muted-foreground" data-testid="maya-selected-row-contract-note">
+                          {selectedHasBackendDetail
+                            ? "The current fixed evidence packet corresponds to this row."
+                            : "Detailed evidence is unavailable for this row until the backend exposes row switching."}
+                        </p>
+                      </div>
+                      <Button
+                        data-testid="maya-local-row-action-open"
+                        disabled={
+                          workItemDetailLoadState?.state === "loading" &&
+                          workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
+                        }
+                        onClick={() => {
+                          void openInvestigationForItem(visibleSelectedWorklistItem);
+                        }}
+                        size="sm"
+                        type="button"
+                      >
+                        {workItemDetailLoadState?.state === "loading" &&
+                        workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId ? (
+                          <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
+                        ) : (
+                          <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
+                        )}
+                        {workItemDetailLoadState?.state === "loading" &&
+                        workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
+                          ? "Loading detail"
+                          : "Open investigation"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </>
+            )}
+          </Card>
+        </aside>
+      </section>
+    );
+  }
+
+  function renderCasesSection(): React.ReactNode {
+    return (
+      <section
+        className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
+        data-testid="maya-root-section-cases"
+      >
+        <Card className="rounded-lg shadow-none" data-testid="maya-cases-fetched-rows" size="sm">
+          <CardHeader>
+            <CardTitle className="text-base">Fetched cases</CardTitle>
+            <CardDescription>{model.worklist.length.toString()} fetched rows from the read model.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {model.worklist.length === 0 ? (
+              <div className="px-6 py-8">
+                <MayaEmptyState description="The read model returned no deduction case rows." title="No fetched cases" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Case</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Verdict</TableHead>
+                    <TableHead>Queue</TableHead>
+                    <TableHead>
+                      <span className="sr-only">Selection</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {model.worklist.map((item) => {
+                    const isSelected = visibleSelectedWorklistItem?.lineId === item.lineId;
+
+                    return (
+                      <TableRow aria-selected={isSelected} data-testid="maya-case-row" key={`case-${item.lineId}`}>
+                        <TableCell>
+                          <div className="grid gap-0.5">
+                            <span className="font-medium">{item.scenarioLabel}</span>
+                            <span className="text-xs text-muted-foreground">{item.lineId}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{item.customerLabel}</TableCell>
+                        <TableCell>
+                          <Badge data-verdict={item.verdict} variant="secondary">
+                            {item.verdict === "valid" ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
+                            {item.verdictLabel}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{item.queueLabel}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              setSelectedWorklistItem(item);
+                            }}
+                            size="sm"
+                            type="button"
+                            variant={isSelected ? "secondary" : "ghost"}
+                          >
+                            Select
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+        <aside className="min-w-0" aria-label="Selected case starter">
+          <Card className="min-h-[420px] rounded-lg shadow-none" data-testid="maya-cases-selected-starter" size="sm">
+            <CardHeader>
+              <CardTitle className="text-base">Selected case</CardTitle>
+              <CardDescription>
+                {visibleSelectedWorklistItem === undefined ? "No fetched case selected." : visibleSelectedWorklistItem.lineId}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {visibleSelectedWorklistItem === undefined ? (
+                <>
+                  {backendSelectionUnavailable && model.worklist.length > 0 ? (
+                    <Alert variant="destructive">
+                      <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
+                      <AlertTitle>Backend-selected line unavailable</AlertTitle>
+                      <AlertDescription>
+                        The backend selected line is not present in the fetched cases. Select a fetched row; no fallback business values are displayed.
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <MayaEmptyState description="Select a fetched row to prepare the case detail request." title="Select a case" />
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-3">
+                    <DetailStateFact label="Customer" value={visibleSelectedWorklistItem.customerLabel} />
+                    <DetailStateFact label="Scenario" value={visibleSelectedWorklistItem.scenarioLabel} />
+                    <DetailStateFact label="Fetched line IDs" value={visibleSelectedWorklistItem.lineIds.length.toString()} />
+                    <DetailStateFact label="Evidence" value={visibleSelectedWorklistItem.evidenceLabel} />
+                  </div>
+                  <Alert>
+                    <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
+                    <AlertTitle>{selectedHasBackendDetail ? "Backend detail starter" : "Contract gap"}</AlertTitle>
+                    <AlertDescription>
+                      {selectedHasBackendDetail
+                        ? "This selected case corresponds to the backend detail packet exposed by the read model."
+                        : "Case detail for this row remains unavailable until the backend exposes row-specific detail."}
+                    </AlertDescription>
+                  </Alert>
+                  <Button
+                    className="w-fit"
+                    disabled={
+                      workItemDetailLoadState?.state === "loading" &&
+                      workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
+                    }
+                    onClick={() => {
+                      void openInvestigationForItem(visibleSelectedWorklistItem);
+                    }}
+                    size="sm"
+                    type="button"
+                  >
+                    {workItemDetailLoadState?.state === "loading" &&
+                    workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId ? (
+                      <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
+                    ) : (
+                      <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
+                    )}
+                    {workItemDetailLoadState?.state === "loading" &&
+                    workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
+                      ? "Loading detail"
+                      : "Open investigation"}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+      </section>
+    );
+  }
+
   if (openedCaseWorklistItem !== undefined) {
+    const caseWorklistItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem;
+
     return (
       <MayaWorkspaceShell
-        heading={openedCaseWorklistItem.scenarioLabel}
+        activeSection={activeSection}
+        heading={caseWorklistItem.scenarioLabel}
+        onSectionChange={handleSurfaceSectionChange}
         pendingActionCount={model.actionInbox.length}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
-        support={`${openedCaseWorklistItem.customerLabel} / ${openedCaseWorklistItem.lineId}`}
+        support={`${caseWorklistItem.customerLabel} / ${caseWorklistItem.lineId}`}
         worklistCount={model.worklist.length}
       >
         <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
@@ -150,20 +741,29 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             <DeductionWorklistTable
               items={model.worklist}
               onSelectItem={handleSelectWorklistItem}
-              selectedLineId={openedCaseWorklistItem.lineId}
+              selectedLineId={caseWorklistItem.lineId}
               variant="rail"
             />
           </aside>
-          <DeductionCaseWorkspace
-            actionInbox={model.actionInbox}
-            hasBackendDetail={openedCaseHasBackendDetail}
-            journey={model.mayaJourney}
-            multimodalDock={model.multimodalDock}
-            onReturnToWorklist={handleReturnToWorklist}
-            selected={model.selected}
-            selectedWorklistItem={openedCaseWorklistItem}
-            sourceTiles={connectors.sourceTiles}
-          />
+          {activeCaseDetail === undefined ? (
+            <WorkItemDetailStatePanel
+              loadState={workItemDetailLoadState ?? { lineId: caseWorklistItem.lineId, state: "loading" }}
+              onReturnToWorklist={handleReturnToWorklist}
+            />
+          ) : (
+            <DeductionCaseWorkspace
+              actionInbox={activeCaseDetail.actionInbox}
+              auditState={activeCaseDetail.auditState}
+              hasBackendDetail={true}
+              journey={activeCaseDetail.mayaJourney}
+              multimodalDock={activeCaseDetail.multimodalDock}
+              onReturnToWorklist={handleReturnToWorklist}
+              recommendedAction={activeCaseDetail.recommendedAction}
+              selected={activeCaseDetail.selected}
+              selectedWorklistItem={activeCaseDetail.workItem}
+              sourceTiles={connectors.sourceTiles}
+            />
+          )}
         </section>
       </MayaWorkspaceShell>
     );
@@ -172,7 +772,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   if (returnedWorklistItem !== undefined) {
     return (
       <MayaWorkspaceShell
+        activeSection="worklist"
         heading="Deduction Cases"
+        onSectionChange={handleSurfaceSectionChange}
         pendingActionCount={model.actionInbox.length}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
@@ -184,8 +786,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           items={model.worklist}
           kpiItems={model.kpiStrip}
           onSelectItem={(item) => {
-            setSelectedWorklistItem(item);
-            setReturnContextLineId(item.lineId);
+            void openInvestigationForItem(item);
           }}
           selectedItem={returnedWorklistItem}
         />
@@ -195,148 +796,104 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
   return (
     <MayaWorkspaceShell
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
       pendingActionCount={model.actionInbox.length}
       refreshedLabel={connectors.lastRefreshedLabel}
       session={session}
       worklistCount={model.worklist.length}
     >
       <section className="flex min-w-0 flex-1 flex-col gap-3" aria-label="Maya morning run summary">
-        <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
-        <SourceReadinessStrip connectors={connectors} />
-        <div className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="min-w-0" aria-label="Maya queue">
-            <DeductionWorklistTable
-              items={model.worklist}
-              onSelectItem={handleSelectWorklistItem}
-              {...(visibleSelectedWorklistItem === undefined ? {} : { selectedLineId: visibleSelectedWorklistItem.lineId })}
-            />
-          </section>
-          <aside className="min-w-0" aria-label="Work item starter">
-            <Card className="min-h-[568px] rounded-lg shadow-none" data-testid="maya-work-item-pane" size="sm">
-              {visibleSelectedWorklistItem === undefined ? (
-                <CardContent className="flex min-h-[568px] flex-col items-center justify-center px-8">
-                  <MayaEmptyState
-                    description="View details, evidence, and workflow actions for the selected item."
-                    title="Select a deduction to open its work item"
-                  />
-                </CardContent>
-              ) : (
-                <>
-                  <CardHeader>
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="grid min-w-0 gap-1">
-                        <CardTitle className="truncate">{visibleSelectedWorklistItem.customerLabel}</CardTitle>
-                        <CardDescription className="truncate">{visibleSelectedWorklistItem.lineId}</CardDescription>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                        {hasLocalReturnContext ? (
-                          <Badge data-testid="maya-return-local-focus-badge" variant="secondary">
-                            Local focus
-                          </Badge>
-                        ) : null}
-                        <Badge variant="outline">Advisory only</Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-5">
-                    <div className="flex min-w-0 flex-col gap-4" data-testid="maya-selected-work-item">
-                      {hasLocalReturnContext ? (
-                        <Alert data-testid="maya-local-return-context">
-                          <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
-                          <AlertTitle>Audit status unavailable</AlertTitle>
-                          <AlertDescription>
-                            Returned locally from the Audit tab. Local focus only; no backend queue update or audit refresh is inferred.
-                          </AlertDescription>
-                        </Alert>
-                      ) : null}
-                      <div className="grid gap-1">
-                        <p className="text-sm text-muted-foreground">Scenario</p>
-                        <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.scenarioLabel}</h2>
-                        <div className="flex flex-wrap gap-1" aria-label="Selected work item line IDs">
-                          {visibleSelectedWorklistItem.lineIds.map((lineId) => (
-                            <Badge key={`selected-${lineId}`} variant="outline">
-                              {lineId}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      <Separator />
-                      <div className="grid gap-3 text-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Amount</span>
-                          <strong className="tabular-nums">{visibleSelectedWorklistItem.amount}</strong>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Verdict</span>
-                          <Badge variant="secondary">{visibleSelectedWorklistItem.verdictLabel}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Queue</span>
-                          <span>{visibleSelectedWorklistItem.queueLabel}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Routing</span>
-                          <span>{visibleSelectedWorklistItem.routingLabel}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">Evidence</span>
-                          <span>{visibleSelectedWorklistItem.evidenceScoreLabel}</span>
-                        </div>
-                      </div>
-                      <Separator />
-                      <div className="grid gap-3">
-                        <div
-                          className="grid gap-2 rounded-lg border bg-muted/35 p-3"
-                          data-testid="maya-selected-advisory-callout"
-                        >
-                          <div className="flex items-center gap-2">
-                            <UserRoundCheckIcon aria-hidden="true" data-icon="inline-start" />
-                            <p className="text-sm font-medium">Recommended action</p>
-                          </div>
-                          <p className="text-sm">{visibleSelectedWorklistItem.recommendedActionLabel}</p>
-                          <p className="text-xs text-muted-foreground">Advisory only. Human approval remains required for external action.</p>
-                          <Badge className="justify-self-start" variant="outline">
-                            {visibleSelectedWorklistItem.confidenceLabel}
-                          </Badge>
-                        </div>
-                        <div className="grid gap-1.5">
-                          <p className="text-sm font-medium">Read-model detail packet</p>
-                          <p className="text-sm text-muted-foreground" data-testid="maya-selected-row-contract-note">
-                            {selectedHasBackendDetail
-                              ? "The current fixed evidence packet corresponds to this row."
-                              : "Detailed evidence is unavailable for this row until the backend exposes row switching."}
-                          </p>
-                        </div>
-                        <div className="grid gap-2">
-                          <Button
-                            data-testid="maya-local-row-action-open"
-                            onClick={() => {
-                              setReturnContextLineId(undefined);
-                              setOpenedCaseWorklistItem(visibleSelectedWorklistItem);
-                              setSelectedWorklistItem(visibleSelectedWorklistItem);
-                            }}
-                            size="sm"
-                            type="button"
-                          >
-                            <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
-                            Open investigation
-                          </Button>
-                          <Button data-testid="maya-local-row-action-add-note" disabled size="sm" type="button" variant="outline">
-                            <NotebookPenIcon aria-hidden="true" data-icon="inline-start" />
-                            Add note
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </>
-              )}
-            </Card>
-          </aside>
-        </div>
+        {renderMayaRootSection()}
       </section>
     </MayaWorkspaceShell>
   );
+}
+
+function WorkItemDetailStatePanel({
+  loadState,
+  onReturnToWorklist
+}: {
+  loadState: WorkItemDetailLoadState;
+  onReturnToWorklist: () => void;
+}) {
+  const isLoading = loadState.state === "loading";
+
+  return (
+    <section className="flex min-w-0 flex-col gap-3" data-testid="maya-work-item-detail-state">
+      <Card className="rounded-lg shadow-none" size="sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            {isLoading ? (
+              <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
+            ) : (
+              <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
+            )}
+            {isLoading ? "Loading backend detail" : "Backend detail unavailable"}
+          </CardTitle>
+          <CardDescription>{loadState.lineId}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Alert variant={isLoading ? "default" : "destructive"}>
+            {isLoading ? (
+              <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
+            ) : (
+              <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
+            )}
+            <AlertTitle>{isLoading ? "Fetching governed detail packet" : "Fail-closed detail fetch"}</AlertTitle>
+            <AlertDescription>
+              {isLoading
+                ? "Case evidence, draft, approval, and audit state will remain unavailable until the backend detail packet returns."
+                : loadState.message}
+            </AlertDescription>
+          </Alert>
+          {loadState.state === "error" ? (
+            <div className="grid gap-3 md:grid-cols-3" data-testid="maya-work-item-detail-error">
+              <DetailStateFact label="Status" value={loadState.status === undefined ? "Unavailable" : String(loadState.status)} />
+              <DetailStateFact label="Missing source" value={loadState.missingSource ?? "Unavailable"} />
+              <DetailStateFact label="Correlation" value={loadState.correlationId ?? "Unavailable"} />
+            </div>
+          ) : null}
+        </CardContent>
+        <CardContent className="pt-0">
+          <Button onClick={onReturnToWorklist} size="sm" type="button" variant="outline">
+            <ChevronLeftIcon aria-hidden="true" data-icon="inline-start" />
+            Return to worklist
+          </Button>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function DetailStateFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="truncate text-sm font-medium" title={value}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function toWorkItemDetailLoadError(lineId: string, error: unknown): WorkItemDetailLoadState {
+  if (error instanceof WorkItemDetailFetchError) {
+    return {
+      correlationId: error.correlationId,
+      lineId,
+      message: error.message,
+      missingSource: error.missingSource,
+      state: "error",
+      status: error.status
+    };
+  }
+
+  return {
+    lineId,
+    message: "Forensics work item detail is unavailable from governed backend sources.",
+    state: "error"
+  };
 }
 
 interface BeatTwelveReturnedWorklistProps {
@@ -354,24 +911,13 @@ function BeatTwelveReturnedWorklist({
   onSelectItem,
   selectedItem
 }: BeatTwelveReturnedWorklistProps) {
-  const recommendedRows = React.useMemo(
-    () => items.filter((item) => item.recommendedActionLabel.trim().length > 0),
-    [items]
-  );
-  const reviewRows = React.useMemo(
-    () => items.filter((item) => /\breview\b/iu.test(item.queueLabel)),
-    [items]
-  );
-  const billingRows = React.useMemo(
-    () => items.filter((item) => /\bbilling\b/iu.test(item.queueLabel)),
-    [items]
-  );
-  const recoveryRows = React.useMemo(
-    () => items.filter((item) => /\brecovery\b/iu.test(item.verdictLabel) || /\brecovery\b/iu.test(item.routingLabel)),
-    [items]
-  );
   const selectedRow = items.find((item) => item.lineId === selectedItem.lineId) ?? selectedItem;
   const metricCards = React.useMemo(() => beatTwelveMetricCards(items, kpiItems), [items, kpiItems]);
+  const sourceReadinessTone = beatTwelveSourceReadinessTone(connectors.sourceTiles);
+
+  React.useEffect(() => {
+    document.querySelector<HTMLElement>('[data-testid="maya-beat-12-return-table"]')?.focus({ preventScroll: true });
+  }, [selectedItem.lineId]);
 
   return (
     <section
@@ -390,18 +936,13 @@ function BeatTwelveReturnedWorklist({
                 Returned from local audit review
               </Badge>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button disabled size="sm" type="button" variant="outline">
-                <FilterIcon aria-hidden="true" data-icon="inline-start" />
-                Filters
-              </Button>
-              <Button disabled size="sm" type="button" variant="outline">
-                <Columns3Icon aria-hidden="true" data-icon="inline-start" />
-                Columns
-              </Button>
-              <Button aria-label="Refresh unavailable: no backend refresh action is exposed" disabled size="icon-sm" type="button" variant="outline">
-                <RotateCwIcon aria-hidden="true" data-icon="button-icon" />
-              </Button>
+            <div className="flex shrink-0 flex-wrap justify-end gap-1.5" aria-label="Returned worklist source constraints">
+              <Badge className="h-7 px-2 text-[11px]" variant="outline">
+                Fetched rows only
+              </Badge>
+              <Badge className="h-7 px-2 text-[11px]" variant="outline">
+                Read-model gaps
+              </Badge>
             </div>
           </div>
         </div>
@@ -427,8 +968,10 @@ function BeatTwelveReturnedWorklist({
 
       <Card className="rounded-lg py-0 shadow-none" data-testid="maya-beat-12-source-readiness" size="sm">
         <CardContent className="grid min-h-[62px] min-w-0 items-center gap-3 px-4 py-2 xl:grid-cols-[190px_repeat(7,minmax(0,1fr))]">
-          <div className="flex min-w-0 items-center gap-2">
-            <CheckCircle2Icon className="text-[color:var(--status-success-text)]" aria-hidden="true" data-icon="inline-start" />
+          <div className="flex min-w-0 items-center gap-2" data-status-tone={sourceReadinessTone}>
+            <span className={beatTwelveSourceReadinessClass(sourceReadinessTone)}>
+              {beatTwelveSourceReadinessIcon(sourceReadinessTone)}
+            </span>
             <div className="grid min-w-0 gap-0.5">
               <p className="font-medium">Source Readiness</p>
               <p className="truncate text-xs text-muted-foreground">{connectors.lastRefreshedLabel}</p>
@@ -465,15 +1008,15 @@ function BeatTwelveReturnedWorklist({
           <Tabs defaultValue="all">
             <TabsList className="h-10">
               <TabsTrigger value="all">All fetched {items.length.toString()}</TabsTrigger>
-              <TabsTrigger value="recommended">Recommended {recommendedRows.length.toString()}</TabsTrigger>
-              <TabsTrigger value="review">Review {reviewRows.length.toString()}</TabsTrigger>
-              <TabsTrigger value="billing">Billing {billingRows.length.toString()}</TabsTrigger>
-              <TabsTrigger value="recovery">Recovery {recoveryRows.length.toString()}</TabsTrigger>
+              <TabsTrigger value="recommended">Recommended</TabsTrigger>
+              <TabsTrigger value="review">Review</TabsTrigger>
+              <TabsTrigger value="billing">Billing</TabsTrigger>
+              <TabsTrigger value="recovery">Recovery</TabsTrigger>
             </TabsList>
           </Tabs>
         </CardHeader>
         <CardContent className="p-0">
-          <Table className="text-sm" data-testid="maya-beat-12-return-table">
+          <Table className="text-sm" data-testid="maya-beat-12-return-table" tabIndex={-1}>
             <TableHeader>
               <TableRow>
                 <TableHead className="px-4">
@@ -500,25 +1043,34 @@ function BeatTwelveReturnedWorklist({
             <TableBody>
               {items.map((item) => {
                 const isSelected = item.lineId === selectedRow.lineId;
+                const isValidDeduction = item.verdict === "valid";
 
                 return (
                   <TableRow
                     aria-selected={isSelected}
-                    className="cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-primary/25"
+                    className="cursor-pointer outline-none data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                     data-line-id={item.lineId}
                     data-selected={isSelected ? "true" : undefined}
                     data-testid="maya-worklist-row"
+                    data-verdict={item.verdict}
                     key={`beat-12-${item.lineId}`}
                     onClick={() => {
                       onSelectItem(item);
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectItem(item);
+                      }
+                    }}
+                    tabIndex={0}
                   >
                     <TableCell className="px-4">
                       <span
                         aria-hidden="true"
                         className={
                           isSelected
-                            ? "block size-2.5 rounded-full bg-primary"
+                            ? "block size-2.5 rounded-full bg-muted-foreground"
                             : "block size-2.5 rounded-full border border-muted-foreground/35"
                         }
                       />
@@ -551,7 +1103,10 @@ function BeatTwelveReturnedWorklist({
                     </TableCell>
                     <TableCell>{item.customerLabel}</TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{item.verdictLabel}</Badge>
+                      <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                        {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
+                        {item.verdictLabel}
+                      </Badge>
                     </TableCell>
                     <TableCell className="tabular-nums">{item.amount}</TableCell>
                     <TableCell>
@@ -592,23 +1147,12 @@ function BeatTwelveReturnedWorklist({
                 {items.length.toString()}
               </Badge>
             </span>
-            <div className="flex items-center gap-1" aria-label="Server pagination unavailable">
-              <Button aria-label="First page unavailable" disabled size="icon-xs" type="button" variant="outline">
-                <ChevronsLeftIcon aria-hidden="true" data-icon="button-icon" />
-              </Button>
-              <Button aria-label="Previous page unavailable" disabled size="icon-xs" type="button" variant="outline">
-                <ChevronLeftIcon aria-hidden="true" data-icon="button-icon" />
-              </Button>
-              <Badge className="h-7 min-w-7 justify-center px-2 text-[11px]" variant="secondary">
-                1
-              </Badge>
-              <Button aria-label="Next page unavailable" disabled size="icon-xs" type="button" variant="outline">
-                <ChevronRightIcon aria-hidden="true" data-icon="button-icon" />
-              </Button>
-              <Button aria-label="Last page unavailable" disabled size="icon-xs" type="button" variant="outline">
-                <ChevronsRightIcon aria-hidden="true" data-icon="button-icon" />
-              </Button>
-            </div>
+            <span className="hidden md:inline" aria-label="Server pagination unavailable">
+              Server pagination unavailable
+            </span>
+            <Badge className="h-7 min-w-7 justify-center px-2 text-[11px]" variant="secondary">
+              Page 1
+            </Badge>
           </div>
         </div>
       </Card>

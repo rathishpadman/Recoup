@@ -4,38 +4,38 @@
  * Apply [data-theme="dark"] on the monitoring root, NOT <html>. */
 
 :root {
-  /* ---- Brand: petrol ---- */
-  --color-primary:        #0C6E6B;
-  --color-primary-hover:  #0A5755;
-  --color-primary-active: #084746;
-  --color-primary-deep:   #053B3B;
-  --color-primary-subtle: #DCEEED;
-  --color-primary-tint:   #EAF5F4;
+  /* ---- Brand: neutral operations chrome ---- */
+  --color-primary:        #27272A;
+  --color-primary-hover:  #18181B;
+  --color-primary-active: #09090B;
+  --color-primary-deep:   #18181B;
+  --color-primary-subtle: #E4E4E7;
+  --color-primary-tint:   #F4F4F5;
   --color-accent:         #C2410C; /* high-priority/risk emphasis only */
 
-  /* ---- Neutrals: warm-cool low-chroma ramp ---- */
-  --neutral-900: #131A19;
-  --neutral-800: #1E2A28;
-  --neutral-700: #324341;
-  --neutral-600: #4B5C5A;
-  --neutral-500: #6B7A78;
-  --neutral-400: #93A09E;
-  --neutral-300: #C7CFCE;
-  --neutral-200: #E0E5E4;
-  --neutral-100: #EEF1F1;
-  --neutral-50:  #F7F8F8;
+  /* ---- Neutrals: zinc operations ramp ---- */
+  --neutral-900: #18181B;
+  --neutral-800: #27272A;
+  --neutral-700: #3F3F46;
+  --neutral-600: #52525B;
+  --neutral-500: #71717A;
+  --neutral-400: #A1A1AA;
+  --neutral-300: #D4D4D8;
+  --neutral-200: #E4E4E7;
+  --neutral-100: #F4F4F5;
+  --neutral-50:  #FAFAFA;
   --white:       #FFFFFF;
 
   /* ---- Semantic surface/text/border ---- */
-  --bg-canvas:    #F7F8F8;
+  --bg-canvas:    #FAFAFA;
   --bg-surface:   #FFFFFF;
-  --bg-subtle:    #EEF1F1;
-  --text-primary:   #131A19;
-  --text-secondary: #4B5C5A;
-  --text-muted:     #6B7A78;
-  --border-default: #D6DCDB;
-  --border-subtle:  #E6EAEA;
-  --focus-ring:     #0C6E6B;
+  --bg-subtle:    #F4F4F5;
+  --text-primary:   #18181B;
+  --text-secondary: #52525B;
+  --text-muted:     #71717A;
+  --border-default: #D4D4D8;
+  --border-subtle:  #E4E4E7;
+  --focus-ring:     #2563EB;
 
   /* ---- Status (text / bg / border) ---- */
   --status-success-text: #166534; --status-success-bg: #DCFCE7; --status-success-border: #86EFAC;
@@ -93,16 +93,16 @@
 
 /* Dark command-center — apply on the monitoring dashboard root only */
 [data-theme="dark"] {
-  --bg-canvas:    #081312;
-  --bg-surface:   #0E1F1D;
-  --bg-subtle:    #15302D;
-  --text-primary:   #ECF4F2;
-  --text-secondary: #9FB2AF;
-  --text-muted:     #6F8581;
-  --border-default: #24433F;
-  --border-subtle:  #1B3935;
-  --color-primary:  #2EC4BB;
-  --focus-ring:     #2EC4BB;
+  --bg-canvas:    #09090B;
+  --bg-surface:   #18181B;
+  --bg-subtle:    #27272A;
+  --text-primary:   #E4E4E7;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #71717A;
+  --border-default: #3F3F46;
+  --border-subtle:  #27272A;
+  --color-primary:  #E4E4E7;
+  --focus-ring:     #60A5FA;
   --status-success-text: #4ADE80;
   --status-danger-text:  #F87171;
   --status-warning-text: #FBBF24;

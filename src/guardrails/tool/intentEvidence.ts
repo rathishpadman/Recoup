@@ -1,3 +1,5 @@
+import { throwGuardrailTrip } from "../trip.js";
+
 export interface IntentEvidenceGuardInput {
   customerId: string;
   intentLabel: string;
@@ -25,6 +27,10 @@ export function assertIntentEvidence(decision: IntentEvidenceGuardInput): void {
     rScoreComponents === undefined ||
     Object.keys(rScoreComponents).length === 0
   ) {
-    throw new Error("Gaming intent labels require cited behavioral evidence and R-score components.");
+    throwGuardrailTrip({
+      guardrailName: "intent-evidence",
+      reason: "Gaming intent labels require cited behavioral evidence and R-score components.",
+      recordIds: decision.recordIds
+    });
   }
 }

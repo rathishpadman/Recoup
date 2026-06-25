@@ -53,6 +53,11 @@ interface ClientSecretResult {
   transport?: "webrtc";
 }
 
+interface SelectedQueryScope {
+  recordIds: string[];
+  selectedLineId: string;
+}
+
 const realtimeCallsUrl = "https://api.openai.com/v1/realtime/calls";
 const realtimeToolUrl = "/api/query/realtime-tool";
 const policyRecordIds = ["OPENAI-REALTIME-POLICY"];
@@ -70,6 +75,11 @@ export async function startRealtimeBrowserSession({
   toolEndpoint = realtimeToolUrl
 }: RealtimeBrowserSessionInput): Promise<RealtimeBrowserSession> {
   const trimmedQuestion = question.trim();
+  const selectedQueryScope = normalizeSelectedQueryScope({
+    ...(recordIds === undefined ? {} : { recordIds }),
+    ...(selectedLineId === undefined ? {} : { selectedLineId })
+  });
+  const scopedRecordIds = selectedQueryScope?.recordIds ?? policyRecordIds;
   let snapshot: RealtimeBrowserSessionSnapshot = {
     message: "Ask a scoped question before requesting a Realtime session.",
     recordIds: policyRecordIds,
@@ -141,7 +151,7 @@ export async function startRealtimeBrowserSession({
 
   publish({
     message: "Requesting audit-scoped Realtime session.",
-    recordIds: policyRecordIds,
+    recordIds: scopedRecordIds,
     status: "connecting"
   });
 
@@ -151,8 +161,9 @@ export async function startRealtimeBrowserSession({
     secretResponse = await fetcher("/api/query/realtime-client-secret", {
       body: JSON.stringify({
         question: trimmedQuestion,
-        ...(recordIds === undefined ? {} : { recordIds: [...recordIds] }),
-        ...(selectedLineId === undefined ? {} : { selectedLineId })
+        ...(selectedQueryScope === undefined
+          ? {}
+          : { recordIds: [...selectedQueryScope.recordIds], selectedLineId: selectedQueryScope.selectedLineId })
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -221,6 +232,7 @@ export async function startRealtimeBrowserSession({
         fetcher,
         getSnapshot: () => snapshot,
         publish,
+        selectedQueryScope,
         toolEndpoint
       });
     });
@@ -325,6 +337,7 @@ async function handleRealtimeEvent(
     fetcher: typeof fetch;
     getSnapshot: () => RealtimeBrowserSessionSnapshot;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
+    selectedQueryScope: SelectedQueryScope | undefined;
     toolEndpoint: string;
   }
 ): Promise<void> {
@@ -387,17 +400,19 @@ async function handleRealtimeToolCall(
     dataChannel,
     fetcher,
     publish,
+    selectedQueryScope,
     toolEndpoint
   }: {
     dataChannel: RTCDataChannel;
     fetcher: typeof fetch;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
+    selectedQueryScope: SelectedQueryScope | undefined;
     toolEndpoint: string;
   }
 ): Promise<void> {
   const response = await fetcher(toolEndpoint, {
     body: JSON.stringify({
-      argumentsJson: toolCall.argumentsJson,
+      argumentsJson: scopedToolArgumentsJson(toolCall, selectedQueryScope),
       name: toolCall.name
     }),
     headers: { "content-type": "application/json" },
@@ -449,6 +464,45 @@ async function handleRealtimeToolCall(
     return;
   }
 
+}
+
+function normalizeSelectedQueryScope(input: {
+  recordIds?: readonly string[];
+  selectedLineId?: string;
+}): SelectedQueryScope | undefined {
+  const selectedLineId = input.selectedLineId?.trim();
+  const recordIds = input.recordIds?.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0);
+  if (selectedLineId === undefined || selectedLineId.length === 0 || recordIds === undefined || recordIds.length === 0) {
+    return undefined;
+  }
+
+  return {
+    recordIds: Array.from(new Set(recordIds)),
+    selectedLineId
+  };
+}
+
+function scopedToolArgumentsJson(toolCall: RealtimeFunctionCall, selectedQueryScope: SelectedQueryScope | undefined): string {
+  if (toolCall.name !== "query.answer" || selectedQueryScope === undefined) {
+    return toolCall.argumentsJson;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.argumentsJson) as unknown;
+  } catch {
+    return toolCall.argumentsJson;
+  }
+
+  if (!isObject(parsed)) {
+    return toolCall.argumentsJson;
+  }
+
+  return JSON.stringify({
+    ...parsed,
+    recordIds: selectedQueryScope.recordIds,
+    selectedLineId: selectedQueryScope.selectedLineId
+  });
 }
 
 interface RealtimeFunctionCall {

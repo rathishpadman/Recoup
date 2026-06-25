@@ -3,14 +3,46 @@ import { recoupHandoffGraph } from "../../src/agents/handoffGraph.js";
 import { AgentHandoffPacketSchema, createAgentHandoffPacket } from "../../src/agents/messages.js";
 
 describe("agent handoff packets", () => {
-  it("declares SDD handoff and agents-as-tools edges", () => {
+  it("declares explicit runtime wiring for every graph edge", () => {
+    const allowedWirings = ["sdk-handoff", "deterministic-service", "agents-as-tools", "tool"];
+
     expect(recoupHandoffGraph).toEqual([
-      { from: "Forensics Investigator", to: "Recovery Drafter", mode: "handoff" },
-      { from: "Forensics Investigator", to: "Containment / Intent", mode: "handoff" },
-      { from: "Risk-Mesh Supervisor", to: "Sentinel", mode: "agents-as-tools" },
-      { from: "Risk-Mesh Supervisor", to: "Containment / Intent", mode: "agents-as-tools" },
-      { from: "Conversational Query", to: "Audit Read", mode: "tool" }
+      {
+        from: "Forensics Investigator",
+        to: "Recovery Drafter",
+        mode: "handoff",
+        wiring: "sdk-handoff"
+      },
+      {
+        from: "Forensics Investigator",
+        to: "Containment / Intent",
+        mode: "handoff",
+        wiring: "deterministic-service"
+      },
+      {
+        from: "Risk-Mesh Supervisor",
+        to: "Sentinel",
+        mode: "agents-as-tools",
+        wiring: "agents-as-tools"
+      },
+      {
+        from: "Risk-Mesh Supervisor",
+        to: "Containment / Intent",
+        mode: "agents-as-tools",
+        wiring: "agents-as-tools"
+      },
+      {
+        from: "Conversational Query",
+        to: "Audit Read",
+        mode: "tool",
+        wiring: "tool"
+      }
     ]);
+
+    for (const edge of recoupHandoffGraph) {
+      expect(edge).toHaveProperty("wiring");
+      expect(allowedWirings).toContain(edge.wiring);
+    }
   });
 
   it("creates cited work packets for agent-to-agent communication", () => {

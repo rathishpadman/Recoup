@@ -4,9 +4,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { day1GovernedConfigSeed, governedConfigSeedRows, sha256CanonicalJson } from "../../config/governed.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
+import { cockpitHumanProxyIssuedAtFreshnessWindowMs } from "../../config/cockpitHumanPrincipals.js";
+import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
+import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
 import { createRuntimeMemoryStore } from "../../src/memory/runtime.js";
 import { readAgentHandoffPacket, readSessionState, readTransactionState } from "../../src/memory/session.js";
 import type { SupabaseMemoryFetch } from "../../src/memory/supabaseStore.js";
@@ -30,6 +33,10 @@ const cockpitAuthHeaders = {
   "content-type": "application/json",
   "x-recoup-human-principal": cockpitAuthEnv.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
   "x-recoup-human-token": cockpitAuthEnv.RECOUP_COCKPIT_AUTH_TOKEN
+} as const;
+const selectedRealtimeQueryScope = {
+  recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1", "SAP-INV-S3-1", "DOC-S3-L1"],
+  selectedLineId: "S3-L1"
 } as const;
 const demoProxySecret = "test-demo-session-secret";
 const governedConfig = day1GovernedConfigSeed.values;
@@ -118,14 +125,51 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("requires verified human auth for protected real-backend read endpoints", async () => {
+    const calls: string[] = [];
+    const sapFetcher = vi.fn();
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" },
+      memoryFetcher: (url, init) => {
+        calls.push(url);
+        return withGovernedConfigOnlyFetcher()(url, init);
+      },
+      sapFetcher
+    });
+    try {
+      const responses = await Promise.all([
+        fetch(`${baseUrl}/forensics`),
+        fetch(`${baseUrl}/forensics/work-items/S6-L1`),
+        fetch(`${baseUrl}/connectors`),
+        fetch(`${baseUrl}/sources/r1/outbound-delivery?deliveryRef=DEL_GREEN_01`)
+      ]);
+      const bodies = (await Promise.all(responses.map((response) => response.json()))) as Array<{ error: string }>;
+
+      expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401]);
+      expect(bodies).toEqual([
+        { error: "Verified human cockpit auth required." },
+        { error: "Verified human cockpit auth required." },
+        { error: "Verified human cockpit auth required." },
+        { error: "Verified human cockpit auth required." }
+      ]);
+      expect(calls).toEqual([]);
+      expect(sapFetcher).not.toHaveBeenCalled();
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves R1 Supabase fallback source-read plans without source secrets", async () => {
     const { baseUrl, server } = await listen({
       env: {
+        ...cockpitAuthEnv,
         SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key"
       }
     });
     try {
-      const response = await fetch(`${baseUrl}/sources/r1/outbound-delivery?deliveryRef=DEL_GREEN_01`);
+      const response = await fetch(`${baseUrl}/sources/r1/outbound-delivery?deliveryRef=DEL_GREEN_01`, {
+        headers: cockpitAuthHeaders
+      });
       const body = (await response.json()) as {
         readPlan: { supabase: { filters: Record<string, string>; table: string } };
         sourceMode: string;
@@ -151,6 +195,7 @@ describe("S5 cockpit API", () => {
     const sapCalls: Array<{ method: string | undefined; url: string }> = [];
     const { baseUrl, server } = await listen({
       env: {
+        ...cockpitAuthEnv,
         SAP_ODATA_BASE_URL: "https://sap.example.test",
         SAP_ODATA_CLIENT: "100",
         SAP_ODATA_CLIENT_SECRET: "sap-password",
@@ -177,7 +222,9 @@ describe("S5 cockpit API", () => {
       }
     });
     try {
-      const response = await fetch(`${baseUrl}/sources/r1/credit-exposure?businessPartner=USCU_S04`);
+      const response = await fetch(`${baseUrl}/sources/r1/credit-exposure?businessPartner=USCU_S04`, {
+        headers: cockpitAuthHeaders
+      });
       const body = (await response.json()) as {
         readPlan: { sap: { requests: Array<{ method: string; purpose: string; url: string }> } };
         sourceMode: string;
@@ -209,6 +256,7 @@ describe("S5 cockpit API", () => {
     const sapCalls: Array<{ method: string | undefined; url: string }> = [];
     const { baseUrl, server } = await listen({
       env: {
+        ...cockpitAuthEnv,
         SAP_ODATA_BASE_URL: "https://sap.example.test",
         SAP_ODATA_CLIENT: "100",
         SAP_ODATA_CLIENT_SECRET: "sap-password",
@@ -220,10 +268,14 @@ describe("S5 cockpit API", () => {
       }
     });
     try {
-      const missingKey = await fetch(`${baseUrl}/sources/r1/invoice`);
-      const malformedSapPrimary = await fetch(`${baseUrl}/sources/r1/invoice?billingDocument=80000002`);
-      const broaderNeed = await fetch(`${baseUrl}/sources/r1/aging-grid?customerId=USCU_S04`);
-      const overbroadFallback = await fetch(`${baseUrl}/sources/r1/payment-history?customerId=USCU_S04&invoiceRef=90000002`);
+      const missingKey = await fetch(`${baseUrl}/sources/r1/invoice`, { headers: cockpitAuthHeaders });
+      const malformedSapPrimary = await fetch(`${baseUrl}/sources/r1/invoice?billingDocument=80000002`, {
+        headers: cockpitAuthHeaders
+      });
+      const broaderNeed = await fetch(`${baseUrl}/sources/r1/aging-grid?customerId=USCU_S04`, { headers: cockpitAuthHeaders });
+      const overbroadFallback = await fetch(`${baseUrl}/sources/r1/payment-history?customerId=USCU_S04&invoiceRef=90000002`, {
+        headers: cockpitAuthHeaders
+      });
 
       expect(missingKey.status).toBe(400);
       expect(await missingKey.json()).toEqual({ error: "Invalid R1 source read request." });
@@ -325,7 +377,7 @@ describe("S5 cockpit API", () => {
   it("serves the Forensics read model and approval decisions through REST", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
         containmentPanel?: {
@@ -376,7 +428,7 @@ describe("S5 cockpit API", () => {
   it("fails closed for approval decisions when Supabase audit persistence is not selected", async () => {
     const { baseUrl, server } = await listen({ env: cockpitAuthEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         selected: { draft: { actionId: string } };
       };
@@ -400,9 +452,10 @@ describe("S5 cockpit API", () => {
 
   it("fails closed instead of serving static Forensics evidence when Supabase source evidence rows are unavailable", async () => {
     const calls: string[] = [];
+    const correlationId = "test-correlation-source-evidence-missing";
     const server = createServer(
       createCockpitApi({
-        env: governedConfigEnv,
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" },
         memoryFetcher: missingSyntheticEvidenceSourceFetcher(calls)
       })
     );
@@ -413,15 +466,1606 @@ describe("S5 cockpit API", () => {
     const baseUrl = `http://127.0.0.1:${String(address.port)}`;
 
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
-      const body = (await modelResponse.json()) as { error: string };
+      const modelResponse = await fetch(`${baseUrl}/forensics`, {
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+      });
+      const body = (await modelResponse.json()) as { correlationId: string; error: string; missingSource: string };
 
       expect(modelResponse.status).toBe(503);
       expect(body.error).toBe("Supabase source evidence rows are unavailable or failed validation.");
+      expect(body.missingSource).toBe("supabase-source-evidence-rows");
+      expect(body.correlationId).toBe(correlationId);
+      expect(modelResponse.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
       expect(calls.some((url) => url.includes("/rest/v1/recoup_src_sap"))).toBe(true);
       expect(calls.some((url) => url.includes("/rest/v1/recoup_src_docs"))).toBe(true);
       expect(calls.some((url) => url.includes("/rest/v1/recoup_src_tpm"))).toBe(true);
       expect(calls.some((url) => url.includes("/rest/v1/recoup_src_bureau"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("reports the SAP source table when only Supabase SAP evidence rows are unavailable", async () => {
+    const calls: string[] = [];
+    const correlationId = "test-correlation-sap-evidence-missing";
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" },
+        memoryFetcher: missingSapEvidenceSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const modelResponse = await fetch(`${baseUrl}/forensics`, {
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+      });
+      const body = (await modelResponse.json()) as {
+        correlationId: string;
+        error: string;
+        missingSource: string;
+        sourceTableName?: string;
+      };
+
+      expect(modelResponse.status).toBe(503);
+      expect(body).toEqual({
+        correlationId,
+        error: "Supabase SAP source evidence rows are unavailable or failed validation.",
+        missingSource: "supabase-sap-source-evidence-rows",
+        sourceTableName: "recoup_src_sap"
+      });
+      expect(modelResponse.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_src_sap"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed in real-backend mode when governed Supabase settlement rows are missing", async () => {
+    const calls: string[] = [];
+    const correlationId = "test-correlation-settlement-missing";
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" },
+        memoryFetcher: missingSettlementSourceRowsFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const modelResponse = await fetch(`${baseUrl}/forensics`, {
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+      });
+      const body = (await modelResponse.json()) as { correlationId: string; error: string; missingSource: string };
+
+      expect(modelResponse.status).toBe(503);
+      expect(body).toEqual({
+        correlationId,
+        error: "Supabase settlement source rows are unavailable or failed validation.",
+        missingSource: "supabase-settlement-source-rows"
+      });
+      expect(modelResponse.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_customers"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_lines"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves backend detail for the requested Forensics work item line", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/work-items/S6-L1`, { headers: cockpitAuthHeaders });
+      expect(response.headers.get("content-type")).toContain("application/json");
+      const body = (await response.json()) as {
+        auditState: {
+          provenance: { recordIds: string[] };
+          recordIds: string[];
+          statusLabel: string;
+        };
+        approvalState: {
+          actions: Array<{ decision: string }>;
+          provenance: { recordIds: string[] };
+        };
+        lineId: string;
+        recommendedAction: {
+          actionId: string;
+          provenance: { recordIds: string[] };
+        };
+        recoveryDraft: {
+          actionId: string;
+          provenance: { recordIds: string[] };
+        };
+        selected: {
+          draft: {
+            actionId: string;
+            provenance: { recordIds: string[] };
+          };
+          evidencePack: {
+            provenance: { recordIds: string[] };
+            recordIds: string[];
+          };
+          lineId: string;
+        };
+        surface: string;
+        workItem: {
+          lineIds: string[];
+          provenance: { recordIds: string[] };
+        };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.surface).toBe("forensics-work-item-detail");
+      expect(body.lineId).toBe("S6-L1");
+      expect(body.workItem.lineIds).toContain("S6-L1");
+      expect(body.workItem.provenance.recordIds).toContain("S6-L1");
+      expect(body.selected.lineId).toBe("S6-L1");
+      expect(body.selected.evidencePack.recordIds).toContain("S6-L1");
+      expect(body.selected.evidencePack.provenance.recordIds).toContain("S6-L1");
+      expect(body.selected.draft.actionId).toBe("draft-rebill:S6-L1");
+      expect(body.selected.draft.provenance.recordIds).toContain("S6-L1");
+      expect(body.recommendedAction.actionId).toBe("draft-rebill:S6-L1");
+      expect(body.recommendedAction.provenance.recordIds).toContain("S6-L1");
+      expect(body.recoveryDraft.actionId).toBe("draft-rebill:S6-L1");
+      expect(body.recoveryDraft.provenance.recordIds).toContain("S6-L1");
+      expect(body.approvalState.actions.map((action) => action.decision)).toEqual(["approve", "modify", "reject"]);
+      expect(body.approvalState.provenance.recordIds).toContain("S6-L1");
+      expect(body.auditState.statusLabel).toBe("Awaiting human approval");
+      expect(body.auditState.recordIds).toContain("S6-L1");
+      expect(body.auditState.provenance.recordIds).toContain("S6-L1");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("returns 404 for an unknown Forensics work item line without falling back to the fixed selection", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/work-items/NO-SUCH-LINE`, { headers: cockpitAuthHeaders });
+      expect(response.headers.get("content-type")).toContain("application/json");
+      const body = (await response.json()) as { error: string; lineId: string };
+
+      expect(response.status).toBe(404);
+      expect(body).toEqual({
+        error: "Forensics work item not found.",
+        lineId: "NO-SUCH-LINE"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed for Forensics work item detail when governed Supabase settlement rows are missing", async () => {
+    const calls: string[] = [];
+    const correlationId = "test-correlation-work-item-settlement-missing";
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" },
+        memoryFetcher: missingSettlementSourceRowsFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/work-items/S6-L1`, {
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+      });
+      expect(response.headers.get("content-type")).toContain("application/json");
+      const body = (await response.json()) as { correlationId: string; error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toEqual({
+        correlationId,
+        error: "Supabase settlement source rows are unavailable or failed validation.",
+        missingSource: "supabase-settlement-source-rows"
+      });
+      expect(response.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_customers"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_lines"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves backend forensic query sessions with cited trace rows", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        deterministicBasis?: string;
+        trace: Array<{
+          deterministicBasis: string;
+          hook: string;
+          nextAgentName?: string;
+          phase: string;
+          receiptDeterministicBasis: string;
+          recordIds: string[];
+        }>;
+        modelExecution?: {
+          agentNames: string[];
+          handoffCount: number;
+          mode: string;
+          rawModelTextPolicy: string;
+        };
+      };
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      expect(Object.keys(body).sort()).toEqual(["answer", "citations", "deterministicBasis", "modelExecution", "trace"]);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.answer).not.toContain("$");
+      expect(body.deterministicBasis).toBe(
+        "runForensicsInvestigation + evidence source reads + deterministic hook audit trace + OpenAI Agents SDK live trace"
+      );
+      expect(body.modelExecution).toMatchObject({
+        agentNames: ["Forensics Investigator", "Recovery Drafter"],
+        handoffCount: 1,
+        mode: "live_openai_agents",
+        rawModelTextPolicy: "suppressed"
+      });
+      expect(body.trace.map((event) => event.phase)).toEqual(
+        expect.arrayContaining(["supervisor", "query", "retrieval", "decision"])
+      );
+      expect(body.trace.map((event) => event.hook)).toEqual(
+        expect.arrayContaining(["agent_start", "agent_handoff", "agent_tool_start", "agent_tool_end", "agent_end"])
+      );
+      expect(body.trace.some((event) => event.nextAgentName === "Recovery Drafter")).toBe(true);
+      expect(body.trace.every((event) => event.recordIds.includes("S6-L1"))).toBe(true);
+      expect(body.trace.every((event) => event.deterministicBasis.trim().length > 0)).toBe(true);
+      expect(body.trace.map((event) => event.receiptDeterministicBasis)).toEqual(
+        expect.arrayContaining([
+          "OpenAI Agents SDK RunHooks lifecycle event",
+          "Recoup deterministic forensics hook audit event"
+        ])
+      );
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(
+        expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1"])
+      );
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("persists a sanitized Supabase token-usage receipt for successful live forensic query sessions", async () => {
+    const correlationId = "maya-query-token-receipt-1";
+    const rawModelText = "Raw model text with sk-rawmodelsecret that must stay suppressed.";
+    const requestBodySecret = "request-body-secret-bearer";
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: Array<Record<string, unknown>> = [];
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            delta: rawModelText,
+            type: "output_text_delta",
+            usage: { total_tokens: 1842 }
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+        memoryRows.push(row);
+        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: `Why is this recoverable? ${requestBodySecret}`,
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId },
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        deterministicBasis?: string;
+        modelExecution?: { mode: string; tokenUsage?: number };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        tokenUsage: 1842
+      });
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(1);
+      expect(memoryRows).toHaveLength(1);
+      const receipt = memoryRows[0];
+      const receiptPayload = receipt?.["payload_json"];
+      if (receipt === undefined || !isJsonRecord(receiptPayload)) {
+        throw new Error("Expected Supabase token usage memory receipt.");
+      }
+      const receiptRecordIds = receipt["record_ids_json"];
+      const citedRecordIds = receiptPayload["citedRecordIds"];
+      if (
+        !Array.isArray(receiptRecordIds) ||
+        !receiptRecordIds.every((recordId): recordId is string => typeof recordId === "string") ||
+        !Array.isArray(citedRecordIds) ||
+        !citedRecordIds.every((recordId): recordId is string => typeof recordId === "string")
+      ) {
+        throw new Error("Expected token usage receipt record IDs.");
+      }
+      expect(receipt["category"]).toBe("audit_refs");
+      expect(receipt["scope"]).toBe("forensics-query:S6-L1");
+      expect(receipt["trust_level"]).toBe("trusted");
+      expect(receiptRecordIds).toEqual(expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"]));
+      expect(citedRecordIds).toEqual(expect.arrayContaining(body.citations.map((citation) => citation.recordId)));
+      expect(receiptPayload).toMatchObject({
+        correlationId,
+        costStatus: "pricing_not_configured_not_computed",
+        deterministicBasis: body.deterministicBasis,
+        selectedLineId: "S6-L1",
+        submittedRecordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        tokenCount: 1842
+      });
+      expect(receiptPayload).not.toHaveProperty("answer");
+      expect(receiptPayload).not.toHaveProperty("rawModelText");
+      const serializedReceipt = JSON.stringify(receipt);
+      expect(serializedReceipt).not.toContain("sk-test-live-query");
+      expect(serializedReceipt).not.toContain("supabase-secret-key");
+      expect(serializedReceipt).not.toContain("Bearer");
+      expect(serializedReceipt).not.toContain(rawModelText);
+      expect(serializedReceipt).not.toContain(requestBodySecret);
+      expect(serializedReceipt).not.toContain("$");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("keeps successful forensic query responses available when Supabase memory is not selected", async () => {
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            delta: "Live query answer candidate suppressed.",
+            type: "output_text_delta",
+            usage: { total_tokens: 777 }
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string; tokenUsage?: number } };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        tokenUsage: 777
+      });
+      expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not persist success token receipts for blocked forensic query responses", async () => {
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toMatchObject({
+        mode: "blocked_missing_credentials",
+        reason: "OPENAI_API_KEY is not configured"
+      });
+      expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("keeps successful forensic query responses available and warns when token receipt persistence fails", async () => {
+    const correlationId = "maya-query-token-receipt-write-failed";
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const warningSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            delta: "Live query answer candidate suppressed.",
+            type: "output_text_delta",
+            usage: { total_tokens: 913 }
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "supabase memory outage" }), { status: 500 }));
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId },
+        method: "POST"
+      });
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string; tokenUsage?: number } };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        tokenUsage: 913
+      });
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(1);
+      expect(warningSpy).toHaveBeenCalledTimes(1);
+      const warning = JSON.parse(String(warningSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+      expect(warning).toEqual({
+        correlationId,
+        event: "maya_forensics_query_token_usage_receipt_write_failed",
+        reason: "Supabase memory request failed with HTTP 500.",
+        selectedLineId: "S6-L1"
+      });
+      const serializedWarning = JSON.stringify(warning);
+      expect(serializedWarning).not.toContain("sk-test-live-query");
+      expect(serializedWarning).not.toContain("supabase-secret-key");
+      expect(serializedWarning).not.toContain("Why is this recoverable?");
+    } finally {
+      warningSpy.mockRestore();
+      await close(server);
+    }
+  });
+
+  it("rate limits configured audit agent endpoints by route and verified principal before downstream work", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS: "1",
+        RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS: "60000",
+        RECOUP_DATA_MODE: "real-backend"
+      },
+      forensicsStreamRunner: liveRunner
+    });
+    const queryBody = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+    const runBody = JSON.stringify({ runType: "forensics", seed: 42 });
+    const approvalBody = JSON.stringify({ actionId: "missing-action", decision: "approve" });
+
+    try {
+      const firstQuery = await fetch(`${baseUrl}/forensics/query`, {
+        body: queryBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const limitedQuery = await fetch(`${baseUrl}/forensics/query`, {
+        body: queryBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      expect(firstQuery.status).toBe(200);
+      expect(limitedQuery.status).toBe(429);
+      expect(await limitedQuery.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "POST /forensics/query"
+      });
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+
+      const firstRunGet = await fetch(`${baseUrl}/run`, { headers: cockpitAuthHeaders });
+      const firstRunGetBody = await firstRunGet.text();
+      const limitedRunGet = await fetch(`${baseUrl}/run`, { headers: cockpitAuthHeaders });
+      expect(firstRunGet.status).toBe(200);
+      expect(firstRunGetBody).toContain("event: verdict");
+      expect(limitedRunGet.status).toBe(429);
+      expect(await limitedRunGet.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "GET /run"
+      });
+
+      const firstRunPost = await fetch(`${baseUrl}/run`, {
+        body: runBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstRunPostBody = await firstRunPost.text();
+      const limitedRunPost = await fetch(`${baseUrl}/run`, {
+        body: runBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      expect(firstRunPost.status).toBe(200);
+      expect(firstRunPostBody).toContain("event: verdict");
+      expect(limitedRunPost.status).toBe(429);
+      expect(await limitedRunPost.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "POST /run"
+      });
+
+      const firstApproval = await fetch(`${baseUrl}/approval`, {
+        body: approvalBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const limitedApproval = await fetch(`${baseUrl}/approval`, {
+        body: approvalBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      expect(firstApproval.status).not.toBe(429);
+      expect(limitedApproval.status).toBe(429);
+      expect(await limitedApproval.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "POST /approval"
+      });
+    } finally {
+      await close(server);
+    }
+  }, 15000);
+
+  it("does not let unauthenticated /run bypass rate limits by rotating forwarded headers", async () => {
+    const backendCalls: string[] = [];
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          OPENAI_API_KEY: "sk-test-secret",
+          RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS: "1",
+          RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS: "60000"
+        },
+        memoryFetcher: (url, init) => {
+          backendCalls.push(url);
+          return withGovernedConfigFetcher()(url, init);
+        }
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    try {
+      const first = await fetch(`${baseUrl}/run`, {
+        headers: {
+          "x-forwarded-for": "198.51.100.10",
+          "x-real-ip": "198.51.100.20"
+        }
+      });
+      const firstBody = await first.text();
+      const backendCallsAfterFirst = backendCalls.length;
+      const limited = await fetch(`${baseUrl}/run`, {
+        headers: {
+          "x-forwarded-for": "198.51.100.11",
+          "x-real-ip": "198.51.100.21"
+        }
+      });
+
+      expect(first.status).toBe(200);
+      expect(firstBody).toContain("event: verdict");
+      expect(backendCallsAfterFirst).toBeGreaterThan(0);
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("content-type")).toContain("application/json");
+      expect(limited.headers.get("content-type")).not.toContain("text/event-stream");
+      expect(await limited.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "GET /run"
+      });
+      expect(backendCalls).toHaveLength(backendCallsAfterFirst);
+    } finally {
+      await close(server);
+    }
+  }, 15000);
+
+  it("does not let signed proxy approval bypass rate limits by rotating forwarded headers", async () => {
+    const backendCalls: string[] = [];
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitApprovalEnv,
+          RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS: "1",
+          RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS: "60000",
+          RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+        },
+        memoryFetcher: (url, init) => {
+          backendCalls.push(url);
+          return withGovernedConfigFetcher()(url, init);
+        }
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const approvalBody = JSON.stringify({ actionId: "missing-action", decision: "approve" });
+
+    try {
+      const first = await fetch(`${baseUrl}/approval`, {
+        body: approvalBody,
+        headers: {
+          ...signedDemoProxyHeaders({
+            body: approvalBody,
+            nonce: "rate-limit-proxy-nonce-1",
+            path: "/approval",
+            principal: "human:david-lead",
+            purpose: "approval",
+            role: "david",
+            secret: demoProxySecret
+          }),
+          "x-forwarded-for": "198.51.100.30"
+        },
+        method: "POST"
+      });
+      const backendCallsAfterFirst = backendCalls.length;
+      const limited = await fetch(`${baseUrl}/approval`, {
+        body: approvalBody,
+        headers: {
+          ...signedDemoProxyHeaders({
+            body: approvalBody,
+            nonce: "rate-limit-proxy-nonce-2",
+            path: "/approval",
+            principal: "human:david-lead",
+            purpose: "approval",
+            role: "david",
+            secret: demoProxySecret
+          }),
+          "x-forwarded-for": "198.51.100.31"
+        },
+        method: "POST"
+      });
+
+      expect(first.status).not.toBe(429);
+      expect(backendCallsAfterFirst).toBeGreaterThan(0);
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "POST /approval"
+      });
+      expect(backendCalls).toHaveLength(backendCallsAfterFirst);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not let trust-proxy request.ip settings make forwarded headers rate-limit identities", async () => {
+    const backendCalls: string[] = [];
+    const app = createCockpitApi({
+      env: {
+        ...governedConfigEnv,
+        OPENAI_API_KEY: "sk-test-secret",
+        RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS: "1",
+        RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS: "60000"
+      },
+      memoryFetcher: (url, init) => {
+        backendCalls.push(url);
+        return withGovernedConfigFetcher()(url, init);
+      }
+    });
+    app.set("trust proxy", true);
+    const server = createServer(app);
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const first = await fetch(`${baseUrl}/run`, {
+        headers: {
+          "x-forwarded-for": "198.51.100.40"
+        }
+      });
+      const firstBody = await first.text();
+      const backendCallsAfterFirst = backendCalls.length;
+      const limited = await fetch(`${baseUrl}/run`, {
+        headers: {
+          "x-forwarded-for": "198.51.100.41"
+        }
+      });
+
+      expect(first.status).toBe(200);
+      expect(firstBody).toContain("event: verdict");
+      expect(backendCallsAfterFirst).toBeGreaterThan(0);
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toEqual({
+        error: "Cockpit request rate limit exceeded.",
+        route: "GET /run"
+      });
+      expect(backendCalls).toHaveLength(backendCallsAfterFirst);
+    } finally {
+      await close(server);
+    }
+  }, 15000);
+
+  it("fails closed on audit agent endpoints when rate-limit configuration is partial", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS: "1"
+      }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/run`);
+      const body = await response.text();
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(response.headers.get("content-type")).not.toContain("text/event-stream");
+      expect(JSON.parse(body)).toEqual({
+        error: "Cockpit request rate limit configuration invalid.",
+        route: "GET /run"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("reuses a validated real-backend source context across consecutive forensic query sessions", async () => {
+    const calls: string[] = [];
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          OPENAI_API_KEY: "sk-test-live-query",
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: sapEvidenceFailsAfterInitialValidatedContextFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const second = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstBody = (await first.json()) as { answer?: string };
+      const secondBody = (await second.json()) as { answer?: string; missingSource?: string };
+      const sapSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"));
+
+      expect(first.status).toBe(200);
+      expect(firstBody.answer).toContain("S6-L1");
+      expect(second.status).toBe(200);
+      expect(secondBody.answer).toContain("S6-L1");
+      expect(secondBody.missingSource).toBeUndefined();
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not reuse a validated forensic query source context after the technical TTL expires", async () => {
+    const calls: string[] = [];
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          OPENAI_API_KEY: "sk-test-live-query",
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0"
+        },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const second = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstBody = (await first.json()) as { answer?: string };
+      const secondBody = (await second.json()) as { answer?: string };
+      const sapSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"));
+
+      expect(first.status).toBe(200);
+      expect(firstBody.answer).toContain("S6-L1");
+      expect(second.status).toBe(200);
+      expect(secondBody.answer).toContain("S6-L1");
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("expires forensic query source context after the capped technical TTL elapses", async () => {
+    const calls: string[] = [];
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const nowSpy = vi.spyOn(Date, "now");
+    let nowMs = 1_000_000;
+    nowSpy.mockImplementation(() => nowMs);
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          OPENAI_API_KEY: "sk-test-live-query",
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      nowMs += 31_000;
+      const second = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstBody = (await first.json()) as { answer?: string };
+      const secondBody = (await second.json()) as { answer?: string };
+      const sapSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"));
+
+      expect(first.status).toBe(200);
+      expect(firstBody.answer).toContain("S6-L1");
+      expect(second.status).toBe(200);
+      expect(secondBody.answer).toContain("S6-L1");
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+    } finally {
+      nowSpy.mockRestore();
+      await close(server);
+    }
+  });
+
+  it("invalidates forensic query source context when the Supabase source identity changes", async () => {
+    const calls: string[] = [];
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const mutableEnv = {
+      ...governedConfigEnv,
+      ...cockpitAuthEnv,
+      OPENAI_API_KEY: "sk-test-live-query",
+      RECOUP_DATA_MODE: "real-backend",
+      RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000",
+      SUPABASE_URL: "https://recoup-a.supabase.co"
+    };
+    const server = createServer(
+      createCockpitApi({
+        env: mutableEnv,
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      mutableEnv.SUPABASE_URL = "https://recoup-b.supabase.co";
+      const second = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstBody = (await first.json()) as { answer?: string };
+      const secondBody = (await second.json()) as { answer?: string };
+      const sapSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"));
+
+      expect(first.status).toBe(200);
+      expect(firstBody.answer).toContain("S6-L1");
+      expect(second.status).toBe(200);
+      expect(secondBody.answer).toContain("S6-L1");
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not cache a failed initial real-backend SAP source validation", async () => {
+    const calls: string[] = [];
+    let sapRowsAvailable = false;
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: recoverableSapEvidenceSourceFetcher(calls, () => sapRowsAvailable)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+
+    try {
+      const failed = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const failedBody = (await failed.json()) as { missingSource?: string; sourceTableName?: string };
+      sapRowsAvailable = true;
+      const retried = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const retriedBody = (await retried.json()) as { answer?: string; missingSource?: string };
+      const sapSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"));
+
+      expect(failed.status).toBe(503);
+      expect(failedBody).toMatchObject({
+        missingSource: "supabase-sap-source-evidence-rows",
+        sourceTableName: "recoup_src_sap"
+      });
+      expect(retried.status).toBe(200);
+      expect(retriedBody.answer).toContain("S6-L1");
+      expect(retriedBody.missingSource).toBeUndefined();
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      expect(sapSourceReads.length).toBeGreaterThan(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not cache HTTP 200 source contexts with incomplete supporting evidence rows", async () => {
+    const calls: string[] = [];
+    let docsRowsAvailable = false;
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: recoverablePartialDocsEvidenceSourceFetcher(calls, () => docsRowsAvailable)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const body = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1", "SAP-INV-S3-1"],
+      selectedLineId: "S3-L1"
+    });
+
+    try {
+      const failed = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const failedBody = (await failed.json()) as { missingSource?: string };
+      docsRowsAvailable = true;
+      const retried = await fetch(`${baseUrl}/forensics/query`, {
+        body,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const retriedBody = (await retried.json()) as { answer?: string; missingSource?: string };
+      const docsSourceReads = calls.filter((url) => url.includes("/rest/v1/recoup_src_docs"));
+
+      expect(failed.status).toBe(503);
+      expect(failedBody.missingSource).toBe("supabase-source-evidence-rows");
+      expect(retried.status).toBe(200);
+      expect(retriedBody.answer).toContain("S3-L1");
+      expect(retriedBody.missingSource).toBeUndefined();
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      expect(docsSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("keeps risk-required approval source loading separate from the forensic query cache", async () => {
+    const calls: string[] = [];
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitApprovalEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: riskObservationMissingAfterForensicsCacheFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const query = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const approval = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId: "draft-rebill:S6-L1",
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const approvalBody = (await approval.json()) as { missingSource?: string };
+      const riskSourceReads = calls.filter((url) => isToolsDataRiskObservationUrl(url));
+
+      expect(query.status).toBe(200);
+      expect(approval.status).toBe(503);
+      expect(approvalBody.missingSource).toBe("supabase-tools-data-risk-observation-rows");
+      expect(riskSourceReads.length).toBeGreaterThan(0);
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed for forensic query sessions when live OpenAI agent execution is unavailable", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toEqual({
+        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+        mode: "blocked_missing_credentials",
+        reason: "OPENAI_API_KEY is not configured"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("uses query run-control turns and retry cap for forensic query live agents", async () => {
+    let callCount = 0;
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      callCount += 1;
+      expect(request.maxTurns).toBe(12);
+      expect(request.input).toContain("Selected Maya forensics query");
+
+      if (callCount === 1) {
+        const failure = new Error("temporary live query failure");
+        return (async function* stream() {
+          await Promise.resolve();
+          if (failure.message.length > 0) {
+            throw failure;
+          }
+          yield undefined;
+        })();
+      }
+
+      emitForensicsHandoffReceipts(request);
+      return liveQueryDeltaStream("Retried live query answer candidate suppressed.");
+    });
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string } };
+
+      expect(response.status).toBe(200);
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed for forensic query sessions when query token budget is exceeded", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            delta: "Token overrun live query answer candidate suppressed.",
+            type: "output_text_delta",
+            usage: { total_tokens: 32_001 }
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toEqual({
+        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+        mode: "blocked_live_agent_trace",
+        reason: "Live Agents SDK trace did not complete for the Maya query."
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed for forensic query sessions when live agents complete without the Recovery handoff", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      return liveQueryDeltaStream("No-handoff live query answer candidate suppressed.");
+    });
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toEqual({
+        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+        mode: "blocked_live_agent_trace",
+        reason: "Live Agents SDK trace did not include the required Forensics-to-Recovery handoff."
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("rejects malformed forensic query requests before orchestration", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: [],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string };
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe("Forensics query selected recordIds are required.");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("requires verified human auth for forensic query sessions", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["S6-L1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string };
+
+      expect(response.status).toBe(401);
+      expect(body.error).toBe("Verified human cockpit auth required.");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("returns 404 when forensic query selected line is unknown", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["NO-SUCH-LINE"],
+          selectedLineId: "NO-SUCH-LINE"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string; lineId: string };
+
+      expect(response.status).toBe(404);
+      expect(body).toEqual({
+        error: "Forensics query selected line not found.",
+        lineId: "NO-SUCH-LINE"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("selects fixture Forensics only when RECOUP_DATA_MODE is fixture", async () => {
+    const fixture = await listenWithoutGovernedConfig({
+      env: { RECOUP_DATA_MODE: "fixture" }
+    });
+    try {
+      const fixtureResponse = await fetch(`${fixture.baseUrl}/forensics`);
+      const fixtureBody = (await fixtureResponse.json()) as {
+        surface?: string;
+        worklist?: unknown[];
+      };
+
+      expect(fixtureResponse.status).toBe(200);
+      expect(fixtureBody.surface).toBe("forensics-analyst");
+      expect(fixtureBody.worklist?.length).toBeGreaterThan(0);
+    } finally {
+      await close(fixture.server);
+    }
+
+    const correlationId = "test-correlation-real-backend-no-fixture-startup";
+    const realBackend = await listenWithoutGovernedConfig({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const modelResponse = await fetch(`${realBackend.baseUrl}/forensics`, {
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+      });
+      const body = (await modelResponse.json()) as {
+        correlationId: string;
+        error: string;
+        missingSource: string;
+        surface?: string;
+      };
+
+      expect(modelResponse.status).toBe(503);
+      expect(body).toEqual({
+        correlationId,
+        error: "Supabase recoup_config is required for governed runtime values.",
+        missingSource: "supabase-recoup-config"
+      });
+      expect(body.surface).toBeUndefined();
+      expect(modelResponse.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
+    } finally {
+      await close(realBackend.server);
+    }
+  });
+
+  it("defaults unset, empty, and invalid RECOUP_DATA_MODE to real-backend fail-closed behavior", async () => {
+    for (const [label, env] of [
+      ["unset", {}],
+      ["empty", { RECOUP_DATA_MODE: "" }],
+      ["invalid", { RECOUP_DATA_MODE: "demo" }]
+    ] as const) {
+      const correlationId = `test-correlation-mode-default-${label}`;
+      const { baseUrl, server } = await listenWithoutGovernedConfig({ env: { ...cockpitAuthEnv, ...env } });
+      try {
+        const modelResponse = await fetch(`${baseUrl}/forensics`, {
+          headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId }
+        });
+        const body = (await modelResponse.json()) as { correlationId: string; error: string; missingSource: string };
+
+        expect(modelResponse.status).toBe(503);
+        expect(body).toEqual({
+          correlationId,
+          error: "Supabase recoup_config is required for governed runtime values.",
+          missingSource: "supabase-recoup-config"
+        });
+      } finally {
+        await close(server);
+      }
+    }
+  });
+
+  it("reports source evidence missing after successful risk observation load", async () => {
+    const calls: string[] = [];
+    const correlationId = "test-correlation-risk-ok-evidence-missing";
+    const server = createServer(
+      createCockpitApi({
+        env: { ...governedConfigEnv, ...cockpitApprovalEnv, RECOUP_DATA_MODE: "real-backend" },
+        memoryFetcher: missingEvidenceAfterRiskObservationFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId: "draft-rebill:S3-L1",
+          decision: "approve"
+        }),
+        headers: {
+          ...cockpitAuthHeaders,
+          [recoupCorrelationIdHeader]: correlationId
+        },
+        method: "POST"
+      });
+      const body = (await response.json()) as { correlationId: string; error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toEqual({
+        correlationId,
+        error: "Supabase source evidence rows are unavailable or failed validation.",
+        missingSource: "supabase-source-evidence-rows"
+      });
+      expect(calls.some((url) => url.includes("/rest/v1/customers"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_src_docs"))).toBe(true);
     } finally {
       await close(server);
     }
@@ -606,7 +2250,7 @@ describe("S5 cockpit API", () => {
   it("requires verified human auth before accepting approval decisions", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -647,7 +2291,7 @@ describe("S5 cockpit API", () => {
   it("rejects cross-origin approval attempts outside the configured cockpit allowlist", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -676,10 +2320,30 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("allows the cockpit run session id header through CORS preflight", async () => {
+    const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
+
+    try {
+      const response = await fetch(`${baseUrl}/run`, {
+        headers: {
+          "access-control-request-headers": "x-recoup-session-id",
+          "access-control-request-method": "GET",
+          origin: cockpitAuthEnv.RECOUP_COCKPIT_ALLOWED_ORIGINS
+        },
+        method: "OPTIONS"
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-headers")).toContain("x-recoup-session-id");
+    } finally {
+      await close(server);
+    }
+  });
+
   it("rejects non-human approval identities at the API boundary", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -707,7 +2371,7 @@ describe("S5 cockpit API", () => {
   it("does not trust client-supplied approver identity for approval audit", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -739,7 +2403,7 @@ describe("S5 cockpit API", () => {
   it("rejects role-derived principals that do not match the configured direct API principal", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -912,10 +2576,108 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("evicts consumed signed proxy nonces after the verifier freshness window", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+      }
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const firstIssuedAt = new Date("2026-06-25T12:00:00.000Z");
+      const nonce = "ttl-cleanup-proof-nonce";
+      const firstBody = JSON.stringify({
+        actionId: "draft-rebill:S8-L1",
+        decision: "approve"
+      });
+      vi.setSystemTime(firstIssuedAt);
+      const first = await fetch(`${baseUrl}/approval`, {
+        body: firstBody,
+        headers: signedDemoProxyHeaders({
+          body: firstBody,
+          issuedAt: firstIssuedAt.toISOString(),
+          nonce,
+          path: "/approval",
+          principal: "human:david-lead",
+          purpose: "approval",
+          role: "david",
+          secret: demoProxySecret
+        }),
+        method: "POST"
+      });
+
+      const secondIssuedAt = new Date(firstIssuedAt.valueOf() + cockpitHumanProxyIssuedAtFreshnessWindowMs + 1);
+      const secondBody = JSON.stringify({
+        actionId: "draft-rebill:S8-L2",
+        decision: "approve"
+      });
+      vi.setSystemTime(secondIssuedAt);
+      const second = await fetch(`${baseUrl}/approval`, {
+        body: secondBody,
+        headers: signedDemoProxyHeaders({
+          body: secondBody,
+          issuedAt: secondIssuedAt.toISOString(),
+          nonce,
+          path: "/approval",
+          principal: "human:david-lead",
+          purpose: "approval",
+          role: "david",
+          secret: demoProxySecret
+        }),
+        method: "POST"
+      });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+      await close(server);
+    }
+  });
+
+  it("rejects expired signed proxy proofs after the verifier freshness window", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+      }
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = new Date("2026-06-25T12:05:00.001Z");
+      const expiredIssuedAt = new Date(now.valueOf() - cockpitHumanProxyIssuedAtFreshnessWindowMs - 1);
+      const body = JSON.stringify({
+        actionId: "draft-rebill:S8-L2",
+        decision: "approve"
+      });
+      vi.setSystemTime(now);
+      const response = await fetch(`${baseUrl}/approval`, {
+        body,
+        headers: signedDemoProxyHeaders({
+          body,
+          issuedAt: expiredIssuedAt.toISOString(),
+          nonce: "expired-proof-nonce",
+          path: "/approval",
+          principal: "human:david-lead",
+          purpose: "approval",
+          role: "david",
+          secret: demoProxySecret
+        }),
+        method: "POST"
+      });
+
+      expect(response.status).toBe(401);
+    } finally {
+      vi.useRealTimers();
+      await close(server);
+    }
+  });
+
   it("requires a human reason when modifying or rejecting an approval item", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -975,7 +2737,7 @@ describe("S5 cockpit API", () => {
   it("rejects approval reasons with direct PII or secrets before audit append", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -1021,7 +2783,7 @@ describe("S5 cockpit API", () => {
     };
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv, memoryFetcher });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -1060,7 +2822,7 @@ describe("S5 cockpit API", () => {
   it("keeps internal service approval decisions from committing outside Supabase", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
-      const modelResponse = await fetch(`${baseUrl}/forensics`);
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const model = (await modelResponse.json()) as {
         actionInbox: Array<{ actionId: string }>;
       };
@@ -1840,6 +3602,120 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("scopes GET /run memory to a safe x-recoup-session-id header", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "recoup-cockpit-memory-client-"));
+    const dbPath = join(dir, "memory.sqlite");
+    const { baseUrl, server } = await listen({ env: { RECOUP_MEMORY_DB_PATH: dbPath } });
+    let store: ReturnType<typeof createRuntimeMemoryStore> | undefined;
+
+    try {
+      const response = await fetch(`${baseUrl}/run`, { headers: { "x-recoup-session-id": "maya-session-42" } });
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(body).toContain("event: verdict");
+
+      store = createRuntimeMemoryStore({ RECOUP_MEMORY_DB_PATH: dbPath });
+      expect(readSessionState(store, "maya-session-42", "last-forensics-run")).toMatchObject({
+        category: "session_state",
+        payload: { key: "last-forensics-run", value: "completed" }
+      });
+      expect(readAgentHandoffPacket(store, "forensics-recovery:maya-session-42")).toMatchObject({
+        category: "agent_handoff_packets",
+        payload: {
+          capability: "B",
+          caseId: "maya-session-42",
+          deterministicBasis: "runForensicsInvestigation trace + recoupHandoffGraph",
+          fromAgent: "Forensics Investigator",
+          intent: "stage-recovery-and-billing-drafts",
+          status: "created",
+          toAgent: "Recovery Drafter"
+        }
+      });
+      expect(readSessionState(store, "cockpit-run", "last-forensics-run")).toBeUndefined();
+      expect(readAgentHandoffPacket(store, "forensics-recovery:cockpit-run")).toBeUndefined();
+    } finally {
+      store?.close();
+      await close(server);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes POST /run memory to a safe x-recoup-session-id header", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "recoup-cockpit-memory-client-post-"));
+    const dbPath = join(dir, "memory.sqlite");
+    const { baseUrl, server } = await listen({ env: { RECOUP_MEMORY_DB_PATH: dbPath } });
+    let store: ReturnType<typeof createRuntimeMemoryStore> | undefined;
+
+    try {
+      const response = await fetch(`${baseUrl}/run`, {
+        body: JSON.stringify({ runType: "forensics", seed: 42 }),
+        headers: { "content-type": "application/json", "x-recoup-session-id": "maya-session-42" },
+        method: "POST"
+      });
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(body).toContain("event: verdict");
+
+      store = createRuntimeMemoryStore({ RECOUP_MEMORY_DB_PATH: dbPath });
+      expect(readSessionState(store, "maya-session-42", "last-forensics-run")).toMatchObject({
+        category: "session_state",
+        payload: { key: "last-forensics-run", value: "completed" }
+      });
+      expect(readAgentHandoffPacket(store, "forensics-recovery:maya-session-42")).toMatchObject({
+        category: "agent_handoff_packets",
+        payload: {
+          caseId: "maya-session-42",
+          deterministicBasis: "runForensicsInvestigation trace + recoupHandoffGraph"
+        }
+      });
+      expect(readTransactionState(store, "S1-L1", "deduction-decision")).toMatchObject({
+        category: "transaction_state",
+        scope: "transaction:S1-L1"
+      });
+    } finally {
+      store?.close();
+      await close(server);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores unsafe x-recoup-session-id values and keeps the cockpit-run fallback", async () => {
+    const unsafeSessionIds = ["maya session 42", "maya/session-42", "sk-test-secret-session"];
+
+    for (const sessionId of unsafeSessionIds) {
+      const dir = mkdtempSync(join(tmpdir(), "recoup-cockpit-memory-unsafe-"));
+      const dbPath = join(dir, "memory.sqlite");
+      const { baseUrl, server } = await listen({ env: { RECOUP_MEMORY_DB_PATH: dbPath } });
+      let store: ReturnType<typeof createRuntimeMemoryStore> | undefined;
+
+      try {
+        const response = await fetch(`${baseUrl}/run`, { headers: { "x-recoup-session-id": sessionId } });
+        const body = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(body).toContain("event: verdict");
+
+        store = createRuntimeMemoryStore({ RECOUP_MEMORY_DB_PATH: dbPath });
+        expect(readSessionState(store, "cockpit-run", "last-forensics-run")).toMatchObject({
+          category: "session_state",
+          payload: { key: "last-forensics-run", value: "completed" }
+        });
+        expect(readAgentHandoffPacket(store, "forensics-recovery:cockpit-run")).toMatchObject({
+          category: "agent_handoff_packets",
+          payload: { caseId: "cockpit-run" }
+        });
+        expect(readSessionState(store, sessionId, "last-forensics-run")).toBeUndefined();
+        expect(readAgentHandoffPacket(store, `forensics-recovery:${sessionId}`)).toBeUndefined();
+      } finally {
+        store?.close();
+        await close(server);
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }, 15000);
+
   it("serves persisted runtime memory records through the cockpit memory endpoint", async () => {
     const dir = mkdtempSync(join(tmpdir(), "recoup-cockpit-memory-view-"));
     const dbPath = join(dir, "memory.sqlite");
@@ -2012,17 +3888,25 @@ describe("S5 cockpit API", () => {
   });
 
   it("fails closed before starting /run when DB-backed run-control rows are unavailable", async () => {
+    const correlationId = "test-correlation-run-control-missing";
     const { baseUrl, server } = await listenWithoutReleaseOwnerInputs();
     try {
-      const response = await fetch(`${baseUrl}/run`);
+      const response = await fetch(`${baseUrl}/run`, {
+        headers: { [recoupCorrelationIdHeader]: correlationId }
+      });
       const body = (await response.json()) as {
+        correlationId: string;
         error: string;
+        missingSource: string;
         runControl: { reason?: string; status: string };
       };
 
       expect(response.status).toBe(503);
       expect(response.headers.get("content-type")).not.toContain("text/event-stream");
       expect(body.error).toBe("Supabase release owner-input recoup_config rows are required for run-control.");
+      expect(body.missingSource).toBe("supabase-release-owner-run-control");
+      expect(body.correlationId).toBe(correlationId);
+      expect(response.headers.get(recoupCorrelationIdHeader)).toBe(correlationId);
       expect(body.runControl).toEqual({
         openDependencies: ["run-control-token-budget", "run-control-step-budget", "run-control-retry-cap"],
         reason: "appendix-g-run-control-unset",
@@ -2034,21 +3918,26 @@ describe("S5 cockpit API", () => {
   });
 
   it("serves trace, memory, agent graph, and connector readiness read endpoints", async () => {
-    const { baseUrl, server } = await listen();
+    const { baseUrl, server } = await listen({ env: cockpitAuthEnv });
     try {
+      const startedAt = Date.now();
       const [traceResponse, memoryResponse, agentsResponse, connectorsResponse] = await Promise.all([
         fetch(`${baseUrl}/trace`),
         fetch(`${baseUrl}/memory`),
         fetch(`${baseUrl}/agents`),
-        fetch(`${baseUrl}/connectors`)
+        fetch(`${baseUrl}/connectors`, { headers: cockpitAuthHeaders })
       ]);
+      const finishedAt = Date.now();
       const trace = (await traceResponse.json()) as { events: unknown[] };
       const memory = (await memoryResponse.json()) as { categories: string[] };
       const agents = (await agentsResponse.json()) as { edges: Array<{ mode: string }> };
       const connectors = (await connectorsResponse.json()) as {
+        checkedAtIso: string;
         connectors: Array<{ name: string; proof: { externalWritesAllowed: boolean }; status: string }>;
+        lastRefreshedLabel: string;
         surface: string;
       };
+      const checkedAt = Date.parse(connectors.checkedAtIso);
 
       expect(traceResponse.status).toBe(200);
       expect(memoryResponse.status).toBe(200);
@@ -2058,6 +3947,10 @@ describe("S5 cockpit API", () => {
       expect(memory.categories).toContain("approval_records");
       expect(agents.edges.some((edge) => edge.mode === "agents-as-tools")).toBe(true);
       expect(connectors.surface).toBe("connector-readiness");
+      expect(Number.isFinite(checkedAt)).toBe(true);
+      expect(checkedAt).toBeGreaterThanOrEqual(startedAt - 1000);
+      expect(checkedAt).toBeLessThanOrEqual(finishedAt + 1000);
+      expect(connectors.checkedAtIso).not.toBe(connectors.lastRefreshedLabel);
       expect(connectors.connectors.find((connector) => connector.name === "sap-odata")).toMatchObject({
         status: "blocked_credentials_required"
       });
@@ -2078,7 +3971,7 @@ describe("S5 cockpit API", () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: cockpitAuthHeaders,
         method: "POST"
       });
@@ -2089,8 +3982,83 @@ describe("S5 cockpit API", () => {
 
       expect(response.status).toBe(503);
       expect(result.status).toBe("blocked_missing_credentials");
-      expect(result.auditPolicy.recordIds).toContain("OPENAI-REALTIME-POLICY");
+      expect(result.auditPolicy.recordIds).toEqual([...selectedRealtimeQueryScope.recordIds]);
       expect(result.auditPolicy.allowedTools).toEqual(["audit.read", "query.answer"]);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves SAP connector readiness only after a fresh live probe, even when a Supabase snapshot exists", async () => {
+    const sapFetcher = vi.fn(() => Promise.resolve(new Response("<edmx:Edmx />", { status: 200 })));
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_source_health_snapshots")) {
+        expect(init.headers).toMatchObject({
+          apikey: "supabase-secret-key",
+          authorization: "Bearer supabase-secret-key"
+        });
+        return Promise.resolve(
+          Response.json([
+            {
+              checked_at: new Date().toISOString(),
+              last_error: null,
+              latency_ms: 128,
+              proof_items_json: ["read-only metadata probe", "credentials present", "external writes blocked"],
+              record_ids_json: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+              source_mode: "live",
+              source_name: "sap-odata",
+              status: "connected"
+            }
+          ])
+        );
+      }
+
+      return Promise.resolve(Response.json([]));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        SAP_ODATA_BASE_URL: "https://sap.example.test",
+        SAP_ODATA_CLIENT: "100",
+        SAP_ODATA_CLIENT_SECRET: "sap-basic-secret",
+        SAP_ODATA_USERID: "sap-readonly-user"
+      },
+      memoryFetcher,
+      sapFetcher
+    });
+    try {
+      const response = await fetch(`${baseUrl}/connectors`, { headers: cockpitAuthHeaders });
+      const connectors = (await response.json()) as {
+        sourceHealth: Array<{ proofItems: string[]; recordIds: string[]; sourceMode: string; sourceName: string; status: string }>;
+        sourceTiles: Array<{
+          label: string;
+          modeLabel: string;
+          proofItems: string[];
+          provenance: { deterministicBasis: string; recordIds: string[]; sourceKind: string };
+          stateLabel: string;
+          statusTone: string;
+        }>;
+      };
+      const sapHealth = connectors.sourceHealth.find((source) => source.sourceName === "sap-odata");
+      const sapTile = connectors.sourceTiles.find((source) => source.label === "SAP OData");
+
+      expect(response.status).toBe(200);
+      expect(sapFetcher).toHaveBeenCalledTimes(1);
+      expect(sapHealth).toMatchObject({
+        sourceMode: "live",
+        status: "connected"
+      });
+      expect(sapHealth?.proofItems).toEqual(expect.arrayContaining(["read-only metadata probe"]));
+      expect(sapHealth?.proofItems).not.toContain("supabase source-health snapshot");
+      expect(sapHealth?.recordIds).not.toContain("recoup_source_health_snapshots:sap-odata");
+      expect(sapTile).toMatchObject({
+        modeLabel: "Live read",
+        stateLabel: "Connected",
+        statusTone: "ready"
+      });
+      expect(sapTile?.provenance.sourceKind).toBe("sap_odata");
+      expect(sapTile?.provenance.deterministicBasis).toContain("read-only proof");
+      expect(sapTile?.provenance.recordIds).not.toContain("recoup_source_health_snapshots:sap-odata");
     } finally {
       await close(server);
     }
@@ -2104,7 +4072,7 @@ describe("S5 cockpit API", () => {
 
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: cockpitAuthHeaders,
         method: "POST"
       });
@@ -2135,10 +4103,30 @@ describe("S5 cockpit API", () => {
         status: string;
       };
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(403);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(result.status).toBe("ok");
-      expect(result.recordIds).toContain("CUST-HARBOR");
+      expect(result.status).toBe("blocked_tool");
+      expect(result.recordIds).toEqual(["OPENAI-REALTIME-POLICY"]);
+
+      const scopedResponse = await fetch(`${baseUrl}/query/realtime-tool`, {
+        body: JSON.stringify({
+          argumentsJson: JSON.stringify({
+            question: "which selected evidence supports S3-L1?",
+            ...selectedRealtimeQueryScope
+          }),
+          name: "query.answer"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const scopedResult = (await scopedResponse.json()) as {
+        recordIds: string[];
+        status: string;
+      };
+
+      expect(scopedResponse.status).toBe(200);
+      expect(scopedResult.status).toBe("ok");
+      expect(scopedResult.recordIds).toEqual([...selectedRealtimeQueryScope.recordIds]);
 
       const blocked = await fetch(`${baseUrl}/query/realtime-tool`, {
         body: JSON.stringify({
@@ -2176,7 +4164,7 @@ describe("S5 cockpit API", () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: { "content-type": "application/json" },
         method: "POST"
       });
@@ -2201,7 +4189,7 @@ describe("S5 cockpit API", () => {
 
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: { "content-type": "application/json" },
         method: "POST"
       });
@@ -2225,7 +4213,7 @@ describe("S5 cockpit API", () => {
 
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: cockpitAuthHeaders,
         method: "POST"
       });
@@ -2249,7 +4237,7 @@ describe("S5 cockpit API", () => {
 
     try {
       const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
-        body: JSON.stringify({ question: "why is Harbor blocked?" }),
+        body: JSON.stringify({ question: "which selected evidence supports S3-L1?", ...selectedRealtimeQueryScope }),
         headers: cockpitAuthHeaders,
         method: "POST"
       });
@@ -2290,6 +4278,55 @@ function stringifyRequestUrl(url: RequestInfo | URL): string {
   }
 
   return url.url;
+}
+
+function emitForensicsHandoffReceipts(request: Parameters<LiveForensicsStreamRunner>[0]): void {
+  if (request.agentHookAudit === undefined) {
+    throw new Error("Expected live query agent hook audit.");
+  }
+
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Investigator",
+      hook: "agent_start",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Investigator",
+      hook: "agent_handoff",
+      nextAgentName: "Recovery Drafter",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Recovery Drafter",
+      hook: "agent_start",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
+}
+
+function liveQueryDeltaStream(delta: string): AsyncIterable<unknown> {
+  return (async function* stream() {
+    await Promise.resolve();
+    yield {
+      data: {
+        delta,
+        type: "output_text_delta"
+      },
+      type: "raw_model_stream_event"
+    };
+  })();
+}
+
+function liveQueryRunnerWithForensicsHandoff(): ReturnType<typeof vi.fn<LiveForensicsStreamRunner>> {
+  return vi.fn<LiveForensicsStreamRunner>((request) => {
+    emitForensicsHandoffReceipts(request);
+    return liveQueryDeltaStream("Live query answer candidate suppressed by Recoup output guard.");
+  });
 }
 
 async function listenWithoutGovernedConfig(
@@ -2460,8 +4497,174 @@ function missingSyntheticEvidenceSourceFetcher(calls: string[]): SupabaseMemoryF
       return Promise.resolve(new Response(JSON.stringify(toPostgrestSettlementRows(tableName)), { status: 200 }));
     }
 
+    if (url.includes("/rest/v1/recoup_src_sap")) {
+      const parsedUrl = new URL(url);
+      const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
+      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      return Promise.resolve(
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+      );
+    }
+
     if (isSyntheticEvidenceSourceUrl(url)) {
       return Promise.resolve(new Response(JSON.stringify({ error: "missing source evidence table" }), { status: 404 }));
+    }
+
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+  };
+}
+
+function missingSapEvidenceSourceFetcher(calls: string[]): SupabaseMemoryFetch {
+  return (url, init) => {
+    calls.push(url);
+
+    if (url.includes("/rest/v1/recoup_config")) {
+      return withGovernedConfigOnlyFetcher()(url, init);
+    }
+
+    if (isSettlementSourceUrl(url)) {
+      const tableName = new URL(url).pathname.split("/").at(-1) ?? "";
+      return Promise.resolve(new Response(JSON.stringify(toPostgrestSettlementRows(tableName)), { status: 200 }));
+    }
+
+    if (url.includes("/rest/v1/recoup_src_sap")) {
+      return Promise.resolve(new Response(JSON.stringify({ error: "missing SAP source evidence table" }), { status: 404 }));
+    }
+
+    if (isSyntheticEvidenceSourceUrl(url)) {
+      const parsedUrl = new URL(url);
+      const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
+      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      return Promise.resolve(
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+      );
+    }
+
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+  };
+}
+
+function missingSettlementSourceRowsFetcher(calls: string[]): SupabaseMemoryFetch {
+  return (url, init) => {
+    calls.push(url);
+
+    if (url.includes("/rest/v1/recoup_config")) {
+      return withGovernedConfigOnlyFetcher()(url, init);
+    }
+
+    if (isSettlementSourceUrl(url)) {
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+    }
+
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+  };
+}
+
+function missingEvidenceAfterRiskObservationFetcher(calls: string[]): SupabaseMemoryFetch {
+  return (url, init) => {
+    calls.push(url);
+
+    if (url.includes("/rest/v1/recoup_config")) {
+      return withGovernedConfigOnlyFetcher()(url, init);
+    }
+
+    if (isSettlementSourceUrl(url)) {
+      const tableName = new URL(url).pathname.split("/").at(-1) ?? "";
+      return Promise.resolve(new Response(JSON.stringify(toPostgrestSettlementRows(tableName)), { status: 200 }));
+    }
+
+    if (isToolsDataRiskObservationUrl(url)) {
+      return toolsDataRiskObservationFetcher([])(url, init);
+    }
+
+    if (url.includes("/rest/v1/recoup_src_sap")) {
+      const parsedUrl = new URL(url);
+      const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
+      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      return Promise.resolve(
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+      );
+    }
+
+    if (isSyntheticEvidenceSourceUrl(url)) {
+      return Promise.resolve(new Response(JSON.stringify({ error: "missing source evidence table" }), { status: 404 }));
+    }
+
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+  };
+}
+
+function successfulRealBackendSourceFetcher(calls: string[]): SupabaseMemoryFetch {
+  return sourceFetcherWithSapAvailability(calls, () => true);
+}
+
+function recoverableSapEvidenceSourceFetcher(calls: string[], sapRowsAvailable: () => boolean): SupabaseMemoryFetch {
+  return sourceFetcherWithSapAvailability(calls, sapRowsAvailable);
+}
+
+function recoverablePartialDocsEvidenceSourceFetcher(calls: string[], docsRowsAvailable: () => boolean): SupabaseMemoryFetch {
+  return sourceFetcherWithSapAvailability(calls, () => true, { docsRowsAvailable });
+}
+
+function riskObservationMissingAfterForensicsCacheFetcher(calls: string[]): SupabaseMemoryFetch {
+  return sourceFetcherWithSapAvailability(calls, () => true, { riskObservationRowsAvailable: false });
+}
+
+function sapEvidenceFailsAfterInitialValidatedContextFetcher(calls: string[]): SupabaseMemoryFetch {
+  const initialSapReadBudget = buildSyntheticDataset({ seed: 42 }).deductionLines.length;
+  let sapEvidenceReadCount = 0;
+
+  return sourceFetcherWithSapAvailability(calls, () => {
+    sapEvidenceReadCount += 1;
+    return sapEvidenceReadCount <= initialSapReadBudget;
+  });
+}
+
+function sourceFetcherWithSapAvailability(
+  calls: string[],
+  sapRowsAvailable: () => boolean,
+  options: { docsRowsAvailable?: () => boolean; riskObservationRowsAvailable?: boolean } = {}
+): SupabaseMemoryFetch {
+  return (url, init) => {
+    calls.push(url);
+
+    if (url.includes("/rest/v1/recoup_config")) {
+      if (new URL(url).searchParams.get("key")?.includes("run_control") === true) {
+        return Promise.resolve(new Response(JSON.stringify(toPostgrestReleaseOwnerInputRows()), { status: 200 }));
+      }
+
+      return withGovernedConfigOnlyFetcher()(url, init);
+    }
+
+    if (isSettlementSourceUrl(url)) {
+      const tableName = new URL(url).pathname.split("/").at(-1) ?? "";
+      return Promise.resolve(new Response(JSON.stringify(toPostgrestSettlementRows(tableName)), { status: 200 }));
+    }
+
+    if (isToolsDataRiskObservationUrl(url)) {
+      if (options.riskObservationRowsAvailable === false) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+
+      return toolsDataRiskObservationFetcher([])(url, init);
+    }
+
+    if (url.includes("/rest/v1/recoup_src_sap")) {
+      if (!sapRowsAvailable()) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "SAP source read blocked" }), { status: 404 }));
+      }
+    }
+
+    if (isSyntheticEvidenceSourceUrl(url)) {
+      const parsedUrl = new URL(url);
+      const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
+      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      if (tableName === "recoup_src_docs" && options.docsRowsAvailable?.() === false) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+      );
     }
 
     return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));

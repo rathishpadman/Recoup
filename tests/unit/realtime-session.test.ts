@@ -11,17 +11,23 @@ import { invokeServiceTool, serviceToolMetadata } from "../../src/services/servi
 
 const governedConfig = day1GovernedConfigSeed.values;
 const source = new SyntheticSource({ seed: 42 });
+const selectedQueryScope = {
+  recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1", "SAP-INV-S3-1", "DOC-S3-L1"],
+  selectedLineId: "S3-L1"
+};
 
 describe("Realtime session policy", () => {
   it("fails closed without an OpenAI API key", async () => {
     const result = await requestRealtimeClientSecret({
       env: {},
       fetcher: () => Promise.reject(new Error("fetch should not be called without credentials")),
+      ...selectedQueryScope,
       safetyIdentifier: "human-cfo"
     });
 
     expect(result.status).toBe("blocked_missing_credentials");
-    expect(result.auditPolicy.recordIds).toContain("OPENAI-REALTIME-POLICY");
+    expect(result.auditPolicy.recordIds).toEqual(selectedQueryScope.recordIds);
+    expect(result.auditPolicy.queryScope).toContain(selectedQueryScope.selectedLineId);
     expect(result.auditPolicy.allowedTools).toEqual(["audit.read", "query.answer"]);
     expect(result.auditPolicy.forbiddenPersistence).toEqual(["raw_audio", "uncited_transcript", "uncited_model_output"]);
     expect(result.deterministicBasis).toContain("runtime credential gate");
@@ -41,6 +47,7 @@ describe("Realtime session policy", () => {
         );
       },
       question: "why is harbor blocked",
+      ...selectedQueryScope,
       safetyIdentifier: "human-cfo"
     });
 
@@ -59,7 +66,9 @@ describe("Realtime session policy", () => {
       session: { instructions?: string; model: string; tools?: Array<{ name: string }>; type: string };
     };
     expect(upstreamRequestBody).not.toContain("why is harbor blocked");
+    expect(upstreamRequestBody).toContain(selectedQueryScope.selectedLineId);
     expect(upstreamBody.session.instructions).toContain("cite deterministic Recoup recordIds");
+    expect(upstreamBody.session.instructions).toContain(selectedQueryScope.selectedLineId);
     expect(upstreamBody.session.instructions).toContain("External actions are forbidden");
     expect(upstreamBody.session.instructions).toContain("Allowed tools: audit.read and query.answer");
     expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
@@ -85,6 +94,7 @@ describe("Realtime session policy", () => {
           })
         );
       },
+      ...selectedQueryScope,
       safetyIdentifier: "human-cfo"
     });
 
@@ -93,12 +103,14 @@ describe("Realtime session policy", () => {
   });
 
   it("declares the audit policy and planned model without making a network call", () => {
-    const policy = buildRealtimeSessionPolicy({ OPENAI_API_KEY: "sk-live-secret" });
+    const policy = buildRealtimeSessionPolicy({ OPENAI_API_KEY: "sk-live-secret" }, selectedQueryScope);
 
     expect(policy.status).toBe("ready_for_client_secret_request");
     expect(policy.model).toBe("gpt-realtime-2");
     expect(policy.auditPolicy.externalActions).toBe("none");
     expect(policy.auditPolicy.allowedTools).toEqual(["audit.read", "query.answer"]);
+    expect(policy.auditPolicy.recordIds).toEqual(selectedQueryScope.recordIds);
+    expect(policy.auditPolicy.queryScope).toContain(selectedQueryScope.selectedLineId);
     expect(policy.auditPolicy.forbiddenPersistence).toContain("raw_audio");
     expect(policy.auditPolicy.retention).toContain("no raw audio");
   });
@@ -120,8 +132,10 @@ describe("Realtime session policy", () => {
   it("builds a browser-safe Realtime tool manifest without action or write-capable tools", () => {
     const manifest = buildRealtimeToolManifest();
     const serialized = JSON.stringify(manifest);
+    const queryAnswerTool = manifest.find((tool) => tool.name === "query.answer");
 
     expect(manifest.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
+    expect(queryAnswerTool?.parameters.required).toEqual(["question", "selectedLineId", "recordIds"]);
     expect(serialized).not.toMatch(/draft|approve|rebill|hold|terms|routeBilling|erp|write/iu);
   });
 
@@ -140,7 +154,7 @@ describe("Realtime session policy", () => {
 
   it("returns query.answer output with voice/text citation parity", () => {
     const result = handleRealtimeToolCall({
-      argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
+      argumentsJson: JSON.stringify({ question: "Which selected evidence supports this deduction?", ...selectedQueryScope }),
       name: "query.answer"
     }, (name, input) => invokeServiceTool(name, input, { governedConfig, source }));
 
@@ -164,6 +178,21 @@ describe("Realtime session policy", () => {
       voiceRecordIds: result.recordIds,
       parity: "same_record_ids"
     });
+    expect(output.recordIds).toEqual(selectedQueryScope.recordIds);
+  });
+
+  it("blocks query.answer calls that omit selected evidence scope", () => {
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Which selected evidence supports this deduction?" }),
+      name: "query.answer"
+    }, (name, input) => invokeServiceTool(name, input, { governedConfig, source }));
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool",
+      toolName: "query.answer"
+    });
+    expect(result.deterministicBasis).toContain("selected evidence scope");
   });
 
   it("blocks query.answer output missing citation parity at the Realtime boundary", () => {
@@ -238,9 +267,10 @@ describe("Realtime session policy", () => {
           Promise.resolve(
             new Response(JSON.stringify({ value: "sk-leaked-server-key" }), {
               headers: { "content-type": "application/json" },
-              status: 200
-            })
-          ),
+            status: 200
+          })
+        ),
+        ...selectedQueryScope,
         safetyIdentifier: "human-cfo"
       })
     ).rejects.toThrow();

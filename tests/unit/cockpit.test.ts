@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,7 @@ import {
 } from "../../config/governed.js";
 import {
   ALL_TOOLS_DATA_TABLE_NAMES,
+  buildConnectorReadiness,
   type SupabaseToolDataSchemaProbe
 } from "../../src/adapters/connectorRegistry.js";
 import { SyntheticSource } from "../../src/adapters/synthetic.js";
@@ -24,6 +26,7 @@ import {
   buildMemorySummaryModel,
   buildTraceModel
 } from "../../src/services/cockpitModel.js";
+import { buildSourceHealthFromConnectorReadiness } from "../../src/services/sourceHealth.js";
 import type {
   ServiceInvocationContext,
   ServiceSapEvidenceSource,
@@ -35,6 +38,11 @@ import { retrieveBureau } from "../../src/tools/retrieval/bureau.js";
 import { retrieveDocs } from "../../src/tools/retrieval/docs.js";
 import { retrieveTpm } from "../../src/tools/retrieval/tpm.js";
 import { ToolStatusRail } from "../../cockpit/app/premium-components.tsx";
+import {
+  beginWorkItemDetailRequest,
+  cancelWorkItemDetailRequest,
+  isCurrentWorkItemDetailRequest
+} from "../../cockpit/components/maya/work-item-detail-request-gate.js";
 
 const realAuditEntryHashPattern = /^[a-f0-9]{64}$/u;
 const governedConfig = day1GovernedConfigSeed.values;
@@ -121,19 +129,32 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.worklist.every((item) => item.recommendedActionLabel.trim().length > 0)).toBe(true);
     expect(model.worklist.every((item) => item.recommendedActionLabel === item.routingLabel)).toBe(true);
     expect(model.worklist.every((item) => item.recommendedActionLabel !== item.routing)).toBe(true);
-    expect(model.kpiStrip).toContainEqual({
+    const expectedEvidenceSourceLabels = [
+      ...new Set(model.selected.evidencePack.documents.map((document) => document.sourceLabel))
+    ];
+    const evidenceSourcesKpi = model.kpiStrip.find((item) => item.label === "Evidence sources");
+    expect(evidenceSourcesKpi).toEqual(expect.objectContaining({
       label: "Evidence sources",
-      value: "4",
-      support: "SAP, Docs, TPM, Bureau"
-    });
+      value: String(expectedEvidenceSourceLabels.length),
+      support: expectedEvidenceSourceLabels.join(", ")
+    }));
+    expect(evidenceSourcesKpi?.provenance.sourceKind).toBe("derived_backend");
+    expect(typeof evidenceSourcesKpi?.provenance.deterministicBasis).toBe("string");
+    expect(Array.isArray(evidenceSourcesKpi?.provenance.recordIds)).toBe(true);
+    expect(evidenceSourcesKpi?.provenance.recordIds.length).toBeGreaterThan(0);
     expect(model.selected.evidencePack.documents.length).toBeGreaterThan(0);
     expect(model.selected.evidencePack.documents.every((document) => /^[BPRST]\d+$/u.test(document.citationId))).toBe(true);
     expect(model.selected.draft.status).toBe("pending_human");
     expect(model.selected.draft.actionLabel).toBe("Recovery draft staged");
     expect(model.selected.approvalActions.map((action) => action.decision)).toEqual(["approve", "modify", "reject"]);
     expect(model.multimodalDock.policyLabel).toBe("voice/text citation parity");
-    expect(model.retrievalStatus.map((status) => status.source)).toEqual(["SAP", "Docs", "TPM", "Bureau"]);
-    expect(model.multimodalDock.subAgents.map((agent) => agent.name)).toEqual(["POD-Retriever", "Contract-Reader", "TPM-Matcher"]);
+    expect(model.retrievalStatus.map((status) => status.source)).toEqual(expectedEvidenceSourceLabels);
+    expect(model.multimodalDock.subAgents.map((agent) => agent.name)).toEqual([
+      "POD-Retriever",
+      "Contract-Reader",
+      "TPM-Matcher"
+    ]);
+    expect(model.multimodalDock.subAgents.every((agent) => agent.provenance.sourceKind === "agent_trace")).toBe(true);
     expect(model.mayaJourney.map((step) => step.label)).toEqual([
       "Ingest",
       "POD retrieval",
@@ -146,6 +167,46 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.actionInbox.some((action) => action.actionType === "route-billing")).toBe(true);
     expect(model.recoveryTracker.recoveryLines).toBe(13);
     expect(model.recoveryTracker.billingLines).toBe(7);
+  });
+
+  it("routes Maya worklist row clicks through the backend detail endpoint", () => {
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const handleSelectStart = surface.indexOf("const handleSelectWorklistItem");
+    const handleSelectEnd = surface.indexOf("const handleReturnToWorklist", handleSelectStart);
+    const handleSelectSource = surface.slice(handleSelectStart, handleSelectEnd);
+    const beatTwelveStart = surface.indexOf("<BeatTwelveReturnedWorklist");
+    const beatTwelveEnd = surface.indexOf("selectedItem={returnedWorklistItem}", beatTwelveStart);
+    const beatTwelveSource = surface.slice(beatTwelveStart, beatTwelveEnd);
+
+    expect(handleSelectSource).toContain("void openInvestigationForItem(item);");
+    expect(handleSelectSource).not.toContain("setSelectedWorklistItem(item);");
+    expect(handleSelectSource).not.toContain("openedCaseWorklistItem !== undefined");
+    expect(beatTwelveSource).toContain("void openInvestigationForItem(item);");
+    expect(beatTwelveSource).not.toContain("setSelectedWorklistItem(item)");
+    expect(beatTwelveSource).not.toContain("setReturnContextLineId(item.lineId)");
+  });
+
+  it("keeps the Maya work-item detail client fetch on the same-origin Next proxy", () => {
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+
+    expect(surface).toContain('"/api/forensics/work-items/');
+    expect(surface).not.toContain("fetchForensicsWorkItemDetail } from \"../../app/cockpit-data.ts\"");
+    expect(surface).not.toContain("CockpitDataFetchError");
+    expect(surface).not.toContain("RECOUP_API_URL");
+    expect(surface).not.toContain("http://127.0.0.1:4317");
+  });
+
+  it("invalidates stale Maya work-item detail requests when returning to the worklist", () => {
+    const requestGate = { current: 0 };
+    const staleRequestId = beginWorkItemDetailRequest(requestGate);
+
+    expect(isCurrentWorkItemDetailRequest(requestGate, staleRequestId)).toBe(true);
+
+    cancelWorkItemDetailRequest(requestGate);
+
+    expect(requestGate.current).toBe(staleRequestId + 1);
+    expect(isCurrentWorkItemDetailRequest(requestGate, staleRequestId)).toBe(false);
+    expect(isCurrentWorkItemDetailRequest(requestGate, beginWorkItemDetailRequest(requestGate))).toBe(true);
   });
 
   it("surfaces Crestline M6 as a risk-review-only containment read model", () => {
@@ -166,10 +227,15 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.containmentPanel.behavioralEvidenceIds).toEqual(
       expect.arrayContaining(["TPM-CONTRACT-1", "POD-SIGNED-1", "PRICE-CLAUSE-1"])
     );
-    expect(model.containmentPanel.basisRows).toContainEqual({
+    expect(model.containmentPanel.basisRows).toContainEqual(expect.objectContaining({
       label: "Gaming gate",
       value: "governed-config-snapshot"
-    });
+    }));
+    expect(
+      model.containmentPanel.basisRows.every(
+        (row) => row.provenance.sourceKind === "derived_backend" && row.provenance.recordIds.length > 0
+      )
+    ).toBe(true);
     expect(model.containmentPanel.handoff).toMatchObject({
       label: "David / Risk Mesh reference",
       status: "review-only handoff"
@@ -904,7 +970,12 @@ describe("S5 Forensics cockpit model", () => {
   });
 
   it("builds connector readiness read model with schema-required non-SAP source labels until probed", () => {
-    const model = buildConnectorReadinessModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]);
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const model = buildConnectorReadinessModel(
+      availableEnvNames,
+      undefined,
+      sourceHealthForConnectorModel(availableEnvNames)
+    );
 
     expect(model.surface).toBe("connector-readiness");
     expect(model.connectors.map((connector) => connector.name).sort()).toEqual([
@@ -934,8 +1005,8 @@ describe("S5 Forensics cockpit model", () => {
       "MCP"
     ]);
     expect(model.sourceTiles.find((source) => source.label === "3PL POD")).toMatchObject({
-      stateLabel: "Synthetic",
-      statusTone: "synthetic"
+      stateLabel: "Setup",
+      statusTone: "blocked"
     });
     const sap = model.connectors.find((connector) => connector.name === "sap-odata");
     const tpm = model.connectors.find((connector) => connector.name === "tpm");
@@ -947,8 +1018,18 @@ describe("S5 Forensics cockpit model", () => {
     expect(tpm?.status).toBe("blocked_schema_required");
   });
 
+  it("requires backend source health when building connector readiness tiles", () => {
+    const buildWithoutSourceHealth = buildConnectorReadinessModel as unknown as (
+      availableCredentialEnvNames: readonly string[]
+    ) => unknown;
+
+    expect(() => buildWithoutSourceHealth(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])).toThrow(
+      "Connector readiness model requires backend source health."
+    );
+  });
+
   it("does not render blocked SAP source readiness as schema-ready", () => {
-    const model = buildConnectorReadinessModel([]);
+    const model = buildConnectorReadinessModel([], undefined, sourceHealthForConnectorModel([]));
     const markup = renderToStaticMarkup(createElement(ToolStatusRail, { connectors: model }));
 
     expect(markup).toContain("SAP OData");
@@ -957,8 +1038,84 @@ describe("S5 Forensics cockpit model", () => {
     expect(markup).not.toContain("Schema checked");
   });
 
+  it("labels configured SAP with a failed live probe instead of generic setup", () => {
+    const availableEnvNames = [
+      "SAP_ODATA_BASE_URL",
+      "SAP_ODATA_CLIENT",
+      "SAP_ODATA_USERID",
+      "SAP_ODATA_CLIENT_SECRET",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ];
+    const sourceHealth = sourceHealthForConnectorModel(availableEnvNames).map((health) =>
+      health.sourceName === "sap-odata"
+        ? {
+            ...health,
+            lastError: "fetch failed",
+            proofItems: ["read-only metadata probe", "external writes blocked", "source probe failed"],
+            sourceMode: "unavailable" as const,
+            status: "blocked" as const
+          }
+        : health
+    );
+    const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
+    const sap = model.sourceTiles.find((source) => source.label === "SAP OData");
+
+    expect(sap).toMatchObject({
+      detail: "fetch failed",
+      modeLabel: "Unavailable",
+      stateLabel: "Probe failed",
+      statusTone: "blocked",
+      summary: "Live probe failed"
+    });
+  });
+
+  it("names Supabase source-health snapshot provenance for cached SAP readiness", () => {
+    const availableEnvNames = [
+      "SAP_ODATA_BASE_URL",
+      "SAP_ODATA_CLIENT",
+      "SAP_ODATA_USERID",
+      "SAP_ODATA_CLIENT_SECRET",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ];
+    const sourceHealth = sourceHealthForConnectorModel(availableEnvNames).map((health) =>
+      health.sourceName === "sap-odata"
+        ? {
+            ...health,
+            proofItems: [
+              "read-only metadata probe",
+              "credentials present",
+              "external writes blocked",
+              "supabase source-health snapshot"
+            ],
+            recordIds: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001", "recoup_source_health_snapshots:sap-odata"],
+            sourceMode: "live" as const,
+            status: "connected" as const
+          }
+        : health
+    );
+    const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
+    const sap = model.sourceTiles.find((source) => source.label === "SAP OData");
+
+    expect(sap).toMatchObject({
+      modeLabel: "Live read",
+      stateLabel: "Connected",
+      statusTone: "ready"
+    });
+    expect(sap?.provenance.deterministicBasis).toContain("supabase source-health snapshot");
+    expect(sap?.provenance.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
+  });
+
+
   it("builds connector readiness read model with synthetic-ready non-SAP source labels after probe proof", () => {
-    const model = buildConnectorReadinessModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], allTablesAvailableProbe());
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const toolDataSchemaProbe = allTablesAvailableProbe();
+    const model = buildConnectorReadinessModel(
+      availableEnvNames,
+      toolDataSchemaProbe,
+      sourceHealthForConnectorModel(availableEnvNames, toolDataSchemaProbe)
+    );
     const syntheticConnectors = model.connectors.filter((connector) => connector.name !== "sap-odata");
 
     expect(syntheticConnectors).toHaveLength(5);
@@ -981,6 +1138,16 @@ function allTablesAvailableProbe(): SupabaseToolDataSchemaProbe {
     ),
     unsafeShadowActions: []
   };
+}
+
+function sourceHealthForConnectorModel(
+  availableCredentialEnvNames: readonly string[],
+  toolDataSchemaProbe?: SupabaseToolDataSchemaProbe
+) {
+  return buildSourceHealthFromConnectorReadiness(
+    buildConnectorReadiness([], availableCredentialEnvNames, toolDataSchemaProbe),
+    "2026-06-24T10:30:00.000Z"
+  );
 }
 
 function buildSupabaseGovernedConfigRows(riskMeshCases: Record<string, unknown>): unknown[] {

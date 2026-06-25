@@ -1,11 +1,16 @@
 import type { DeductionDecisionGuardInput } from "./explainability.js";
+import { throwGuardrailTrip } from "../trip.js";
 
 export function assertDeductionEvidencePack(decision: DeductionDecisionGuardInput): void {
   const requiresSupportingDocuments =
     decision.routing === "recovery" || decision.verdict === "invalid" || decision.verdict === "partial";
 
   if (requiresSupportingDocuments && decision.evidenceDocumentIds.length === 0) {
-    throw new Error("Invalid or partial deduction decisions require supporting documents.");
+    throwGuardrailTrip({
+      guardrailName: "deduction-evidence-pack",
+      reason: "Invalid or partial deduction decisions require supporting documents.",
+      recordIds: decision.recordIds
+    });
   }
 
   if (!requiresSupportingDocuments) {
@@ -19,7 +24,11 @@ export function assertDeductionEvidencePack(decision: DeductionDecisionGuardInpu
   });
 
   if (!hasReferencedSupport) {
-    throw new Error("Invalid or partial deduction decisions require the rule-specific support document.");
+    throwGuardrailTrip({
+      guardrailName: "deduction-evidence-pack",
+      reason: "Invalid or partial deduction decisions require the rule-specific support document.",
+      recordIds: decision.recordIds
+    });
   }
 }
 

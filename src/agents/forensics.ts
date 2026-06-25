@@ -15,6 +15,11 @@ import type { Money } from "../types/money.js";
 import type { RuleId } from "../core/rules/types.js";
 import { writeAgentHandoffPacket, writeSessionState, writeTransactionState } from "../memory/session.js";
 import type { MemoryStore } from "../memory/store.js";
+import {
+  createAgentHookAuditReceipt,
+  deterministicForensicsHookAuditBasis,
+  type AgentHookAuditReceipt
+} from "../services/conductor.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
 import { mergeEvidenceDocuments, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { draftRecovery } from "./recoveryDrafter.js";
@@ -76,6 +81,7 @@ export interface DeductionDecision {
 }
 
 export interface ForensicsRun {
+  agentHookReceipts: AgentHookAuditReceipt[];
   decisions: DeductionDecision[];
   actions: Array<RouteBillingAction | DraftRebillAction>;
   containmentActions: ContainmentReviewAction[];
@@ -93,6 +99,7 @@ export interface RecoveryDecision {
 }
 
 export interface RunForensicsInvestigationOptions {
+  agentHookRecordIds?: string[];
   analystContext?: string;
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig: GovernedConfigValues;
@@ -301,6 +308,7 @@ function completeForensicsRun(
   }
 
   return {
+    agentHookReceipts: buildAgentHookReceipts(options.agentHookRecordIds ?? []),
     decisions,
     actions,
     containmentActions: [containmentAction],
@@ -380,6 +388,42 @@ function persistForensicsMemory(
 
 function uniqueRecordIds(recordIds: string[]): string[] {
   return [...new Set(recordIds)];
+}
+
+function buildAgentHookReceipts(recordIds: readonly string[]): AgentHookAuditReceipt[] {
+  const citedRecordIds = uniqueRecordIds(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0));
+  if (citedRecordIds.length === 0) {
+    return [];
+  }
+
+  return [
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Supervisor",
+      deterministicBasis: deterministicForensicsHookAuditBasis,
+      hook: "agent_start",
+      recordIds: citedRecordIds
+    }),
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Query",
+      deterministicBasis: deterministicForensicsHookAuditBasis,
+      hook: "agent_tool_start",
+      recordIds: citedRecordIds,
+      toolName: "query.answer"
+    }),
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Retrieval",
+      deterministicBasis: deterministicForensicsHookAuditBasis,
+      hook: "agent_tool_end",
+      recordIds: citedRecordIds,
+      toolName: "retrieval.evidence"
+    }),
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Decision",
+      deterministicBasis: deterministicForensicsHookAuditBasis,
+      hook: "agent_end",
+      recordIds: citedRecordIds
+    })
+  ];
 }
 
 function retrieveEvidenceDocuments(

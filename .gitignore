@@ -10,4 +10,5 @@ coverage/
 *.tsbuildinfo
 .planning/
 .superpowers/
+.playwright-mcp/
 output/

@@ -83,6 +83,26 @@ describe("Forensics Investigator hero run", () => {
     expect(run.trace.some((event) => event.type === "status" && event.payload.kind === "model-text-delta")).toBe(true);
   });
 
+  it("emits agent hook receipts only when scoped record IDs are provided", () => {
+    const defaultRun = runForensics();
+    const scopedRun = runForensics({ agentHookRecordIds: ["S6-L1", "INV-S6-1", "S6-L1", " "] });
+
+    expect(defaultRun.agentHookReceipts).toEqual([]);
+    expect(scopedRun.agentHookReceipts.map((receipt) => receipt.hook)).toEqual([
+      "agent_start",
+      "agent_tool_start",
+      "agent_tool_end",
+      "agent_end"
+    ]);
+    expect(scopedRun.agentHookReceipts.every((receipt) => receipt.recordIds.join("|") === "S6-L1|INV-S6-1")).toBe(true);
+    expect(scopedRun.agentHookReceipts.map((receipt) => receipt.deterministicBasis)).toEqual([
+      "Recoup deterministic forensics hook audit event",
+      "Recoup deterministic forensics hook audit event",
+      "Recoup deterministic forensics hook audit event",
+      "Recoup deterministic forensics hook audit event"
+    ]);
+  });
+
   it("keeps the default Forensics retrieval surface scoped to SAP docs and TPM", () => {
     const run = runForensics();
     const retrievalTools = [

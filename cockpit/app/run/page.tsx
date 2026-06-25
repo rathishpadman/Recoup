@@ -5,6 +5,7 @@ import { PulseIcon as Pulse } from "@phosphor-icons/react/dist/ssr/Pulse";
 import { ShieldCheckIcon as ShieldCheck } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
 import { RealtimeQueryControls } from "../realtime-query-controls.tsx";
 import { RunStream } from "../run-stream.tsx";
+import { requireMayaBackendReadAuthHeaders } from "../backend-read-auth.ts";
 import { CockpitShell, RecordStrip, StatusPill } from "../cockpit-shell.tsx";
 import {
   fetchConnectorReadinessModel,
@@ -18,10 +19,11 @@ import { AgentTraceVisualizer, ToolStatusRail } from "../premium-components.tsx"
 
 export default async function RunPage() {
   const session = await requireRouteAccess("/run");
+  const backendReadAuthHeaders = await requireMayaBackendReadAuthHeaders();
   const [forensics, trace, connectors] = await Promise.all([
-    fetchForensicsModel(),
+    fetchForensicsModel(backendReadAuthHeaders),
     fetchTraceModel(),
-    fetchConnectorReadinessModel()
+    fetchConnectorReadinessModel(backendReadAuthHeaders)
   ]);
   const citedRecordCount = new Set(trace.events.flatMap((event) => event.recordIds)).size;
   const selectedScenario =

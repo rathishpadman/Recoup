@@ -1,4 +1,3 @@
-import { OpenAIProvider, Runner, type RunStreamEvent } from "@openai/agents";
 import type { RuntimeEnv } from "../../config/env.js";
 import {
   registerRunHookAuditReceipts,
@@ -6,6 +5,7 @@ import {
 } from "../services/conductor.js";
 import { forensicsInvestigatorAgent } from "./agentRuntime.js";
 import type { ForensicsTraceEvent } from "./forensics.js";
+import { OpenAIProvider, Runner, type RunStreamEvent } from "./openAiAgentsSdk.js";
 
 const liveAgentInput =
   "Stream concise operator-visible status for the Recoup forensics run. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions. Those are produced only by deterministic Recoup code.";
@@ -46,6 +46,7 @@ export interface LiveForensicsOpenAiRunner {
 export interface StreamLiveForensicsTraceOptions {
   agentHookRecordIds?: string[];
   env?: RuntimeEnv;
+  input?: string;
   maxTurns?: number;
   onRetry?: () => void;
   onTokenUsage?: (tokens: number) => void;
@@ -54,7 +55,93 @@ export interface StreamLiveForensicsTraceOptions {
   signal?: AbortSignal;
 }
 
+export type LiveForensicsAgentRunStatus = "blocked_missing_credentials" | "completed" | "failed";
+
+export interface LiveForensicsAgentRunResult {
+  events: ForensicsTraceEvent[];
+  hookReceipts: AgentHookAuditReceipt[];
+  status: LiveForensicsAgentRunStatus;
+  tokenUsage: number;
+}
+
 type ForensicsStatusKind = Extract<ForensicsTraceEvent, { type: "status" }>["payload"]["kind"];
+
+export const forensicsQueryTracePhases = ["supervisor", "query", "retrieval", "decision"] as const;
+export type ForensicsQueryTracePhase = (typeof forensicsQueryTracePhases)[number];
+
+export interface ForensicsQueryTraceEvent {
+  agentName: string;
+  deterministicBasis: string;
+  hook: AgentHookAuditReceipt["hook"];
+  label: string;
+  message: string;
+  nextAgentName?: string;
+  phase: ForensicsQueryTracePhase;
+  receiptDeterministicBasis: AgentHookAuditReceipt["deterministicBasis"];
+  recordIds: string[];
+  toolName?: string;
+}
+
+export async function collectLiveForensicsAgentRun(
+  options: StreamLiveForensicsTraceOptions = {}
+): Promise<LiveForensicsAgentRunResult> {
+  const events: ForensicsTraceEvent[] = [];
+  const hookReceipts: AgentHookAuditReceipt[] = [];
+  let status: LiveForensicsAgentRunStatus = "failed";
+  let tokenUsage = 0;
+  const sourceRunner = options.runner ?? runOpenAIForensicsAgentStream;
+  const runner: LiveForensicsStreamRunner = async (request) => {
+    if (request.agentHookAudit === undefined) {
+      return sourceRunner(request);
+    }
+
+    const agentHookAudit = request.agentHookAudit;
+    const capturedRequest: LiveForensicsStreamRequest = {
+      apiKey: request.apiKey,
+      input: request.input,
+      maxTurns: request.maxTurns,
+      agentHookAudit: {
+        onReceipt(receipt) {
+          hookReceipts.push(receipt);
+          agentHookAudit.onReceipt(receipt);
+        },
+        recordIds: agentHookAudit.recordIds
+      },
+      ...(request.signal === undefined ? {} : { signal: request.signal })
+    };
+
+    return sourceRunner(capturedRequest);
+  };
+
+  for await (const event of streamLiveForensicsTraceEvents({
+    ...options,
+    onTokenUsage(tokens) {
+      tokenUsage += tokens;
+      options.onTokenUsage?.(tokens);
+    },
+    runner
+  })) {
+    events.push(event);
+    if (event.type === "status") {
+      if (event.payload.text === liveModelSkippedText) {
+        status = "blocked_missing_credentials";
+      }
+      if (event.payload.text === liveModelCompletedText) {
+        status = "completed";
+      }
+      if (event.payload.text === liveModelFailedText) {
+        status = "failed";
+      }
+    }
+  }
+
+  return {
+    events,
+    hookReceipts,
+    status,
+    tokenUsage
+  };
+}
 
 export async function* streamLiveForensicsTraceEvents(
   options: StreamLiveForensicsTraceOptions = {}
@@ -89,7 +176,7 @@ export async function* streamLiveForensicsTraceEvents(
       const agentHookRecordIds = dedupeRecordIds(options.agentHookRecordIds ?? []);
       const request: LiveForensicsStreamRequest = {
         apiKey,
-        input: liveAgentInput,
+        input: options.input ?? liveAgentInput,
         maxTurns: options.maxTurns
       };
       if (agentHookRecordIds.length > 0) {

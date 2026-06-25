@@ -119,9 +119,22 @@ const approvalDecisionToolSchema = z.object({
     }
   }
 });
-const queryAnswerToolSchema = z.object({
-  question: z.string().min(1).max(500)
-});
+const queryAnswerToolSchema = z
+  .object({
+    question: z.string().min(1).max(500),
+    recordIds: z.array(z.string().min(1)).min(1),
+    selectedLineId: z.string().min(1)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.recordIds.includes(value.selectedLineId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "query.answer requires selected evidence scope including selectedLineId in recordIds.",
+        path: ["recordIds"]
+      });
+    }
+  });
 const r1BusinessPartnerSchema = z.string().regex(/^USCU_[A-Z0-9]+$/u);
 const r1BillingDocumentSchema = z.string().regex(/^9000\d{4}$/u);
 const r1SourceReadToolSchema = z.discriminatedUnion("need", [
@@ -381,8 +394,8 @@ export async function buildSupabaseServiceSyntheticEvidenceSource(input: {
   const connectorNames = input.connectorNames ?? defaultServiceSyntheticEvidenceConnectorNames;
   const documentsByConnectorAndLine = new Map<string, EvidenceDocument[]>();
 
-  await Promise.all(
-    input.settlementRun.deductionLines.flatMap((line) =>
+  for (const line of input.settlementRun.deductionLines) {
+    await Promise.all(
       connectorNames.map(async (connectorName) => {
         const evidence = await input.reader.readEvidence(connectorName, line);
         documentsByConnectorAndLine.set(
@@ -390,8 +403,8 @@ export async function buildSupabaseServiceSyntheticEvidenceSource(input: {
           dedupeEvidenceDocuments(evidence.map(toEvidenceDocument))
         );
       })
-    )
-  );
+    );
+  }
 
   return {
     readEvidence(connectorName, line) {
@@ -406,12 +419,10 @@ export async function buildSupabaseServiceSapEvidenceSource(input: {
 }): Promise<ServiceSapEvidenceSource> {
   const documentsByLineId = new Map<string, EvidenceDocument[]>();
 
-  await Promise.all(
-    input.settlementRun.deductionLines.map(async (line) => {
-      const evidence = await input.reader.readEvidence(line);
-      documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
-    })
-  );
+  for (const line of input.settlementRun.deductionLines) {
+    const evidence = await input.reader.readEvidence(line);
+    documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
+  }
 
   return {
     readEvidence(line) {

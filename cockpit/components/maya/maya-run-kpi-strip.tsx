@@ -7,7 +7,6 @@ import {
   ShieldCheckIcon,
   WalletCardsIcon
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -18,33 +17,6 @@ interface MayaRunKpiStripProps {
   actionInbox: MayaActionInboxItem[];
   items: MayaKpiItem[];
   recoveryTracker: MayaRecoveryTracker;
-}
-
-function hasHighPriorityKpi(items: MayaKpiItem[]): boolean {
-  return items.some((item) => /\bhigh[-\s]?priority\b/iu.test(item.label));
-}
-
-type KpiCardModel =
-  | {
-      kind: "backend";
-      item: MayaKpiItem;
-    }
-  | {
-      kind: "contract-gap";
-      support: string;
-    };
-
-function beatTwoKpiCards(items: MayaKpiItem[]): KpiCardModel[] {
-  if (hasHighPriorityKpi(items)) {
-    return items.slice(0, 6).map((item) => ({ kind: "backend", item }));
-  }
-
-  const [firstItem, ...remainingItems] = items;
-  return [
-    ...(firstItem === undefined ? [] : [{ kind: "backend" as const, item: firstItem }]),
-    { kind: "contract-gap" as const, support: "Priority field not exposed" },
-    ...remainingItems.slice(0, 4).map((item) => ({ kind: "backend" as const, item }))
-  ].slice(0, 6);
 }
 
 function renderKpiIcon(index: number) {
@@ -77,7 +49,7 @@ function kpiIconTone(index: number): string {
   }
 
   if (index === 2) {
-    return "border-[color:color-mix(in_srgb,var(--status-success-text)_22%,var(--border-default))] bg-[color:color-mix(in_srgb,var(--status-success-text)_9%,var(--bg-surface))] text-[color:var(--status-success-text)]";
+    return "border-border bg-muted/20 text-muted-foreground";
   }
 
   if (index === 3) {
@@ -99,33 +71,24 @@ function kpiValueClassName(value: string): string {
   return value.length > 9 ? "text-[1.45rem]" : "text-[1.9rem]";
 }
 
-export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRunKpiStripProps) {
+export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
   if (items.length === 0) {
     return <MayaEmptyState description="The run read model returned no KPI rows." title="KPI strip unavailable" />;
   }
 
-  const cards = beatTwoKpiCards(items);
-
   return (
-    <section className="grid min-w-0 gap-3 md:grid-cols-3 xl:grid-cols-6" aria-label="Forensics run KPIs">
-      {cards.map((card, index) => {
-        const key = card.kind === "backend" ? card.item.label : "high-priority-contract-gap";
-        const label = card.kind === "backend" ? card.item.label : "High-priority items";
-        const value = card.kind === "backend" ? card.item.value : "Not exposed";
-        const support = card.kind === "backend" ? card.item.support : card.support;
-        const trend = card.kind === "backend" ? support : "Priority unavailable";
-        const tooltipLabel =
-          card.kind === "backend"
-            ? support
-            : `${support}; ${recoveryTracker.recoveryLines.toString()} recovery lines; ${actionInbox.length.toString()} HITL actions`;
-
+    <section
+      className="grid min-w-0 gap-3 md:grid-cols-3 xl:grid-cols-6"
+      aria-label="Forensics run KPIs"
+      data-testid="maya-run-kpi-strip"
+    >
+      {items.map((item, index) => {
         return (
           <Card
-            className={cn(
-              "min-h-[166px] justify-between rounded-lg border-border/80 shadow-xs",
-              card.kind === "contract-gap" ? "border-dashed bg-muted/15 shadow-none" : "bg-card"
-            )}
-            key={key}
+            className="min-h-[166px] justify-between rounded-lg border-border/80 bg-card shadow-xs"
+            data-kpi-label={item.label}
+            data-testid="maya-kpi-card"
+            key={item.label}
             size="sm"
           >
             <CardHeader className="gap-5">
@@ -135,34 +98,24 @@ export function MayaRunKpiStrip({ actionInbox, items, recoveryTracker }: MayaRun
                 </div>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span aria-label={tooltipLabel} className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                    <span aria-label={item.support} className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
                       <InfoIcon aria-hidden="true" data-icon="kpi-info" />
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <span>{tooltipLabel}</span>
+                    <span>{item.support}</span>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="grid min-w-0 gap-1.5">
-                <CardDescription className="min-h-4 text-[11px] leading-4">{label}</CardDescription>
-                {card.kind === "contract-gap" ? (
-                  <Badge className="h-5 w-fit px-1.5 text-[10px]" variant="outline">
-                    Read-model gap
-                  </Badge>
-                ) : null}
+                <CardDescription className="min-h-4 text-[11px] leading-4">{item.label}</CardDescription>
               </div>
             </CardHeader>
             <CardContent className="grid min-w-0 gap-2">
-              <CardTitle
-                className={cn(
-                  "min-w-0 truncate font-semibold leading-none tabular-nums",
-                  card.kind === "contract-gap" ? "text-sm text-muted-foreground" : kpiValueClassName(value)
-                )}
-              >
-                {value}
+              <CardTitle className={cn("min-w-0 truncate font-semibold leading-none tabular-nums", kpiValueClassName(item.value))}>
+                {item.value}
               </CardTitle>
-              <p className="truncate text-xs text-muted-foreground">{trend}</p>
+              <p className="truncate text-xs text-muted-foreground">{item.support}</p>
             </CardContent>
           </Card>
         );

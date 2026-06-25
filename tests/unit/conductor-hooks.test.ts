@@ -97,4 +97,21 @@ describe("conductor AgentHooks audit receipts", () => {
       })
     ).toThrow("Agent hook audit receipt requires cited recordIds.");
   });
+
+  it("can mark deterministic backend hook audit receipts without changing live SDK defaults", () => {
+    const receipt = createAgentHookAuditReceipt({
+      agentName: "Forensics Query",
+      deterministicBasis: "Recoup deterministic forensics hook audit event",
+      hook: "agent_tool_start",
+      recordIds: ["S6-L1"],
+      toolName: "query.answer"
+    });
+
+    expect(receipt).toMatchObject({
+      deterministicBasis: "Recoup deterministic forensics hook audit event",
+      hook: "agent_tool_start",
+      recordIds: ["S6-L1"],
+      toolName: "query.answer"
+    });
+  });
 });

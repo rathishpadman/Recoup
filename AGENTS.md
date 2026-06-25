@@ -32,6 +32,16 @@ Higher source wins. If a conflict seems wrong, **stop and ask** — do not resol
 7. **Git-based safety:** work on a session branch; the human reviewer runs `git diff` and `npm run verify` independently and resets if the diff looks unsafe.
 8. **Close:** summarize the change, flag risks, state which invariants the diff touches.
 
+## 3.1 Local runtime/source configuration
+
+SAP, Supabase, OpenAI, and cockpit runtime coordinates are expected to be discoverable from the local runtime environment files (especially `.env.local`) and `config/localRuntimeEnv.ts`. Before asking the user to re-provide SAP sandbox/API details, Supabase project/table details, or OpenAI realtime/query credentials, inspect the configured env loaders and report only variable names, presence/absence, source mode, and fail-closed status. Never paste secret values into chat, docs, tests, screenshots, or logs.
+
+The current SAP sandbox is reachable for backend reads through the non-SSL HTTP base URL in `.env.local` (`SAP_ODATA_BASE_URL` on the sandbox HTTP port). Do not switch it back to the expired HTTPS listener unless the certificate chain is renewed; if SAP source health is red, verify the configured scheme/port before asking the user for SAP details.
+
+Env values are connection/config discovery only. They do not approve business constants, thresholds, weights, policy decisions, gold labels, autonomous actions, or ERP mutation. If a required env value or source mapping is missing, ask for the exact missing variable or mapping and keep the product fail-closed.
+
+Live Maya query and realtime experiences are production requirements, not optional demo polish. Realtime UI may stream agent progress and grounded narrative fields, but every visible business value must still come from backend/API/read-model data with provenance, and every LLM-visible source payload must pass the applicable input/tool/output guardrails.
+
 ## 4. Repo map (TypeScript — see SDD §3.2)
 
 ```

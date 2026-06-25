@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDemoSessionCookie,
   createSignedDemoSessionValue,
   demoSessionFromSupabaseRecord,
   demoProfiles,
@@ -63,6 +64,24 @@ describe("cockpit demo auth helpers", () => {
     expect(verifyDemoSessionValue(signedValue, "test-secret")).toEqual(session);
     expect(verifyDemoSessionValue(tamperedPayload, "test-secret")).toBeUndefined();
     expect(verifyDemoSessionValue(signedValue, "different-secret")).toBeUndefined();
+  });
+
+  it("does not sign demo route sessions with the human bearer token fallback", () => {
+    const session = {
+      allowedRoutes: roleAllowedRoutes("maya"),
+      defaultRoute: roleHomeRoute("maya"),
+      displayName: "Maya Patel",
+      loginId: "Maya",
+      role: "maya"
+    } as const;
+
+    expect(() =>
+      createDemoSessionCookie(session, {
+        NODE_ENV: "development",
+        RECOUP_COCKPIT_AUTH_TOKEN: "test-human-token",
+        RECOUP_DEMO_SESSION_SECRET: ""
+      })
+    ).toThrow("Demo session signing secret is not configured.");
   });
 
   it("rejects malformed sessions even when the signature envelope exists", () => {

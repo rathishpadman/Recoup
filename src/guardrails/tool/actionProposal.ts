@@ -1,3 +1,5 @@
+import { throwGuardrailTrip } from "../trip.js";
+
 export interface ActionProposalGuardInput {
   recordIds: string[];
   basis: string;
@@ -11,6 +13,10 @@ export function assertActionProposalExplainability(proposal: ActionProposalGuard
     proposal.deterministicBasis === undefined ||
     Object.keys(proposal.deterministicBasis).length === 0
   ) {
-    throw new Error("Action proposals require cited recordIds and deterministic basis.");
+    throwGuardrailTrip({
+      guardrailName: "action-proposal-explainability",
+      reason: "Action proposals require cited recordIds and deterministic basis.",
+      recordIds: proposal.recordIds
+    });
   }
 }

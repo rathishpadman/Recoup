@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { recoupAgentRoster, riskMeshAgentTools, riskMeshSupervisorAgent, s4AgentBoundary } from "../../src/agents/agentRuntime.js";
+import {
+  containmentIntentAgent,
+  conversationalQueryAgent,
+  forensicsInvestigatorAgent,
+  recoupAgentRoster,
+  recoveryDrafterAgent,
+  riskMeshAgentTools,
+  riskMeshSupervisorAgent,
+  s4AgentBoundary,
+  sentinelAgent
+} from "../../src/agents/agentRuntime.js";
 import { agentPromptFileNames, loadAgentPrompt } from "../../src/agents/prompts.js";
 
 describe("agent runtime roster", () => {
@@ -53,6 +63,30 @@ describe("agent runtime roster", () => {
     expect(riskMeshAgentTools.every((tool) => typeof tool.invoke === "function")).toBe(true);
     expect(riskMeshAgentTools.every((tool) => tool.description.includes("advisory-only"))).toBe(true);
     expect(riskMeshSupervisorAgent.tools.map((tool) => tool.name)).toEqual(riskMeshAgentTools.map((tool) => tool.name));
+  });
+
+  it("applies explicit reasoning effort settings to SDK agents", () => {
+    expect(forensicsInvestigatorAgent.modelSettings).toEqual({
+      reasoning: { effort: "high" },
+      text: { verbosity: "low" }
+    });
+    expect(riskMeshSupervisorAgent.modelSettings).toEqual({
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" }
+    });
+    expect(recoveryDrafterAgent.modelSettings).toEqual({
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" }
+    });
+    expect(sentinelAgent.modelSettings).toEqual({
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" }
+    });
+    expect(containmentIntentAgent.modelSettings).toEqual({
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" }
+    });
+    expect(conversationalQueryAgent.modelSettings).toEqual({});
   });
 
   it("loads every agent instruction from src/prompts/*.md", () => {

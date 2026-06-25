@@ -1,6 +1,51 @@
 # Maya Shadcn UI Handoff Status
 
-Status date: 2026-06-24
+Status date: 2026-06-25
+
+## Current Gate Evidence - 2026-06-25
+
+Current controller evidence is green for the shared workspace gates: `npm.cmd run verify` passed with lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness passed. `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318`, covered 4 Maya browser query scenarios, and recorded 32 backend trace rows.
+
+Release readiness here means the command gate passed in the current shared workspace. Phase 0 reproducibility is not complete because the repo is still dirty/untracked with nothing staged; do not claim a commit-clean or reproducible release candidate until a clean branch/snapshot reruns these gates.
+
+## Task 9 Real-Backend Evidence Update
+
+Latest 2026-06-25 gate evidence supersedes the earlier blocked `recoup_src_sap` note for real-backend readiness. The Maya real-backend path is now green against the existing Express cockpit API, Supabase read-model/source rows, and the read-only SAP OData adapter. The real-backend acceptance harness also captures Beat 1 through Beat 12 screenshots without fixture API, Playwright route fulfillment, or dummy business data.
+
+Source truth for `/forensics/shadcn`:
+
+- Route data: the page loads `fetchForensicsModel()` and `fetchConnectorReadinessModel()` from `cockpit/app/cockpit-data.ts`, forwarding verified Maya human backend-read headers to Express API paths `/forensics` and `/connectors`.
+- Supabase-backed fields: Maya KPI strip, worklist rows, selected evidence packet, recovery draft/read-only action inbox, retrieval status, and connector/source readiness values must come from governed backend/read-model data built from Supabase source readers and `recoup_src_*` evidence rows. Missing or invalid rows are unavailable, not fillable by UI copy.
+- SAP-backed fields: SAP OData remains read-only; SAP-visible health/read plans are backend connector/source-health facts when configured. Current live `recoup_src_sap` contains 12 clean `sap-odata` rows for S1-S6 after removing the contradicted Harbor `90000005` cache rows. S7/S8 remain supported by Supabase-backed docs/TPM/bureau evidence and do not cite SAP evidence for the contradicted Harbor invoice.
+- Agent-trace-backed fields: Query answer, citations, deterministic basis, and trace rows are backed by backend `POST /forensics/query`, deterministic hook trace events, and the live OpenAI Agents SDK Forensics Investigator -> Recovery Drafter handoff trace. Trace rows are not static UI rows, and raw model text remains suppressed from the visible business answer.
+- Derived backend values: counts, tone/icon/status summaries, recommended action labels, draft/read-only approval posture, source readiness tone, and Beat 12 global Source Readiness are derived from backend/read-model fields such as `connectors.sourceTiles`, not local facet counters or static React constants.
+- UI-only labels: tab labels, button labels, navigation labels, disabled/unavailable labels, and explicit backend-gap labels are presentational only. Business values, dollar amounts, record IDs, scores, decisions, approval/audit state, and source status must be backend/read-model fields or must render unavailable.
+
+Known unavailable state:
+
+- Live SAP read-back exposed an approved-source mismatch for Harbor invoice `90000005`: Supabase/owner mapping says `CUST-HARBOR -> USCU_S04`, while SAP header payload returned `SoldToParty=USCU_L02`. The stale Harbor SAP rows were deleted from `recoup_src_sap`, and runtime SAP source readers now reject any header row where `payload_json.d.SoldToParty` is missing or differs from any linked `USCU_*` provenance record.
+- The SAP provisioner now fails before SQL output when diagnostics exist or expected SAP coverage is missing. It also validates returned `BillingDocument` and `SoldToParty` against the approved source link and directly retains `sapCustomerId` in `linked_record_ids`.
+- S7/S8 have no current SAP evidence coverage by design until the owner/source mapping is reconciled or SAP supplies a matching invoice. They retain real Supabase docs/TPM/bureau source coverage.
+
+Historical blocked controller error, now superseded by the live `recoup_src_sap` table and fail-closed Harbor cleanup:
+
+```json
+{ "error": "Supabase SAP source evidence rows are unavailable or failed validation.", "missingSource": "supabase-sap-source-evidence-rows", "sourceTableName": "recoup_src_sap", "correlationId": "0142c7c9-1c16-42f4-b64e-4d905f4e0331" }
+```
+
+Current live checks reach `POST /forensics/query`; the E2E compares backend trace rows against app response and rendered DOM rows.
+
+Verification commands to record for the next real-backend gate:
+
+```powershell
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test
+npm.cmd run verify
+npm.cmd run test:e2e:maya-real
+```
+
+Recent controller/subagent evidence: Task 7 added `package.json` script `test:e2e:maya-real` and `tests/e2e/maya-real-backend-e2e.ts`; the harness starts real-backend mode, records backend calls, rejects fixture API and Playwright route/fulfill fragments, checks `/forensics`, `/connectors`, `/forensics/work-items/:lineId`, and `/forensics/query`, and now captures real-backend Beat 1-through-12 screenshots under `output/playwright/e2e/real-backend/`. Fresh controller checks show `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318` and reached live-agent-backed backend query orchestration for 4 Maya browser query scenarios with 32 backend trace rows; SAP OData reported `Connected` in source readiness, while non-SAP Day-1 sources remained synthetic-labeled. Fresh focused SAP/Supabase bridge tests passed (`tests/unit/sap-supabase-evidence-provisioner.test.ts`, `tests/unit/supabase-memory.test.ts`, `tests/unit/enterprise-connectors.test.ts`). Fresh full `npm.cmd run verify` passed with lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness passed. Final reviewer gate reported P0/P1/P2 none for the mixed SAP-customer provenance fix; a later live-agent query boundary reviewer reported two P2s and both are closed by source-target handoff enforcement plus route-level run-control/fail-closed tests, and the subsequent protected-read reviewer findings are closed by server-rendered backend auth headers plus source-health live probe enforcement. The shared workspace still has dirty/untracked files with nothing staged, so Phase 0 reproducibility remains blocked.
 
 ## Current Acceptance Snapshot
 
@@ -44,8 +89,21 @@ Current runtime screenshots:
 - `output/playwright/e2e/maya-beat-10-human-approval.png`
 - `output/playwright/e2e/maya-beat-11-audit-confirmation.png`
 - `output/playwright/e2e/maya-beat-12-return-worklist.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-01-login.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-02-dashboard.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-03-recommended-action.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-04-case-overview.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-05-evidence-dossier.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-06-query-start.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-07-agent-trace.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-08-cited-answer.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-09-draft-review.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-10-human-approval.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-11-audit-confirmation.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-beat-12-return-worklist.png`
+- `output/playwright/e2e/real-backend/maya-real-backend-contact-sheet.png`
 
-Current screenshot caveat: the storyboard screenshot set is current E2E evidence for the implemented 12-beat Maya shadcn path. Beat 12 has independent Maxwell acceptance; earlier per-beat sections preserve their own scorecards, verification notes, and backend/read-model deltas.
+Current screenshot caveat: the `real-backend/` storyboard screenshot set is current E2E evidence for the implemented 12-beat Maya shadcn path. It is captured by `tests/e2e/maya-real-backend-e2e.ts` with real backend mode and no fixture/fulfillment path. Beat-level mockup deltas remain visual polish notes unless they contradict backend provenance fidelity.
 
 ## Beat 1 Login Pass
 
@@ -148,14 +206,14 @@ None. No agent loop is currently active.
 - Beat 12 verification in this pass: RED source invariants first failed on missing local return wiring, then `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests), `npm.cmd run typecheck` passed, `npm.cmd run test:e2e -- --maya-shadcn-only` passed after adding `captureMayaBeat12ReturnWorklistScreenshot`, refreshing `output/playwright/e2e/maya-beat-12-return-worklist.png`, and full `npm.cmd run verify` passed (lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, release readiness).
 - Current open items are backend/read-model gaps only: approval eligibility and reviewed-evidence state, verified human principal display, committed audit receipt fields, queue summary, next-case recommendation, row priority/age/status history/last-updated fields, and server pagination metadata.
 - Unrelated dirty file remains: `cockpit/next-env.d.ts`. Leave it alone unless a future brief explicitly names it.
-- Broad full verification passed in this reviewer-fix loop.
+- Current broad full verification and real-backend Maya E2E are green; see the Task 9 Real-Backend Evidence Update and Verification Gates sections for the SAP/Supabase evidence closure details.
 - Keep all displayed business truth backend/read-model sourced in future beats.
 - Preserve visible cited record IDs, deterministic basis, evidence support, and HITL approval wherever decisions, answers, drafts, or audit states appear.
 
 ## Blockers
 
 - Prior Beat 1 approval blocker is superseded by the user's 2026-06-23 approval to proceed and the completed Beat 1-through-12 E2E path.
-- Supabase live-data caveat: `recoup_src_sap` has been observed as `404`. Do not mutate the external Supabase database or any external DB to fix this without explicit human approval.
+- Historical real-backend E2E blocker: the earlier GET `/forensics` HTTP 503 with `missingSource=supabase-sap-source-evidence-rows` and `sourceTableName=recoup_src_sap` is superseded by the approved Supabase `recoup_src_sap` table and 12 clean `sap-odata` rows. Current caveat: S7/S8 SAP evidence remains fail-closed because the approved Harbor mapping conflicts with the live SAP customer; those lines retain non-SAP Supabase source evidence. Do not mutate Supabase, SAP, ERP, or any external database without explicit human approval.
 - No external action, ERP write-back, approval dispatch, term/limit change, hold/freeze, Billing route, or correspondence may occur without the human approval gate.
 
 ## Next Actions
@@ -451,14 +509,19 @@ Gate result: independent reviewer Maxwell passed Beat 12 with every component at
 
 ## Verification Gates
 
-Current accepted evidence and gates:
+Historical shadcn-only visual evidence:
 
 - Beat 1-through-12 storyboard screenshots exist.
-- `npm.cmd run typecheck` passed.
-- `npm.cmd run test -- tests/invariants/maya-shadcn-boundary.test.ts tests/invariants/cockpit-no-business-logic.test.ts` passed (2 files / 42 tests).
-- `npm.cmd run test:e2e -- --maya-shadcn-only` passed and refreshed `output/playwright/e2e/maya-beat-12-return-worklist.png`.
-- Full `npm.cmd run verify` passed with lint, typecheck, 81 Vitest files / 599 tests, dependency-cruiser, and release readiness.
-- `docs/storyboards/maya-12-beat-fidelity-review.md` is updated with the current accepted Beat 12 Maxwell scorecard, screenshot paths, mockup paths, green gates, and unresolved backend-only deltas.
+- Historical focused shadcn-only checks passed for typecheck, Maya boundary/business-logic invariants, and `npm.cmd run test:e2e -- --maya-shadcn-only`, refreshing `output/playwright/e2e/maya-beat-12-return-worklist.png`.
+- `docs/storyboards/maya-12-beat-fidelity-review.md` records the Beat 12 Maxwell scorecard, screenshot paths, mockup paths, historical green shadcn-only gates, and unresolved backend-only deltas.
+
+Current shared-workspace status:
+
+- `npm.cmd run verify` passed on 2026-06-25 after protected-read auth, source-health, and backend trace fixes.
+- The proof pack covered lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness.
+- Current `npm.cmd run test:e2e:maya-real` passes against `http://127.0.0.1:4318` and reaches `POST /forensics/query` for 4 Maya browser query scenarios with 32 backend trace rows, including the live OpenAI Agents SDK Forensics Investigator -> Recovery Drafter handoff. The harness still rejects fixture API startup, Playwright route fulfillment, and dummy business-data acceptance.
+- Phase 0 reproducibility is not complete: the repo remains dirty/untracked with nothing staged. Treat this as a blocker before any commit-clean or reproducible release-candidate claim.
+- Supabase project `nmwfftudympcvcjtyjbf` now contains `public.recoup_src_sap` with 12 clean `sap-odata` rows for S1-S6. S7/S8 remain SAP-fail-closed because the approved Harbor/SAP customer mapping does not match the live SAP header; they retain docs/bureau evidence, plus TPM for S7.
 
 Before claiming a broader cutover or backend-completion state:
 
@@ -470,4 +533,4 @@ Before claiming a broader cutover or backend-completion state:
 
 ## Live-Data Caveat
 
-The active implementation must handle missing live source data honestly. Supabase `recoup_src_sap` returning `404` is a known caveat for this handoff. Do not mutate Supabase, SAP, ERP, or any external database without explicit human approval. Use existing backend/read-model fallbacks or blocked/unavailable states rather than inventing live data.
+The active implementation must handle missing live source data honestly. Current real-backend E2E is green for the implemented Maya journey, and Supabase `recoup_src_sap` provides live SAP OData evidence for S1-S6. SAP remains read-only. S7/S8 SAP evidence remains unavailable because the approved Harbor mapping conflicts with the live SAP customer, so those rows must stay fail-closed on SAP and use the available Supabase docs/bureau/TPM evidence rather than invented SAP coverage. Do not mutate Supabase, SAP, ERP, or any external database without explicit human approval.

@@ -185,12 +185,10 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
     }
     if (options.mayaShadcnOnly) {
       await captureMayaLoginBeatScreenshot(browser);
-      if (process.argv.includes("--maya-refresh-prior-shadcn-beats")) {
-        await captureMayaBeat2LandingScreenshot(browser);
-        await captureMayaBeat3RecommendedActionScreenshot(browser);
-        await captureMayaBeat4CaseOverviewScreenshot(browser);
-        await captureMayaBeat5EvidenceDossierScreenshot(browser);
-      }
+      await captureMayaBeat2LandingScreenshot(browser);
+      await captureMayaBeat3RecommendedActionScreenshot(browser);
+      await captureMayaBeat4CaseOverviewScreenshot(browser);
+      await captureMayaBeat5EvidenceDossierScreenshot(browser);
       await captureMayaBeat6QueryStartScreenshot(browser);
       await captureMayaBeat7AgentTraceScreenshot(browser);
       await captureMayaBeat8CitedAnswerScreenshot(browser);
@@ -199,7 +197,7 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
       await captureMayaBeat11AuditConfirmationScreenshot(browser);
       await captureMayaBeat12ReturnWorklistScreenshot(browser);
       console.log(
-        `Maya Beat 1 through Beat 12 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png, ${outputDir}/maya-beat-11-audit-confirmation.png, ${outputDir}/maya-beat-12-return-worklist.png`
+        `Maya Beat 1 through Beat 12 checked; screenshots written to ${outputDir}/maya-beat-01-login.png, ${outputDir}/maya-beat-02-dashboard.png, ${outputDir}/maya-beat-03-recommended-action.png, ${outputDir}/maya-beat-04-case-overview.png, ${outputDir}/maya-beat-05-evidence-dossier.png, ${outputDir}/maya-beat-06-query-start.png, ${outputDir}/maya-beat-07-agent-trace.png, ${outputDir}/maya-beat-08-cited-answer.png, ${outputDir}/maya-beat-09-draft-review.png, ${outputDir}/maya-beat-10-human-approval.png, ${outputDir}/maya-beat-11-audit-confirmation.png, ${outputDir}/maya-beat-12-return-worklist.png`
       );
       return;
     }
@@ -1732,6 +1730,7 @@ async function assertBeat4DraftTabFidelity(
   forbiddenRequests: string[]
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 4 Draft tab");
+  await page.locator('[data-testid="maya-recovery-draft-review"]').getByRole("tab", { name: "Audit basis" }).click();
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
 
   const result = await page.evaluate(() => {

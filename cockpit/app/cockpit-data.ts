@@ -1,5 +1,96 @@
 const apiBaseUrl = process.env.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
+export interface MayaFieldProvenance {
+  deterministicBasis: string;
+  recordIds: string[];
+  sourceKind: "agent_trace" | "derived_backend" | "operator_session" | "sap_odata" | "supabase";
+  sourceName: string;
+}
+
+export interface CockpitApiFailClosedBody {
+  correlationId: string;
+  error: string;
+  missingSource: string;
+}
+
+export class CockpitDataFetchError extends Error {
+  readonly correlationId: string | undefined;
+  readonly missingSource: string | undefined;
+  readonly path: string;
+  readonly status: number;
+
+  constructor(input: { body: Partial<CockpitApiFailClosedBody> | undefined; path: string; status: number }) {
+    super(input.body?.error ?? `Cockpit model failed for ${input.path}: ${String(input.status)}`);
+    this.name = "CockpitDataFetchError";
+    this.path = input.path;
+    this.status = input.status;
+    this.correlationId = input.body?.correlationId;
+    this.missingSource = input.body?.missingSource;
+  }
+}
+
+export type ForensicsQueryTracePhase = "supervisor" | "query" | "retrieval" | "decision";
+
+export interface ForensicsQueryTraceEvent {
+  agentName: string;
+  deterministicBasis: string;
+  hook: "agent_start" | "agent_end" | "agent_handoff" | "agent_tool_start" | "agent_tool_end";
+  label: string;
+  message: string;
+  nextAgentName?: string;
+  phase: ForensicsQueryTracePhase;
+  receiptDeterministicBasis: "OpenAI Agents SDK RunHooks lifecycle event" | "Recoup deterministic forensics hook audit event";
+  recordIds: string[];
+  retrievalSource?: "agent_trace" | "sap_odata" | "source_backed" | "supabase";
+  sourceKind?: MayaFieldProvenance["sourceKind"];
+  toolName?: string;
+}
+
+export interface ForensicsQueryCitation {
+  deterministicBasis: string;
+  documentId?: string;
+  recordId: string;
+  source?: string;
+  summary?: string;
+}
+
+export type ForensicsQueryModelExecution =
+  | {
+      agentNames: string[];
+      deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard";
+      handoffCount: number;
+      mode: "live_openai_agents";
+      rawModelTextPolicy: "suppressed";
+      tokenUsage?: number;
+    }
+  | {
+      deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.";
+      mode: "blocked_live_agent_trace" | "blocked_missing_credentials";
+      reason: string;
+    };
+
+export interface ForensicsQueryRequest {
+  question: string;
+  recordIds: string[];
+  selectedLineId: string;
+}
+
+export interface ForensicsQueryResponse {
+  answer?: string;
+  citations: ForensicsQueryCitation[];
+  deterministicBasis?: string;
+  modelExecution?: ForensicsQueryModelExecution;
+  trace: ForensicsQueryTraceEvent[];
+}
+
+export type ForensicsQueryUiStatus = "answered" | "blocked" | "connecting" | "error";
+
+export interface ForensicsQueryUiResponse extends ForensicsQueryResponse {
+  message: string;
+  recordIds: string[];
+  status: ForensicsQueryUiStatus;
+}
+
 export interface LoginCockpitModel {
   surface: "login";
   personas: Array<{
@@ -20,6 +111,7 @@ export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
   kpiStrip: Array<{
     label: string;
+    provenance: MayaFieldProvenance;
     support: string;
     value: string;
   }>;
@@ -29,15 +121,18 @@ export interface ForensicsCockpitModel {
     approvalActions: Array<{
       decision: "approve" | "modify" | "reject";
       label: string;
+      provenance: MayaFieldProvenance;
       requiresReason: boolean;
     }>;
     evidencePack: {
+      provenance: MayaFieldProvenance;
       recordIds: string[];
       documents: Array<{
         citationId: string;
         description: string;
         documentId: string;
         documentType: string;
+        provenance: MayaFieldProvenance;
         relevance: string;
         sourceLabel: string;
         summary: string;
@@ -52,6 +147,7 @@ export interface ForensicsCockpitModel {
       statusLabel: string;
       amount: string;
       basis: string;
+      provenance: MayaFieldProvenance;
     };
   };
   actionInbox: Array<{
@@ -61,6 +157,7 @@ export interface ForensicsCockpitModel {
     lineId: string;
     amount: string;
     basis?: string;
+    provenance: MayaFieldProvenance;
     status?: "pending_human";
     statusLabel?: string;
   }>;
@@ -69,14 +166,22 @@ export interface ForensicsCockpitModel {
     modeOptions: string[];
     policyLabel: string;
     promptPlaceholder: string;
+    promptSuggestions: Array<{
+      label: string;
+      provenance: MayaFieldProvenance;
+      question: string;
+      recordIds: string[];
+    }>;
     transcript: {
       english: string;
       native: string;
     };
+    provenance: MayaFieldProvenance;
     subAgents: Array<{
       artifacts: string;
       keyArtifact: string;
       name: string;
+      provenance: MayaFieldProvenance;
       query: string;
       source: string;
       statusLabel: string;
@@ -84,6 +189,7 @@ export interface ForensicsCockpitModel {
   };
   mayaJourney: Array<{
     label: string;
+    provenance: MayaFieldProvenance;
     recordIds: string[];
     status: string;
     timestamp: string;
@@ -94,29 +200,57 @@ export interface ForensicsCockpitModel {
     projectedBilling: string;
     recoveryLines: number;
     billingLines: number;
+    provenance: MayaFieldProvenance;
   };
-  retrievalStatus: Array<{ source: string; count: number; status?: string }>;
+  retrievalStatus: Array<{ source: string; count: number; provenance: MayaFieldProvenance; status?: string }>;
   containmentPanel: {
     actionPostureLabel: string;
     behavioralEvidenceIds: string[];
-    basisRows: Array<{ label: string; value: string }>;
+    basisRows: Array<{ label: string; provenance: MayaFieldProvenance; value: string }>;
     componentReadoutLabel: string;
     customerId: string;
     customerLabel: string;
     handoff: {
       label: string;
+      provenance: MayaFieldProvenance;
       recordIds: string[];
       status: string;
       target: string;
     };
     intentLabel: string;
     postureLabel: string;
+    provenance: MayaFieldProvenance;
     recordIds: string[];
     recordStripLabel: string;
     statusLabel: string;
   };
   whatChanged: string;
   aiInsight: string;
+}
+
+export interface ForensicsWorkItemDetailCockpitModel {
+  surface: "forensics-work-item-detail";
+  lineId: string;
+  workItem: WorklistItem;
+  selected: ForensicsCockpitModel["selected"];
+  recommendedAction: ForensicsCockpitModel["actionInbox"][number];
+  recoveryDraft: ForensicsCockpitModel["selected"]["draft"];
+  approvalState: {
+    actions: ForensicsCockpitModel["selected"]["approvalActions"];
+    provenance: MayaFieldProvenance;
+    status: "pending_human";
+    statusLabel: string;
+  };
+  auditState: {
+    provenance: MayaFieldProvenance;
+    recordIds: string[];
+    status: "pending_human";
+    statusLabel: string;
+  };
+  actionInbox: ForensicsCockpitModel["actionInbox"];
+  multimodalDock: ForensicsCockpitModel["multimodalDock"];
+  mayaJourney: ForensicsCockpitModel["mayaJourney"];
+  retrievalStatus: ForensicsCockpitModel["retrievalStatus"];
 }
 
 export type CreditCommandTone = "blocked" | "healthy" | "pending" | "warning";
@@ -429,16 +563,32 @@ export interface AgentGraphCockpitModel {
   }>;
 }
 
+export interface SourceHealthResult {
+  sourceName: string;
+  status: "connected" | "degraded" | "blocked";
+  sourceMode: "live" | "synthetic_static_table" | "unavailable";
+  checkedAtIso: string;
+  latencyMs: number;
+  proofItems: string[];
+  recordIds: string[];
+  lastError?: string;
+}
+
 export interface ConnectorReadinessCockpitModel {
   surface: "connector-readiness";
+  checkedAtIso: string;
   lastRefreshedLabel: string;
+  provenance: MayaFieldProvenance;
+  sourceHealth: SourceHealthResult[];
   sourceTiles: Array<{
+    checkedAtIso: string;
     detail: string;
     key: string;
     label: string;
     mark: string;
     modeLabel: string;
     proofItems: string[];
+    provenance: MayaFieldProvenance;
     stateLabel: string;
     statusTone: "ready" | "synthetic" | "blocked";
     summary: string;
@@ -484,20 +634,45 @@ export interface WorklistItem {
   confidenceLabel: string;
   evidenceScoreLabel: string;
   evidenceLabel: string;
+  provenance: MayaFieldProvenance;
   queueLabel: string;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, { cache: "no-store" });
+async function fetchJson<T>(path: string, headers?: HeadersInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    cache: "no-store",
+    ...(headers === undefined ? {} : { headers })
+  });
   if (!response.ok) {
-    throw new Error(`Cockpit model failed for ${path}: ${String(response.status)}`);
+    throw new CockpitDataFetchError({
+      body: await readFailClosedBody(response),
+      path,
+      status: response.status
+    });
   }
 
   return (await response.json()) as T;
 }
 
-export async function fetchForensicsModel(): Promise<ForensicsCockpitModel> {
-  return fetchJson<ForensicsCockpitModel>("/forensics");
+async function readFailClosedBody(response: Response): Promise<Partial<CockpitApiFailClosedBody> | undefined> {
+  try {
+    const body = (await response.json()) as unknown;
+    return isFailClosedBody(body) ? body : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isFailClosedBody(value: unknown): value is Partial<CockpitApiFailClosedBody> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export async function fetchForensicsModel(headers?: HeadersInit): Promise<ForensicsCockpitModel> {
+  return fetchJson<ForensicsCockpitModel>("/forensics", headers);
+}
+
+export async function fetchForensicsWorkItemDetail(lineId: string): Promise<ForensicsWorkItemDetailCockpitModel> {
+  return fetchJson<ForensicsWorkItemDetailCockpitModel>(`/forensics/work-items/${encodeURIComponent(lineId)}`);
 }
 
 export async function fetchLoginModel(): Promise<LoginCockpitModel> {
@@ -524,6 +699,6 @@ export async function fetchAgentGraphModel(): Promise<AgentGraphCockpitModel> {
   return fetchJson<AgentGraphCockpitModel>("/agents");
 }
 
-export async function fetchConnectorReadinessModel(): Promise<ConnectorReadinessCockpitModel> {
-  return fetchJson<ConnectorReadinessCockpitModel>("/connectors");
+export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promise<ConnectorReadinessCockpitModel> {
+  return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers);
 }

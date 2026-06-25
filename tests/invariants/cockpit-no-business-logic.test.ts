@@ -74,22 +74,28 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(mayaSources).toContain("connectors: ConnectorReadinessCockpitModel");
     expect(mayaSources).toContain("session: DemoSession");
     expect(mayaSources).toContain("recommendedActionLabel");
-    expect(queryDock).toContain("startRealtimeBrowserSession");
-    expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain('fetch("/api/forensics/query"');
+    expect(queryDock).not.toContain("startRealtimeBrowserSession");
+    expect(queryDock).not.toContain("../../app/realtime-browser-session");
     expect(queryDock).toContain("sessionTokenRef");
     expect(queryDock).toContain("closeActiveSession");
     expect(queryDock).toContain("onOpenChange={handleOpenChange}");
     expect(queryDock).toContain("onResponse: (response: QueryEvidenceResponse) => void");
     expect(queryDock).toContain("publishForToken");
     expect(queryDock).toContain("onResponse(next)");
+    expect(queryDock).not.toContain("onResponseRef.current(undefined)");
     expect(queryDock).toContain("question:");
     expect(queryDock).toContain("QUERY_QUESTION_CHARACTER_LIMIT = 500");
     expect(queryDock).toContain("maxLength={QUERY_QUESTION_CHARACTER_LIMIT}");
+    expect(queryDock).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
     expect(queryDock).toContain("Selected evidence context");
     expect(queryDock).toContain("Client-selected case context");
     expect(queryDock).toContain('data-testid="maya-selected-evidence-context"');
     expect(queryDock).toContain("Selected evidence packet");
     expect(queryDock).toContain('data-testid="maya-query-record-id"');
+    expect(queryDock).toContain('data-testid="maya-query-source-details"');
+    expect(queryDock).toContain('data-testid="maya-query-trace-details"');
+    expect(queryDock).toMatch(/\bisRunning\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u);
     expect(sheet).toContain("overlayClassName?: string");
     expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
     expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
@@ -106,6 +112,18 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("submittedQuestion");
     expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
     expect(queryDock).toContain('data-testid="maya-submitted-query"');
+    expect(queryDock).toContain("const blockedRecordIds");
+    expect(queryDock).toContain("citations: response.citations");
+    expect(queryDock).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
+    expect(queryDock).not.toMatch(/return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u);
+    expect(queryDock).toContain("aria-describedby={promptChipDescriptionId}");
+    expect(queryDock).toContain("id={promptChipDescriptionId}");
+    expect(queryDock).toMatch(
+      /<div\b(?=[^>]*\bclassName="grid min-w-0 gap-2 rounded-lg border bg-background p-3")(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
+    );
+    expect(queryDock).not.toMatch(
+      /data-testid="maya-query-assistant-message"[\s\S]{0,900}\b(?:snapshot|response)\.answer\b/u
+    );
     expect(queryDock).toContain("evidencePack: MayaEvidencePack");
     expect(queryDock).toContain("evidencePack,");
     expect(queryDock).toContain("evidencePack={evidencePack}");
@@ -119,15 +137,27 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(citedAnswer).toContain('data-testid="maya-cited-answer-text"');
     expect(citedAnswer).toContain('data-testid="maya-cited-answer-basis"');
     expect(citedAnswer).toContain('data-testid="maya-cited-record-row"');
-    expect(citedAnswer).toContain('data-metadata-gap={metadata === undefined ? "true" : undefined}');
+    expect(citedAnswer).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
+    expect(citedAnswer).toContain('data-testid="maya-cited-source-details"');
+    expect(citedAnswer.indexOf('data-testid="maya-cited-source-details"')).toBeLessThan(
+      citedAnswer.indexOf('data-testid="maya-cited-record-row"')
+    );
+    expect(citedAnswer).toContain('data-metadata-gap={metadata === undefined && !hasBackendMetadata ? "true" : undefined}');
     expect(citedAnswer).toContain("evidencePack: MayaEvidencePack");
-    expect(citedAnswer).toContain("findEvidenceDocumentForRecordId");
-    expect(citedAnswer).toContain("document.documentId === recordId");
-    expect(citedAnswer).toContain("document.citationId === recordId");
+    expect(citedAnswer).toContain("findEvidenceDocumentForCitation");
+    expect(citedAnswer).toContain("document.documentId === citation.documentId");
+    expect(citedAnswer).toContain("document.citationId === citation.recordId");
     expect(citedAnswer).toContain("evidencePack.documents.length");
-    expect(citedAnswer).toContain('data-metadata-join={metadata === undefined ? undefined : "exact"}');
+    expect(citedAnswer).toContain('hasBackendMetadata ? "backend-citation" : undefined');
     expect(citedAnswer).toContain('data-testid="maya-cited-record-metadata"');
-    expect(citedAnswer).toContain("response.recordIds.map");
+    expect(citedAnswer).toContain("response.citations.map");
+    expect(citedAnswer).toContain("citationRows.map");
+    expect(citedAnswer).not.toContain("orderedCitationRows");
+    expect(citedAnswer).not.toMatch(/\bcitationRows\b[\s\S]{0,160}\.sort\s*\(/u);
+    expect(citedAnswer).toContain("citation.source");
+    expect(citedAnswer).toContain("citation.summary");
+    expect(citedAnswer).toContain("citation.documentId");
+    expect(citedAnswer).not.toContain("citation.deterministicBasis.trim().length > 0");
     expect(citedAnswer).toContain("Metadata unavailable");
     expect(citedAnswer).not.toContain("fallbackRecordIds.map");
     expect(citedAnswer).not.toMatch(
@@ -138,20 +168,30 @@ describe("S5 cockpit business-logic boundary", () => {
     );
     expect(queryDock).not.toContain("/api/query/realtime-tool");
     expect(queryDock).not.toContain("2000");
-    expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu);
+    expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|write back|route to billing|change terms|release hold|freeze)\b/iu);
     const agentTracePanel = readFileSync("cockpit/components/maya/agent-trace-panel.tsx", "utf8");
     const traceAndDock = `${agentTracePanel}\n${queryDock}`;
-    expect(agentTracePanel).toContain('response?.status === "connecting" || response?.status === "connected"');
+    expect(agentTracePanel).toContain('response?.status === "connecting"');
     expect(agentTracePanel).toContain('data-testid="maya-trace-running-session"');
-    expect(agentTracePanel).toContain('data-testid="maya-trace-running-skeleton"');
     expect(agentTracePanel).toContain("Trace rail");
+    expect(agentTracePanel).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
     expect(agentTracePanel).toContain("@/components/ui/table");
-    expect(agentTracePanel).toContain('data-testid="maya-static-context-table"');
-    expect(agentTracePanel).toContain('data-testid="maya-static-context-row"');
-    expect(agentTracePanel).toContain("Read-model evidence context");
-    expect(agentTracePanel).toContain("Backend trace-step contract gap");
+    expect(agentTracePanel).toContain('data-testid="maya-agent-trace-details"');
+    expect(agentTracePanel).toContain('data-testid="maya-backend-trace-table"');
+    expect(agentTracePanel).toContain('data-testid="maya-backend-trace-row"');
+    expect(agentTracePanel.indexOf('data-testid="maya-agent-process-map"')).toBeLessThan(
+      agentTracePanel.indexOf('data-testid="maya-agent-trace-details"')
+    );
+    expect(agentTracePanel.indexOf('data-testid="maya-agent-trace-details"')).toBeLessThan(
+      agentTracePanel.indexOf('data-testid="maya-backend-trace-table"')
+    );
+    expect(agentTracePanel).toContain("event.deterministicBasis");
+    expect(agentTracePanel).not.toContain('data-testid="maya-static-context-table"');
+    expect(agentTracePanel).not.toContain("Backend trace-step contract gap");
     expect(agentTracePanel).not.toMatch(/agent\.statusLabel\s*===/u);
     expect(agentTracePanel).not.toContain("statusLabel.toLowerCase");
+    expect(agentTracePanel).toContain("No record IDs");
+    expect(agentTracePanel).not.toContain("selected-evidence-read-model");
     expect(traceAndDock).not.toMatch(/\b(?:Query Agent accepted|Forensics context attached|Delivery proof retriever|Evidence reader|Citation and action guard)\b/u);
     expect(traceAndDock).not.toMatch(/\b(?:POD_2025|312 KB|SHA-256|Custodian|Proof of Delivery|fake five-step|fake trace)\b/u);
     expect(realtimeHelper).toContain('const realtimeToolUrl = "/api/query/realtime-tool"');
@@ -196,6 +236,10 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("<QueryEvidenceDock");
     expect(caseWorkspace).toContain("queryDockOpen");
     expect(caseWorkspace).toContain("setQueryDockOpen");
+    expect(caseWorkspace).toContain("QueryEvidenceResponse");
+    expect(caseWorkspace).toContain("setQueryResponse");
+    expect(caseWorkspace).toContain("setQueryResponse(undefined)");
+    expect(caseWorkspace).toContain("response={queryResponse}");
     expect(caseWorkspace).toContain("recordIds={selected.evidencePack.recordIds}");
     expect(caseWorkspace).toContain("evidencePack={selected.evidencePack}");
     expect(caseWorkspace).toContain('data-testid="maya-case-primary-draft-facts"');
@@ -211,6 +255,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("Approval locked");
     expect(caseWorkspace).not.toContain("More actions");
     expect(caseWorkspace).not.toContain("queryResponse?: QueryEvidenceResponse");
+    expect(caseWorkspace).toContain("onResponse={setQueryResponse}");
+    expect(caseWorkspace).not.toContain("onResponse={() => undefined}");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
@@ -311,6 +357,52 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(mayaSources).not.toContain("indexedDB");
   });
 
+  it("rejects active-looking Maya controls that are not backed by behavior", () => {
+    const worklist = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const returnedWorklist = surface.slice(surface.indexOf("function BeatTwelveReturnedWorklist"));
+
+    expect(worklist).toContain("Search by scenario, customer, or line ID");
+    expect(worklist).not.toContain("Save view");
+    expect(worklist).not.toContain("Worklist display options");
+    expect(worklist).not.toContain("More filters");
+    expect(worklist).not.toMatch(/<Button\b[\s\S]{0,260}\bRecommended action\b[\s\S]{0,160}<\/Button>/u);
+    expect(worklist).not.toMatch(/<Button\b[\s\S]{0,220}>\s*Queue\s*<\/Button>/u);
+    expect(worklist).not.toMatch(/<DropdownMenuTrigger\b[\s\S]{0,360}\bMore filters\b/u);
+    expect(surface).not.toContain("Add note");
+    expect(surface).not.toContain("maya-local-row-action-add-note");
+    expect(surface).not.toContain("FilterIcon");
+    expect(surface).not.toContain("Columns3Icon");
+    expect(returnedWorklist).not.toMatch(/<Button\b[^>]*\bdisabled\b[\s\S]{0,180}\b(?:Filters|Columns)\b/u);
+    expect(returnedWorklist).not.toMatch(
+      /aria-label=["']Refresh unavailable: no backend refresh action is exposed["'][\s\S]{0,180}\bdisabled\b/u
+    );
+  });
+
+  it("refreshes Maya source readiness through a same-origin connector proxy every fifteen minutes", () => {
+    const sourceStrip = readFileSync("cockpit/components/maya/source-readiness-strip.tsx", "utf8");
+    const connectorRoute = readFileSync("cockpit/app/api/connectors/route.ts", "utf8");
+
+    expect(sourceStrip).toContain("sourceReadinessRefreshIntervalMs = 15 * 60 * 1000");
+    expect(sourceStrip).toContain('fetch("/api/connectors"');
+    expect(sourceStrip).toContain("window.setInterval");
+    expect(sourceStrip).toContain("window.clearInterval");
+    expect(sourceStrip).toContain("setCurrentConnectors");
+    expect(sourceStrip).toContain("sourceRefreshError");
+    expect(sourceStrip).toContain('data-testid="maya-source-refresh-status"');
+    expect(sourceStrip).toContain("aria-live");
+    expect(sourceStrip).not.toContain("toBlockedConnectorReadiness");
+    expect(sourceStrip).not.toMatch(/\bsourceTiles\s*:\s*currentConnectors\.sourceTiles\.map/u);
+    expect(sourceStrip).not.toMatch(/\bsourceHealth\s*:\s*currentConnectors\.sourceHealth\.map/u);
+    expect(sourceStrip).not.toMatch(/\bprovenance\s*=\s*\{/u);
+    expect(sourceStrip).not.toMatch(/\bstatus\s*:\s*"blocked"/u);
+    expect(sourceStrip).not.toMatch(/\brecordIds\s*:\s*\[\]/u);
+    expect(connectorRoute).toContain("loadLocalRuntimeEnvFiles");
+    expect(connectorRoute).toContain('`${apiBaseUrl}/connectors`');
+    expect(connectorRoute).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(connectorRoute).not.toContain("SAP_ODATA_CLIENT_SECRET");
+  });
+
   it("keeps Maya Beat 12 return navigation local and read-model honest", () => {
     const cockpitData = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
@@ -342,6 +434,29 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(beat12Sources).not.toMatch(/\b(?:128|\$2\.74M|14\.6 days|96%|May 24, 2025)\b/u);
     expect(auditPanel).not.toContain("fetch(");
     expect(auditPanel).not.toContain("/api/");
+  });
+
+  it("keeps Maya root sidebar sections and valid verdict surfacing read-model backed", () => {
+    const shell = readFileSync("cockpit/components/maya/maya-workspace-shell.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const table = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
+    const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+
+    expect(shell).toContain("activeSection: MayaSurfaceSection");
+    expect(shell).toContain("onSectionChange?: (section: MayaSurfaceSection) => void");
+    expect(shell).toContain("onSectionChange?.(item.section)");
+    expect(shell).toContain("disabled={onSectionChange === undefined}");
+    expect(shell).not.toMatch(/\b(?:Deductions|Run trace|Analytics|Configuration)\b/u);
+    expect(surface).toContain('React.useState<MayaSurfaceSection>("overview")');
+    expect(surface).toContain("activeSection={activeSection}");
+    expect(surface).toContain("onSectionChange={setActiveSection}");
+    expect(surface).toContain('model.worklist.filter((item) => item.verdict === "valid").length');
+    expect(surface).toContain('data-testid="maya-valid-deduction-signal"');
+    expect(table).toContain('item.verdict === "valid"');
+    expect(table).toContain("data-verdict={item.verdict}");
+    expect(workspace).toContain('selectedWorklistItem.verdict === "valid"');
+    expect(workspace).toContain("data-verdict={selectedWorklistItem.verdict}");
+    expect(`${surface}\n${table}\n${workspace}`).not.toMatch(/["'`]Valid deduction["'`]/u);
   });
 
   it("keeps David command-centre rows in the canonical credit read model", () => {
@@ -529,6 +644,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const realtimeControls = readFileSync("cockpit/app/realtime-query-controls.tsx", "utf8");
     const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
     const approvalProxy = readFileSync("cockpit/app/api/approval/route.ts", "utf8");
+    const connectorsProxy = readFileSync("cockpit/app/api/connectors/route.ts", "utf8");
     const loginProxy = readFileSync("cockpit/app/api/demo-login/route.ts", "utf8");
     const realtimeProxy = readFileSync("cockpit/app/api/query/realtime-client-secret/route.ts", "utf8");
     const humanAuth = readFileSync("cockpit/app/api/human-auth.ts", "utf8");
@@ -546,6 +662,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(humanAuth).toContain("recoup_human_token");
     expect(approvalProxy).toContain("buildVerifiedHumanAuthHeaders");
     expect(approvalProxy).toContain("loadLocalRuntimeEnvFiles");
+    expect(connectorsProxy).toContain("buildVerifiedHumanAuthHeaders");
+    expect(connectorsProxy).toContain("loadLocalRuntimeEnvFiles");
     expect(loginProxy).toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(loginProxy).toContain("verify_recoup_demo_login");
     expect(realtimeProxy).toContain("buildVerifiedHumanAuthHeaders");

@@ -126,7 +126,13 @@ describe("MCP tool visibility", () => {
     expect(() => facade.callTool("actions.draftRebill", { decisionId: "deduction-decision:S1-L2" })).toThrow(
       "Actor is not permitted to create draft-only action artifacts."
     );
-    expect(facade.callTool("query.answer", { question: "Show cited status" })).toMatchObject({
+    expect(
+      facade.callTool("query.answer", {
+        question: "Show cited status for selected evidence",
+        recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1"],
+        selectedLineId: "S3-L1"
+      })
+    ).toMatchObject({
       status: "disabled_offline_safe"
     });
   });

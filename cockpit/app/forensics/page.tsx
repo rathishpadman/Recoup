@@ -3,6 +3,7 @@ import { DownloadSimpleIcon as DownloadSimple } from "@phosphor-icons/react/dist
 import { FunnelIcon as Funnel } from "@phosphor-icons/react/dist/ssr/Funnel";
 import { SquaresFourIcon as SquaresFour } from "@phosphor-icons/react/dist/ssr/SquaresFour";
 import { ApprovalControls } from "../approval-controls.tsx";
+import { requireMayaBackendReadAuthHeaders } from "../backend-read-auth.ts";
 import { CockpitShell, RecordStrip } from "../cockpit-shell.tsx";
 import { fetchConnectorReadinessModel, fetchForensicsModel } from "../cockpit-data.ts";
 import { requireRouteAccess } from "../demo-auth.ts";
@@ -10,7 +11,11 @@ import { AuditVerifyChip, MultimodalDock, ToolStatusRail } from "../premium-comp
 
 export default async function ForensicsPage() {
   const session = await requireRouteAccess("/forensics");
-  const [model, connectors] = await Promise.all([fetchForensicsModel(), fetchConnectorReadinessModel()]);
+  const backendReadAuthHeaders = await requireMayaBackendReadAuthHeaders();
+  const [model, connectors] = await Promise.all([
+    fetchForensicsModel(backendReadAuthHeaders),
+    fetchConnectorReadinessModel(backendReadAuthHeaders)
+  ]);
   const selectedScenario = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? model.worklist[0];
 
   return (

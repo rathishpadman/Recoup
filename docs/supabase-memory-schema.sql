@@ -110,6 +110,18 @@ CREATE TABLE IF NOT EXISTS recoup_src_tpm (
   CHECK (window_end >= window_start)
 );
 
+CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots (
+  source_name text PRIMARY KEY,
+  status text NOT NULL CHECK (status IN ('connected', 'degraded', 'blocked')),
+  source_mode text NOT NULL CHECK (source_mode IN ('live', 'synthetic_static_table', 'unavailable')),
+  checked_at timestamptz NOT NULL,
+  latency_ms int NOT NULL CHECK (latency_ms >= 0),
+  proof_items_json jsonb NOT NULL CHECK (jsonb_typeof(proof_items_json) = 'array' AND jsonb_array_length(proof_items_json) > 0),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  last_error text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS customers (
   customer_id text PRIMARY KEY,
   customer_name text NOT NULL,
@@ -433,6 +445,7 @@ REVOKE ALL ON TABLE recoup_src_docs FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
@@ -461,6 +474,7 @@ GRANT SELECT ON TABLE recoup_src_docs TO service_role;
 GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
 GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role;
 GRANT SELECT ON TABLE customers TO service_role;
 GRANT SELECT ON TABLE payments TO service_role;
 GRANT SELECT ON TABLE pod_records TO service_role;
@@ -592,6 +606,20 @@ ALTER TABLE recoup_src_sap ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_sap FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
+CREATE POLICY recoup_source_health_snapshots_service_role_select
+  ON recoup_source_health_snapshots
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_source_health_snapshots_service_role_insert
+  ON recoup_source_health_snapshots
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_source_health_snapshots_service_role_update
+  ON recoup_source_health_snapshots
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;

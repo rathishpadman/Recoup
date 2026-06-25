@@ -14,6 +14,7 @@ import {
   type ReleaseOwnerInputSnapshot
 } from "../../config/releaseOwnerInputs.js";
 import { buildSyntheticDataset } from "../adapters/syntheticData.js";
+import type { SourceHealthResult } from "../services/sourceHealth.js";
 
 export type SupabaseMemoryFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -32,6 +33,11 @@ export interface SupabaseReleaseOwnerInputRepository {
   loadActive(): Promise<ReleaseOwnerInputSnapshot>;
 }
 
+export interface SupabaseSourceHealthSnapshotRepository {
+  loadLatest(): Promise<SourceHealthResult[]>;
+  upsert(results: readonly SourceHealthResult[]): Promise<void>;
+}
+
 export interface SupabaseMemoryRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
@@ -48,6 +54,13 @@ export interface SupabaseGovernedConfigRepositoryOptions {
 export interface SupabaseReleaseOwnerInputRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
+  url: string;
+}
+
+export interface SupabaseSourceHealthSnapshotRepositoryOptions {
+  fetcher?: SupabaseMemoryFetch;
+  serviceRoleKey: string;
+  tableName?: string;
   url: string;
 }
 
@@ -82,7 +95,19 @@ interface SupabaseMemoryRow {
   trust_level: string;
 }
 
+interface SupabaseSourceHealthSnapshotRow {
+  checked_at: string;
+  last_error: string | null;
+  latency_ms: number;
+  proof_items_json: string[] | string;
+  record_ids_json: string[] | string;
+  source_mode: string;
+  source_name: string;
+  status: string;
+}
+
 const defaultMemoryTableName = "recoup_memory_records";
+const defaultSourceHealthSnapshotTableName = "recoup_source_health_snapshots";
 
 export function createSupabaseMemoryRepository(options: SupabaseMemoryRepositoryOptions): SupabaseMemoryRepository {
   const tableName = normalizeTableName(options.tableName ?? defaultMemoryTableName);
@@ -99,7 +124,7 @@ export function createSupabaseMemoryRepository(options: SupabaseMemoryRepository
         url: `${baseUrl}/rest/v1/${tableName}?on_conflict=id`
       });
 
-      return parseSupabaseMemoryRow(rows[0]);
+      return rows[0] === undefined ? parsed : parseSupabaseMemoryRow(rows[0]);
     },
     async appendIfAbsent(record) {
       const parsed = MemoryRecordSchema.parse(record);
@@ -232,6 +257,55 @@ export function createSupabaseReleaseOwnerInputRepositoryFromEnv(
   }
 
   return createSupabaseReleaseOwnerInputRepository({
+    ...(fetcher === undefined ? {} : { fetcher }),
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    url: env.SUPABASE_URL
+  });
+}
+
+export function createSupabaseSourceHealthSnapshotRepository(
+  options: SupabaseSourceHealthSnapshotRepositoryOptions
+): SupabaseSourceHealthSnapshotRepository {
+  const tableName = normalizeTableName(options.tableName ?? defaultSourceHealthSnapshotTableName);
+  const baseUrl = normalizeSupabaseUrl(options.url);
+  const fetcher = options.fetcher ?? fetch;
+
+  return {
+    async loadLatest() {
+      const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
+      url.searchParams.set(
+        "select",
+        "source_name,status,source_mode,checked_at,latency_ms,proof_items_json,record_ids_json,last_error"
+      );
+      url.searchParams.set("order", "source_name.asc");
+      const rows = await requestSourceHealthRows(fetcher, {
+        method: "GET",
+        serviceRoleKey: options.serviceRoleKey,
+        url: url.href
+      });
+
+      return rows.map(parseSupabaseSourceHealthSnapshotRow);
+    },
+    async upsert(results) {
+      await requestSourceHealthRows(fetcher, {
+        body: JSON.stringify(results.map(toSupabaseSourceHealthSnapshotRow)),
+        method: "POST",
+        serviceRoleKey: options.serviceRoleKey,
+        url: `${baseUrl}/rest/v1/${tableName}?on_conflict=source_name`
+      });
+    }
+  };
+}
+
+export function createSupabaseSourceHealthSnapshotRepositoryFromEnv(
+  env: RuntimeEnv,
+  fetcher?: SupabaseMemoryFetch
+): SupabaseSourceHealthSnapshotRepository | undefined {
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  return createSupabaseSourceHealthSnapshotRepository({
     ...(fetcher === undefined ? {} : { fetcher }),
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
     url: env.SUPABASE_URL
@@ -513,6 +587,18 @@ CREATE TABLE IF NOT EXISTS recoup_src_tpm (
   claim_refs jsonb NOT NULL CHECK (jsonb_typeof(claim_refs) = 'array'),
   provenance text NOT NULL CHECK (provenance = 'synthetic'),
   CHECK (window_end >= window_start)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots (
+  source_name text PRIMARY KEY,
+  status text NOT NULL CHECK (status IN ('connected', 'degraded', 'blocked')),
+  source_mode text NOT NULL CHECK (source_mode IN ('live', 'synthetic_static_table', 'unavailable')),
+  checked_at timestamptz NOT NULL,
+  latency_ms int NOT NULL CHECK (latency_ms >= 0),
+  proof_items_json jsonb NOT NULL CHECK (jsonb_typeof(proof_items_json) = 'array' AND jsonb_array_length(proof_items_json) > 0),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  last_error text,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -838,6 +924,7 @@ REVOKE ALL ON TABLE recoup_src_docs FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
@@ -866,6 +953,7 @@ GRANT SELECT ON TABLE recoup_src_docs TO service_role;
 GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
 GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role;
 GRANT SELECT ON TABLE customers TO service_role;
 GRANT SELECT ON TABLE payments TO service_role;
 GRANT SELECT ON TABLE pod_records TO service_role;
@@ -961,6 +1049,20 @@ ALTER TABLE recoup_src_sap ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_sap FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
+CREATE POLICY recoup_source_health_snapshots_service_role_select
+  ON recoup_source_health_snapshots
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_source_health_snapshots_service_role_insert
+  ON recoup_source_health_snapshots
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_source_health_snapshots_service_role_update
+  ON recoup_source_health_snapshots
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
@@ -1026,6 +1128,37 @@ async function requestRows(
   }
 
   return (await response.json()) as SupabaseMemoryRow[];
+}
+
+async function requestSourceHealthRows(
+  fetcher: SupabaseMemoryFetch,
+  input: {
+    body?: string;
+    method: "GET" | "POST";
+    serviceRoleKey: string;
+    url: string;
+  }
+): Promise<SupabaseSourceHealthSnapshotRow[]> {
+  const response = await fetcher(input.url, {
+    ...(input.body === undefined ? {} : { body: input.body }),
+    headers: {
+      ...serviceRoleReadHeaders(input.serviceRoleKey),
+      ...(input.body === undefined ? {} : { "content-type": "application/json" }),
+      prefer: "resolution=merge-duplicates,return=representation"
+    },
+    method: input.method
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase source health request failed with HTTP ${String(response.status)}.`);
+  }
+
+  const rows = (await response.json()) as unknown;
+  if (!Array.isArray(rows)) {
+    throw new Error("Supabase source health response must be an array of rows.");
+  }
+
+  return rows.map((row) => row as SupabaseSourceHealthSnapshotRow);
 }
 
 async function requestGovernedConfigRows(
@@ -1143,6 +1276,19 @@ function toSupabaseRow(record: MemoryRecord): SupabaseMemoryRow {
   };
 }
 
+function toSupabaseSourceHealthSnapshotRow(result: SourceHealthResult): SupabaseSourceHealthSnapshotRow {
+  return {
+    checked_at: result.checkedAtIso,
+    last_error: result.lastError ?? null,
+    latency_ms: result.latencyMs,
+    proof_items_json: result.proofItems,
+    record_ids_json: result.recordIds,
+    source_mode: result.sourceMode,
+    source_name: result.sourceName,
+    status: result.status
+  };
+}
+
 function parseSupabaseMemoryRow(row: SupabaseMemoryRow | undefined): MemoryRecord {
   if (row === undefined) {
     throw new Error("Supabase memory response did not include a record.");
@@ -1159,8 +1305,50 @@ function parseSupabaseMemoryRow(row: SupabaseMemoryRow | undefined): MemoryRecor
   });
 }
 
+function parseSupabaseSourceHealthSnapshotRow(row: SupabaseSourceHealthSnapshotRow | undefined): SourceHealthResult {
+  if (row === undefined) {
+    throw new Error("Supabase source health response did not include a record.");
+  }
+
+  if (!isSourceHealthStatus(row.status)) {
+    throw new Error("Supabase source health row has an invalid status.");
+  }
+
+  if (!isSourceHealthMode(row.source_mode)) {
+    throw new Error("Supabase source health row has an invalid source mode.");
+  }
+
+  return {
+    checkedAtIso: normalizeSupabaseTimestamp(row.checked_at),
+    ...(typeof row.last_error === "string" && row.last_error.trim().length > 0 ? { lastError: row.last_error } : {}),
+    latencyMs: row.latency_ms,
+    proofItems: parseStringArrayCell(row.proof_items_json, "proof_items_json"),
+    recordIds: parseStringArrayCell(row.record_ids_json, "record_ids_json"),
+    sourceMode: row.source_mode,
+    sourceName: row.source_name,
+    status: row.status
+  };
+}
+
 function parseJsonCell(value: Record<string, unknown> | string | string[]): unknown {
   return typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+}
+
+function parseStringArrayCell(value: string[] | string, columnName: string): string[] {
+  const parsed = parseJsonCell(value);
+  if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((item) => typeof item === "string")) {
+    throw new Error(`Supabase source health ${columnName} must be a non-empty string array.`);
+  }
+
+  return parsed;
+}
+
+function isSourceHealthStatus(value: string): value is SourceHealthResult["status"] {
+  return value === "connected" || value === "degraded" || value === "blocked";
+}
+
+function isSourceHealthMode(value: string): value is SourceHealthResult["sourceMode"] {
+  return value === "live" || value === "synthetic_static_table" || value === "unavailable";
 }
 
 function normalizeSupabaseTimestamp(value: string): string {

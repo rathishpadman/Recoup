@@ -8,7 +8,78 @@ Verification command for the current proof pack:
 npm.cmd run verify
 ```
 
-This command includes `verify:release`, which now reads owner-approved run-control and eval-label rows from Supabase `recoup_config`. The current proof pack passes end to end when `.env.local` has the Supabase service credentials; the latest run passed ESLint, TypeScript, Vitest (`80` files / `578` tests), Dependency Cruiser (`109` modules / `333` dependencies), and live `verify:release`.
+This remains the proof-pack command because it includes `verify:release`, which reads owner-approved run-control and eval-label rows from Supabase `recoup_config`. Current 2026-06-25 controller evidence is green: `npm.cmd run verify` passed with lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness passed. `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318` and reached backend `/forensics/query` for 4 Maya browser query scenarios with 32 backend trace rows, including live OpenAI Agents SDK Forensics Investigator -> Recovery Drafter hook receipts while the visible answer remained deterministic and cited. Phase 0 reproducibility is not complete because the current repo remains dirty/untracked with nothing staged; do not describe the shared workspace as commit-clean or reproducible until a clean review branch/snapshot is created and the proof pack is rerun there. The server-rendered Maya pages now forward verified human backend-read headers for protected `/forensics` and `/connectors` fetches.
+
+## Maya Real-Backend SAP/Supabase Closure - 2026-06-24
+
+This entry supersedes the earlier blocked `recoup_src_sap` note for Maya real-backend readiness.
+
+Current source/data state:
+
+- Supabase project `nmwfftudympcvcjtyjbf` now has `public.recoup_src_sap` with 12 clean `sap-odata` read-model rows covering S1-S6 from `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentFs` and `ZUI_BILLINGDOCUMENTFS_0001/C_BillingDocumentItemFs`.
+- The two stale Harbor SAP cache rows for invoice `90000005` were deleted because live SAP returned `SoldToParty=USCU_L02` while owner/Supabase mapping identifies Harbor as `USCU_S04`. Runtime SAP evidence readers now reject any stored SAP header row where linked `USCU_*` provenance contradicts `payload_json.d.SoldToParty`.
+- S7/S8 intentionally have no SAP coverage until the owner/source mapping is reconciled or SAP supplies a matching invoice. They remain covered through real Supabase docs/TPM/bureau evidence rows and Maya E2E still passes.
+- The SAP provisioner is read-only against SAP and writes no ERP data. It builds `recoup_src_sap` rows from approved source links, validates `BillingDocument` and `SoldToParty` before row creation, keeps mapping provenance in `linked_record_ids`, and fails before SQL output when diagnostics or expected line coverage gaps exist.
+
+Files and proof:
+
+- `src/services/sapSupabaseEvidenceProvisioner.ts`
+- `scripts/provisionSupabaseSapEvidenceRows.ts`
+- `src/adapters/supabaseSyntheticSource.ts`
+- `tests/unit/sap-supabase-evidence-provisioner.test.ts`
+- `tests/unit/enterprise-connectors.test.ts`
+- `tests/unit/supabase-memory.test.ts`
+- `tests/e2e/maya-real-backend-e2e.ts`
+
+Fresh verification:
+
+```powershell
+npm.cmd run test -- tests/unit/sap-supabase-evidence-provisioner.test.ts tests/unit/supabase-memory.test.ts tests/unit/enterprise-connectors.test.ts
+npm.cmd run test:e2e:maya-real
+npm.cmd run verify
+```
+
+The real-backend E2E harness records backend calls to `/forensics`, `/connectors`, `/forensics/work-items/:lineId`, and `/forensics/query`, compares backend trace rows to app/DOM rows, rejects fixture API and Playwright route/fulfill fragments, and captures Beat 1-through-12 screenshots in `output/playwright/e2e/real-backend/`.
+
+Final subagent reviewer gate for the mixed SAP-customer provenance fix reported P0/P1/P2 none. A later live-agent query boundary reviewer reported two P2s; both are closed by requiring the handoff source and target (`Forensics Investigator` -> `Recovery Drafter`) and by adding route-level run-control, retry, token-budget, no-handoff, and fail-closed tests. The protected-read reviewer findings are closed by server-rendered backend auth headers, stale source-readiness suppression, and SAP live-probe-before-connected enforcement.
+
+## Maya Real-Backend Hardening Evidence - 2026-06-24
+
+This historical entry records the earlier Task 9 source truth and unavailable state before the SAP/Supabase closure above. Older realtime/fixture screenshot notes in this audit log remain historical UI and security evidence; current real-backend readiness is recorded in the superseding entry above.
+
+Source truth:
+
+- `/forensics/shadcn` loads `fetchForensicsModel()` and `fetchConnectorReadinessModel()` from `cockpit/app/cockpit-data.ts`; the Next proxy path maps those calls to Express `/forensics` and `/connectors`, and real backend mode also uses `/forensics/work-items/:lineId` and `/forensics/query`.
+- Supabase-backed: KPI/worklist/evidence/draft/retrieval/source-readiness business fields are backend/read-model data built from governed source readers and `recoup_src_*` evidence rows.
+- SAP-backed: SAP OData remains read-only; configured SAP health/read-plan facts are backend connector/source-health facts, not UI-generated status.
+- Agent-trace-backed: Query answers, citations, deterministic basis, and trace rows come from backend `POST /forensics/query` and deterministic/agent hook trace events.
+- Derived backend values: source readiness tone/icon, counts, labels, recommendation/read-only draft posture, and Beat 12 global Source Readiness derive from backend/read-model fields such as `connectors.sourceTiles`.
+- UI-only labels: tabs, buttons, navigation, and explicit backend-gap/unavailable labels are presentation only. Business values must be backend/read-model fields or unavailable.
+
+Historical unavailable state, now superseded:
+
+- Earlier real-backend E2E `npm.cmd run test:e2e:maya-real` failed closed at `/forensics` with HTTP `503`, `missingSource=supabase-sap-source-evidence-rows`, and `sourceTableName=recoup_src_sap`.
+- Earlier read-only Supabase diagnosis on project `nmwfftudympcvcjtyjbf` found `recoup_src_sap` missing while non-SAP Recoup source tables were populated. This is superseded by the approved `recoup_src_sap` migration/backfill captured in the closure entry above.
+- Earlier subagent read-only review found the `recoup_src_sap` schema in `docs/supabase-memory-schema.sql` and `src/memory/supabaseStore.ts`, but found no approved non-dummy real SAP row backfill path in package scripts or provisioning docs. This is superseded by `scripts/provisionSupabaseSapEvidenceRows.ts` and the live SAP/Supabase read-back evidence above.
+- Recent controller error body:
+
+```json
+{ "error": "Supabase SAP source evidence rows are unavailable or failed validation.", "missingSource": "supabase-sap-source-evidence-rows", "sourceTableName": "recoup_src_sap", "correlationId": "0142c7c9-1c16-42f4-b64e-4d905f4e0331" }
+```
+
+This historical entry predates the SAP/Supabase and live-agent-query closure. Current `npm.cmd run test:e2e:maya-real` reaches `POST /forensics/query` and passes with 4 Maya query scenarios / 32 backend trace rows, as recorded in the closure entry above.
+
+Verification commands for the next real-backend gate:
+
+```powershell
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test
+npm.cmd run verify
+npm.cmd run test:e2e:maya-real
+```
+
+Recent evidence: Task 7 added `package.json` script `test:e2e:maya-real` plus `tests/e2e/maya-real-backend-e2e.ts`; final review passed for real-backend-only behavior with no fixture API, no Playwright `page.route`/fulfill, backend/proxy response-body capture, backend `/forensics/query` trace comparison against app response and DOM rows, and cockpit reuse disabled for acceptance. Historical controller checks earlier covered 86 Vitest files / 698 tests; latest 2026-06-25 controller evidence supersedes that with `npm.cmd run verify` passing lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness passed. Fresh `npm.cmd run test:e2e:maya-real` passes against `http://127.0.0.1:4318` and reaches live-agent-backed query orchestration with 4 Maya query scenarios / 32 backend trace rows. Task 8 removed Beat 12 local facet counts, makes global Source Readiness derive from `connectors.sourceTiles`, and added boundary invariants. Task 10 is demo-ready for the implemented real-backend Maya journey, with the documented caveat that S7/S8 SAP evidence remains fail-closed until the owner/SAP customer mapping is reconciled. Phase 0 reproducibility remains blocked by the dirty/untracked worktree with nothing staged.
 
 ## Audit Summary
 

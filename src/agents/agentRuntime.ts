@@ -1,5 +1,5 @@
-import { Agent } from "@openai/agents";
-import { runtimeModels } from "../../config/models.js";
+import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
+import { Agent } from "./openAiAgentsSdk.js";
 import { loadAgentPrompt, type AgentPromptFileName } from "./prompts.js";
 
 const promptFiles = {
@@ -14,12 +14,14 @@ const promptFiles = {
 export const recoveryDrafterAgent = new Agent({
   name: "Recovery Drafter",
   model: runtimeModels.fast,
+  modelSettings: runtimeModelSettings.recoveryDrafter,
   instructions: loadAgentPrompt(promptFiles.recoveryDrafter)
 });
 
 export const forensicsInvestigatorAgent = new Agent({
   name: "Forensics Investigator",
   model: runtimeModels.reasoning,
+  modelSettings: runtimeModelSettings.forensicsInvestigator,
   instructions: loadAgentPrompt(promptFiles.forensicsInvestigator),
   handoffs: [recoveryDrafterAgent]
 });
@@ -27,12 +29,14 @@ export const forensicsInvestigatorAgent = new Agent({
 export const sentinelAgent = new Agent({
   name: "Sentinel",
   model: runtimeModels.fast,
+  modelSettings: runtimeModelSettings.sentinel,
   instructions: loadAgentPrompt(promptFiles.sentinel)
 });
 
 export const containmentIntentAgent = new Agent({
   name: "Containment / Intent",
   model: runtimeModels.fast,
+  modelSettings: runtimeModelSettings.containmentIntent,
   instructions: loadAgentPrompt(promptFiles.containmentIntent)
 });
 
@@ -54,6 +58,7 @@ export const riskMeshAgentTools = [
 export const riskMeshSupervisorAgent = new Agent({
   name: "Risk-Mesh Supervisor",
   model: runtimeModels.reasoning,
+  modelSettings: runtimeModelSettings.riskMeshSupervisor,
   instructions: loadAgentPrompt(promptFiles.riskMeshSupervisor),
   tools: riskMeshAgentTools
 });
@@ -61,6 +66,7 @@ export const riskMeshSupervisorAgent = new Agent({
 export const conversationalQueryAgent = new Agent({
   name: "Conversational Query",
   model: runtimeModels.realtime,
+  modelSettings: runtimeModelSettings.conversationalQuery,
   instructions: loadAgentPrompt(promptFiles.conversationalQuery)
 });
 

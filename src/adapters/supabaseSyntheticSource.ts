@@ -151,6 +151,23 @@ const sapRowSchema = z.object({
   sap_document_id: z.string().min(1),
   service_name: z.string().min(1),
   summary: z.string().min(1)
+}).superRefine((row, ctx) => {
+  if (row.entity_set !== "C_BillingDocumentFs") {
+    return;
+  }
+
+  const linkedSapCustomerIds = row.linked_record_ids.filter(isSapCustomerRecordId);
+  if (linkedSapCustomerIds.length === 0) {
+    return;
+  }
+
+  const soldToParty = readSapPayloadString(row.payload_json, "SoldToParty");
+  if (soldToParty === undefined || linkedSapCustomerIds.some((linkedSapCustomerId) => linkedSapCustomerId !== soldToParty)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "SAP header row SoldToParty does not match linked SAP customer provenance."
+    });
+  }
 });
 
 const riskPaymentRowSchema = z.object({
@@ -716,6 +733,23 @@ function hasLineRecordOverlap(line: DeductionLine, sourceRecordIds: readonly str
   const lineRecordIds = new Set([line.lineId, ...line.recordIds]);
 
   return sourceRecordIds.some((recordId) => lineRecordIds.has(recordId));
+}
+
+function isSapCustomerRecordId(recordId: string): boolean {
+  return /^USCU_[A-Z0-9]+$/u.test(recordId);
+}
+
+function readSapPayloadString(payload: Record<string, unknown>, key: string): string | undefined {
+  const nestedPayload = payload["d"];
+  if (isJsonRecord(nestedPayload) && typeof nestedPayload[key] === "string") {
+    return nestedPayload[key];
+  }
+
+  return typeof payload[key] === "string" ? payload[key] : undefined;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {

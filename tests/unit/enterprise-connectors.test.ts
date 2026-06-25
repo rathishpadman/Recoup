@@ -544,6 +544,161 @@ describe("enterprise read-only connector adapters", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("returns no SAP source evidence when the Supabase SAP source table has no matching rows", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () => Promise.resolve(new Response(JSON.stringify([]), { status: 200 })),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).resolves.toEqual([]);
+  });
+
+  it("fails closed when a SAP source row is not tagged with SAP OData provenance", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                customer_id: line.customerId,
+                document_type: "invoice",
+                entity_set: "C_BillingDocumentFs",
+                linked_record_ids: [line.lineId],
+                payload_json: { BillingDocument: "90000002" },
+                provenance: "synthetic",
+                retrieved_at: "2026-06-20T00:00:00.000Z",
+                sap_document_id: "SAP-90000002",
+                service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+                summary: "Supabase SAP source row for invoice 90000002."
+              }
+            ]),
+            { status: 200 }
+          )
+        ),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).rejects.toThrow();
+  });
+
+  it("fails closed when a SAP source row has malformed linked record ids", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                customer_id: line.customerId,
+                document_type: "invoice",
+                entity_set: "C_BillingDocumentFs",
+                linked_record_ids: line.lineId,
+                payload_json: { BillingDocument: "90000002" },
+                provenance: "sap-odata",
+                retrieved_at: "2026-06-20T00:00:00.000Z",
+                sap_document_id: "SAP-90000002",
+                service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+                summary: "Supabase SAP source row for invoice 90000002."
+              }
+            ]),
+            { status: 200 }
+          )
+        ),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).rejects.toThrow();
+  });
+
+  it("fails closed when a SAP header row contradicts linked SAP customer provenance", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                customer_id: line.customerId,
+                document_type: "invoice",
+                entity_set: "C_BillingDocumentFs",
+                linked_record_ids: [line.lineId, "USCU_S04", "INV-90000005"],
+                payload_json: { d: { BillingDocument: "90000005", SoldToParty: "USCU_L02" } },
+                provenance: "sap-odata",
+                retrieved_at: "2026-06-20T00:00:00.000Z",
+                sap_document_id: "SAP-90000005",
+                service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+                summary: "Supabase SAP source row for invoice 90000005."
+              }
+            ]),
+            { status: 200 }
+          )
+        ),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).rejects.toThrow();
+  });
+
+  it("fails closed when a SAP header row has mixed SAP customer provenance", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                customer_id: line.customerId,
+                document_type: "invoice",
+                entity_set: "C_BillingDocumentFs",
+                linked_record_ids: [line.lineId, "USCU_S04", "USCU_L02", "INV-90000005"],
+                payload_json: { d: { BillingDocument: "90000005", SoldToParty: "USCU_S04" } },
+                provenance: "sap-odata",
+                retrieved_at: "2026-06-20T00:00:00.000Z",
+                sap_document_id: "SAP-90000005",
+                service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+                summary: "Supabase SAP source row for invoice 90000005."
+              }
+            ]),
+            { status: 200 }
+          )
+        ),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).rejects.toThrow();
+  });
+
+  it("ignores SAP source rows that do not overlap the requested line records", async () => {
+    const reader = createSupabaseSapEvidenceReader({
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                customer_id: line.customerId,
+                document_type: "invoice",
+                entity_set: "C_BillingDocumentFs",
+                linked_record_ids: ["UNRELATED-LINE", "INV-90000002"],
+                payload_json: { BillingDocument: "90000002" },
+                provenance: "sap-odata",
+                retrieved_at: "2026-06-20T00:00:00.000Z",
+                sap_document_id: "SAP-90000002",
+                service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+                summary: "Supabase SAP source row for invoice 90000002."
+              }
+            ]),
+            { status: 200 }
+          )
+        ),
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(reader.readEvidence(line)).resolves.toEqual([]);
+  });
+
   it("fails closed when a synthetic source row is not tagged with synthetic provenance", async () => {
     const reader = createSupabaseSyntheticSourceReader({
       fetcher: () =>

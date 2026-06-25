@@ -218,7 +218,13 @@ describe("integration contract", () => {
     expect(() => facade.callTool("actions.erpWrite", {})).toThrow("Tool is not exposed through MCP.");
     expect(() => facade.callTool("core.evaluateRule", {})).toThrow("Tool is not exposed through MCP.");
     expect(() => facade.callTool("approvals.decide", {})).toThrow("Tool is not exposed through MCP.");
-    expect(facade.callTool("query.answer", { question: "Show cited status" })).toMatchObject({
+    expect(
+      facade.callTool("query.answer", {
+        question: "Show cited status for selected evidence",
+        recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1"],
+        selectedLineId: "S3-L1"
+      })
+    ).toMatchObject({
       status: "disabled_offline_safe"
     });
     expect(facade.callTool("sources.r1Read", { need: "payment-history", customerId: "USCU_S04" })).toMatchObject({

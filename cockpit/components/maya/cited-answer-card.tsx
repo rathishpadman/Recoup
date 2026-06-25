@@ -1,4 +1,5 @@
 import { CheckCircle2Icon, FileTextIcon, ShieldCheckIcon } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,15 +23,32 @@ function hasCitedAnswer(response: QueryEvidenceResponse | undefined): response i
     response.answer.trim().length > 0 &&
     response.deterministicBasis !== undefined &&
     response.deterministicBasis.trim().length > 0 &&
+    response.citations.length > 0 &&
     response.recordIds.length > 0
   );
 }
 
-function findEvidenceDocumentForRecordId(
-  recordId: string,
+type BackendCitation = QueryEvidenceResponse["citations"][number];
+
+function findEvidenceDocumentForCitation(
+  citation: BackendCitation,
   documents: MayaEvidenceDocument[]
 ): MayaEvidenceDocument | undefined {
-  return documents.find((document) => document.documentId === recordId || document.citationId === recordId);
+  return documents.find(
+    (document) =>
+      document.documentId === citation.documentId ||
+      document.documentId === citation.recordId ||
+      document.citationId === citation.documentId ||
+      document.citationId === citation.recordId
+  );
+}
+
+function hasBackendCitationMetadata(citation: BackendCitation): boolean {
+  return (
+    citation.documentId !== undefined ||
+    citation.source !== undefined ||
+    citation.summary !== undefined
+  );
 }
 
 export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps) {
@@ -59,33 +77,24 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
     );
   }
 
-  const citationRows = response.recordIds.map((recordId) => ({
-    metadata: findEvidenceDocumentForRecordId(recordId, evidencePack.documents),
-    recordId
+  const citationRows = response.citations.map((citation) => ({
+    citation,
+    metadata: findEvidenceDocumentForCitation(citation, evidencePack.documents)
   }));
-  const orderedCitationRows = [...citationRows].sort((left, right) => {
-    if (left.metadata !== undefined && right.metadata === undefined) {
-      return -1;
-    }
-    if (left.metadata === undefined && right.metadata !== undefined) {
-      return 1;
-    }
-    return 0;
-  });
 
   return (
     <Card data-testid="maya-cited-answer" size="sm">
       <CardHeader>
         <CardTitle className="flex min-w-0 items-center gap-2">
           <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-          <span>Answer review</span>
+          <span>Citation review</span>
         </CardTitle>
         <CardDescription>Accepted only after answer, deterministic basis, and cited record IDs are present.</CardDescription>
         <CardAction>
           <Badge variant="secondary">Answered</Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.82fr)_minmax(360px,1fr)]">
+      <CardContent className="grid min-w-0 gap-4">
         <div className="flex min-w-0 flex-col gap-3">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -96,13 +105,6 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
             <p className="text-sm leading-6" data-testid="maya-cited-answer-text">
               {response.answer}
             </p>
-            <div className="flex flex-wrap gap-1.5" aria-label="Cited answer record strip">
-              {response.recordIds.map((recordId) => (
-                <Badge className="max-w-full truncate" key={`answer-strip-${recordId}`} title={recordId} variant="outline">
-                  {recordId}
-                </Badge>
-              ))}
-            </div>
           </div>
           <Separator />
           <Alert data-testid="maya-cited-answer-basis">
@@ -111,71 +113,101 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
             <AlertDescription>{response.deterministicBasis}</AlertDescription>
           </Alert>
         </div>
-        <div className="flex min-w-0 flex-col gap-2" aria-label="Cited answer record IDs">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-medium">Citations</span>
-            <Badge variant="outline">Record IDs from query response</Badge>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Record ID</TableHead>
-                <TableHead>Evidence metadata</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orderedCitationRows.map(({ metadata, recordId }) => {
-                return (
-                  <TableRow
-                    data-metadata-gap={metadata === undefined ? "true" : undefined}
-                    data-metadata-join={metadata === undefined ? undefined : "exact"}
-                    data-record-id={recordId}
-                    data-testid="maya-cited-record-row"
-                    key={recordId}
-                  >
-                    <TableCell className="w-[34%] whitespace-normal align-top">
-                      <Badge className="max-w-full truncate" title={recordId} variant="secondary">
-                        {recordId}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-normal align-top">
-                      <div className="flex min-w-0 flex-col gap-1" data-testid="maya-cited-record-metadata">
-                        {metadata === undefined ? (
-                          <>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <FileTextIcon aria-hidden="true" data-icon="inline-start" />
-                              <span>Metadata unavailable</span>
+        <Accordion collapsible type="single">
+          <AccordionItem data-testid="maya-cited-source-details" value="source-details">
+            <AccordionTrigger>Sources</AccordionTrigger>
+            <AccordionContent>
+              <div className="flex min-w-0 flex-col gap-2" aria-label="Cited answer record IDs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">Citations</span>
+                  <Badge variant="outline">Record IDs from query response</Badge>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Record ID</TableHead>
+                      <TableHead>Evidence metadata</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {citationRows.map(({ citation, metadata }, index) => {
+                      const hasBackendMetadata = hasBackendCitationMetadata(citation);
+                      return (
+                        <TableRow
+                          data-citation-index={index}
+                          data-metadata-gap={metadata === undefined && !hasBackendMetadata ? "true" : undefined}
+                          data-metadata-join={metadata === undefined ? (hasBackendMetadata ? "backend-citation" : undefined) : "exact"}
+                          data-record-id={citation.recordId}
+                          data-testid="maya-cited-record-row"
+                          key={`${citation.recordId}-${index.toString()}`}
+                        >
+                          <TableCell className="w-[34%] whitespace-normal align-top">
+                            <Badge className="max-w-full truncate" title={citation.recordId} variant="secondary">
+                              {citation.recordId}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-normal align-top">
+                            <div className="flex min-w-0 flex-col gap-1" data-testid="maya-cited-record-metadata">
+                              {metadata !== undefined ? (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <FileTextIcon aria-hidden="true" data-icon="inline-start" />
+                                    <span className="font-medium">{metadata.description}</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <Badge variant="secondary">{metadata.citationId}</Badge>
+                                    <Badge variant="outline">{metadata.documentId}</Badge>
+                                    <Badge variant="outline">{metadata.documentType}</Badge>
+                                    <Badge variant="outline">{metadata.relevance}</Badge>
+                                    {citation.source === undefined ? null : <Badge variant="outline">{citation.source}</Badge>}
+                                  </div>
+                                  <span className="text-sm text-muted-foreground">
+                                    {metadata.sourceLabel} / {metadata.verifiedLabel}
+                                  </span>
+                                  <span className="text-sm text-muted-foreground">{citation.summary ?? metadata.summary}</span>
+                                </>
+                              ) : hasBackendMetadata ? (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <FileTextIcon aria-hidden="true" data-icon="inline-start" />
+                                    <span className="font-medium">{citation.documentId ?? citation.recordId}</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {citation.documentId === undefined ? null : <Badge variant="secondary">{citation.documentId}</Badge>}
+                                    {citation.source === undefined ? null : <Badge variant="outline">{citation.source}</Badge>}
+                                  </div>
+                                  {citation.summary === undefined ? null : (
+                                    <span className="text-sm text-muted-foreground">{citation.summary}</span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <FileTextIcon aria-hidden="true" data-icon="inline-start" />
+                                    <span>Metadata unavailable</span>
+                                  </div>
+                                  <span className="text-sm text-muted-foreground">
+                                    No exact document ID, source, or summary was returned for this cited record.
+                                  </span>
+                                </>
+                              )}
+                              <div className="flex min-w-0 flex-col gap-1 rounded-md border bg-muted/25 p-2">
+                                <span className="text-xs font-medium">Citation basis</span>
+                                <span className="text-sm text-muted-foreground" data-testid="maya-cited-record-basis">
+                                  {citation.deterministicBasis}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-sm text-muted-foreground">
-                              No exact document ID or citation ID match in the loaded evidence packet.
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <FileTextIcon aria-hidden="true" data-icon="inline-start" />
-                              <span className="font-medium">{metadata.description}</span>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              <Badge variant="secondary">{metadata.citationId}</Badge>
-                              <Badge variant="outline">{metadata.documentId}</Badge>
-                              <Badge variant="outline">{metadata.documentType}</Badge>
-                              <Badge variant="outline">{metadata.relevance}</Badge>
-                            </div>
-                            <span className="text-sm text-muted-foreground">
-                              {metadata.sourceLabel} / {metadata.verifiedLabel}
-                            </span>
-                            <span className="text-sm text-muted-foreground">{metadata.summary}</span>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </CardContent>
     </Card>
   );

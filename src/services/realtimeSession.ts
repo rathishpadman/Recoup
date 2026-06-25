@@ -47,7 +47,9 @@ export interface RealtimeClientSecretRequest {
   env?: RuntimeEnv;
   fetcher?: typeof fetch;
   question?: string;
+  recordIds?: string[];
   safetyIdentifier?: string;
+  selectedLineId?: string;
 }
 
 type RealtimeAllowedToolName = RealtimeAuditPolicy["allowedTools"][number];
@@ -71,6 +73,11 @@ export interface RealtimeToolCallInput {
 
 type RealtimeServiceToolInvoker = (name: string, input: unknown) => unknown;
 
+interface RealtimeQueryScope {
+  recordIds: string[];
+  selectedLineId: string;
+}
+
 export type RealtimeToolCallResult =
   | {
       deterministicBasis: string;
@@ -90,14 +97,23 @@ const defaultRealtimeSafetyIdentifier = "human:cockpit-query";
 const realtimeSessionInstructions =
   "You are Recoup's audit-scoped Realtime query assistant. Answer only from deterministic Recoup services, cite deterministic Recoup recordIds, and include the deterministic basis. Allowed tools: audit.read and query.answer. External actions are forbidden. Do not compute or alter dollar amounts. Do not persist raw audio, uncited transcripts, or uncited model output.";
 
-export function buildRealtimeSessionPolicy(env: RuntimeEnv = process.env): RealtimeSessionPolicy {
+export function buildRealtimeSessionPolicy(
+  env: RuntimeEnv = process.env,
+  queryScope?: RealtimeQueryScope
+): RealtimeSessionPolicy {
+  const scopedRecordIds = queryScope?.recordIds ?? ["OPENAI-REALTIME-POLICY"];
+  const queryScopeLabel =
+    queryScope === undefined
+      ? "Cited Recoup audit, memory, trace, connector-readiness, and cockpit read models only."
+      : `Selected cockpit evidence packet for ${queryScope.selectedLineId}; query.answer must use exactly the selected recordIds.`;
+
   return {
     auditPolicy: {
       allowedTools: ["audit.read", "query.answer"],
       externalActions: "none",
       forbiddenPersistence: ["raw_audio", "uncited_transcript", "uncited_model_output"],
-      queryScope: "Cited Recoup audit, memory, trace, connector-readiness, and cockpit read models only.",
-      recordIds: ["OPENAI-REALTIME-POLICY"],
+      queryScope: queryScopeLabel,
+      recordIds: [...scopedRecordIds],
       retention: "Audit hashes and cited record ids only; no raw audio or uncited transcript is persisted by Recoup."
     },
     deterministicBasis:
@@ -130,9 +146,15 @@ export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
       parameters: {
         additionalProperties: false,
         properties: {
-          question: { maxLength: 500, minLength: 1, type: "string" }
+          question: { maxLength: 500, minLength: 1, type: "string" },
+          recordIds: {
+            items: { minLength: 1, type: "string" },
+            minItems: 1,
+            type: "array"
+          },
+          selectedLineId: { minLength: 1, type: "string" }
         },
-        required: ["question"],
+        required: ["question", "selectedLineId", "recordIds"],
         type: "object"
       },
       type: "function"
@@ -155,7 +177,17 @@ export function handleRealtimeToolCall(
     return blockedRealtimeToolCall(input.name);
   }
 
-  const output = serviceToolInvoker(input.name, parsedArgs);
+  let output: unknown;
+  try {
+    output = serviceToolInvoker(input.name, parsedArgs);
+  } catch (error) {
+    return blockedRealtimeToolCall(
+      input.name,
+      error instanceof Error && error.message.includes("selected evidence scope")
+        ? error.message
+        : "Realtime tool service validation blocked malformed or missing selected evidence scope input."
+    );
+  }
   const recordIds = readRecordIds(output);
   if (input.name === "query.answer" && !hasValidCitationParity(output)) {
     return blockedRealtimeToolCall(input.name, "Realtime query.answer blocked: citation parity must match text, voice, and output recordIds.");
@@ -173,9 +205,15 @@ export function handleRealtimeToolCall(
 export async function requestRealtimeClientSecret({
   env = process.env,
   fetcher = fetch,
-  safetyIdentifier = defaultRealtimeSafetyIdentifier
+  recordIds,
+  safetyIdentifier = defaultRealtimeSafetyIdentifier,
+  selectedLineId
 }: RealtimeClientSecretRequest): Promise<RealtimeClientSecretResult> {
-  const policy = buildRealtimeSessionPolicy(env);
+  const queryScope = resolveRealtimeQueryScope({
+    ...(recordIds === undefined ? {} : { recordIds }),
+    ...(selectedLineId === undefined ? {} : { selectedLineId })
+  });
+  const policy = buildRealtimeSessionPolicy(env, queryScope);
   const apiKey = env.OPENAI_API_KEY?.trim();
 
   if (policy.status === "blocked_missing_credentials" || apiKey === undefined || apiKey.length === 0) {
@@ -188,7 +226,7 @@ export async function requestRealtimeClientSecret({
   const response = await fetcher(realtimeClientSecretUrl, {
     body: JSON.stringify({
       session: {
-        instructions: realtimeSessionInstructions,
+        instructions: buildRealtimeSessionInstructions(queryScope),
         model: runtimeModels.realtime,
         tools: buildRealtimeToolManifest(),
         type: "realtime"
@@ -216,6 +254,30 @@ export async function requestRealtimeClientSecret({
     status: "issued",
     transport: policy.transport
   };
+}
+
+function resolveRealtimeQueryScope(input: {
+  recordIds?: readonly string[];
+  selectedLineId?: string;
+}): RealtimeQueryScope | undefined {
+  const selectedLineId = input.selectedLineId?.trim();
+  const recordIds = input.recordIds?.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0);
+  if (selectedLineId === undefined || selectedLineId.length === 0 || recordIds === undefined || recordIds.length === 0) {
+    return undefined;
+  }
+
+  return {
+    recordIds: Array.from(new Set(recordIds)),
+    selectedLineId
+  };
+}
+
+function buildRealtimeSessionInstructions(queryScope: RealtimeQueryScope | undefined): string {
+  if (queryScope === undefined) {
+    return realtimeSessionInstructions;
+  }
+
+  return `${realtimeSessionInstructions} The active selectedLineId is ${queryScope.selectedLineId}. When calling query.answer, pass selectedLineId ${queryScope.selectedLineId} and exactly these selected recordIds: ${queryScope.recordIds.join(", ")}. Do not answer outside this selected evidence packet.`;
 }
 
 function hasOpenAiApiKey(env: RuntimeEnv): boolean {

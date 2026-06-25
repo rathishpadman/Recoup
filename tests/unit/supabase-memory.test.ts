@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   day1GovernedConfigSeed,
   governedConfigSeedRows,
@@ -13,6 +13,7 @@ import {
   createSupabaseMemoryRepositoryFromEnv,
   createSupabaseReleaseOwnerInputRepository,
   createSupabaseReleaseOwnerInputRepositoryFromEnv,
+  createSupabaseSourceHealthSnapshotRepository,
   createSupabaseTableReadinessProbe,
   createSupabaseTableReadinessProbeFromEnv,
   type SupabaseMemoryFetch
@@ -84,7 +85,11 @@ describe("supabase memory repository", () => {
       "linked_record_ids jsonb NOT NULL CHECK (jsonb_typeof(linked_record_ids) = 'array' AND jsonb_array_length(linked_record_ids) > 0)"
     );
     expect(sql).toContain("payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')");
+    expect(sql).toContain("summary text NOT NULL");
+    expect(sql).toContain("retrieved_at timestamptz NOT NULL");
     expect(sql).toContain("provenance text NOT NULL CHECK (provenance = 'sap-odata')");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_customer ON recoup_src_sap (customer_id)");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_linked_record_ids ON recoup_src_sap USING gin (linked_record_ids)");
 
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_src_tpm");
     expect(sql).toContain("promo_id text PRIMARY KEY");
@@ -110,6 +115,36 @@ describe("supabase memory repository", () => {
     expect(sql).not.toMatch(/GRANT\s+[^;]*(?:INSERT|UPDATE|DELETE)[^;]*ON TABLE recoup_src_sap TO service_role/iu);
     expect(sql).toContain("ALTER TABLE recoup_src_sap ENABLE ROW LEVEL SECURITY");
     expect(sql).toContain("ALTER TABLE recoup_src_sap FORCE ROW LEVEL SECURITY");
+    expect(sql).not.toMatch(/INSERT\s+INTO\s+recoup_src_sap/iu);
+  });
+
+  it("documents a service-role-only source health snapshot table for backend connector polling", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots");
+    expect(sql).toContain("source_name text PRIMARY KEY");
+    expect(sql).toContain("status text NOT NULL CHECK (status IN ('connected', 'degraded', 'blocked'))");
+    expect(sql).toContain("source_mode text NOT NULL CHECK (source_mode IN ('live', 'synthetic_static_table', 'unavailable'))");
+    expect(sql).toContain("checked_at timestamptz NOT NULL");
+    expect(sql).toContain("latency_ms int NOT NULL CHECK (latency_ms >= 0)");
+    expect(sql).toContain(
+      "proof_items_json jsonb NOT NULL CHECK (jsonb_typeof(proof_items_json) = 'array' AND jsonb_array_length(proof_items_json) > 0)"
+    );
+    expect(sql).toContain(
+      "record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0)"
+    );
+    expect(sql).not.toContain("idx_recoup_source_health_snapshots_checked_at");
+    expect(sql).toContain("REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role");
+    expect(sql).toContain("GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role");
+    expect(sql).toContain("ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY");
+    expect(sql).toContain("ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY");
+    expect(sql).toContain("CREATE POLICY recoup_source_health_snapshots_service_role_select");
+    expect(sql).toContain("FOR SELECT TO service_role USING (true)");
+    expect(sql).toContain("CREATE POLICY recoup_source_health_snapshots_service_role_insert");
+    expect(sql).toContain("FOR INSERT TO service_role WITH CHECK (true)");
+    expect(sql).toContain("CREATE POLICY recoup_source_health_snapshots_service_role_update");
+    expect(sql).toContain("FOR UPDATE TO service_role USING (true) WITH CHECK (true)");
+    expect(sql).not.toMatch(/CREATE POLICY\s+recoup_source_health_snapshots[\s\S]+TO\s+(?:anon|authenticated)/iu);
   });
 
   it("documents Supabase Tools_data tables required by connector readiness and Sentinel risk observations", () => {
@@ -238,6 +273,72 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_app_principals_capabilities");
     expect(sql).not.toMatch(/CREATE POLICY[\s\S]+TO\s+(?:anon|authenticated)/iu);
     expect(sql).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+  });
+
+  it("loads and upserts Supabase source health snapshots through service-role REST", async () => {
+    const fetcher = vi.fn<SupabaseMemoryFetch>((url, init) => {
+      if (init.method === "GET") {
+        expect(url).toContain("/rest/v1/recoup_source_health_snapshots");
+        expect(url).toContain("select=source_name%2Cstatus%2Csource_mode%2Cchecked_at%2Clatency_ms%2Cproof_items_json%2Crecord_ids_json%2Clast_error");
+        return Promise.resolve(
+          Response.json([
+            {
+              checked_at: "2026-06-24T10:16:00+00:00",
+              last_error: null,
+              latency_ms: 128,
+              proof_items_json: ["read-only metadata probe", "credentials present", "external writes blocked"],
+              record_ids_json: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+              source_mode: "live",
+              source_name: "sap-odata",
+              status: "connected"
+            }
+          ])
+        );
+      }
+
+      expect(init.method).toBe("POST");
+      expect(url).toBe("https://recoup.supabase.co/rest/v1/recoup_source_health_snapshots?on_conflict=source_name");
+      expect(init.headers).toMatchObject({
+        apikey: "service-role-secret",
+        authorization: "Bearer service-role-secret",
+        prefer: "resolution=merge-duplicates,return=representation"
+      });
+      expect(typeof init.body).toBe("string");
+      expect(JSON.parse(init.body as string)).toEqual([
+        {
+          checked_at: "2026-06-24T10:16:00.000Z",
+          last_error: null,
+          latency_ms: 128,
+          proof_items_json: ["read-only metadata probe", "credentials present", "external writes blocked"],
+          record_ids_json: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+          source_mode: "live",
+          source_name: "sap-odata",
+          status: "connected"
+        }
+      ]);
+      return Promise.resolve(Response.json([]));
+    });
+    const repository = createSupabaseSourceHealthSnapshotRepository({
+      fetcher,
+      serviceRoleKey: "service-role-secret",
+      url: "https://recoup.supabase.co/"
+    });
+
+    const snapshots = await repository.loadLatest();
+    expect(snapshots).toEqual([
+      {
+        checkedAtIso: "2026-06-24T10:16:00.000Z",
+        latencyMs: 128,
+        proofItems: ["read-only metadata probe", "credentials present", "external writes blocked"],
+        recordIds: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+        sourceMode: "live",
+        sourceName: "sap-odata",
+        status: "connected"
+      }
+    ]);
+
+    await repository.upsert(snapshots);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("adds governed config and append-only audit-chain tables with locked RPC service grants", () => {
@@ -772,6 +873,18 @@ describe("supabase memory repository", () => {
       prefer: "resolution=merge-duplicates,return=representation"
     });
     expect(JSON.stringify(await repository.append(record))).not.toContain("supabase-secret-key");
+  });
+
+  it("treats an accepted Supabase memory upsert with no returned row as the parsed input record", async () => {
+    const repository = createSupabaseMemoryRepository({
+      fetcher: () =>
+        Promise.resolve(new Response(JSON.stringify([]), { headers: { "content-type": "application/json" }, status: 201 })),
+      serviceRoleKey: "supabase-secret-key",
+      tableName: "recoup_memory_records",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.append(record)).resolves.toEqual(record);
   });
 
   it("reads scoped memory in deterministic sequence order", async () => {

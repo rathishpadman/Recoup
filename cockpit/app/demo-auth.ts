@@ -194,11 +194,6 @@ function resolveDemoSessionSecret(env: RuntimeEnv): string | undefined {
     return configured;
   }
 
-  const localFallback = env.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
-  if (env.NODE_ENV !== "production" && localFallback !== undefined && localFallback.length > 0) {
-    return localFallback;
-  }
-
   return undefined;
 }
 

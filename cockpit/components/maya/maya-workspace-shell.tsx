@@ -4,29 +4,15 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   BellIcon,
   CalendarClockIcon,
-  ChevronDownIcon,
   ClipboardListIcon,
   FileCheck2Icon,
   FileTextIcon,
-  FunnelIcon,
-  GaugeIcon,
   InboxIcon,
   LayoutDashboardIcon,
-  PieChartIcon,
-  RefreshCwIcon,
-  SlidersHorizontalIcon
+  RefreshCwIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -36,7 +22,6 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -48,10 +33,13 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { DemoSession } from "../../app/demo-auth.ts";
+import type { MayaSurfaceSection } from "./types.ts";
 
 interface MayaWorkspaceShellProps {
+  activeSection: MayaSurfaceSection;
   children: ReactNode;
   heading?: string;
+  onSectionChange?: (section: MayaSurfaceSection) => void;
   pendingActionCount: number;
   refreshedLabel: string;
   session: DemoSession;
@@ -60,15 +48,11 @@ interface MayaWorkspaceShellProps {
 }
 
 const navItems = [
-  { icon: LayoutDashboardIcon, label: "Overview" },
-  { count: "worklist" as const, icon: ClipboardListIcon, isActive: true, label: "Worklist" },
-  { icon: FileTextIcon, label: "Cases" },
-  { icon: InboxIcon, label: "Deductions" },
-  { icon: FileCheck2Icon, label: "Evidence" },
-  { count: "approvals" as const, icon: InboxIcon, label: "Approvals" },
-  { icon: GaugeIcon, label: "Run trace" },
-  { icon: PieChartIcon, label: "Analytics" },
-  { icon: SlidersHorizontalIcon, label: "Configuration" }
+  { icon: LayoutDashboardIcon, label: "Overview", section: "overview" },
+  { count: "worklist" as const, icon: ClipboardListIcon, label: "Worklist", section: "worklist" },
+  { icon: FileTextIcon, label: "Cases", section: "cases" },
+  { icon: FileCheck2Icon, label: "Evidence", section: "evidence" },
+  { count: "approvals" as const, icon: InboxIcon, label: "Approvals", section: "approvals" }
 ] as const;
 
 function RecoupBrandMark() {
@@ -94,8 +78,10 @@ function RecoupBrandMark() {
 }
 
 export function MayaWorkspaceShell({
+  activeSection,
   children,
   heading,
+  onSectionChange,
   pendingActionCount,
   refreshedLabel,
   session,
@@ -127,18 +113,15 @@ export function MayaWorkspaceShell({
               className="hidden text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:inline-flex group-data-[collapsible=icon]:hidden"
             />
           </div>
-          <Button
-            className="h-9 justify-between border-sidebar-border bg-sidebar-accent/30 px-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
-            size="sm"
-            type="button"
-            variant="outline"
+          <div
+            className="flex h-9 items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/30 px-3 text-sm font-medium text-sidebar-foreground group-data-[collapsible=icon]:hidden"
+            data-testid="maya-sidebar-surface-label"
           >
             <span className="inline-flex min-w-0 items-center gap-2 truncate">
               <ClipboardListIcon aria-hidden="true" data-icon="inline-start" />
               <span className="truncate">Maya Forensics</span>
             </span>
-            <ChevronDownIcon aria-hidden="true" data-icon="inline-end" />
-          </Button>
+          </div>
         </SidebarHeader>
         <SidebarContent className="px-2">
           <SidebarGroup className="p-0">
@@ -156,22 +139,22 @@ export function MayaWorkspaceShell({
                   return (
                     <SidebarMenuItem data-testid="maya-sidebar-nav-item" key={item.label}>
                       <SidebarMenuButton
+                        aria-current={item.section === activeSection ? "page" : undefined}
                         className={cn(
                           "h-9 px-3",
-                          "data-[active=true]:bg-sidebar-primary/25 data-[active=true]:text-sidebar-primary-foreground data-[active=true]:shadow-sm"
+                          "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:shadow-sm"
                         )}
-                        isActive={"isActive" in item}
+                        disabled={onSectionChange === undefined}
+                        isActive={item.section === activeSection}
+                        onClick={() => {
+                          onSectionChange?.(item.section);
+                        }}
                         tooltip={item.label}
                         type="button"
                       >
                         <NavIcon aria-hidden="true" data-icon="sidebar-menu" />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
-                      {"isActive" in item ? (
-                        <SidebarMenuAction aria-label="Overview route options" showOnHover type="button">
-                          <ChevronDownIcon aria-hidden="true" data-icon="sidebar-menu-action" />
-                        </SidebarMenuAction>
-                      ) : null}
                       {count === undefined ? null : (
                         <SidebarMenuBadge
                           className="right-2 rounded-full bg-sidebar-accent px-2 text-sidebar-accent-foreground"
@@ -186,35 +169,6 @@ export function MayaWorkspaceShell({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          <div className="mt-auto px-2 pb-3 group-data-[collapsible=icon]:hidden">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  className="h-9 w-full justify-between border-sidebar-border bg-sidebar-accent/20 px-3 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  data-testid="maya-sidebar-filter-trigger"
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <span className="inline-flex min-w-0 items-center gap-2 truncate">
-                    <FunnelIcon aria-hidden="true" data-icon="inline-start" />
-                    <span className="truncate">Filters</span>
-                  </span>
-                  <ChevronDownIcon aria-hidden="true" data-icon="inline-end" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="right">
-                <DropdownMenuLabel>Fetched filter axes</DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem>Scenario</DropdownMenuItem>
-                  <DropdownMenuItem>Verdict</DropdownMenuItem>
-                  <DropdownMenuItem>Queue</DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled>Priority, owner, age require backend fields</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
         </SidebarContent>
         <SidebarSeparator />
         <SidebarFooter className="mt-auto gap-3 p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-3" data-testid="maya-sidebar-footer">

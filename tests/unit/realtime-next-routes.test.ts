@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
+import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
+import { POST as postForensicsQuery } from "../../cockpit/app/api/forensics/query/route.js";
+import { GET as getForensicsWorkItem } from "../../cockpit/app/api/forensics/work-items/[lineId]/route.js";
 import { POST as postRealtimeClientSecret } from "../../cockpit/app/api/query/realtime-client-secret/route.js";
 import { POST as postRealtimeTool } from "../../cockpit/app/api/query/realtime-tool/route.js";
 import {
@@ -51,6 +54,336 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects connector readiness proxy requests without request-bound human auth", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getConnectors(
+      new Request("http://localhost/api/connectors", {
+        method: "GET"
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards connector readiness refreshes through the same-origin backend proxy", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const connectorReadiness = {
+      checkedAtIso: "2026-06-24T10:16:00.000Z",
+      connectors: [],
+      lastRefreshedLabel: "6 source health rows checked at 2026-06-24T10:16:00.000Z",
+      provenance: {
+        deterministicBasis: "ConnectorReadiness and SourceHealthResult rows",
+        recordIds: ["recoup_source_health_snapshots:sap-odata"],
+        sourceKind: "supabase",
+        sourceName: "connectors"
+      },
+      sourceHealth: [],
+      sourceTiles: [],
+      surface: "connector-readiness"
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(Response.json(connectorReadiness));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getConnectors(
+      new Request("http://localhost/api/connectors", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      })
+    );
+    const body = (await response.json()) as typeof connectorReadiness;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual(connectorReadiness);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("http://recoup-api.test/connectors");
+    expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+    expect(init?.headers).toMatchObject({
+      "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+      "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+    });
+  });
+
+  it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {
+    stubRouteEnv();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards Forensics work-item detail requests from a valid Maya demo-session cookie", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(Response.json({ lineId: "S6-L1", surface: "forensics-work-item-detail" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as { lineId: string; surface: string };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({ lineId: "S6-L1", surface: "forensics-work-item-detail" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("http://recoup-api.test/forensics/work-items/S6-L1");
+    expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+    expect(init?.headers).toMatchObject({
+      "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+      "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+    });
+  });
+
+  it("preserves Forensics work-item upstream JSON error status and content type", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "Forensics work item not found.", lineId: "NO-SUCH-LINE" }), {
+          headers: { "content-type": "application/json; charset=utf-8" },
+          status: 404
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/NO-SUCH-LINE", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "NO-SUCH-LINE" } }
+    );
+    const body = (await response.json()) as { error: string; lineId: string };
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(body).toEqual({ error: "Forensics work item not found.", lineId: "NO-SUCH-LINE" });
+  });
+
+  it("preserves Forensics work-item upstream fail-closed 503 JSON status", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(
+        Response.json(
+          {
+            correlationId: "test-correlation",
+            error: "Supabase settlement source rows are unavailable or failed validation.",
+            missingSource: "supabase-settlement-source-rows"
+          },
+          { status: 503 }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as { correlationId: string; error: string; missingSource: string };
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({
+      correlationId: "test-correlation",
+      error: "Supabase settlement source rows are unavailable or failed validation.",
+      missingSource: "supabase-settlement-source-rows"
+    });
+  });
+
+  it("returns 502 when the Forensics work-item upstream service is unavailable", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn(() => Promise.reject(new Error("offline")));
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({ error: "Forensics work item detail service unavailable." });
+  });
+
+  it("rejects Forensics query proxy requests without request-bound human auth", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await postForensicsQuery(
+      new Request("http://localhost/api/forensics/query", {
+        body: JSON.stringify({ question: "Why is this recoverable?", recordIds: ["S6-L1"], selectedLineId: "S6-L1" }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards Forensics query requests from a valid Maya demo-session cookie", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(
+        Response.json({
+          answer: "Backend generated cited answer text",
+          citations: [
+            {
+              deterministicBasis: "runForensicsInvestigation + evidence source reads + deterministic hook audit trace",
+              recordId: "S6-L1"
+            }
+          ],
+          deterministicBasis: "runForensicsInvestigation + evidence source reads + deterministic hook audit trace",
+          trace: []
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+    const requestBody = { question: "Why is this recoverable?", recordIds: ["INV-S6-1"], selectedLineId: "S6-L1" };
+
+    const response = await postForensicsQuery(
+      new Request("http://localhost/api/forensics/query", {
+        body: JSON.stringify(requestBody),
+        headers: {
+          "content-type": "application/json",
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "POST"
+      })
+    );
+    const body = (await response.json()) as { answer: string; status?: string };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body.answer).toBe("Backend generated cited answer text");
+    expect(body.status).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("http://recoup-api.test/forensics/query");
+    expect(init).toMatchObject({ body: JSON.stringify(requestBody), cache: "no-store", method: "POST" });
+    expect(init?.headers).toMatchObject({
+      "content-type": "application/json",
+      "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+      "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+    });
+  });
+
+  it("preserves Forensics query upstream status and content type", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "Forensics query selected line not found.", lineId: "NO-SUCH-LINE" }), {
+          headers: { "content-type": "application/json; charset=utf-8" },
+          status: 404
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await postForensicsQuery(
+      new Request("http://localhost/api/forensics/query", {
+        body: JSON.stringify({ question: "Why?", recordIds: ["NO-SUCH-LINE"], selectedLineId: "NO-SUCH-LINE" }),
+        headers: {
+          "content-type": "application/json",
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "POST"
+      })
+    );
+    const body = (await response.json()) as { error: string; lineId: string };
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(body).toEqual({ error: "Forensics query selected line not found.", lineId: "NO-SUCH-LINE" });
+  });
+
+  it("returns 502 when the Forensics query upstream service is unavailable", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn(() => Promise.reject(new Error("offline")));
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createMayaSessionCookie();
+
+    const response = await postForensicsQuery(
+      new Request("http://localhost/api/forensics/query", {
+        body: JSON.stringify({ question: "Why is this recoverable?", recordIds: ["S6-L1"], selectedLineId: "S6-L1" }),
+        headers: {
+          "content-type": "application/json",
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "POST"
+      })
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({ error: "Forensics query service unavailable." });
   });
 
   it("forwards only a verified request-bound human principal to the client-secret service", async () => {

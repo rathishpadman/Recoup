@@ -2,31 +2,38 @@
 
 import * as React from "react";
 import { FileTextIcon, SearchIcon } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import {
-  startRealtimeBrowserSession,
-  type RealtimeBrowserSession,
-  type RealtimeBrowserSessionSnapshot
-} from "../../app/realtime-browser-session.ts";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { CitedAnswerCard } from "./cited-answer-card.tsx";
-import type { MayaEvidencePack, MayaMultimodalDock, QueryEvidenceResponse } from "./types.ts";
+import type {
+  MayaEvidencePack,
+  MayaMultimodalDock,
+  MayaQueryPromptDockContract,
+  QueryEvidenceBackendResponse,
+  QueryEvidenceResponse
+} from "./types.ts";
 
 const QUERY_QUESTION_CHARACTER_LIMIT = 500;
 
 interface QueryEvidenceDockProps {
-  dock: MayaMultimodalDock;
+  dock: MayaQueryPromptDockContract;
   evidencePack: MayaEvidencePack;
   onOpenChange: (open: boolean) => void;
   onResponse: (response: QueryEvidenceResponse) => void;
   open: boolean;
   recordIds: string[];
   selectedLine: string;
+}
+
+interface QueryEvidenceSnapshotEnvelope {
+  evidenceIdentity: string;
+  response: QueryEvidenceResponse;
 }
 
 export function QueryEvidenceDock({
@@ -40,16 +47,25 @@ export function QueryEvidenceDock({
 }: QueryEvidenceDockProps) {
   const questionId = React.useId();
   const questionHelpId = React.useId();
+  const promptChipDescriptionPrefix = React.useId();
   const statusId = React.useId();
   const openRef = React.useRef(open);
   const abortControllerRef = React.useRef<AbortController | null>(null);
-  const sessionRef = React.useRef<RealtimeBrowserSession | null>(null);
   const sessionTokenRef = React.useRef(0);
+  const selectedEvidenceIdentity = React.useMemo(
+    () => buildSelectedEvidenceIdentity(selectedLine, recordIds),
+    [recordIds, selectedLine]
+  );
+  const latestEvidenceIdentityRef = React.useRef(selectedEvidenceIdentity);
+  latestEvidenceIdentityRef.current = selectedEvidenceIdentity;
+  const resetEvidenceIdentityRef = React.useRef(selectedEvidenceIdentity);
   const [error, setError] = React.useState<string | undefined>();
   const [question, setQuestion] = React.useState("");
   const [submittedQuestion, setSubmittedQuestion] = React.useState("");
-  const [snapshot, setSnapshot] = React.useState<RealtimeBrowserSessionSnapshot | undefined>();
-  const isRunning = snapshot?.status === "connecting" || snapshot?.status === "connected";
+  const [snapshotEnvelope, setSnapshotEnvelope] = React.useState<QueryEvidenceSnapshotEnvelope | undefined>();
+  const snapshot =
+    snapshotEnvelope?.evidenceIdentity === selectedEvidenceIdentity ? snapshotEnvelope.response : undefined;
+  const isRunning = snapshot?.status === "connecting";
   const canShowCitedAnswer =
     snapshot !== undefined &&
     snapshot.status === "answered" &&
@@ -59,21 +75,19 @@ export function QueryEvidenceDock({
     snapshot.deterministicBasis.trim().length > 0 &&
     snapshot.recordIds.length > 0;
   const shouldShowComposer = !isRunning && !canShowCitedAnswer;
+  const citedAnswerCard = canShowCitedAnswer ? <CitedAnswerCard evidencePack={evidencePack} response={snapshot} /> : null;
 
-  const closeActiveSession = React.useCallback((clearLocalState = true) => {
+  const closeActiveSession = React.useCallback((options: { resetComposer?: boolean } = {}) => {
     sessionTokenRef.current += 1;
     const abortController = abortControllerRef.current;
     abortControllerRef.current = null;
     abortController?.abort();
-    const session = sessionRef.current;
-    sessionRef.current = null;
-    session?.close();
-    if (clearLocalState) {
+    if (options.resetComposer !== false) {
       setError(undefined);
       setQuestion("");
       setSubmittedQuestion("");
-      setSnapshot(undefined);
     }
+    setSnapshotEnvelope(undefined);
   }, []);
 
   React.useEffect(() => {
@@ -86,8 +100,17 @@ export function QueryEvidenceDock({
   }, [closeActiveSession, open]);
 
   React.useEffect(() => {
+    if (resetEvidenceIdentityRef.current === selectedEvidenceIdentity) {
+      return;
+    }
+
+    resetEvidenceIdentityRef.current = selectedEvidenceIdentity;
+    closeActiveSession();
+  }, [closeActiveSession, selectedEvidenceIdentity]);
+
+  React.useEffect(() => {
     return () => {
-      closeActiveSession(false);
+      closeActiveSession({ resetComposer: false });
     };
   }, [closeActiveSession]);
 
@@ -95,12 +118,12 @@ export function QueryEvidenceDock({
     return openRef.current && sessionTokenRef.current === sessionToken;
   }
 
-  function publishForToken(sessionToken: number, next: RealtimeBrowserSessionSnapshot): void {
-    if (!isCurrentSession(sessionToken)) {
+  function publishForToken(sessionToken: number, evidenceIdentity: string, next: QueryEvidenceResponse): void {
+    if (!isCurrentSession(sessionToken) || latestEvidenceIdentityRef.current !== evidenceIdentity) {
       return;
     }
 
-    setSnapshot(next);
+    setSnapshotEnvelope({ evidenceIdentity, response: next });
     onResponse(next);
   }
 
@@ -118,53 +141,67 @@ export function QueryEvidenceDock({
       return;
     }
 
-    const session = sessionRef.current;
-    sessionRef.current = null;
     const previousAbortController = abortControllerRef.current;
     abortControllerRef.current = null;
     const activeStartToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = activeStartToken;
+    const activeEvidenceIdentity = selectedEvidenceIdentity;
     previousAbortController?.abort();
-    session?.close();
     setError(undefined);
     setSubmittedQuestion(trimmedQuestion);
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    publishForToken(activeStartToken, {
-      message: "Starting evidence query through the Realtime browser helper.",
+    publishForToken(activeStartToken, activeEvidenceIdentity, {
+      citations: [],
+      message: "Starting query.",
       recordIds,
-      status: "connecting"
+      status: "connecting",
+      trace: []
     });
 
     try {
-      const session = await startRealtimeBrowserSession({
-        onSnapshot: (nextSnapshot) => {
-          publishForToken(activeStartToken, nextSnapshot);
-        },
-        question: trimmedQuestion,
-        recordIds,
+      const response = await fetch("/api/forensics/query", {
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          recordIds,
+          selectedLineId: selectedLine
+        }),
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        method: "POST",
         signal: abortController.signal,
-        selectedLineId: selectedLine
       });
-      if (!isCurrentSession(activeStartToken)) {
-        session.close();
-        return;
-      }
-      sessionRef.current = session;
-      publishForToken(activeStartToken, session.getSnapshot());
-    } catch {
+
       if (!isCurrentSession(activeStartToken)) {
         return;
       }
 
-      const failedSnapshot: RealtimeBrowserSessionSnapshot = {
-        message: "Realtime browser helper failed before returning a cited answer.",
+      const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
+      if (!response.ok) {
+        const message = "error" in body && typeof body.error === "string" ? body.error : "Forensics query failed.";
+        throw new Error(message);
+      }
+
+      publishForToken(
+        activeStartToken,
+        activeEvidenceIdentity,
+        toQueryEvidenceSnapshot(body as QueryEvidenceBackendResponse, recordIds, selectedLine, evidencePack.recordIds)
+      );
+    } catch (caught) {
+      if (!isCurrentSession(activeStartToken)) {
+        return;
+      }
+
+      const failedSnapshot: QueryEvidenceResponse = {
+        citations: [],
+        message: caught instanceof Error ? caught.message : "Forensics query failed before returning a cited answer.",
         recordIds,
-        status: "error"
+        status: "error",
+        trace: []
       };
       setError(failedSnapshot.message);
-      publishForToken(activeStartToken, failedSnapshot);
+      publishForToken(activeStartToken, activeEvidenceIdentity, failedSnapshot);
     }
   }
 
@@ -186,21 +223,15 @@ export function QueryEvidenceDock({
         }
       >
         <SheetHeader className="gap-3">
-          <SheetTitle>{canShowCitedAnswer ? "Answer review" : "Query Evidence"}</SheetTitle>
+          <SheetTitle>{canShowCitedAnswer ? "Cited response" : "Query Evidence"}</SheetTitle>
           <SheetDescription>
             {canShowCitedAnswer
-              ? "Accepted answer, deterministic basis, and cited records from the current evidence packet."
-              : "Ask from the current evidence packet; selected IDs are included as client context."}
+              ? "Answer, basis, and citations from the current evidence packet."
+              : "Ask from the current evidence packet."}
           </SheetDescription>
-          <div className="flex flex-wrap gap-2" aria-label="Query policy and modes">
-            <Badge variant="secondary">Selected evidence context</Badge>
-            <Badge variant="outline">Read-only query</Badge>
-            <Badge variant="outline">{dock.policyLabel}</Badge>
-            {dock.modeOptions.map((mode) => (
-              <Badge key={mode} variant="outline">
-                {mode}
-              </Badge>
-            ))}
+          <div className="flex flex-wrap gap-2" aria-label="Query policy">
+            <Badge variant="secondary">Read-only query</Badge>
+            <Badge variant="outline">{dock.languageLabel}</Badge>
           </div>
         </SheetHeader>
         <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
@@ -214,29 +245,75 @@ export function QueryEvidenceDock({
                   <Badge data-testid="maya-query-selected-line" variant="secondary">
                     {selectedLine}
                   </Badge>
-                </div>
-                <div className="flex flex-wrap gap-1.5" aria-label="Selected evidence record IDs">
-                  {recordIds.length === 0 ? (
-                    <Badge data-testid="maya-query-record-id" variant="outline">
-                      No record IDs
-                    </Badge>
-                  ) : (
-                    recordIds.map((recordId) => (
-                      <Badge
-                        className="max-w-full truncate"
-                        data-testid="maya-query-record-id"
-                        key={recordId}
-                        title={recordId}
-                        variant="outline"
-                      >
-                        {recordId}
-                      </Badge>
-                    ))
-                  )}
+                  <Badge variant="outline">{`${recordIds.length.toString()} records`}</Badge>
+                  <Badge variant="outline">{`${evidencePack.documents.length.toString()} sources`}</Badge>
                 </div>
               </div>
             </AlertDescription>
           </Alert>
+          <Accordion collapsible type="single">
+            <AccordionItem data-testid="maya-query-source-details" value="source-details">
+              <AccordionTrigger>Source details</AccordionTrigger>
+              <AccordionContent>
+                <div className="flex min-w-0 flex-col gap-2">
+                  <div className="flex flex-wrap gap-1.5" aria-label="Selected evidence record IDs">
+                    {recordIds.length === 0 ? (
+                      <Badge data-testid="maya-query-record-id" variant="outline">
+                        No record IDs
+                      </Badge>
+                    ) : (
+                      recordIds.map((recordId) => (
+                        <Badge
+                          className="max-w-full truncate"
+                          data-testid="maya-query-record-id"
+                          key={recordId}
+                          title={recordId}
+                          variant="outline"
+                        >
+                          {recordId}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5" aria-label="Query source policy and modes">
+                    <Badge variant="secondary">Selected evidence context</Badge>
+                    <Badge variant="outline">{dock.policyLabel}</Badge>
+                    {dock.modeOptions.map((mode) => (
+                      <Badge key={mode} variant="outline">
+                        {mode}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+          <div className="flex flex-wrap gap-2" aria-label="Backend suggested evidence questions">
+            {dock.promptSuggestions?.map((prompt) => {
+              const promptChipDescriptionId = buildPromptSuggestionDescriptionId(promptChipDescriptionPrefix, prompt);
+
+              return (
+                <React.Fragment key={buildPromptSuggestionKey(prompt)}>
+                  <Button
+                    aria-describedby={promptChipDescriptionId}
+                    data-testid="maya-query-prompt-chip"
+                    disabled={isRunning || canShowCitedAnswer}
+                    onClick={() => {
+                      setQuestion(prompt.question);
+                    }}
+                    title={prompt.provenance.deterministicBasis}
+                    type="button"
+                    variant="outline"
+                  >
+                    {prompt.label}
+                  </Button>
+                  <span className="sr-only" id={promptChipDescriptionId}>
+                    {buildPromptSuggestionDescription(prompt)}
+                  </span>
+                </React.Fragment>
+              );
+            })}
+          </div>
           {shouldShowComposer ? (
             <FieldGroup>
               <Field>
@@ -260,90 +337,208 @@ export function QueryEvidenceDock({
                   </InputGroupAddon>
                 </InputGroup>
                 <FieldDescription id={questionHelpId}>
-                  Results must include cited record IDs before display.
+                  Citations required before display.
                 </FieldDescription>
               </Field>
             </FieldGroup>
           ) : null}
-          {submittedQuestion.length > 0 ? (
-            <div className="grid min-w-0 gap-1 rounded-lg border bg-muted/25 p-3" data-testid="maya-submitted-query">
-              <span className="text-sm font-medium">Submitted query</span>
-              <p className="text-sm text-muted-foreground">{submittedQuestion}</p>
-            </div>
-          ) : null}
-          <div id={statusId} aria-live="polite">
-            {canShowCitedAnswer ? null : error !== undefined ? (
-              <Alert variant="destructive">
-                <AlertTitle>Query error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : snapshot === undefined ? (
-              <Alert data-testid="maya-query-readiness-preview">
-                <AlertTitle>Ready for cited query</AlertTitle>
-                <AlertDescription>
-                  <div className="flex flex-col gap-2">
-                    <span>No query is running. Read-model trace context is shown as a readiness preview only.</span>
-                    <div className="flex flex-wrap gap-1.5" aria-label="Readiness preview agents">
-                      {dock.subAgents.map((agent) => (
-                        <Badge key={`${agent.name}-${agent.source}`} variant="outline">
-                          {agent.name}
-                        </Badge>
-                      ))}
+          <section
+            aria-label="Maya evidence query conversation"
+            className="grid min-w-0 gap-3"
+            data-testid="maya-query-conversation"
+          >
+            {submittedQuestion.length > 0 ? (
+              <div
+                className="ml-auto grid max-w-[88%] min-w-0 gap-1 rounded-lg border bg-muted/25 p-3"
+                data-testid="maya-submitted-query"
+              >
+                <span className="text-sm font-medium">You</span>
+                <p className="text-sm text-muted-foreground" data-testid="maya-query-user-message">
+                  {submittedQuestion}
+                </p>
+              </div>
+            ) : null}
+            <div id={statusId} aria-live="polite">
+              {canShowCitedAnswer ? (
+                <div className="grid min-w-0 gap-3">
+                  <div className="grid min-w-0 gap-2 rounded-lg border bg-background p-3" data-testid="maya-query-assistant-message">
+                    <span className="text-sm font-medium">Maya</span>
+                    <p className="text-sm leading-6 text-muted-foreground">{snapshot.message}</p>
+                    <div className="flex flex-wrap gap-1.5" aria-label="Assistant citation summary">
+                      <Badge variant="secondary">{`${snapshot.citations.length.toString()} citations`}</Badge>
+                      <Badge variant="outline">{`${snapshot.recordIds.length.toString()} record IDs`}</Badge>
                     </div>
                   </div>
-                </AlertDescription>
-              </Alert>
-            ) : snapshot.status === "blocked" || snapshot.status === "blocked_uncited_output" ? (
-              <Alert>
-                <AlertTitle>{snapshot.message}</AlertTitle>
-                <AlertDescription>
-                  <div className="flex flex-wrap gap-2">
-                    {snapshot.recordIds.map((recordId) => (
-                      <Badge key={recordId} variant="outline">
-                        {recordId}
-                      </Badge>
-                    ))}
-                  </div>
-                </AlertDescription>
-              </Alert>
-            ) : snapshot.status === "error" ? (
-              <Alert variant="destructive">
-                <AlertTitle>Query error</AlertTitle>
-                <AlertDescription>{snapshot.message}</AlertDescription>
-              </Alert>
-            ) : isRunning ? null : (
-              <Alert>
-                <AlertTitle>{snapshot.message}</AlertTitle>
-                <AlertDescription>
-                  <div className="flex flex-wrap gap-2">
-                    {snapshot.recordIds.map((recordId) => (
-                      <Badge key={recordId} variant="secondary">
-                        {recordId}
-                      </Badge>
-                    ))}
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-          {canShowCitedAnswer ? <CitedAnswerCard evidencePack={evidencePack} response={snapshot} /> : null}
-          {isRunning ? <AgentTracePanel response={snapshot} subAgents={dock.subAgents} /> : null}
+                  {citedAnswerCard}
+                </div>
+              ) : error !== undefined ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Query error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : snapshot === undefined ? (
+                <Alert data-testid="maya-query-readiness-preview">
+                  <AlertTitle>Cited query standby</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-col gap-2">
+                      <span>Ready for an evidence-backed question.</span>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : snapshot.status === "blocked" ? (
+                <Alert>
+                  <AlertTitle>{snapshot.message}</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{`${snapshot.recordIds.length.toString()} records`}</Badge>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : snapshot.status === "error" ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Query error</AlertTitle>
+                  <AlertDescription>{snapshot.message}</AlertDescription>
+                </Alert>
+              ) : isRunning ? null : (
+                <Alert>
+                  <AlertTitle>{snapshot.message}</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">{`${snapshot.recordIds.length.toString()} records`}</Badge>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </section>
+          <Accordion collapsible type="single">
+            <AccordionItem data-testid="maya-query-trace-details" value="trace-details">
+              <AccordionTrigger>Trace details</AccordionTrigger>
+              <AccordionContent>
+                {snapshot !== undefined ? <AgentTracePanel response={snapshot} /> : null}
+                {snapshot === undefined ? (
+                  <Alert>
+                    <AlertTitle>Trace unavailable</AlertTitle>
+                    <AlertDescription>Run a query to load trace details.</AlertDescription>
+                  </Alert>
+                ) : null}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
         <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">Read-only query. Citations required before answer display.</p>
-          <Button
-            className="sm:w-auto"
-            disabled={isRunning || canShowCitedAnswer || question.trim().length === 0}
-            onClick={() => {
-              void startQuery();
-            }}
-            type="button"
-          >
-            <SearchIcon data-icon="inline-start" />
-            Run query
-          </Button>
+          <p className="text-sm text-muted-foreground">Citations required.</p>
+          {isRunning ? (
+            <Button
+              className="sm:w-auto"
+              onClick={() => {
+                closeActiveSession({ resetComposer: false });
+              }}
+              type="button"
+              variant="outline"
+            >
+              Stop query
+            </Button>
+          ) : (
+            <Button
+              className="sm:w-auto"
+              disabled={canShowCitedAnswer || question.trim().length === 0}
+              onClick={() => {
+                void startQuery();
+              }}
+              type="button"
+            >
+              <SearchIcon data-icon="inline-start" />
+              Run query
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>
   );
+}
+
+function toQueryEvidenceSnapshot(
+  response: QueryEvidenceBackendResponse,
+  recordIds: readonly string[],
+  selectedLine: string,
+  evidencePackRecordIds: readonly string[]
+): QueryEvidenceResponse {
+  const selectedScopeRecordIds = dedupeRecordIds([selectedLine, ...recordIds, ...evidencePackRecordIds]);
+  const selectedScope = new Set(selectedScopeRecordIds);
+  const citedRecordIds = dedupeRecordIds(response.citations.map((citation) => citation.recordId));
+  const citationsWithinSelectedScope = response.citations.every((citation) =>
+    selectedScope.has(citation.recordId.trim())
+  );
+  const citationsHaveBasis = response.citations.every((citation) => citation.deterministicBasis.trim().length > 0);
+  const blockedRecordIds = dedupeRecordIds([...citedRecordIds, ...selectedScopeRecordIds]);
+  const hasAnswer =
+    response.answer !== undefined &&
+    response.answer.trim().length > 0 &&
+    response.deterministicBasis !== undefined &&
+    response.deterministicBasis.trim().length > 0 &&
+    response.citations.length > 0 &&
+    response.trace.length > 0 &&
+    citationsWithinSelectedScope &&
+    citationsHaveBasis;
+  let message = "Forensics query returned no cited answer.";
+  if (hasAnswer) {
+    message = "Cited answer returned from backend evidence.";
+  } else if (!citationsWithinSelectedScope) {
+    message = "Forensics query cited records outside the selected evidence packet.";
+  }
+  const modelExecutionField =
+    response.modelExecution === undefined ? {} : { modelExecution: response.modelExecution };
+
+  if (hasAnswer && response.answer !== undefined && response.deterministicBasis !== undefined) {
+    return {
+      ...modelExecutionField,
+      answer: response.answer,
+      citations: response.citations,
+      deterministicBasis: response.deterministicBasis,
+      message,
+      recordIds: citedRecordIds,
+      status: "answered",
+      trace: response.trace
+    };
+  }
+
+  return {
+    ...modelExecutionField,
+    citations: response.citations,
+    message,
+    recordIds: blockedRecordIds,
+    status: "blocked",
+    trace: response.trace
+  };
+}
+
+function buildSelectedEvidenceIdentity(selectedLine: string, recordIds: readonly string[]): string {
+  return JSON.stringify({ recordIds: recordIds.map((recordId) => recordId.trim()), selectedLine: selectedLine.trim() });
+}
+
+function buildPromptSuggestionKey(prompt: NonNullable<MayaMultimodalDock["promptSuggestions"]>[number]): string {
+  return JSON.stringify({
+    deterministicBasis: prompt.provenance.deterministicBasis.trim(),
+    label: prompt.label.trim(),
+    recordIds: dedupeRecordIds([...prompt.recordIds, ...prompt.provenance.recordIds]).sort()
+  });
+}
+
+function buildPromptSuggestionDescriptionId(
+  prefix: string,
+  prompt: NonNullable<MayaMultimodalDock["promptSuggestions"]>[number]
+): string {
+  return `${prefix}-${buildPromptSuggestionKey(prompt).replace(/[^A-Za-z0-9_-]/gu, "-")}`;
+}
+
+function buildPromptSuggestionDescription(prompt: NonNullable<MayaMultimodalDock["promptSuggestions"]>[number]): string {
+  const recordIds = dedupeRecordIds([...prompt.recordIds, ...prompt.provenance.recordIds]);
+  return `Basis: ${prompt.provenance.deterministicBasis}. Record IDs: ${
+    recordIds.length === 0 ? "No record IDs" : recordIds.join(", ")
+  }.`;
+}
+
+function dedupeRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
 }
