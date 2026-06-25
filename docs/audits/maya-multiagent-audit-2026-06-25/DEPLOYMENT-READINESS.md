@@ -53,7 +53,7 @@ Render service:
 
 - Name: `recoup-api`
 - Runtime: `node`
-- Build: `npm run build:api`
+- Build: `npm ci && npm run build:api`
 - Start: `npm run start:api`
 - Health check: `/healthz`
 - Node: `22`

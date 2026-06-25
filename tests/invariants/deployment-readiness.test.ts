@@ -146,7 +146,7 @@ describe("deployment readiness manifests", () => {
     const serviceBlock = readRenderServiceBlock();
 
     expect(serviceBlock).toMatch(/^\s*runtime:\s+node\s*$/mu);
-    expect(serviceBlock).toMatch(/^\s*buildCommand:\s+npm run build:api\s*$/mu);
+    expect(serviceBlock).toMatch(/^\s*buildCommand:\s+npm ci && npm run build:api\s*$/mu);
     expect(serviceBlock).toMatch(/^\s*startCommand:\s+npm run start:api\s*$/mu);
     expect(serviceBlock).toMatch(/^\s*healthCheckPath:\s+\/healthz\s*$/mu);
 
