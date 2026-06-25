@@ -73,7 +73,7 @@ Nonsecret Render constants are committed in `render.yaml`:
 | `RECOUP_MCP_CLIENT_CAPABILITIES` | `read` |
 | `RECOUP_MCP_CLIENT_PRINCIPAL` | `human:maya-lead` |
 
-Render secrets/provider-specific values must be set in Render, not committed:
+Render secrets/provider-specific values must be set in Render, not committed. Do not create blank environment variables: if an optional SAP OAuth field is empty in `.env.local`, omit it from the live Render service so runtime schema validation behaves like the local loader.
 
 | Key | Source |
 |---|---|
@@ -90,8 +90,8 @@ Render secrets/provider-specific values must be set in Render, not committed:
 | `SAP_ODATA_CLIENT` | `.env.local` / SAP sandbox |
 | `SAP_ODATA_USERID` | `.env.local` / SAP sandbox |
 | `SAP_ODATA_TOKEN_URL` | `.env.local` / SAP sandbox |
-| `SAP_ODATA_SCOPE` | `.env.local` / SAP sandbox |
-| `SAP_ODATA_TENANT` | `.env.local` / SAP sandbox |
+| `SAP_ODATA_SCOPE` | SAP OAuth only; omit for the current Basic/read-only sandbox when blank |
+| `SAP_ODATA_TENANT` | SAP OAuth only; omit for the current Basic/read-only sandbox when blank |
 | `SAP_ODATA_CLIENT_SECRET` | `.env.local` / SAP sandbox |
 
 Do not set `RECOUP_MCP_URL` for the initial production deploy. That keeps the MCP server private to the Render API process.
