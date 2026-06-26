@@ -265,9 +265,10 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN.test(response.auditEntryHash)");
     expect(auditPanel).toContain('typeof response.actionId === "string"');
     expect(auditPanel).toContain("Audit confirmation unavailable");
-    expect(auditPanel).toContain("No backend approval response or audit commit is available yet");
-    expect(auditPanel).toContain("Waiting for committed backend approval response");
+    expect(auditPanel).toContain("No committed approval receipt is available yet");
+    expect(auditPanel).toContain("Waiting for committed approval receipt");
     expect(auditPanel).toContain("Backend contract gap");
+    expect(auditPanel).toContain("Receipt fields remain source-owned");
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
     expect(auditPanel).toContain("View audit trail");
@@ -284,12 +285,18 @@ describe("S5 cockpit business-logic boundary", () => {
     );
     expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
     expect(evidenceDossier).toContain("Query evidence");
-    expect(evidenceDossier).toContain("evidencePack.documents.map");
+    expect(evidenceDossier).toContain("groupEvidenceDocumentsByBusinessLabel(evidencePack.documents)");
+    expect(evidenceDossier).toContain("evidenceGroups.map");
+    expect(evidenceDossier).toContain("EvidenceDocumentTable documents={group.documents}");
     expect(evidenceDossier).toContain("RecordIdStrip recordIds={evidencePack.recordIds}");
     expect(evidenceDossier).toContain("recordIds.map");
+    expect(evidenceDossier).toContain("documents.map");
     expect(evidenceDossier).toContain("sourceTiles.map");
+    expect(evidenceDossier).toContain('data-testid="maya-evidence-business-group"');
+    expect(evidenceDossier).toContain('data-testid="maya-evidence-source-details"');
     expect(evidenceDossier).toContain("Review state unavailable");
     expect(evidenceDossier).toContain("Deterministic basis unavailable");
+    expect(evidenceDossier).not.toContain("Backend evidence packet");
     expect(evidenceDossier).not.toMatch(
       /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu
     );

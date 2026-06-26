@@ -169,18 +169,25 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.recoveryTracker.billingLines).toBe(7);
   });
 
-  it("routes Maya worklist row clicks through the backend detail endpoint", () => {
+  it("keeps Maya worklist row clicks as local selection before explicit backend detail open", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const handleSelectStart = surface.indexOf("const handleSelectWorklistItem");
     const handleSelectEnd = surface.indexOf("const handleReturnToWorklist", handleSelectStart);
     const handleSelectSource = surface.slice(handleSelectStart, handleSelectEnd);
+    const worklistSectionStart = surface.indexOf("function renderWorklistSection");
+    const worklistSectionEnd = surface.indexOf("function renderCasesSection", worklistSectionStart);
+    const worklistSectionSource = surface.slice(worklistSectionStart, worklistSectionEnd);
     const beatTwelveStart = surface.indexOf("<BeatTwelveReturnedWorklist");
     const beatTwelveEnd = surface.indexOf("selectedItem={returnedWorklistItem}", beatTwelveStart);
     const beatTwelveSource = surface.slice(beatTwelveStart, beatTwelveEnd);
 
-    expect(handleSelectSource).toContain("void openInvestigationForItem(item);");
-    expect(handleSelectSource).not.toContain("setSelectedWorklistItem(item);");
-    expect(handleSelectSource).not.toContain("openedCaseWorklistItem !== undefined");
+    expect(handleSelectSource).toContain("setSelectedWorklistItem(item);");
+    expect(handleSelectSource).toContain("setOpenedCaseWorklistItem(undefined);");
+    expect(handleSelectSource).toContain("setOpenedCaseDetail(undefined);");
+    expect(handleSelectSource).toContain("setWorkItemDetailLoadState(undefined);");
+    expect(handleSelectSource).not.toContain("void openInvestigationForItem(item);");
+    expect(worklistSectionSource).toContain('data-testid="maya-local-row-action-open"');
+    expect(worklistSectionSource).toContain("void openInvestigationForItem(visibleSelectedWorklistItem);");
     expect(beatTwelveSource).toContain("void openInvestigationForItem(item);");
     expect(beatTwelveSource).not.toContain("setSelectedWorklistItem(item)");
     expect(beatTwelveSource).not.toContain("setReturnContextLineId(item.lineId)");

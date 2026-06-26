@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { LogoutButton } from "../../app/logout-button.tsx";
 import type { DemoSession } from "../../app/demo-auth.ts";
 import type { MayaSurfaceSection } from "./types.ts";
 
@@ -250,6 +251,9 @@ export function MayaWorkspaceShell({
                 <span>No backend refresh action is exposed by the read model.</span>
               </TooltipContent>
             </Tooltip>
+            <LogoutButton className="inline-flex" size="sm" variant="outline">
+              Sign out
+            </LogoutButton>
           </div>
         </header>
         <div className="flex min-w-0 flex-1 flex-col px-5 pb-5">{children}</div>

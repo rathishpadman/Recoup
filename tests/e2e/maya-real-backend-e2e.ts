@@ -320,6 +320,7 @@ async function main(): Promise<void> {
     await captureMayaBeat(page, "03-recommended-action");
 
     const detail = await openOneRealBackendWorkItem(page, apiServer, forensicsModel);
+    await assertCaseLineSelectorControls(page, detail);
     await captureMayaBeat(page, "04-case-overview");
     await assertAgentProcessMapBeforeQuery(page, detail, connectorsModel);
     await openEvidenceTab(page);
@@ -520,6 +521,39 @@ async function openEvidenceQuery(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^Query evidence$/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
   await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya query input");
+}
+
+async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
+  const lineIds = detail.workItem.lineIds;
+  assert(lineIds.length >= 2, `Maya line selector requires a backend work item with multiple lines; received ${lineIds.length.toString()}.`);
+  await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace before line selector");
+
+  for (const [index, lineId] of lineIds.entries()) {
+    const lineButton = page.getByRole("button", { name: new RegExp(`^Line ${String(index + 1)}$`, "u") });
+    await lineButton.waitFor({ state: "visible", timeout: 10_000 });
+    const rawLineIdButton = page.getByRole("button", { name: new RegExp(`^${escapeRegExp(lineId)}$`, "u") });
+    assert((await rawLineIdButton.count()) === 0, `Maya exposed raw line ID ${lineId} as a primary button instead of Line ${String(index + 1)}.`);
+  }
+
+  const secondLineId = lineIds[1];
+  assert(secondLineId !== undefined, "Maya line selector test could not resolve the second backend line ID.");
+  await page.getByRole("button", { name: /^Line 2$/u }).click();
+  const selectedLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
+  assert(
+    selectedLineLabel.includes(`Line 2 of ${lineIds.length.toString()}`),
+    `Maya selected-line label did not move to Line 2 of ${lineIds.length.toString()}: ${selectedLineLabel}.`
+  );
+  const caseWorkspaceText = normalizeUiText(await page.getByTestId("maya-case-workspace").innerText());
+  assert(caseWorkspaceText.includes(secondLineId), `Maya case detail did not keep backend raw ID ${secondLineId} available as metadata.`);
+
+  const originalLineIndex = lineIds.indexOf(detail.selected.lineId);
+  assert(originalLineIndex >= 0, `Backend selected line ${detail.selected.lineId} is not present in work item line IDs.`);
+  await page.getByRole("button", { name: new RegExp(`^Line ${String(originalLineIndex + 1)}$`, "u") }).click();
+  const restoredLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
+  assert(
+    restoredLineLabel.includes(`Line ${String(originalLineIndex + 1)} of ${lineIds.length.toString()}`),
+    `Maya selected-line label did not restore the backend-selected line before downstream query assertions: ${restoredLineLabel}.`
+  );
 }
 
 async function runRealMayaQueryScenarios(
@@ -1766,10 +1800,11 @@ async function assertRenderedEvidenceDossierMatchesBackend(
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya evidence dossier");
-  const renderedDossierText = normalizeUiText(await page.getByTestId("maya-evidence-dossier").innerText());
-  for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(renderedDossierText.includes(normalizeUiText(recordId)), `Maya evidence dossier omitted backend recordId ${recordId}.`);
+  const closedGroups = await page.locator('[data-testid="maya-evidence-business-group"] button[aria-expanded="false"]').all();
+  for (const group of closedGroups) {
+    await group.click();
   }
+  const renderedDossierText = normalizeUiText(await page.getByTestId("maya-evidence-dossier").innerText());
   const renderedDocumentRows = page.getByTestId("maya-evidence-document-row");
   const renderedDocumentCount = await renderedDocumentRows.count();
   assert(
@@ -1790,6 +1825,17 @@ async function assertRenderedEvidenceDossierMatchesBackend(
       `Maya evidence dossier omitted backend document summary for ${document.documentId}.`
     );
   }
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-source-details"]', "Maya evidence source details disclosure");
+  const sourceDetails = page.getByTestId("maya-evidence-source-details");
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /View details/u });
+  if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
+    await sourceDetailsTrigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-record-id"]', "Maya evidence source detail record IDs");
+  const renderedRecordIds = (await sourceDetails.getByTestId("maya-evidence-record-id").evaluateAll((items) =>
+    items.map((item) => item.textContent.trim()).filter((item) => item.length > 0)
+  )).sort();
+  assertSameRecordIds(renderedRecordIds, [...detail.selected.evidencePack.recordIds].sort(), "Maya evidence dossier source details");
   const renderedSourceRows = page.getByTestId("maya-source-provenance-row");
   assert(
     (await renderedSourceRows.count()) === connectorsModel.sourceTiles.length,
@@ -1884,8 +1930,19 @@ async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail:
   assert(
     auditState.recordIds.length > 0 &&
       renderedAuditText.includes("Audit confirmation unavailable") &&
-      renderedAuditText.includes("Backend contract gap"),
+      renderedAuditText.includes("No committed approval receipt is available yet"),
     "Maya audit confirmation did not render the explicit fail-closed audit state."
+  );
+  await expectVisibleLocator(page, '[data-testid="maya-audit-receipt-details"]', "Maya audit receipt details disclosure");
+  const receiptDetails = page.getByTestId("maya-audit-receipt-details");
+  const receiptDetailsTrigger = receiptDetails.getByRole("button", { name: /Audit receipt details/u });
+  if ((await receiptDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
+    await receiptDetailsTrigger.click();
+  }
+  const receiptDetailsText = normalizeUiText(await receiptDetails.innerText());
+  assert(
+    receiptDetailsText.includes("Backend contract gap"),
+    "Maya audit receipt details did not render source-owned backend contract gaps."
   );
 }
 
@@ -2310,6 +2367,10 @@ function assertSameRecordIds(left: readonly string[], right: readonly string[], 
 
 function escapeAttributeValue(value: string): string {
   return value.replace(/\\/gu, "\\\\").replace(/"/gu, "\\\"");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function isLoopbackUrl(url: URL): boolean {

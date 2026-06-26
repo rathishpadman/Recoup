@@ -207,12 +207,12 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
                           {displayLabel}
                         </p>
                       </div>
-                      <div className="flex min-w-0 items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1">
                         <span className={cn("flex shrink-0 items-center leading-none", sourceStatusClass(source.statusTone))}>
                           {sourceStatusIcon(source.statusTone)}
                         </span>
                         <Badge
-                          className="h-4 max-w-full shrink-0 justify-start px-1 text-[10px]"
+                          className="h-4 max-w-full shrink-0 justify-start px-0.5 text-[9px]"
                           data-testid="maya-source-status"
                           title={source.stateLabel}
                           variant={sourceToneVariant(source.statusTone)}

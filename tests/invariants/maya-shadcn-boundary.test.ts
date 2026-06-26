@@ -503,11 +503,13 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN.test(response.auditEntryHash)");
     expect(auditPanel).toContain('typeof response.actionId === "string"');
     expect(auditPanel).toContain("Audit confirmation unavailable");
-    expect(auditPanel).toContain("No backend approval response or audit commit is available yet");
+    expect(auditPanel).toContain("No committed approval receipt is available yet");
+    expect(auditPanel).toContain("verified human decision and a complete approval receipt");
     expect(auditPanel).toContain("status === human_decided");
     expect(auditPanel).toContain("valid 64-hex auditEntryHash");
-    expect(auditPanel).toContain("Waiting for committed backend approval response");
+    expect(auditPanel).toContain("Waiting for committed approval receipt");
     expect(auditPanel).toContain("Backend contract gap");
+    expect(auditPanel).toContain("Receipt fields remain source-owned");
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
     expect(auditPanel).toContain("View audit trail");
@@ -819,7 +821,8 @@ describe("Maya shadcn cockpit boundary", () => {
 
     for (const requiredHook of [
       'data-testid="maya-evidence-dossier"',
-      'data-testid="maya-evidence-packet"',
+      'data-testid="maya-evidence-business-group"',
+      'data-testid="maya-evidence-source-details"',
       'data-testid="maya-evidence-document-row"',
       'data-testid="maya-deterministic-basis-rail"',
       'data-testid="maya-source-provenance-rail"',
@@ -829,12 +832,16 @@ describe("Maya shadcn cockpit boundary", () => {
     }
 
     for (const requiredPropRead of [
+      "groupEvidenceDocumentsByBusinessLabel(evidencePack.documents)",
+      "evidenceGroups.map",
+      "EvidenceDocumentTable documents={group.documents}",
       "RecordIdStrip recordIds={evidencePack.recordIds}",
       "recordIds.map",
-      "evidencePack.documents.map",
+      "documents.map",
+      "document.documentType",
+      "getEvidenceBusinessLabel(document.documentType)",
       "document.citationId",
       "document.documentId",
-      "document.documentType",
       "document.description",
       "document.summary",
       "document.sourceLabel",
@@ -848,7 +855,9 @@ describe("Maya shadcn cockpit boundary", () => {
       expect(evidenceDossier).toContain(requiredPropRead);
     }
 
-    expect(evidenceDossier).toContain("Backend evidence packet");
+    expect(evidenceDossier).toContain("Business documents grouped from the selected read model");
+    expect(evidenceDossier).toContain("Source details");
+    expect(evidenceDossier).not.toContain("Backend evidence packet");
     expect(evidenceDossier).toContain("Evidence dossier available");
     expect(evidenceDossier).toContain("Review state unavailable");
     expect(evidenceDossier).toContain("Deterministic basis unavailable");

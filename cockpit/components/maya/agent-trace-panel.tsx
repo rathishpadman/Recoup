@@ -65,14 +65,19 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
             <AlertDescription>Evidence process is ready.</AlertDescription>
           </Alert>
         ) : isTraceRunning ? (
-          <Alert data-testid="maya-trace-running-session">
+          <Alert data-run-status={response.status} data-testid="maya-trace-running-session">
             <ActivityIcon aria-hidden="true" data-icon="inline-start" />
-            <AlertTitle>Backend query {response.status}</AlertTitle>
+            <AlertTitle>Maya is checking the evidence</AlertTitle>
             <AlertDescription>
               <div className="flex flex-col gap-2.5">
                 <span>{response.message}</span>
                 <div className="flex flex-wrap gap-1.5" aria-label="Running trace record IDs">
                   <Badge variant="secondary">{`${response.recordIds.length.toString()} records`}</Badge>
+                </div>
+                <span>Step receipts will appear as the run completes.</span>
+                <div className="grid gap-2 sm:grid-cols-2" aria-label="Running query stages">
+                  <div className="h-8 animate-pulse rounded-md bg-muted" data-testid="maya-trace-running-skeleton" />
+                  <div className="h-8 animate-pulse rounded-md bg-muted" data-testid="maya-trace-running-skeleton" />
                 </div>
               </div>
             </AlertDescription>
@@ -113,18 +118,35 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
             </AlertDescription>
           </Alert>
         )}
-        <section
-          aria-label="Backend-driven agent process map"
-          className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3"
+        {isTraceRunning && evidencePack !== undefined ? (
+          <section className="grid min-w-0 gap-2" aria-label="Selected evidence context">
+            {evidencePack.documents.map((document) => (
+              <div
+                className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3"
+                data-testid="maya-static-context-row"
+                key={`static-context-${document.documentId}`}
+              >
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <span className="font-medium">Selected source context</span>
+                  <Badge variant="outline">{document.citationId}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">{document.summary}</p>
+              </div>
+            ))}
+          </section>
+        ) : null}
+        <ol
+          aria-label="Evidence-backed agent process map"
+          className="relative flex min-w-0 flex-col gap-2 before:absolute before:bottom-3 before:left-4 before:top-3 before:w-px before:bg-border"
           data-testid="maya-agent-process-map"
         >
-          {processNodes.map((node) => {
+          {processNodes.map((node, index) => {
             const isBackendTrace = isBackendTraceProcessNode(node);
             const sourceTrustLabel = formatTraceRetrievalSourceLabel(node);
 
             return (
-              <div
-                className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3"
+              <li
+                className="relative grid min-w-0 gap-2 rounded-md border bg-background p-3 pl-10 shadow-none"
                 data-agent-node={isBackendTrace ? node.agentName : undefined}
                 data-citation-count={node.citations.length}
                 data-deterministic-basis={isBackendTrace ? node.deterministicBasis : undefined}
@@ -141,6 +163,12 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                 data-ui-process-label={!isBackendTrace ? node.label : undefined}
                 key={node.key}
               >
+                <span
+                  aria-hidden="true"
+                  className="absolute left-[0.55rem] top-3 flex size-6 items-center justify-center rounded-full border bg-background text-xs font-semibold text-muted-foreground"
+                >
+                  {index + 1}
+                </span>
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="grid min-w-0 gap-1">
                     <span className="truncate text-sm font-medium" title={node.label}>
@@ -157,10 +185,10 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                   <Badge variant="outline">{`${node.recordIds.length.toString()} records`}</Badge>
                   <Badge variant="outline">{`${node.citations.length.toString()} citations`}</Badge>
                 </div>
-              </div>
+              </li>
             );
           })}
-        </section>
+        </ol>
         <Accordion collapsible type="single">
           <AccordionItem data-testid="maya-agent-trace-details" value="trace-details">
             <AccordionTrigger>Trace details</AccordionTrigger>
@@ -230,7 +258,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                             <div className="flex min-w-0 flex-col gap-1">
                               <span className="font-medium">{event.label}</span>
                               <span className="text-sm text-muted-foreground">{event.message}</span>
-                              <div className="flex flex-wrap gap-1.5" aria-label={`${event.phase} hook receipt`}>
+                              <div className="flex flex-wrap gap-1.5" aria-label={`${event.phase} trace receipt`}>
                                 <Badge variant="secondary">{event.hook}</Badge>
                                 <Badge variant="outline">{event.agentName}</Badge>
                                 {event.nextAgentName === undefined ? null : <Badge variant="outline">{event.nextAgentName}</Badge>}
@@ -290,10 +318,10 @@ function buildAgentProcessNodes(input: {
     deterministicBasis: selectedBasis,
     key: `selected-${input.selectedLine ?? selectedRecordIds.join("-")}`,
     label: input.selectedLine === undefined ? "Selected evidence" : `Selected line ${input.selectedLine}`,
-    message: "Selected evidence recordIds seed the Maya query process map.",
+    message: "Selected evidence records seed the Maya query process map.",
     nodeKind: "selected-evidence",
     recordIds: selectedRecordIds,
-    sourceLabel: input.evidencePack?.provenance.sourceName ?? "Selected evidence read model",
+    sourceLabel: input.evidencePack?.provenance.sourceName ?? "Selected evidence source",
     uiSourceTrustLabel: "Source-backed"
   };
   const traceNodes = (input.response?.trace ?? []).map((event, index) =>
@@ -372,7 +400,7 @@ function sourceNodesFromCitations(citations: readonly QueryCitation[]): AgentPro
       return {
         citations: [citation.recordId],
         deterministicBasis: citation.deterministicBasis,
-        detailMessage: citation.summary ?? "Backend citation source metadata supplied this process node.",
+        detailMessage: citation.summary ?? "Citation metadata supplied this process node.",
         key: `citation-source-${citation.recordId}`,
         label: `${sourceLabel} citation`,
         message: compactCitationProcessMessage(sourceLabel),

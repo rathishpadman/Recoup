@@ -7,6 +7,7 @@ import {
   ChevronLeftIcon,
   FileSearchIcon,
   FlaskConicalIcon,
+  MessageCircleIcon,
   RotateCwIcon,
   ShieldAlertIcon,
   UserRoundCheckIcon
@@ -22,6 +23,7 @@ import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
 import { SourceReadinessStrip } from "./source-readiness-strip.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -81,6 +83,13 @@ class WorkItemDetailFetchError extends Error {
     this.correlationId = body?.correlationId;
     this.missingSource = body?.missingSource;
     this.status = status;
+  }
+}
+
+class WorkItemDetailIdentityError extends Error {
+  constructor(lineId: string) {
+    super(`Forensics work item detail response did not match requested line ${lineId}.`);
+    this.name = "WorkItemDetailIdentityError";
   }
 }
 
@@ -189,6 +198,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   const [openedCaseDetail, setOpenedCaseDetail] = React.useState<MayaWorkItemDetail | undefined>();
   const [workItemDetailLoadState, setWorkItemDetailLoadState] = React.useState<WorkItemDetailLoadState | undefined>();
   const [returnContextLineId, setReturnContextLineId] = React.useState<string | undefined>();
+  const [agentDockOpenLineId, setAgentDockOpenLineId] = React.useState<string | undefined>();
   const detailRequestSequence = React.useRef(0);
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
@@ -214,9 +224,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     openedCaseDetail.lineId === openedCaseWorklistItem.lineId
       ? openedCaseDetail
       : undefined;
-  const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
+  const agentLaunchItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem ?? visibleSelectedWorklistItem;
 
-  const openInvestigationForItem = React.useCallback(async (item: MayaWorklistItem) => {
+  const openInvestigationForItem = React.useCallback(async (item: MayaWorklistItem, options?: { openQueryDockOnReady?: boolean }) => {
     const requestId = beginWorkItemDetailRequest(detailRequestSequence);
     setActiveSection("cases");
     setReturnContextLineId(undefined);
@@ -224,12 +234,18 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     setOpenedCaseWorklistItem(item);
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState({ lineId: item.lineId, state: "loading" });
+    if (options?.openQueryDockOnReady === true) {
+      setAgentDockOpenLineId(item.lineId);
+    } else {
+      setAgentDockOpenLineId(undefined);
+    }
 
     try {
       const detail = await fetchForensicsWorkItemDetail(item.lineId);
       if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
         return;
       }
+      assertWorkItemDetailIdentity(detail, item);
 
       setOpenedCaseDetail(detail);
       setOpenedCaseWorklistItem(detail.workItem);
@@ -242,14 +258,21 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
       setOpenedCaseDetail(undefined);
       setWorkItemDetailLoadState(toWorkItemDetailLoadError(item.lineId, error));
+      setAgentDockOpenLineId(undefined);
     }
   }, []);
 
   const handleSelectWorklistItem = React.useCallback(
     (item: MayaWorklistItem) => {
-      void openInvestigationForItem(item);
+      cancelWorkItemDetailRequest(detailRequestSequence);
+      setSelectedWorklistItem(item);
+      setReturnContextLineId(undefined);
+      setOpenedCaseWorklistItem(undefined);
+      setOpenedCaseDetail(undefined);
+      setWorkItemDetailLoadState(undefined);
+      setAgentDockOpenLineId(undefined);
     },
-    [openInvestigationForItem]
+    []
   );
 
   const handleReturnToWorklist = React.useCallback(() => {
@@ -264,7 +287,25 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     setOpenedCaseWorklistItem(undefined);
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState(undefined);
+    setAgentDockOpenLineId(undefined);
   }, [openedCaseWorklistItem]);
+
+  const handleLaunchRecoupAgent = React.useCallback(() => {
+    if (agentLaunchItem === undefined) {
+      return;
+    }
+
+    setAgentDockOpenLineId(agentLaunchItem.lineId);
+    if (activeCaseDetail !== undefined && openedCaseWorklistItem?.lineId === agentLaunchItem.lineId) {
+      return;
+    }
+
+    void openInvestigationForItem(agentLaunchItem, { openQueryDockOnReady: true });
+  }, [activeCaseDetail, agentLaunchItem, openInvestigationForItem, openedCaseWorklistItem?.lineId]);
+
+  const handleQueryDockIntentConsumed = React.useCallback(() => {
+    setAgentDockOpenLineId(undefined);
+  }, []);
 
   const handleSurfaceSectionChange = React.useCallback((section: MayaSurfaceSection) => {
     setActiveSection(section);
@@ -273,6 +314,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState(undefined);
     setReturnContextLineId(undefined);
+    setAgentDockOpenLineId(undefined);
   }, []);
 
   React.useEffect(() => {
@@ -289,25 +331,191 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
   function renderMayaRootSection(): React.ReactNode {
     switch (activeSection) {
-      case "overview":
+      case "overview": {
+        const validDeductionItems = model.worklist.filter((item) => item.verdict === "valid");
+        const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
+        const readySourceCount = connectors.sourceTiles.filter((source) => source.statusTone === "ready").length;
+        const overviewFocusItem = visibleSelectedWorklistItem;
+        const overviewFocusLabel = visibleSelectedWorklistItem === undefined ? "No selected case" : "Selected case";
+
         return (
           <section className="flex min-w-0 flex-col gap-3" data-testid="maya-root-section-overview">
             <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
             <SourceReadinessStrip connectors={connectors} />
-            {validDeductionCount > 0 ? (
-              <Alert data-testid="maya-valid-deduction-signal">
-                <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-                <AlertTitle>Fetched valid rows</AlertTitle>
-                <AlertDescription>
-                  <Badge className="mr-2" variant="secondary">
-                    {validDeductionCount.toString()}
-                  </Badge>
-                  Backend worklist rows carry verdict labels from the read model.
-                </AlertDescription>
-              </Alert>
-            ) : null}
+            <section
+              className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
+              data-testid="maya-overview-command-center"
+            >
+              <div className="grid min-w-0 gap-3">
+                <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
+                  <DetailStateFact label="Fetched cases" value={model.worklist.length.toString()} />
+                  <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
+                  <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
+                  <DetailStateFact
+                    label="Ready sources"
+                    value={`${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`}
+                  />
+                </div>
+
+                <Card className="rounded-lg shadow-none" data-testid="maya-overview-positive-cases" size="sm">
+                  <CardHeader className="gap-1.5">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="grid min-w-0 gap-1">
+                        <CardTitle className="text-base">Positive deduction cases</CardTitle>
+                        <CardDescription>Rows marked valid by the fetched Maya read model.</CardDescription>
+                      </div>
+                      <span
+                        className="inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-xs font-medium text-muted-foreground"
+                        data-testid="maya-valid-deduction-signal"
+                      >
+                        {validDeductionCount.toString()} valid
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {validDeductionItems.length === 0 ? (
+                      <div className="px-4 pb-4">
+                        <MayaEmptyState description="The fetched worklist returned no valid deduction rows." title="No valid rows" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid gap-2 p-3 md:hidden" data-testid="maya-overview-positive-mobile-list">
+                          {validDeductionItems.map((item) => (
+                            <div className="grid gap-2 rounded-md border bg-background p-3" data-verdict={item.verdict} key={`overview-valid-mobile-${item.lineId}`}>
+                              <div className="flex min-w-0 items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="line-clamp-2 text-sm font-medium">{item.scenarioLabel}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
+                                </div>
+                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                                  <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                                  {item.verdictLabel}
+                                </Badge>
+                                <Badge variant="outline">{item.lineId}</Badge>
+                                <Badge variant="outline">{item.evidenceLabel}</Badge>
+                              </div>
+                              <div className="grid gap-0.5 text-xs text-muted-foreground">
+                                <span>{item.routingLabel}</span>
+                                <span>{item.recommendedActionLabel}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="hidden md:block">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Case</TableHead>
+                                <TableHead>Counterparty</TableHead>
+                                <TableHead>Verdict</TableHead>
+                                <TableHead>Evidence</TableHead>
+                                <TableHead>Routing</TableHead>
+                                <TableHead>Amount</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {validDeductionItems.map((item) => (
+                                <TableRow data-verdict={item.verdict} key={`overview-valid-${item.lineId}`}>
+                                  <TableCell>
+                                    <div className="grid min-w-0 gap-0.5">
+                                      <span className="truncate font-medium">{item.scenarioLabel}</span>
+                                      <span className="truncate text-xs text-muted-foreground">{item.lineId}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>{item.customerLabel}</TableCell>
+                                  <TableCell>
+                                    <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                                      <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                                      {item.verdictLabel}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{item.evidenceLabel}</TableCell>
+                                  <TableCell>
+                                    <div className="grid min-w-0 gap-0.5">
+                                      <span className="truncate">{item.routingLabel}</span>
+                                      <span className="truncate text-xs text-muted-foreground">{item.recommendedActionLabel}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="tabular-nums">{item.amount}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="rounded-lg shadow-none" data-testid="maya-overview-next-case" size="sm">
+                <CardHeader className="gap-1.5">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="grid min-w-0 gap-1">
+                      <CardTitle className="text-base">{overviewFocusLabel}</CardTitle>
+                      <CardDescription>Fetched read-model row selected for review.</CardDescription>
+                    </div>
+                    <Badge variant="outline">Read-model backed</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  {overviewFocusItem === undefined ? (
+                    <MayaEmptyState description="Select a fetched worklist row to inspect the case without inferring a next-best case." title="No selected case" />
+                  ) : (() => {
+                    const overviewFocusIsLoading =
+                      workItemDetailLoadState?.state === "loading" &&
+                      workItemDetailLoadState.lineId === overviewFocusItem.lineId;
+
+                    return (
+                      <>
+                        <div className="grid min-w-0 gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <Badge className="gap-1.5" data-verdict={overviewFocusItem.verdict} variant="secondary">
+                              {overviewFocusItem.verdict === "valid" ? (
+                                <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                              ) : null}
+                              {overviewFocusItem.verdictLabel}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">{overviewFocusItem.lineId}</span>
+                          </div>
+                          <div className="grid min-w-0 gap-1">
+                            <h2 className="truncate text-lg font-semibold leading-tight">{overviewFocusItem.scenarioLabel}</h2>
+                            <p className="truncate text-sm text-muted-foreground">{overviewFocusItem.customerLabel}</p>
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          <DetailStateFact label="Potential exposure" value={overviewFocusItem.amount} />
+                          <DetailStateFact label="Evidence" value={overviewFocusItem.evidenceLabel} />
+                          <DetailStateFact label="Recommended action" value={overviewFocusItem.recommendedActionLabel} />
+                        </div>
+                        <Button
+                          className="w-fit"
+                          disabled={overviewFocusIsLoading}
+                          onClick={() => {
+                            void openInvestigationForItem(overviewFocusItem);
+                          }}
+                          size="sm"
+                          type="button"
+                        >
+                          {overviewFocusIsLoading ? (
+                            <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
+                          ) : (
+                            <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
+                          )}
+                          {overviewFocusIsLoading ? "Loading detail" : "Open investigation"}
+                        </Button>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            </section>
           </section>
         );
+      }
       case "worklist":
         return renderWorklistSection();
       case "cases":
@@ -757,7 +965,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
               hasBackendDetail={true}
               journey={activeCaseDetail.mayaJourney}
               multimodalDock={activeCaseDetail.multimodalDock}
+              onQueryDockIntentConsumed={handleQueryDockIntentConsumed}
               onReturnToWorklist={handleReturnToWorklist}
+              openQueryDockLineId={agentDockOpenLineId}
               recommendedAction={activeCaseDetail.recommendedAction}
               selected={activeCaseDetail.selected}
               selectedWorklistItem={activeCaseDetail.workItem}
@@ -765,6 +975,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             />
           )}
         </section>
+        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       </MayaWorkspaceShell>
     );
   }
@@ -790,6 +1001,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           }}
           selectedItem={returnedWorklistItem}
         />
+        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       </MayaWorkspaceShell>
     );
   }
@@ -806,7 +1018,24 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       <section className="flex min-w-0 flex-1 flex-col gap-3" aria-label="Maya morning run summary">
         {renderMayaRootSection()}
       </section>
+      <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
     </MayaWorkspaceShell>
+  );
+}
+
+function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <Button
+      aria-label="Open Recoup Agent"
+      className="fixed bottom-5 right-5 z-40 h-11 rounded-full px-4 shadow-lg"
+      data-testid="recoup-agent-launcher"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      <MessageCircleIcon aria-hidden="true" data-icon="inline-start" />
+      <span className="hidden sm:inline">Recoup Agent</span>
+    </Button>
   );
 }
 
@@ -834,6 +1063,13 @@ function WorkItemDetailStatePanel({
           <CardDescription>{loadState.lineId}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {isLoading ? (
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3" data-testid="maya-work-item-detail-loading-skeleton">
+              <Skeleton className="h-4 w-44" data-testid="maya-work-item-detail-skeleton-line" />
+              <Skeleton className="h-4 w-full" data-testid="maya-work-item-detail-skeleton-line" />
+              <Skeleton className="h-4 w-3/4" data-testid="maya-work-item-detail-skeleton-line" />
+            </div>
+          ) : null}
           <Alert variant={isLoading ? "default" : "destructive"}>
             {isLoading ? (
               <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
@@ -878,6 +1114,14 @@ function DetailStateFact({ label, value }: { label: string; value: string }) {
 }
 
 function toWorkItemDetailLoadError(lineId: string, error: unknown): WorkItemDetailLoadState {
+  if (error instanceof WorkItemDetailIdentityError) {
+    return {
+      lineId,
+      message: error.message,
+      state: "error"
+    };
+  }
+
   if (error instanceof WorkItemDetailFetchError) {
     return {
       correlationId: error.correlationId,
@@ -894,6 +1138,12 @@ function toWorkItemDetailLoadError(lineId: string, error: unknown): WorkItemDeta
     message: "Forensics work item detail is unavailable from governed backend sources.",
     state: "error"
   };
+}
+
+function assertWorkItemDetailIdentity(detail: MayaWorkItemDetail, item: MayaWorklistItem): void {
+  if (detail.lineId !== item.lineId || detail.workItem.lineId !== item.lineId) {
+    throw new WorkItemDetailIdentityError(item.lineId);
+  }
 }
 
 interface BeatTwelveReturnedWorklistProps {

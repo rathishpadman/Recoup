@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   ArrowLeftIcon,
+  ChevronDownIcon,
   ClipboardCopyIcon,
   FileSearchIcon,
   LockKeyholeIcon,
@@ -13,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -44,7 +46,10 @@ interface ReceiptRow {
 export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedActionContext }: AuditConfirmationPanelProps) {
   const confirmedResponse = confirmedApprovalResponse(response);
   const [copyStatus, setCopyStatus] = React.useState<string | undefined>();
+  const [receiptDetailsOpen, setReceiptDetailsOpen] = React.useState(false);
   const rows = confirmedResponse === undefined ? unavailableRows() : confirmedRows(confirmedResponse);
+  const gapCount = rows.filter((row) => row.tone === "gap").length;
+  const waitingCount = rows.filter((row) => row.tone === "waiting").length;
 
   React.useEffect(() => {
     setCopyStatus(undefined);
@@ -70,14 +75,14 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
           <div className="grid min-w-0 gap-1">
             <CardTitle className="text-2xl leading-tight">Audit confirmation</CardTitle>
             <CardDescription>
-              Backend-owned approval receipt state for the selected draft. No downstream dispatch state is inferred.
+              Approval receipt state for the selected draft. No downstream action is inferred.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant={confirmedResponse === undefined ? "outline" : "secondary"}>
-              {confirmedResponse === undefined ? "Unavailable" : "human_decided"}
+              {confirmedResponse === undefined ? "Unavailable" : "Human decision recorded"}
             </Badge>
-            <Badge variant="outline">Read-model wired</Badge>
+            <Badge variant="outline">Source controlled</Badge>
           </div>
         </div>
       </CardHeader>
@@ -89,27 +94,67 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
             <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
           )}
           <AlertTitle>
-            {confirmedResponse === undefined ? "Audit confirmation unavailable" : "Backend human decision recorded"}
+            {confirmedResponse === undefined ? "Audit confirmation unavailable" : "Human decision recorded"}
           </AlertTitle>
           <AlertDescription>
             {confirmedResponse === undefined
-              ? "No backend approval response or audit commit is available yet. Beat 11 stays blocked until the backend returns status === human_decided with a valid 64-hex auditEntryHash."
-              : "The backend approval response returned status === human_decided with a valid 64-hex auditEntryHash. Fields not returned by the backend remain unavailable."}
+              ? "No committed approval receipt is available yet. The audit remains blocked until the source returns a verified human decision and a complete approval receipt."
+              : "A committed human approval receipt is available. Fields not returned by the source remain unavailable."}
           </AlertDescription>
         </Alert>
 
-        <ReceiptTable
-          copyButton={
-            confirmedResponse === undefined ? undefined : (
-              <HashCopyButton copyStatus={copyStatus} onCopy={() => void copyAuditEntryHash()} />
-            )
-          }
-          rows={rows}
-        />
+        <section
+          className="grid min-w-0 gap-3 rounded-lg border border-border bg-background/80 p-3"
+          data-testid="maya-audit-summary-panel"
+        >
+          <div className="grid min-w-0 gap-3 md:grid-cols-3">
+            <SummaryFact
+              label="Receipt state"
+              value={confirmedResponse === undefined ? "Waiting for committed approval receipt" : "Available"}
+            />
+            <SummaryFact
+              label="Receipt gaps"
+              value={gapCount === 0 ? "No missing receipt fields" : `${String(gapCount)} missing receipt fields`}
+            />
+            <SummaryFact
+              label="Pending receipt fields"
+              value={waitingCount === 0 ? "No unavailable receipt fields" : `${String(waitingCount)} unavailable receipt fields`}
+            />
+          </div>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Receipt fields remain source-owned. Approval finality is not recovery dispatch, ERP write-back, Billing routing, or case closure.
+          </p>
+        </section>
+
+        <Collapsible
+          className="grid min-w-0 gap-3"
+          data-testid="maya-audit-receipt-details"
+          onOpenChange={setReceiptDetailsOpen}
+          open={receiptDetailsOpen}
+        >
+          <CollapsibleTrigger asChild>
+            <Button className="w-fit justify-start" type="button" variant="outline">
+              <ChevronDownIcon aria-hidden="true" className={receiptDetailsOpen ? "rotate-180" : undefined} data-icon="inline-start" />
+              Audit receipt details
+            </Button>
+          </CollapsibleTrigger>
+          {receiptDetailsOpen ? (
+            <CollapsibleContent className="min-w-0 overflow-x-auto rounded-lg border border-border bg-background">
+              <ReceiptTable
+                copyButton={
+                  confirmedResponse === undefined ? undefined : (
+                    <HashCopyButton copyStatus={copyStatus} onCopy={() => void copyAuditEntryHash()} />
+                  )
+                }
+                rows={rows}
+              />
+            </CollapsibleContent>
+          ) : null}
+        </Collapsible>
 
         <Separator />
 
-        <section className="grid min-w-0 gap-3">
+        <section className="grid min-w-0 gap-3" data-testid="maya-audit-selected-action-context">
           <div className="grid min-w-0 gap-1">
             <h3 className="flex items-center gap-2 text-base font-semibold">
               <LockKeyholeIcon aria-hidden="true" data-icon="inline-start" />
@@ -141,6 +186,15 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
         </Button>
       </CardFooter>
     </Card>
+  );
+}
+
+function SummaryFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid min-w-0 gap-1">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="break-words text-sm font-semibold text-foreground">{value}</span>
+    </div>
   );
 }
 

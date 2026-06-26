@@ -230,6 +230,7 @@ export function QueryEvidenceDock({
               : "Ask from the current evidence packet."}
           </SheetDescription>
           <div className="flex flex-wrap gap-2" aria-label="Query policy">
+            <Badge variant="secondary">Selected evidence context</Badge>
             <Badge variant="secondary">Read-only query</Badge>
             <Badge variant="outline">{dock.languageLabel}</Badge>
           </div>
@@ -399,7 +400,14 @@ export function QueryEvidenceDock({
                   <AlertTitle>Query error</AlertTitle>
                   <AlertDescription>{snapshot.message}</AlertDescription>
                 </Alert>
-              ) : isRunning ? null : (
+              ) : isRunning ? (
+                <AgentTracePanel
+                  evidencePack={evidencePack}
+                  recordIds={recordIds}
+                  response={snapshot}
+                  selectedLine={selectedLine}
+                />
+              ) : (
                 <Alert>
                   <AlertTitle>{snapshot.message}</AlertTitle>
                   <AlertDescription>

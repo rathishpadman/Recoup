@@ -1582,6 +1582,20 @@ function backendTiedHelper(
   };
 }
 
+function extractMayaOverviewSource(surface: string): string {
+  const stripped = stripComments(surface);
+  const overviewCaseIndex = stripped.indexOf('case "overview":');
+  const worklistCaseIndex = stripped.indexOf('case "worklist":', overviewCaseIndex);
+  if (overviewCaseIndex < 0 || worklistCaseIndex < 0) {
+    return "";
+  }
+
+  const overviewSetupIndex = stripped.lastIndexOf("const validDeductionCount = model.worklist", overviewCaseIndex);
+  const startIndex = overviewSetupIndex >= 0 ? overviewSetupIndex : overviewCaseIndex;
+
+  return stripped.slice(startIndex, worklistCaseIndex);
+}
+
 describe("Maya shadcn human QA contract", () => {
   it("rejects fixture, dummy, hardcoded-business, UI-decision, and Playwright fulfillment paths", () => {
     const files = readMayaUiAndE2ESources();
@@ -1632,6 +1646,184 @@ describe("Maya shadcn human QA contract", () => {
     }).toEqual({
       forbiddenBusinessLines: [],
       missingE2eBackendAcquisitionRequirements: []
+    });
+  });
+
+  it("requires production login/session controls instead of visible persona choices", () => {
+    const loginForm = stripComments(read("cockpit/app/login/login-form.tsx"));
+    const workspaceShell = stripComments(readMayaComponent("maya-workspace-shell.tsx"));
+    const contextAround = (pattern: RegExp): string[] =>
+      Array.from(loginForm.matchAll(pattern), (match) => {
+        const index = match.index;
+        return loginForm.slice(Math.max(0, index - 500), Math.min(loginForm.length, index + match[0].length + 1_200));
+      });
+    const isDevOrHiddenPersonaContext = (context: string): boolean =>
+      /\b(?:dev-only|demo-only|developer-only|debug-only|hidden|sr-only|aria-hidden|NODE_ENV|RECOUP_ENABLE_DEV_PERSONA|showDevPersonaSwitcher|showDemoPersonaSwitcher|devPersonaSwitcher)\b/iu.test(
+        context
+      );
+    const normalVisiblePersonaFieldLabels = contextAround(/<FieldLabel(?:\s[^>]*)?>\s*Persona\s*<\/FieldLabel>/gu).filter(
+      (context) => !isDevOrHiddenPersonaContext(context)
+    );
+    const normalVisiblePersonaAriaLabels = contextAround(/\baria-label\s*=\s*(?:"Persona"|'Persona')/gu).filter(
+      (context) => !isDevOrHiddenPersonaContext(context)
+    );
+    const normalVisiblePersonaChoiceLabels = contextAround(
+      /<ToggleGroupItem\b[\s\S]{0,1000}\{\s*persona\.(?:displayName|label|loginId|persona)\s*\}[\s\S]{0,240}<\/ToggleGroupItem>/gu
+    ).filter((context) => !isDevOrHiddenPersonaContext(context));
+
+    expect({
+      normalVisiblePersonaAriaLabelCount: normalVisiblePersonaAriaLabels.length,
+      normalVisiblePersonaChoiceLabelCount: normalVisiblePersonaChoiceLabels.length,
+      normalVisiblePersonaFieldLabelCount: normalVisiblePersonaFieldLabels.length,
+      workspaceExposesLogoutRouteOrComponent: /\b(?:demo-logout|LogoutButton|logout-button)\b/iu.test(workspaceShell),
+      workspaceExposesSignOutText: /\bSign out\b/u.test(workspaceShell),
+      loginDoesNotDefaultToPersonaId: !/\b(?:preferredLoginId|useState\s*\(\s*defaultLoginId\s*\))/u.test(loginForm)
+    }).toEqual({
+      normalVisiblePersonaAriaLabelCount: 0,
+      normalVisiblePersonaChoiceLabelCount: 0,
+      normalVisiblePersonaFieldLabelCount: 0,
+      loginDoesNotDefaultToPersonaId: true,
+      workspaceExposesLogoutRouteOrComponent: true,
+      workspaceExposesSignOutText: true
+    });
+  });
+
+  it("requires case detail line selection to use accessible Line 1 and Line 2 controls", () => {
+    const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
+    const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
+
+    expect({
+      e2eCallsLineSelectorContract: e2e.includes("await assertCaseLineSelectorControls(page, detail);"),
+      e2eClicksHumanLineButton:
+        /\bgetByRole\s*\(\s*["']button["']\s*,\s*\{\s*name:\s*new RegExp\s*\(\s*`\^Line \$\{String\(index \+ 1\)\}\$`/u.test(
+          e2e
+        ),
+      e2eRequiresSelectedLineHook: e2e.includes('page.getByTestId("maya-selected-line-label")'),
+      lineSelectorHasGroupLabel: /aria-label=["']Deduction lines["']|aria-label=["']Line selector["']/u.test(workspace),
+      lineSelectorUsesPressedState: /\baria-pressed\s*=\s*\{\s*lineId\s*===\s*displayLineId\s*\}/u.test(workspace),
+      lineSelectorRendersButtons:
+        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<button\b[\s\S]{0,500}Line\s*\{String\(index \+ 1\)\}/u.test(
+          workspace
+        ) ||
+        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<Button\b[\s\S]{0,500}Line\s*\{String\(index \+ 1\)\}/u.test(
+          workspace
+        ),
+      rawLineIdsAreNotPrimaryBadgeControls:
+        !/aria-label="Opened work item line IDs"[\s\S]{0,1400}<Badge\b[\s\S]{0,300}\{lineId\}/u.test(workspace),
+      selectedLineLabelHook: hasJsxDataTestId(workspace, "maya-selected-line-label")
+    }).toEqual({
+      e2eCallsLineSelectorContract: true,
+      e2eClicksHumanLineButton: true,
+      e2eRequiresSelectedLineHook: true,
+      lineSelectorHasGroupLabel: true,
+      lineSelectorUsesPressedState: true,
+      lineSelectorRendersButtons: true,
+      rawLineIdsAreNotPrimaryBadgeControls: true,
+      selectedLineLabelHook: true
+    });
+  });
+
+  it("requires a logged-in Recoup Agent launcher to open the grounded query dock", () => {
+    const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
+    const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
+    const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
+
+    expect({
+      launcherHook: hasJsxDataTestId(surface, "recoup-agent-launcher"),
+      launcherUsesLineScopedIntent:
+        /\bagentDockOpenLineId\b/u.test(surface) &&
+        /\bopenQueryDockLineId\b/u.test(workspace) &&
+        /\bopenQueryDockLineId\s*!==\s*selected\.lineId\b/u.test(workspace),
+      launcherIntentIsConsumable: /\bonQueryDockIntentConsumed\b/u.test(surface) && /\bonQueryDockIntentConsumed\?\.\(\s*\)/u.test(workspace),
+      rowSelectionClearsLauncherIntent: /function handleSelectWorklistItem|const handleSelectWorklistItem/u.test(surface)
+        ? /handleSelectWorklistItem[\s\S]{0,500}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface)
+        : false,
+      normalOpenClearsLauncherIntent:
+        /\bopenInvestigationForItem[\s\S]{0,700}\bopenQueryDockOnReady[\s\S]{0,700}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface),
+      failedDetailLoadClearsLauncherIntent:
+        /\bcatch \(error\)[\s\S]{0,500}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface),
+      launcherDoesNotCreateSeparateQueryDock: !/<QueryEvidenceDock\b/u.test(surface) && /<QueryEvidenceDock\b/u.test(workspace),
+      e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
+      e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
+      e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Agent launcher")
+    }).toEqual({
+      launcherHook: true,
+      launcherUsesLineScopedIntent: true,
+      launcherIntentIsConsumable: true,
+      rowSelectionClearsLauncherIntent: true,
+      normalOpenClearsLauncherIntent: true,
+      failedDetailLoadClearsLauncherIntent: true,
+      launcherDoesNotCreateSeparateQueryDock: true,
+      e2eClicksLauncher: true,
+      e2eCoversNoReplayAfterNormalOpen: true,
+      e2eVerifiesGroundedDock: true
+    });
+  });
+
+  it("requires static status badges to be non-button spans while actions stay buttons", () => {
+    const files = [
+      { path: "cockpit/components/maya/deduction-case-workspace.tsx", source: stripComments(readMayaComponent("deduction-case-workspace.tsx")) },
+      { path: "cockpit/components/maya/deduction-worklist-table.tsx", source: stripComments(readMayaComponent("deduction-worklist-table.tsx")) },
+      { path: "cockpit/components/maya/maya-forensics-surface.tsx", source: stripComments(readMayaComponent("maya-forensics-surface.tsx")) },
+      { path: "cockpit/components/maya/recommended-action-cell.tsx", source: stripComments(readMayaComponent("recommended-action-cell.tsx")) }
+    ] as const satisfies readonly SourceFile[];
+    const combined = files.map((file) => file.source).join("\n");
+    const staticBadgeElements = files.flatMap((file) =>
+      Array.from(
+        file.source.matchAll(
+          /<([A-Za-z][\w.:]*)\b[^>]*\bdata-testid\s*=\s*(?:"maya-static-status-badge"|'maya-static-status-badge'|\{\s*["']maya-static-status-badge["']\s*\})[^>]*>/gu
+        ),
+        (match) => ({
+          openingTag: match[0],
+          path: file.path,
+          tagName: match[1] ?? ""
+        })
+      )
+    );
+    const staticBadgePointerSemanticsPattern =
+      /(?:\brole\s*=\s*(?:"button"|'button'|\{\s*(?:["'`]button["'`]|[^}]*button[^}]*)\s*\})|\bcursor-pointer\b|\b(?:onClick|onKeyDown|onPointer\w+|onMouse\w+)\s*=|\btabIndex\s*=\s*(?:"(?:0|[1-9]\d*)"|'(?:0|[1-9]\d*)'|\{\s*(?:["'`](?:0|[1-9]\d*)["'`]|\+?(?:0|[1-9]\d*))\s*\}))/iu;
+    const staticBadgePointerSemanticsFixtures = [
+      '<span data-testid="maya-static-status-badge" role="button">',
+      '<span data-testid="maya-static-status-badge" role={buttonRole}>',
+      '<span data-testid="maya-static-status-badge" role={"button"}>',
+      '<span data-testid="maya-static-status-badge" className="cursor-pointer">',
+      '<span data-testid="maya-static-status-badge" onClick={handleClick}>',
+      '<span data-testid="maya-static-status-badge" onKeyDown={handleKeyDown}>',
+      '<span data-testid="maya-static-status-badge" onPointerDown={handlePointerDown}>',
+      '<span data-testid="maya-static-status-badge" onMouseEnter={handleMouseEnter}>',
+      '<span data-testid="maya-static-status-badge" tabIndex={0}>',
+      '<span data-testid="maya-static-status-badge" tabIndex="1">',
+      '<span data-testid="maya-static-status-badge" tabIndex={"0"}>'
+    ];
+    const staticBadgeNonPointerSemanticsFixtures = [
+      '<span data-testid="maya-static-status-badge">',
+      '<span data-testid="maya-static-status-badge" role="status">',
+      '<span data-testid="maya-static-status-badge" tabIndex={-1}>',
+      '<span data-testid="maya-static-status-badge" className="status-badge">'
+    ];
+
+    expect({
+      actionsRenderAsButtons:
+        /<Button\b[\s\S]{0,700}>\s*<[^>]+>\s*Open investigation\s*<\/Button>/u.test(combined) ||
+        /<Button\b[\s\S]{0,700}\bOpen investigation\b[\s\S]{0,160}<\/Button>/u.test(combined),
+      staticBadgeHookCountAtLeastOne: staticBadgeElements.length >= 1,
+      staticBadgeHooksAreNonButtonSpans: staticBadgeElements.every((element) => element.tagName === "span"),
+      staticBadgeHooksHaveNoPointerSemantics: staticBadgeElements.every(
+        (element) => !staticBadgePointerSemanticsPattern.test(element.openingTag)
+      ),
+      staticBadgeNonPointerSemanticsFixturesAreAccepted: staticBadgeNonPointerSemanticsFixtures.every(
+        (openingTag) => !staticBadgePointerSemanticsPattern.test(openingTag)
+      ),
+      staticBadgePointerSemanticsFixturesAreRejected: staticBadgePointerSemanticsFixtures.every((openingTag) =>
+        staticBadgePointerSemanticsPattern.test(openingTag)
+      )
+    }).toEqual({
+      actionsRenderAsButtons: true,
+      staticBadgeHookCountAtLeastOne: true,
+      staticBadgeHooksAreNonButtonSpans: true,
+      staticBadgeHooksHaveNoPointerSemantics: true,
+      staticBadgeNonPointerSemanticsFixturesAreAccepted: true,
+      staticBadgePointerSemanticsFixturesAreRejected: true
     });
   });
 
@@ -1776,6 +1968,10 @@ describe("Maya shadcn human QA contract", () => {
     const workspace = readMayaComponent("deduction-case-workspace.tsx");
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
     const traceAndDock = `${agentTrace}\n${queryDock}`;
+    const strippedAgentTrace = stripComments(agentTrace);
+    const processMapIndex = strippedAgentTrace.indexOf('data-testid="maya-agent-process-map"');
+    const processMapContext =
+      processMapIndex === -1 ? "" : strippedAgentTrace.slice(Math.max(0, processMapIndex - 900), processMapIndex + 3_600);
     const compactSourceLabelFormatter = findFunctionDefinition(stripComments(agentTrace), "formatTraceRetrievalSourceLabel");
 
     const contract = {
@@ -1784,6 +1980,9 @@ describe("Maya shadcn human QA contract", () => {
       missingTraceFragments: missingJsxTestIds(agentTrace, ["maya-agent-process-map", "maya-agent-process-node"]),
       tracePanelUsesDisclosurePrimitive: /@\/components\/ui\/(?:accordion|collapsible)/u.test(agentTrace),
       missingTraceDetailsHook: missingJsxTestIds(agentTrace, ["maya-agent-trace-details"]),
+      processMapUsesTimelineList: /<(?:ol|ul)\b[\s\S]{0,900}data-testid="maya-agent-process-map"/u.test(processMapContext),
+      processMapAvoidsResponsiveCardGrid: !/\b(?:md:grid-cols|xl:grid-cols|grid-cols-\d)\b/u.test(processMapContext),
+      timelineHasStepOrdinal: /\bindex\s*\+\s*1\b/u.test(processMapContext),
       processMapBeforeRawTraceDetails:
         agentTrace.indexOf('data-testid="maya-agent-process-map"') > -1 &&
         agentTrace.indexOf('data-testid="maya-agent-process-map"') <
@@ -1884,6 +2083,9 @@ describe("Maya shadcn human QA contract", () => {
       missingTraceFragments: [],
       tracePanelUsesDisclosurePrimitive: true,
       missingTraceDetailsHook: [],
+      processMapUsesTimelineList: true,
+      processMapAvoidsResponsiveCardGrid: true,
+      timelineHasStepOrdinal: true,
       processMapBeforeRawTraceDetails: true,
       rawTraceTableBehindDetails: true,
       noStaticTraceRowArrays: true,
@@ -1992,6 +2194,140 @@ describe("Maya shadcn human QA contract", () => {
     });
   });
 
+  it("keeps the Maya shadcn sidebar aligned to the production section set", () => {
+    const shell = stripComments(readMayaComponent("maya-workspace-shell.tsx"));
+    const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
+    const expectedLabels = ["Overview", "Worklist", "Cases", "Evidence", "Approvals"];
+    const legacyLabels = ["Deductions", "Run trace", "Analytics", "Configuration"];
+    const navItemsBlock = shell.slice(shell.indexOf("const navItems = ["), shell.indexOf("] as const;") + "] as const;".length);
+
+    expect({
+      hasExactProductionLabels: expectedLabels.every((label) => navItemsBlock.includes(`label: "${label}"`)),
+      legacyLabelsPresent: legacyLabels.filter((label) => navItemsBlock.includes(label)),
+      navItemCount: (navItemsBlock.match(/label:\s*"/gu) ?? []).length,
+      e2eRejectsLegacySidebar: e2e.includes("Maya shadcn sidebar must not show legacy nav")
+    }).toEqual({
+      hasExactProductionLabels: true,
+      legacyLabelsPresent: [],
+      navItemCount: expectedLabels.length,
+      e2eRejectsLegacySidebar: true
+    });
+  });
+
+  it("requires the Maya Overview landing to expose backend-backed command hooks without local business fabrication", () => {
+    const surface = readMayaComponent("maya-forensics-surface.tsx");
+    const overviewSource = extractMayaOverviewSource(surface);
+    const overviewHooks = [
+      "maya-overview-command-center",
+      "maya-overview-intelligence-grid",
+      "maya-valid-deduction-signal",
+      "maya-overview-positive-cases",
+      "maya-overview-next-case"
+    ] as const;
+    const hardcodedBusinessMetricMatches = matchingLines(
+      [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
+      /\bHigh priority\b|["'`][^"'`]*\$\s?\d[\d,]*(?:\.\d{2})?[^"'`]*["'`]/u
+    );
+    const localAmountComputationMatches = matchingLines(
+      [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
+      /\b(?:Number|parseFloat|parseInt)\s*\(|\.reduce\s*\([\s\S]{0,240}\bamount\b/u
+    );
+    const forbiddenFallbackRankCopyMatches = matchingLines(
+      [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
+      /\bNext case\b|\bNext recommended\b|\bRecommended Next\b/u
+    );
+    const overviewButtonContexts = Array.from(
+      overviewSource.matchAll(/<Button\b[\s\S]{0,1400}\bOpen investigation\b[\s\S]{0,300}<\/Button>/gu),
+      (match) => match[0]
+    ).filter((context) => /\bopenInvestigationForItem\s*\(/u.test(context));
+    const loadingBooleanDefinitions = Array.from(
+      overviewSource.matchAll(
+        /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*workItemDetailLoadState\?\.state\s*===\s*"loading"\s*&&\s*workItemDetailLoadState\.lineId\s*===\s*([A-Za-z_$][\w$]*)\.lineId\b/gu
+      ),
+      (match) => ({ itemName: match[2] ?? "", loadingName: match[1] ?? "" })
+    );
+    const buttonHasInlineSameLineLoadingGuard = overviewButtonContexts.some((context) => {
+      const guardMatch =
+        /\bworkItemDetailLoadState\?\.state\s*===\s*"loading"[\s\S]{0,260}\bworkItemDetailLoadState\.lineId\s*===\s*([A-Za-z_$][\w$]*)\.lineId\b/u.exec(
+          context
+        );
+      const itemName = guardMatch?.[1];
+
+      return (
+        itemName !== undefined &&
+        new RegExp(`\\bopenInvestigationForItem\\s*\\(\\s*${escapeRegExp(itemName)}\\s*\\)`, "u").test(context) &&
+        /\bdisabled\s*=\s*\{[\s\S]{0,500}\bworkItemDetailLoadState\?\.state\s*===\s*"loading"[\s\S]{0,500}\}/u.test(context) &&
+        /\bLoading detail\b/u.test(context)
+      );
+    });
+    const buttonHasNamedSameLineLoadingGuard = overviewButtonContexts.some((context) =>
+      loadingBooleanDefinitions.some(
+        ({ itemName, loadingName }) =>
+          itemName.length > 0 &&
+          loadingName.length > 0 &&
+          new RegExp(`\\bopenInvestigationForItem\\s*\\(\\s*${escapeRegExp(itemName)}\\s*\\)`, "u").test(context) &&
+          new RegExp(`\\bdisabled\\s*=\\s*\\{\\s*${escapeRegExp(loadingName)}\\s*\\}`, "u").test(context) &&
+          new RegExp(`\\b${escapeRegExp(loadingName)}\\b[\\s\\S]{0,260}\\bLoading detail\\b`, "u").test(context)
+      )
+    );
+
+    const contract = {
+      missingOverviewHooks: missingJsxTestIds(surface, overviewHooks),
+      buttonHasSameLineLoadingGuard: buttonHasInlineSameLineLoadingGuard || buttonHasNamedSameLineLoadingGuard,
+      forbiddenFallbackRankCopyMatches,
+      hasHonestFallbackCaseCopy: /\b(?:Selected case|No selected case)\b/u.test(overviewSource),
+      overviewUsesActionInbox: /\bmodel\.actionInbox\b/u.test(overviewSource),
+      overviewUsesConnectorReadiness:
+        /\bconnectors\.sourceTiles\b/u.test(overviewSource) || /<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
+      overviewUsesKpiStrip: /\bmodel\.kpiStrip\b/u.test(overviewSource),
+      overviewUsesWorklist: /\bmodel\.worklist\b/u.test(overviewSource),
+      hardcodedBusinessMetricMatches,
+      localAmountComputationMatches
+    };
+
+    expect(contract).toEqual({
+      missingOverviewHooks: [],
+      buttonHasSameLineLoadingGuard: true,
+      forbiddenFallbackRankCopyMatches: [],
+      hasHonestFallbackCaseCopy: true,
+      overviewUsesActionInbox: true,
+      overviewUsesConnectorReadiness: true,
+      overviewUsesKpiStrip: true,
+      overviewUsesWorklist: true,
+      hardcodedBusinessMetricMatches: [],
+      localAmountComputationMatches: []
+    });
+  });
+
+  it("requires loading and empty states to have polished QA hooks instead of blank panels", () => {
+    const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
+    const emptyState = stripComments(readMayaComponent("maya-empty-state.tsx"));
+    const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
+
+    expect({
+      detailLoadingUsesSkeleton: /\bimport\s+\{\s*Skeleton\s*\}\s+from\s+["']@\/components\/ui\/skeleton["']/u.test(surface),
+      detailLoadingHasStableHook: hasJsxDataTestId(surface, "maya-work-item-detail-loading-skeleton"),
+      detailLoadingHasMultipleSkeletonLines:
+        (surface.match(/data-testid="maya-work-item-detail-skeleton-line"/gu) ?? []).length >= 2,
+      detailIdentityMismatchFailsClosed:
+        /\bfunction\s+assertWorkItemDetailIdentity\b/u.test(surface) &&
+        /\bdetail\.lineId\s*!==\s*item\.lineId\b/u.test(surface) &&
+        /\bdetail\.workItem\.lineId\s*!==\s*item\.lineId\b/u.test(surface) &&
+        /\bassertWorkItemDetailIdentity\s*\(\s*detail\s*,\s*item\s*\)/u.test(surface),
+      emptyStateHasStableHook: hasJsxDataTestId(emptyState, "maya-empty-state"),
+      emptyStateExposesIconHook: hasJsxDataTestId(emptyState, "maya-empty-state-icon"),
+      e2eChecksDetailSkeleton: e2e.includes("maya-work-item-detail-loading-skeleton")
+    }).toEqual({
+      detailLoadingUsesSkeleton: true,
+      detailLoadingHasStableHook: true,
+      detailLoadingHasMultipleSkeletonLines: true,
+      detailIdentityMismatchFailsClosed: true,
+      emptyStateHasStableHook: true,
+      emptyStateExposesIconHook: true,
+      e2eChecksDetailSkeleton: true
+    });
+  });
+
   it("rejects active-looking worklist controls without backing behavior", () => {
     const worklist = stripComments(readMayaComponent("deduction-worklist-table.tsx"));
     const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
@@ -2083,6 +2419,81 @@ describe("Maya shadcn human QA contract", () => {
       missingE2eHooks: [],
       missingNamedCoverageHelpers: [],
       missingProductionHooks: []
+    });
+  }, 15_000);
+
+  it("requires evidence to lead with business document groups while raw IDs stay in source details", () => {
+    const evidence = stripComments(readMayaComponent("evidence-dossier.tsx"));
+    const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
+
+    expect({
+      businessDocumentLabelHelper: /\bfunction\s+getEvidenceBusinessLabel\b/u.test(evidence),
+      businessDocumentGroupsRendered:
+        hasJsxDataTestId(evidence, "maya-evidence-business-group") &&
+        /\bgroupEvidenceDocumentsByBusinessLabel\b/u.test(evidence),
+      backendPacketCopyRemoved: !/\bBackend evidence packet\b/u.test(evidence),
+      rawRecordStripMovedToDetails:
+        hasJsxDataTestId(evidence, "maya-evidence-source-details") &&
+        /<Collapsible\b[\s\S]{0,1600}<RecordIdStrip\b/u.test(evidence),
+      primaryDescriptionAvoidsRawIds: !/\bCited documents and record IDs from the selected backend packet\b/u.test(evidence),
+      e2eOpensSourceDetailsBeforeRawIdCheck:
+        /maya-evidence-source-details[\s\S]{0,2000}\.click\s*\(/u.test(e2e) &&
+        /\brecordBadges\.includes\(recordId\)/u.test(e2e)
+    }).toEqual({
+      businessDocumentLabelHelper: true,
+      businessDocumentGroupsRendered: true,
+      backendPacketCopyRemoved: true,
+      rawRecordStripMovedToDetails: true,
+      primaryDescriptionAvoidsRawIds: true,
+      e2eOpensSourceDetailsBeforeRawIdCheck: true
+    });
+  });
+
+  it("requires the Audit tab to keep receipt rows behind an expandable proof-details control", () => {
+    const auditPanel = stripComments(readMayaComponent("audit-confirmation-panel.tsx"));
+
+    const receiptDetailsIndex = auditPanel.indexOf('data-testid="maya-audit-receipt-details"');
+    const receiptTableIndex = auditPanel.indexOf("<ReceiptTable");
+    const firstTableImportIndex = auditPanel.indexOf("from \"@/components/ui/table\"");
+
+    expect({
+      hasSummaryHook: auditPanel.includes('data-testid="maya-audit-summary-panel"'),
+      hasReceiptDetailsHook: receiptDetailsIndex > -1,
+      hasReceiptDetailsTrigger: auditPanel.includes("Audit receipt details"),
+      usesDisclosurePrimitive: /\b(?:Collapsible|Accordion)\b/u.test(auditPanel),
+      keepsTableImplementationAvailable: firstTableImportIndex > -1,
+      keepsReceiptRowsAvailableInsideDetails: receiptTableIndex > receiptDetailsIndex,
+      keepsSelectedContextSeparate: auditPanel.includes('data-testid="maya-audit-selected-action-context"')
+    }).toEqual({
+      hasSummaryHook: true,
+      hasReceiptDetailsHook: true,
+      hasReceiptDetailsTrigger: true,
+      usesDisclosurePrimitive: true,
+      keepsTableImplementationAvailable: true,
+      keepsReceiptRowsAvailableInsideDetails: true,
+      keepsSelectedContextSeparate: true
+    });
+  });
+
+  it("keeps backend contract language out of the primary Maya trace and audit surfaces", () => {
+    const agentTracePanel = stripComments(readMayaComponent("agent-trace-panel.tsx"));
+    const auditPanel = stripComments(readMayaComponent("audit-confirmation-panel.tsx"));
+    const auditPrimarySurface = auditPanel.slice(auditPanel.indexOf("<CardHeader"), auditPanel.indexOf("<Collapsible"));
+
+    expect({
+      tracePrimaryJargon: matchingLines(
+        [{ path: "cockpit/components/maya/agent-trace-panel.tsx", source: agentTracePanel }],
+        /\b(?:backend hooks|Static read-model evidence context|Read-model evidence context|Backend query)\b/u
+      ),
+      auditPrimaryJargon: [
+        ...matchingLines(
+          [{ path: "cockpit/components/maya/audit-confirmation-panel.tsx", source: auditPrimarySurface }],
+          /\b(?:Backend-owned|Backend human|Read-model|human_decided|status ===|64-hex|auditEntryHash|valid receipt hash|Backend contract gap)\b/u
+        )
+      ]
+    }).toEqual({
+      tracePrimaryJargon: [],
+      auditPrimaryJargon: []
     });
   });
 

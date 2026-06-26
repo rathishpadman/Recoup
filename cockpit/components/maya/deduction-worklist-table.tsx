@@ -215,7 +215,53 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
         ) : filteredItems.length === 0 ? (
           <MayaEmptyState description="No fetched worklist rows match the current local search." title="No matching rows" />
         ) : (
-          <ScrollArea className="h-[484px]">
+          <>
+            <div className="grid gap-2 md:hidden" data-testid="maya-mobile-worklist-list">
+              {filteredItems.map((item) => {
+                const isValidDeduction = item.verdict === "valid";
+
+                return (
+                  <Button
+                    aria-selected={item.lineId === selectedLineId}
+                    className="h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal"
+                    data-line-id={item.lineId}
+                    data-state={item.lineId === selectedLineId ? "selected" : undefined}
+                    data-testid="maya-mobile-worklist-row"
+                    data-verdict={item.verdict}
+                    key={item.lineId}
+                    onClick={() => {
+                      onSelectItem(item);
+                    }}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <span className="grid min-w-0 flex-1 gap-2">
+                      <span className="flex min-w-0 items-start justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{item.lineId}</span>
+                          <span className="block line-clamp-2 text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
+                      </span>
+                      <span className="line-clamp-1 text-xs text-muted-foreground">{item.customerLabel}</span>
+                      <span className="flex min-w-0 flex-wrap gap-1">
+                        <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant="secondary">
+                          {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
+                          {item.verdictLabel}
+                        </Badge>
+                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                          {item.queueLabel}
+                        </Badge>
+                        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                          {item.evidenceScoreLabel}
+                        </Badge>
+                      </span>
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+            <ScrollArea className="hidden h-[484px] md:block">
             <Table className="w-[calc(100%-8px)] table-fixed text-xs" data-testid="maya-worklist-table">
               <TableHeader>
                 <TableRow>
@@ -387,7 +433,8 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                 })}
               </TableBody>
             </Table>
-          </ScrollArea>
+            </ScrollArea>
+          </>
         )}
       </CardContent>
       {items.length > 0 ? (

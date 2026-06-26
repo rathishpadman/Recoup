@@ -4,11 +4,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type { MayaEvidencePack, MayaSourceTile } from "./types.ts";
+
+type EvidenceDocument = MayaEvidencePack["documents"][number];
+
+interface EvidenceBusinessGroup {
+  documents: EvidenceDocument[];
+  id: string;
+  label: string;
+}
 
 interface EvidenceDossierProps {
   deterministicBasis: string;
@@ -25,6 +34,8 @@ export function EvidenceDossier({
   onQueryEvidence,
   sourceTiles
 }: EvidenceDossierProps) {
+  const evidenceGroups = groupEvidenceDocumentsByBusinessLabel(evidencePack.documents);
+
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-evidence-dossier">
       <div className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -32,7 +43,7 @@ export function EvidenceDossier({
           <CardHeader>
             <div className="grid min-w-0 gap-1">
               <CardTitle>Evidence dossier</CardTitle>
-              <CardDescription>Cited documents and record IDs from the selected backend packet</CardDescription>
+              <CardDescription>Business documents grouped from the selected read model</CardDescription>
             </div>
             <CardAction className="flex gap-2">
               {onQueryEvidence === undefined ? null : (
@@ -52,62 +63,41 @@ export function EvidenceDossier({
             </CardAction>
           </CardHeader>
           <CardContent className="flex min-w-0 flex-col gap-3">
-            <RecordIdStrip recordIds={evidencePack.recordIds} />
             {evidencePack.documents.length === 0 ? (
               <MayaEmptyState description="The selected case did not return evidence documents." title="Evidence unavailable" />
             ) : (
-              <Accordion collapsible defaultValue="backend-evidence-packet" type="single">
-                <AccordionItem data-testid="maya-evidence-packet" value="backend-evidence-packet">
-                  <AccordionTrigger>
-                    <span className="flex min-w-0 flex-wrap items-center gap-2 text-left">
-                      <span>Backend evidence packet</span>
-                      <Badge variant="secondary">{evidencePack.documents.length.toString()} documents</Badge>
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <ScrollArea className="max-h-[34rem]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Evidence item</TableHead>
-                            <TableHead>Citation</TableHead>
-                            <TableHead>Source</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {evidencePack.documents.map((document) => (
-                            <TableRow data-testid="maya-evidence-document-row" key={document.citationId}>
-                              <TableCell className="w-[56%] whitespace-normal align-top">
-                                <div className="flex min-w-0 flex-col gap-1.5">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <Badge variant="outline">{document.documentType}</Badge>
-                                    <Badge variant="secondary">{document.relevance}</Badge>
-                                    <span className="font-medium">{document.description}</span>
-                                  </div>
-                                  <span className="text-sm text-muted-foreground">{document.summary}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="w-[21%] whitespace-normal align-top">
-                                <div className="flex min-w-0 flex-col gap-1">
-                                  <span className="font-medium">{document.citationId}</span>
-                                  <span className="text-sm text-muted-foreground">{document.documentId}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="w-[23%] whitespace-normal align-top">
-                                <div className="flex min-w-0 flex-col gap-1">
-                                  <span>{document.sourceLabel}</span>
-                                  <span className="text-sm text-muted-foreground">{document.verifiedLabel}</span>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
-                  </AccordionContent>
-                </AccordionItem>
+              <Accordion defaultValue={evidenceGroups.slice(0, 1).map((group) => group.id)} type="multiple">
+                {evidenceGroups.map((group) => (
+                  <AccordionItem data-testid="maya-evidence-business-group" key={group.id} value={group.id}>
+                    <AccordionTrigger>
+                      <span className="flex min-w-0 flex-wrap items-center gap-2 text-left">
+                        <span>{group.label}</span>
+                        <Badge variant="secondary">{group.documents.length.toString()} documents</Badge>
+                      </span>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <EvidenceDocumentTable documents={group.documents} />
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
               </Accordion>
             )}
+            <Collapsible className="rounded-lg border bg-muted/20 p-3" data-testid="maya-evidence-source-details">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="grid gap-0.5">
+                  <span className="text-sm font-medium">Source details</span>
+                  <span className="text-xs text-muted-foreground">Record IDs and source identifiers remain available for audit.</span>
+                </div>
+                <CollapsibleTrigger asChild>
+                  <Button size="sm" type="button" variant="outline">
+                    View details
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent className="pt-3">
+                <RecordIdStrip recordIds={evidencePack.recordIds} />
+              </CollapsibleContent>
+            </Collapsible>
           </CardContent>
         </Card>
 
@@ -176,18 +166,62 @@ export function EvidenceDossier({
         <FileTextIcon aria-hidden="true" data-icon="inline-start" />
         <AlertTitle>Evidence dossier available</AlertTitle>
         <AlertDescription>
-          Backend evidence packet is available for this opened line. Review state unavailable until the backend exposes
-          evidence review status, criteria, reviewer, timestamp, and cited basis.
+          Evidence documents are available for this opened line. Review state unavailable until the backend exposes evidence
+          review status, criteria, reviewer, timestamp, and cited basis.
         </AlertDescription>
       </Alert>
     </section>
   );
 }
 
+function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] }) {
+  return (
+    <ScrollArea className="max-h-[34rem]">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Evidence item</TableHead>
+            <TableHead>Citation</TableHead>
+            <TableHead>Source</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {documents.map((document) => (
+            <TableRow data-testid="maya-evidence-document-row" key={document.citationId}>
+              <TableCell className="w-[56%] whitespace-normal align-top">
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline">{getEvidenceBusinessLabel(document.documentType)}</Badge>
+                    <Badge variant="secondary">{document.relevance}</Badge>
+                    <span className="font-medium">{document.description}</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">{document.summary}</span>
+                </div>
+              </TableCell>
+              <TableCell className="w-[21%] whitespace-normal align-top">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="font-medium">{document.citationId}</span>
+                  <span className="text-sm text-muted-foreground">{document.documentId}</span>
+                </div>
+              </TableCell>
+              <TableCell className="w-[23%] whitespace-normal align-top">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span>{document.sourceLabel}</span>
+                  <span className="text-sm text-muted-foreground">{document.verifiedLabel}</span>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </ScrollArea>
+  );
+}
+
 function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   if (recordIds.length === 0) {
     return (
-      <Badge className="w-fit" variant="outline">
+      <Badge className="w-fit" data-testid="maya-evidence-record-id" variant="outline">
         No record IDs
       </Badge>
     );
@@ -196,10 +230,54 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Selected record IDs">
       {recordIds.map((recordId) => (
-        <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+        <Badge className="max-w-full truncate" data-testid="maya-evidence-record-id" key={recordId} title={recordId} variant="secondary">
           {recordId}
         </Badge>
       ))}
     </div>
   );
+}
+
+function groupEvidenceDocumentsByBusinessLabel(documents: EvidenceDocument[]): EvidenceBusinessGroup[] {
+  const groups = new Map<string, EvidenceDocument[]>();
+  for (const document of documents) {
+    const label = getEvidenceBusinessLabel(document.documentType);
+    const existing = groups.get(label);
+    if (existing === undefined) {
+      groups.set(label, [document]);
+    } else {
+      existing.push(document);
+    }
+  }
+
+  return [...groups.entries()].map(([label, groupDocuments]) => ({
+    documents: groupDocuments,
+    id: `evidence-group-${label.toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "")}`,
+    label
+  }));
+}
+
+function getEvidenceBusinessLabel(documentType: string): string {
+  const normalized = documentType.trim().toLowerCase();
+  if (normalized === "invoice" || normalized === "credit-memo" || normalized === "remittance-advice") {
+    return "Invoice";
+  }
+  if (normalized === "pod" || normalized === "carrier-report") {
+    return "POD";
+  }
+  if (normalized === "contract") {
+    return "Contract";
+  }
+  if (normalized === "trade-promo" || normalized === "tpm" || normalized === "promotion") {
+    return "Promotion";
+  }
+  if (normalized === "bureau-signal" || normalized === "correspondence" || normalized === "customer-record") {
+    return "Customer record";
+  }
+
+  return normalized
+    .split(/[-_\s]+/u)
+    .filter((part) => part.length > 0)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
 }

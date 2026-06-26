@@ -41,7 +41,9 @@ interface DeductionCaseWorkspaceProps {
   hasBackendDetail: boolean;
   journey: MayaJourneyItem[];
   multimodalDock: MayaMultimodalDock;
+  onQueryDockIntentConsumed?: (() => void) | undefined;
   onReturnToWorklist: () => void;
+  openQueryDockLineId?: string | undefined;
   recommendedAction: MayaWorkItemDetail["recommendedAction"];
   selected: MayaSelectedCase;
   selectedWorklistItem: MayaWorklistItem | undefined;
@@ -54,7 +56,9 @@ export function DeductionCaseWorkspace({
   hasBackendDetail,
   journey,
   multimodalDock,
+  onQueryDockIntentConsumed,
   onReturnToWorklist,
+  openQueryDockLineId,
   recommendedAction,
   selected,
   selectedWorklistItem,
@@ -63,13 +67,13 @@ export function DeductionCaseWorkspace({
   const [queryDockOpen, setQueryDockOpen] = React.useState(false);
   const [queryResponse, setQueryResponse] = React.useState<QueryEvidenceResponse | undefined>();
   const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
+  const [displayLineId, setDisplayLineId] = React.useState(selected.lineId);
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
-  const isValidDeduction = selectedWorklistItem?.verdict === "valid";
-  const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(selected.lineId) ?? -1;
+  const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(displayLineId) ?? -1;
   const selectedLinePosition =
-    canShowBackendDetail && selectedLineIndex >= 0
-      ? `Line ${String(selectedLineIndex + 1)} of ${String(selectedWorklistItem.lineCount)}`
+    selectedWorklistItem !== undefined && selectedLineIndex >= 0
+      ? `Line ${String(selectedLineIndex + 1)} of ${String(selectedWorklistItem.lineIds.length)}`
       : "Selected line unavailable";
   const amount = selectedWorklistItem?.amount ?? selected.draft.amount;
   const title = selectedWorklistItem?.scenarioLabel ?? selected.draft.actionLabel;
@@ -89,6 +93,19 @@ export function DeductionCaseWorkspace({
     setApprovalResponse(undefined);
     setQueryResponse(undefined);
   }, [selectedEvidenceIdentity]);
+
+  React.useEffect(() => {
+    setDisplayLineId(selected.lineId);
+  }, [selected.lineId, selectedWorklistItem?.lineId]);
+
+  React.useEffect(() => {
+    if (openQueryDockLineId === undefined || openQueryDockLineId !== selected.lineId) {
+      return;
+    }
+
+    setQueryDockOpen(true);
+    onQueryDockIntentConsumed?.();
+  }, [onQueryDockIntentConsumed, openQueryDockLineId, selected.lineId]);
 
   function handleQueryDockOpenChange(open: boolean): void {
     setQueryDockOpen(open);
@@ -125,25 +142,23 @@ export function DeductionCaseWorkspace({
               </div>
               <div className="flex flex-wrap gap-2" data-testid="maya-case-detail-backend-status">
                 {selectedWorklistItem === undefined ? (
-                  <Badge variant="outline">Contract gap</Badge>
+                  <StaticStatusBadge>Contract gap</StaticStatusBadge>
                 ) : (
                   <>
-                    <Badge
-                      className="gap-1.5"
+                    <StaticStatusBadge
                       data-verdict={selectedWorklistItem.verdict}
-                      variant={isValidDeduction ? "outline" : "secondary"}
                     >
                       {selectedWorklistItem.verdict === "valid" ? (
                         <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                       ) : null}
                       {selectedWorklistItem.verdictLabel}
-                    </Badge>
-                    <Badge variant="outline">{selectedWorklistItem.routingLabel}</Badge>
-                    <Badge variant="outline">{selectedWorklistItem.queueLabel}</Badge>
-                    <Badge variant="outline">{selectedWorklistItem.confidenceLabel}</Badge>
+                    </StaticStatusBadge>
+                    <StaticStatusBadge>{selectedWorklistItem.routingLabel}</StaticStatusBadge>
+                    <StaticStatusBadge>{selectedWorklistItem.queueLabel}</StaticStatusBadge>
+                    <StaticStatusBadge>{selectedWorklistItem.confidenceLabel}</StaticStatusBadge>
                   </>
                 )}
-                {canShowBackendDetail ? <Badge variant="outline">{selected.draft.statusLabel}</Badge> : null}
+                {canShowBackendDetail ? <StaticStatusBadge>{selected.draft.statusLabel}</StaticStatusBadge> : null}
               </div>
             </div>
             <div
@@ -176,17 +191,36 @@ export function DeductionCaseWorkspace({
           <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="grid min-w-0 gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">Selected line</Badge>
-                <span className="text-sm text-muted-foreground">{selectedLinePosition}</span>
+                <StaticStatusBadge>Selected line</StaticStatusBadge>
+                <span className="text-sm text-muted-foreground" data-testid="maya-selected-line-label">
+                  {selectedLinePosition}
+                </span>
               </div>
-              <p className="text-sm font-medium">{canShowBackendDetail ? selected.lineId : selectedWorklistItem?.lineId ?? "Unavailable"}</p>
+              <p className="text-sm font-medium">Line metadata: {displayLineId}</p>
+              {displayLineId === selected.lineId ? null : (
+                <p className="text-xs text-muted-foreground">
+                  Backend detail remains grounded to {selected.lineId} until row-switched evidence is exposed.
+                </p>
+              )}
             </div>
-            <div className="flex flex-wrap gap-1" aria-label="Opened work item line IDs">
-              {selectedWorklistItem?.lineIds.map((lineId) => (
-                <Badge key={`case-line-${lineId}`} variant={lineId === selected.lineId ? "secondary" : "outline"}>
-                  {lineId}
-                </Badge>
-              )) ?? <Badge variant="outline">Unavailable</Badge>}
+            <div className="flex flex-wrap gap-1" aria-label="Line selector">
+              {selectedWorklistItem?.lineIds.map((lineId, index) => (
+                <Button
+                  aria-label={`Line ${String(index + 1)}`}
+                  aria-pressed={lineId === displayLineId}
+                  key={`case-line-${lineId}`}
+                  onClick={() => {
+                    setDisplayLineId(lineId);
+                  }}
+                  type="button"
+                  variant={lineId === displayLineId ? "secondary" : "outline"}
+                >
+                  Line {String(index + 1)}
+                  <span aria-hidden="true" className="max-w-28 truncate text-[10px] font-normal text-muted-foreground">
+                    {lineId}
+                  </span>
+                </Button>
+              )) ?? <StaticStatusBadge>Unavailable</StaticStatusBadge>}
             </div>
           </div>
           {canShowBackendDetail ? null : <CaseContractGap />}
@@ -385,6 +419,16 @@ function CaseFact({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </div>
+  );
+}
+
+function StaticStatusBadge({ className = "", ...props }: React.ComponentProps<"span">) {
+  return (
+    <span
+      className={`inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium leading-none text-muted-foreground ${className}`}
+      data-testid="maya-static-status-badge"
+      {...props}
+    />
   );
 }
 
