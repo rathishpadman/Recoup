@@ -17,7 +17,7 @@ import { serviceToolMetadata, type ServiceInvocationContext } from "./serviceLay
 import { memoryCategories, type MemoryCategory, type MemoryRecord } from "../memory/schema.js";
 import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { money, type Money } from "../types/money.js";
-import { cockpitDemoProfiles } from "../../config/cockpitDemoProfiles.js";
+import { buildCockpitDemoLoginPersonas } from "../../config/cockpitDemoProfiles.js";
 import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataProvenance.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
@@ -1296,18 +1296,7 @@ export function buildForensicsSseEvents(options: CockpitModelGovernanceOptions |
 export function buildLoginModel(): LoginCockpitModel {
   return {
     surface: "login",
-    personas: cockpitDemoProfiles.map((profile) => ({
-      allowedRouteCount: profile.allowedRoutes.length,
-      allowedRoutes: [...profile.allowedRoutes],
-      defaultRoute: profile.defaultRoute,
-      displayName: profile.displayName,
-      loginId: profile.loginId,
-      persona: profile.persona,
-      provenance: "deterministic_demo_profile",
-      role: profile.role,
-      sourceMode: "deterministic_demo_profile",
-      workspace: profile.workspace
-    }))
+    personas: buildCockpitDemoLoginPersonas()
   };
 }
 

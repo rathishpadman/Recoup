@@ -12,6 +12,19 @@ export interface CockpitDemoProfile {
   workspace: string;
 }
 
+export interface CockpitDemoLoginPersona {
+  allowedRouteCount: number;
+  allowedRoutes: string[];
+  defaultRoute: string;
+  displayName: string;
+  loginId: CockpitDemoLoginId;
+  persona: string;
+  provenance: "deterministic_demo_profile";
+  role: CockpitDemoRole;
+  sourceMode: "deterministic_demo_profile";
+  workspace: string;
+}
+
 export const cockpitDemoProfiles = [
   {
     allowedRoutes: ["/forensics", "/run"],
@@ -44,4 +57,19 @@ export const cockpitDemoProfiles = [
 
 export function isCockpitDemoLoginId(loginId: string): loginId is CockpitDemoLoginId {
   return cockpitDemoProfiles.some((profile) => profile.loginId === loginId);
+}
+
+export function buildCockpitDemoLoginPersonas(): CockpitDemoLoginPersona[] {
+  return cockpitDemoProfiles.map((profile) => ({
+    allowedRouteCount: profile.allowedRoutes.length,
+    allowedRoutes: [...profile.allowedRoutes],
+    defaultRoute: profile.defaultRoute,
+    displayName: profile.displayName,
+    loginId: profile.loginId,
+    persona: profile.persona,
+    provenance: "deterministic_demo_profile",
+    role: profile.role,
+    sourceMode: "deterministic_demo_profile",
+    workspace: profile.workspace
+  }));
 }

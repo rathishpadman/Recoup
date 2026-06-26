@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { fetchLoginModel } from "../cockpit-data.ts";
+import { buildCockpitDemoLoginPersonas } from "../../../config/cockpitDemoProfiles.ts";
 import { LoginForm } from "./login-form.tsx";
 
 interface LoginPageProps {
@@ -9,10 +9,11 @@ interface LoginPageProps {
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const [login, params] = await Promise.all([fetchLoginModel(), searchParams]);
+  const params = await searchParams;
   const errorParam = params?.error;
   const hasInvalidSession =
     errorParam === "demo-login" || (Array.isArray(errorParam) && errorParam.includes("demo-login"));
+  const personas = buildCockpitDemoLoginPersonas();
 
   return (
     <main
@@ -34,7 +35,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </div>
         </CardHeader>
         <CardContent className="mx-auto flex w-[82%] max-w-[484px] flex-col px-0 pb-9 pt-4">
-          <LoginForm hasInvalidSession={hasInvalidSession} personas={login.personas} />
+          <LoginForm hasInvalidSession={hasInvalidSession} personas={personas} />
         </CardContent>
       </Card>
     </main>

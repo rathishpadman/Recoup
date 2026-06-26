@@ -612,6 +612,25 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(loginForm).toContain("personas:");
   });
 
+  it("renders the login page from Vercel-local demo metadata without blocking on the Render cockpit API", () => {
+    const loginPage = readFileSync("cockpit/app/login/page.tsx", "utf8");
+    const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
+    const loginProxy = readFileSync("cockpit/app/api/demo-login/route.ts", "utf8");
+    const cockpitModel = readFileSync("src/services/cockpitModel.ts", "utf8");
+    const demoProfilesConfig = readFileSync("config/cockpitDemoProfiles.ts", "utf8");
+
+    expect(loginPage).not.toContain("fetchLoginModel");
+    expect(loginPage).not.toContain("../cockpit-data");
+    expect(loginPage).not.toContain("RECOUP_API_URL");
+    expect(loginPage).toContain("buildCockpitDemoLoginPersonas");
+    expect(cockpitModel).toContain("buildCockpitDemoLoginPersonas");
+    expect(demoProfilesConfig).toContain("export function buildCockpitDemoLoginPersonas");
+    expect(loginPage).toContain("<LoginForm");
+    expect(loginForm).toContain('fetch("/api/demo-login"');
+    expect(loginProxy).toContain("verify_recoup_demo_login");
+    expect(loginProxy).toContain("SUPABASE_SERVICE_ROLE_KEY");
+  });
+
   it("keeps cockpit money display away from JS number conversion", () => {
     const model = readFileSync("src/services/cockpitModel.ts", "utf8");
 
