@@ -42,7 +42,10 @@ export interface ForensicsQueryTraceEvent {
   receiptDeterministicBasis: "OpenAI Agents SDK RunHooks lifecycle event" | "Recoup deterministic forensics hook audit event";
   recordIds: string[];
   retrievalSource?: "agent_trace" | "sap_odata" | "source_backed" | "supabase";
+  sourceFreshness?: string;
   sourceKind?: MayaFieldProvenance["sourceKind"];
+  transportLabel?: string;
+  transportLayer?: string;
   toolName?: string;
 }
 

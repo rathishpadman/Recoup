@@ -115,7 +115,80 @@ describe("forensics query session", () => {
       )
     ).toMatchObject({
       retrievalSource: "sap_odata",
-      sourceKind: "sap_odata"
+      sourceFreshness: "snapshot",
+      sourceKind: "sap_odata",
+      transportLabel: "Governed canonical snapshot",
+      transportLayer: "supabase_canonical_snapshot"
+    });
+  });
+
+  it("keeps proof-rich SAP source metadata when a duplicate proofless live receipt arrives first", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_tool_end",
+          recordIds: request.agentHookAudit.recordIds,
+          toolName: "query_answer"
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkSelectedEvidenceToolEvent("tool_called", "query_answer", "Forensics Investigator");
+        yield sdkSelectedEvidenceToolEvent("tool_output", "query_answer", "Forensics Investigator");
+      })();
+    });
+
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: liveRunner
+        }
+      })
+    );
+    const queryAnswerTrace = result.trace.find(
+      (event) =>
+        event.hook === "agent_tool_end" &&
+        event.toolName === "query.answer" &&
+        event.receiptDeterministicBasis === liveSdkAgentHookDeterministicBasis
+    );
+
+    expect(queryAnswerTrace).toMatchObject({
+      retrievalSource: "sap_odata",
+      sourceFreshness: "snapshot",
+      sourceKind: "sap_odata",
+      transportLabel: "Governed canonical snapshot",
+      transportLayer: "supabase_canonical_snapshot"
     });
   });
 
@@ -685,6 +758,8 @@ function sdkSelectedEvidenceToolEvent(
       sourceReadStatus: "source_backed_selected_scope",
       sourceReads: {
         canonicalModel: "EvidenceDocument",
+        primarySourceLabel: "SAP OData",
+        primarySourceSystem: "sap_odata",
         sapEvidence: [
           {
             documentId: "SAP-INV-S6-1",
@@ -695,7 +770,10 @@ function sdkSelectedEvidenceToolEvent(
           }
         ],
         selectedLineId: "S6-L1",
-        selectedRecordIds: [...validS6HookRecordIds]
+        selectedRecordIds: [...validS6HookRecordIds],
+        sourceFreshness: "snapshot",
+        transportLabel: "Governed canonical snapshot",
+        transportLayer: "supabase_canonical_snapshot"
       }
     }
   });

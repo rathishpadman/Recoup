@@ -38,7 +38,10 @@ interface BackendTraceProcessNode extends AgentProcessNodeBase {
   nextAgentName?: string | undefined;
   phase: QueryTraceEvent["phase"];
   retrievalSource?: QueryTraceEvent["retrievalSource"] | undefined;
+  sourceFreshness?: QueryTraceEvent["sourceFreshness"] | undefined;
   sourceKind?: QueryTraceEvent["sourceKind"] | undefined;
+  transportLabel?: QueryTraceEvent["transportLabel"] | undefined;
+  transportLayer?: QueryTraceEvent["transportLayer"] | undefined;
   toolName?: string | undefined;
 }
 
@@ -143,6 +146,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
           {processNodes.map((node, index) => {
             const isBackendTrace = isBackendTraceProcessNode(node);
             const sourceTrustLabel = formatTraceRetrievalSourceLabel(node);
+            const sourceTransportLabel = isBackendTrace ? formatTraceTransportLabel(node) : undefined;
 
             return (
               <li
@@ -182,6 +186,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                 <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} trace summary`}>
                   <Badge variant="outline">{formatProcessNodeKind(node.nodeKind)}</Badge>
                   {sourceTrustLabel === undefined ? null : <Badge variant="outline">{sourceTrustLabel}</Badge>}
+                  {sourceTransportLabel === undefined ? null : <Badge variant="outline">{sourceTransportLabel}</Badge>}
                   <Badge variant="outline">{`${node.recordIds.length.toString()} records`}</Badge>
                   <Badge variant="outline">{`${node.citations.length.toString()} citations`}</Badge>
                 </div>
@@ -263,8 +268,15 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                                 <Badge variant="outline">{event.agentName}</Badge>
                                 {event.nextAgentName === undefined ? null : <Badge variant="outline">{event.nextAgentName}</Badge>}
                                 {event.toolName === undefined ? null : <Badge variant="outline">{event.toolName}</Badge>}
-                                {event.sourceKind === undefined ? null : <Badge variant="outline">{event.sourceKind}</Badge>}
-                                {event.retrievalSource === undefined ? null : <Badge variant="outline">{event.retrievalSource}</Badge>}
+                                {event.sourceKind === undefined ? null : (
+                                  <Badge variant="outline">{formatTraceSourceKindLabel(event.sourceKind)}</Badge>
+                                )}
+                                {event.retrievalSource === undefined ? null : (
+                                  <Badge variant="outline">{formatTraceRetrievalSourceValueLabel(event.retrievalSource)}</Badge>
+                                )}
+                                {formatTraceTransportLabel(event) === undefined ? null : (
+                                  <Badge variant="outline">{formatTraceTransportLabel(event)}</Badge>
+                                )}
                               </div>
                               <div className="flex flex-wrap gap-1.5">
                                 {event.recordIds.map((recordId) => (
@@ -362,7 +374,10 @@ function traceEventToProcessNode(
     phase: event.phase,
     recordIds: event.recordIds,
     ...(event.retrievalSource === undefined ? {} : { retrievalSource: event.retrievalSource }),
+    ...(event.sourceFreshness === undefined ? {} : { sourceFreshness: event.sourceFreshness }),
     ...(event.sourceKind === undefined ? {} : { sourceKind: event.sourceKind }),
+    ...(event.transportLabel === undefined ? {} : { transportLabel: event.transportLabel }),
+    ...(event.transportLayer === undefined ? {} : { transportLayer: event.transportLayer }),
     sourceLabel: resolveTraceSourceLabel(event),
     ...(event.toolName === undefined ? {} : { toolName: event.toolName })
   };
@@ -531,6 +546,50 @@ function formatTraceRetrievalSourceLabel(node: AgentProcessNode): string | undef
   }
 
   return undefined;
+}
+
+function formatTraceTransportLabel(
+  event: Pick<BackendTraceProcessNode, "sourceFreshness" | "transportLabel" | "transportLayer">
+): string | undefined {
+  if (event.transportLayer === "supabase_canonical_snapshot") {
+    return "via governed snapshot";
+  }
+  if (event.sourceFreshness === "snapshot") {
+    return "via snapshot";
+  }
+
+  return undefined;
+}
+
+function formatTraceSourceKindLabel(sourceKind: TraceSourceKind): string {
+  if (sourceKind === "sap_odata") {
+    return "SAP OData";
+  }
+  if (sourceKind === "supabase") {
+    return "Supabase";
+  }
+  if (sourceKind === "derived_backend") {
+    return "Deterministic backend";
+  }
+  if (sourceKind === "operator_session") {
+    return "Operator session";
+  }
+
+  return "OpenAI Agents SDK trace";
+}
+
+function formatTraceRetrievalSourceValueLabel(retrievalSource: TraceRetrievalSource): string {
+  if (retrievalSource === "sap_odata") {
+    return "SAP OData";
+  }
+  if (retrievalSource === "supabase") {
+    return "Supabase";
+  }
+  if (retrievalSource === "source_backed") {
+    return "Source-backed";
+  }
+
+  return "Agent trace";
 }
 
 function resolveTraceSourceLabel(event: QueryTraceEvent): string {

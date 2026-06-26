@@ -23,7 +23,10 @@ type ForensicsQueryTraceSourceKind = "agent_trace" | "derived_backend" | "operat
 type ForensicsQueryTraceRetrievalSource = "agent_trace" | "sap_odata" | "source_backed" | "supabase";
 type SourceAnnotatedForensicsQueryTraceEvent = ForensicsQueryTraceEvent & {
   retrievalSource?: ForensicsQueryTraceRetrievalSource;
+  sourceFreshness?: string;
   sourceKind?: ForensicsQueryTraceSourceKind;
+  transportLabel?: string;
+  transportLayer?: string;
 };
 
 export const forensicsQueryDeterministicBasis =
@@ -458,14 +461,17 @@ function buildLiveAgentQueryTrace(
       receiptDeterministicBasis: receipt.deterministicBasis,
       recordIds: dedupeRecordIds([...receipt.recordIds, ...scopedRecordIds]),
       retrievalSource: sourceMetadata.retrievalSource,
+      ...(sourceMetadata.sourceFreshness === undefined ? {} : { sourceFreshness: sourceMetadata.sourceFreshness }),
       sourceKind: sourceMetadata.sourceKind,
+      ...(sourceMetadata.transportLabel === undefined ? {} : { transportLabel: sourceMetadata.transportLabel }),
+      ...(sourceMetadata.transportLayer === undefined ? {} : { transportLayer: sourceMetadata.transportLayer }),
       ...(toolName === undefined ? {} : { toolName })
     };
   });
 }
 
 function dedupeLiveAgentReceipts(receipts: readonly AgentHookAuditReceipt[]): AgentHookAuditReceipt[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const deduped: AgentHookAuditReceipt[] = [];
 
   for (const receipt of receipts) {
@@ -477,15 +483,61 @@ function dedupeLiveAgentReceipts(receipts: readonly AgentHookAuditReceipt[]): Ag
       normalizeLiveMcpToolName(receipt.toolName) ?? "",
       dedupeRecordIds(receipt.recordIds).join("\u001F")
     ].join("\u001E");
-    if (seen.has(key)) {
+    const existingIndex = seen.get(key);
+    if (existingIndex !== undefined) {
+      const existingReceipt = deduped[existingIndex];
+      deduped[existingIndex] =
+        existingReceipt === undefined ? receipt : mergeLiveAgentReceiptProof(existingReceipt, receipt);
       continue;
     }
 
-    seen.add(key);
+    seen.set(key, deduped.length);
     deduped.push(receipt);
   }
 
   return deduped;
+}
+
+function mergeLiveAgentReceiptProof(
+  existing: AgentHookAuditReceipt,
+  receipt: AgentHookAuditReceipt
+): AgentHookAuditReceipt {
+  return {
+    ...existing,
+    ...receipt,
+    recordIds: mergeReceiptRecordIds(existing.recordIds, receipt.recordIds),
+    ...mergeReceiptRecordIdField("toolInputRecordIds", existing.toolInputRecordIds, receipt.toolInputRecordIds),
+    ...mergeReceiptRecordIdField(
+      "toolOutputSapEvidenceRecordIds",
+      existing.toolOutputSapEvidenceRecordIds,
+      receipt.toolOutputSapEvidenceRecordIds
+    ),
+    ...mergeReceiptRecordIdField("toolOutputSelectedRecordIds", existing.toolOutputSelectedRecordIds, receipt.toolOutputSelectedRecordIds)
+  };
+}
+
+function mergeReceiptRecordIdField<Key extends "toolInputRecordIds" | "toolOutputSapEvidenceRecordIds" | "toolOutputSelectedRecordIds">(
+  key: Key,
+  existing: readonly string[] | undefined,
+  receipt: readonly string[] | undefined
+): Pick<AgentHookAuditReceipt, Key> | Record<string, never> {
+  const merged = mergeOptionalReceiptRecordIds(existing, receipt);
+  return merged === undefined ? {} : { [key]: merged } as Pick<AgentHookAuditReceipt, Key>;
+}
+
+function mergeOptionalReceiptRecordIds(
+  existing: readonly string[] | undefined,
+  receipt: readonly string[] | undefined
+): string[] | undefined {
+  if (existing === undefined && receipt === undefined) {
+    return undefined;
+  }
+
+  return mergeReceiptRecordIds(existing ?? [], receipt ?? []);
+}
+
+function mergeReceiptRecordIds(existing: readonly string[], receipt: readonly string[]): string[] {
+  return dedupeRecordIds([...existing, ...receipt]);
 }
 
 function liveQueryTracePhaseForReceipt(
@@ -598,11 +650,14 @@ function retrievalSourceForCitation(citation: ForensicsQueryCitation): "sap_odat
 
 function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   retrievalSource: ForensicsQueryTraceRetrievalSource;
+  sourceFreshness?: string;
   sourceKind: ForensicsQueryTraceSourceKind;
+  transportLabel?: string;
+  transportLayer?: string;
 } {
   const toolName = normalizeLiveMcpToolName(receipt.toolName)?.toLowerCase() ?? "";
   if ((receipt.toolOutputSapEvidenceRecordIds?.length ?? 0) > 0) {
-    return { retrievalSource: "sap_odata", sourceKind: "sap_odata" };
+    return { retrievalSource: "sap_odata", sourceKind: "sap_odata", ...traceTransportMetadataForReceipt(receipt) };
   }
   if (toolName.includes("sap")) {
     return { retrievalSource: "sap_odata", sourceKind: "sap_odata" };
@@ -615,6 +670,18 @@ function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   }
 
   return { retrievalSource: "agent_trace", sourceKind: "agent_trace" };
+}
+
+function traceTransportMetadataForReceipt(receipt: AgentHookAuditReceipt): {
+  sourceFreshness?: string;
+  transportLabel?: string;
+  transportLayer?: string;
+} {
+  return {
+    ...(receipt.toolOutputSourceFreshness === undefined ? {} : { sourceFreshness: receipt.toolOutputSourceFreshness }),
+    ...(receipt.toolOutputTransportLabel === undefined ? {} : { transportLabel: receipt.toolOutputTransportLabel }),
+    ...(receipt.toolOutputTransportLayer === undefined ? {} : { transportLayer: receipt.toolOutputTransportLayer })
+  };
 }
 
 function normalizeLiveMcpToolName(toolName: string | undefined): string | undefined {

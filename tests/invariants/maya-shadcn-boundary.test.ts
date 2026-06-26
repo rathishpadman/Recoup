@@ -402,6 +402,12 @@ describe("Maya shadcn cockpit boundary", () => {
       agentTrace.indexOf('data-testid="maya-backend-trace-table"')
     );
     expect(agentTrace).toContain("event.deterministicBasis");
+    expect(agentTrace).toContain("formatTraceTransportLabel");
+    expect(agentTrace).toContain("via governed snapshot");
+    expect(agentTrace).toContain("event.transportLayer");
+    expect(agentTrace).toContain("event.sourceFreshness");
+    expect(agentTrace).not.toMatch(/formatTraceTransportLabel\(event\)\s*\?\?\s*"via governed snapshot"/u);
+    expect(agentTrace).not.toContain('|| event.transportLabel === "Governed canonical snapshot"');
     expect(agentTrace).toContain("isBackendTraceProcessNode");
     expect(agentTrace).toContain('data-ui-process-kind={!isBackendTrace ? node.nodeKind : undefined}');
     expect(agentTrace).toMatch(/data-agent-node=\{isBackendTrace \? node\.agentName : undefined\}/u);

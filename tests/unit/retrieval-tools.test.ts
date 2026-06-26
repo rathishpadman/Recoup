@@ -210,6 +210,88 @@ describe("retrieval tools", () => {
     ).toThrow("Supabase SAP evidence rows required for query.answer.");
   });
 
+  it("labels query.answer SAP evidence as primary SAP OData via the governed snapshot transport", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    };
+    const sapEvidenceSource: ServiceSapEvidenceSource = {
+      readEvidence(line) {
+        return [
+          {
+            documentId: "SAP-INV-S6-L1",
+            documentType: "invoice",
+            recordIds: [line.lineId, "INV-S6-1", "SAP-INV-S6-1"],
+            source: "sap",
+            summary: "Supabase SAP source row for S6 invoice."
+          }
+        ];
+      }
+    };
+
+    const result = invokeServiceTool("query.answer", queryInput, {
+      governedConfig: day1GovernedConfigSeed.values,
+      requireSupabaseSapEvidence: true,
+      sapEvidenceSource,
+      source
+    });
+
+    expect(result).toMatchObject({
+      sourceReadStatus: "source_backed_selected_scope",
+      sourceReads: {
+        canonicalModel: "EvidenceDocument",
+        primarySourceLabel: "SAP OData",
+        primarySourceSystem: "sap_odata",
+        selectedLineId: "S6-L1",
+        selectedRecordIds: queryInput.recordIds,
+        sourceFreshness: "snapshot",
+        transportLabel: "Governed canonical snapshot",
+        transportLayer: "supabase_canonical_snapshot"
+      }
+    });
+    expect(result).toMatchObject({
+      sourceReads: {
+        sapEvidence: [
+          {
+            documentId: "SAP-INV-S6-L1",
+            recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+            source: "sap"
+          }
+        ]
+      }
+    });
+  });
+
+  it("omits SAP snapshot lineage when optional query.answer SAP evidence is unavailable", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    };
+
+    const result = invokeServiceTool("query.answer", queryInput, {
+      governedConfig: day1GovernedConfigSeed.values,
+      source
+    }) as {
+      sourceReads?: Record<string, unknown>;
+    };
+
+    expect(result.sourceReads).toMatchObject({
+      canonicalModel: "EvidenceDocument",
+      sapEvidence: [],
+      selectedLineId: "S6-L1",
+      selectedRecordIds: queryInput.recordIds
+    });
+    expect(result.sourceReads).not.toHaveProperty("primarySourceLabel");
+    expect(result.sourceReads).not.toHaveProperty("primarySourceSystem");
+    expect(result.sourceReads).not.toHaveProperty("sourceFreshness");
+    expect(result.sourceReads).not.toHaveProperty("transportLabel");
+    expect(result.sourceReads).not.toHaveProperty("transportLayer");
+  });
+
   it("blocks query.answer before source reads when input is outside the selected Maya scope", () => {
     const source = new SyntheticSource({ seed: 42 });
     const queryInput = {

@@ -128,14 +128,30 @@ describe("production MCP transport", () => {
         method: "POST"
       });
       const body = (await response.json()) as {
-        result?: { sourceReadStatus?: string; sourceReads?: { canonicalModel?: string; sapEvidence?: unknown[] } };
+        result?: {
+          sourceReadStatus?: string;
+          sourceReads?: {
+            canonicalModel?: string;
+            primarySourceLabel?: string;
+            primarySourceSystem?: string;
+            sapEvidence?: unknown[];
+            sourceFreshness?: string;
+            transportLabel?: string;
+            transportLayer?: string;
+          };
+        };
       };
 
       expect(response.status).toBe(200);
       expect(body.result).toMatchObject({
         sourceReadStatus: "source_backed_selected_scope",
         sourceReads: {
-          canonicalModel: "EvidenceDocument"
+          canonicalModel: "EvidenceDocument",
+          primarySourceLabel: "SAP OData",
+          primarySourceSystem: "sap_odata",
+          sourceFreshness: "snapshot",
+          transportLabel: "Governed canonical snapshot",
+          transportLayer: "supabase_canonical_snapshot"
         }
       });
       expect(body.result?.sourceReads?.sapEvidence).toHaveLength(1);
@@ -345,7 +361,16 @@ describe("production MCP transport", () => {
       });
       const body = readMcpTextResult(result) as {
         sourceReadStatus?: string;
-        sourceReads?: { canonicalModel?: string; sapEvidence?: unknown[]; selectedLineId?: string };
+        sourceReads?: {
+          canonicalModel?: string;
+          primarySourceLabel?: string;
+          primarySourceSystem?: string;
+          sapEvidence?: unknown[];
+          selectedLineId?: string;
+          sourceFreshness?: string;
+          transportLabel?: string;
+          transportLayer?: string;
+        };
       };
 
       expect(result).not.toMatchObject({ isError: true });
@@ -353,7 +378,12 @@ describe("production MCP transport", () => {
         sourceReadStatus: "source_backed_selected_scope",
         sourceReads: {
           canonicalModel: "EvidenceDocument",
-          selectedLineId: "S6-L1"
+          primarySourceLabel: "SAP OData",
+          primarySourceSystem: "sap_odata",
+          selectedLineId: "S6-L1",
+          sourceFreshness: "snapshot",
+          transportLabel: "Governed canonical snapshot",
+          transportLayer: "supabase_canonical_snapshot"
         }
       });
       expect(body.sourceReads?.sapEvidence).toHaveLength(1);

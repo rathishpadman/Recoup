@@ -106,6 +106,8 @@ describe("conductor AgentHooks audit receipts", () => {
         sourceReadStatus: "source_backed_selected_scope",
         sourceReads: {
           canonicalModel: "EvidenceDocument",
+          primarySourceLabel: "SAP OData",
+          primarySourceSystem: "sap_odata",
           sapEvidence: [
             {
               recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
@@ -113,7 +115,10 @@ describe("conductor AgentHooks audit receipts", () => {
             }
           ],
           selectedLineId: "S6-L1",
-          selectedRecordIds
+          selectedRecordIds,
+          sourceFreshness: "snapshot",
+          transportLabel: "Governed canonical snapshot",
+          transportLayer: "supabase_canonical_snapshot"
         }
       }),
       type: "text"
@@ -138,10 +143,15 @@ describe("conductor AgentHooks audit receipts", () => {
       toolInputSelectedLineId: "S6-L1",
       toolName: "query_answer",
       toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputPrimarySourceLabel: "SAP OData",
+      toolOutputPrimarySourceSystem: "sap_odata",
       toolOutputSapEvidenceRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
       toolOutputSelectedLineId: "S6-L1",
       toolOutputSelectedRecordIds: selectedRecordIds,
-      toolOutputSourceReadStatus: "source_backed_selected_scope"
+      toolOutputSourceFreshness: "snapshot",
+      toolOutputSourceReadStatus: "source_backed_selected_scope",
+      toolOutputTransportLabel: "Governed canonical snapshot",
+      toolOutputTransportLayer: "supabase_canonical_snapshot"
     });
     expect(JSON.stringify(receipts)).not.toContain("Why is this recoverable?");
   });

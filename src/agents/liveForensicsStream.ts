@@ -85,10 +85,15 @@ type SdkToolInputProof = {
 };
 type SdkToolOutputProof = {
   toolOutputCanonicalModel?: string;
+  toolOutputPrimarySourceLabel?: string;
+  toolOutputPrimarySourceSystem?: string;
   toolOutputSapEvidenceRecordIds?: string[];
   toolOutputSelectedLineId?: string;
   toolOutputSelectedRecordIds?: string[];
+  toolOutputSourceFreshness?: string;
   toolOutputSourceReadStatus?: string;
+  toolOutputTransportLabel?: string;
+  toolOutputTransportLayer?: string;
 };
 
 export const forensicsQueryTracePhases = ["supervisor", "query", "retrieval", "decision"] as const;
@@ -474,16 +479,26 @@ function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof |
   }
 
   const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
+  const primarySourceLabel = readNonEmptyString(sourceReads.primarySourceLabel);
+  const primarySourceSystem = readNonEmptyString(sourceReads.primarySourceSystem);
   const sapEvidenceRecordIds = collectSapEvidenceRecordIds(sourceReads.sapEvidence);
   const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
   const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
+  const sourceFreshness = readNonEmptyString(sourceReads.sourceFreshness);
   const sourceReadStatus = readNonEmptyString(payloadRecord.sourceReadStatus);
+  const transportLabel = readNonEmptyString(sourceReads.transportLabel);
+  const transportLayer = readNonEmptyString(sourceReads.transportLayer);
   const outputProof: SdkToolOutputProof = {
     ...(canonicalModel === undefined ? {} : { toolOutputCanonicalModel: canonicalModel }),
+    ...(primarySourceLabel === undefined ? {} : { toolOutputPrimarySourceLabel: primarySourceLabel }),
+    ...(primarySourceSystem === undefined ? {} : { toolOutputPrimarySourceSystem: primarySourceSystem }),
     ...(sapEvidenceRecordIds.length === 0 ? {} : { toolOutputSapEvidenceRecordIds: sapEvidenceRecordIds }),
     ...(selectedLineId === undefined ? {} : { toolOutputSelectedLineId: selectedLineId }),
     ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
-    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus })
+    ...(sourceFreshness === undefined ? {} : { toolOutputSourceFreshness: sourceFreshness }),
+    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus }),
+    ...(transportLabel === undefined ? {} : { toolOutputTransportLabel: transportLabel }),
+    ...(transportLayer === undefined ? {} : { toolOutputTransportLayer: transportLayer })
   };
 
   return Object.keys(outputProof).length === 0 ? undefined : outputProof;

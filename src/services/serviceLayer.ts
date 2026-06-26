@@ -78,6 +78,13 @@ export interface ServiceSyntheticEvidenceSource {
 }
 
 const defaultServiceSyntheticEvidenceConnectorNames = ["docs-repo", "tpm", "bureau"] as const;
+const queryAnswerSapSourceLineage = {
+  primarySourceLabel: "SAP OData",
+  primarySourceSystem: "sap_odata",
+  sourceFreshness: "snapshot",
+  transportLabel: "Governed canonical snapshot",
+  transportLayer: "supabase_canonical_snapshot"
+} as const;
 
 const decisionIdToolSchema = z.object({
   decisionId: z.string().min(1),
@@ -501,6 +508,7 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
     sourceReadStatus: "source_backed_selected_scope",
     sourceReads: {
       canonicalModel: "EvidenceDocument",
+      ...(sapEvidence.length === 0 ? {} : queryAnswerSapSourceLineage),
       sapEvidence: sapEvidence.map(canonicalEvidenceSummary),
       selectedLineId: selectedLine.lineId,
       selectedRecordIds: [...parsed.recordIds]

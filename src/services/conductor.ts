@@ -67,10 +67,15 @@ const AgentHookAuditReceiptSchema = z.object({
   toolInputRecordIds: z.array(z.string().min(1)).min(1).optional(),
   toolInputSelectedLineId: z.string().min(1).optional(),
   toolOutputCanonicalModel: z.string().min(1).optional(),
+  toolOutputPrimarySourceLabel: z.string().min(1).optional(),
+  toolOutputPrimarySourceSystem: z.string().min(1).optional(),
   toolOutputSapEvidenceRecordIds: z.array(z.string().min(1)).min(1).optional(),
   toolOutputSelectedLineId: z.string().min(1).optional(),
   toolOutputSelectedRecordIds: z.array(z.string().min(1)).min(1).optional(),
+  toolOutputSourceFreshness: z.string().min(1).optional(),
   toolOutputSourceReadStatus: z.string().min(1).optional(),
+  toolOutputTransportLabel: z.string().min(1).optional(),
+  toolOutputTransportLayer: z.string().min(1).optional(),
   recordIds: z.array(z.string().min(1)).min(1),
   deterministicBasis: z.enum([liveSdkAgentHookDeterministicBasis, deterministicForensicsHookAuditBasis])
 });
@@ -87,10 +92,15 @@ export interface AgentHookAuditReceiptInput {
   toolInputRecordIds?: string[];
   toolInputSelectedLineId?: string;
   toolOutputCanonicalModel?: string;
+  toolOutputPrimarySourceLabel?: string;
+  toolOutputPrimarySourceSystem?: string;
   toolOutputSapEvidenceRecordIds?: string[];
   toolOutputSelectedLineId?: string;
   toolOutputSelectedRecordIds?: string[];
+  toolOutputSourceFreshness?: string;
   toolOutputSourceReadStatus?: string;
+  toolOutputTransportLabel?: string;
+  toolOutputTransportLayer?: string;
 }
 
 export interface AgentHookReceiptRegistrationOptions {
@@ -101,10 +111,15 @@ type SdkToolInputProof = Pick<AgentHookAuditReceiptInput, "toolInputRecordIds" |
 type SdkToolOutputProof = Pick<
   AgentHookAuditReceiptInput,
   | "toolOutputCanonicalModel"
+  | "toolOutputPrimarySourceLabel"
+  | "toolOutputPrimarySourceSystem"
   | "toolOutputSapEvidenceRecordIds"
   | "toolOutputSelectedLineId"
   | "toolOutputSelectedRecordIds"
+  | "toolOutputSourceFreshness"
   | "toolOutputSourceReadStatus"
+  | "toolOutputTransportLabel"
+  | "toolOutputTransportLayer"
 >;
 
 interface RunHookEmitter {
@@ -202,6 +217,12 @@ export function createAgentHookAuditReceipt(input: AgentHookAuditReceiptInput): 
     ...(input.toolInputRecordIds === undefined ? {} : { toolInputRecordIds: [...input.toolInputRecordIds] }),
     ...(input.toolInputSelectedLineId === undefined ? {} : { toolInputSelectedLineId: input.toolInputSelectedLineId }),
     ...(input.toolOutputCanonicalModel === undefined ? {} : { toolOutputCanonicalModel: input.toolOutputCanonicalModel }),
+    ...(input.toolOutputPrimarySourceLabel === undefined
+      ? {}
+      : { toolOutputPrimarySourceLabel: input.toolOutputPrimarySourceLabel }),
+    ...(input.toolOutputPrimarySourceSystem === undefined
+      ? {}
+      : { toolOutputPrimarySourceSystem: input.toolOutputPrimarySourceSystem }),
     ...(input.toolOutputSapEvidenceRecordIds === undefined
       ? {}
       : { toolOutputSapEvidenceRecordIds: [...input.toolOutputSapEvidenceRecordIds] }),
@@ -209,7 +230,10 @@ export function createAgentHookAuditReceipt(input: AgentHookAuditReceiptInput): 
     ...(input.toolOutputSelectedRecordIds === undefined
       ? {}
       : { toolOutputSelectedRecordIds: [...input.toolOutputSelectedRecordIds] }),
+    ...(input.toolOutputSourceFreshness === undefined ? {} : { toolOutputSourceFreshness: input.toolOutputSourceFreshness }),
     ...(input.toolOutputSourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: input.toolOutputSourceReadStatus }),
+    ...(input.toolOutputTransportLabel === undefined ? {} : { toolOutputTransportLabel: input.toolOutputTransportLabel }),
+    ...(input.toolOutputTransportLayer === undefined ? {} : { toolOutputTransportLayer: input.toolOutputTransportLayer }),
     recordIds: [...input.recordIds],
     deterministicBasis: input.deterministicBasis ?? liveSdkAgentHookDeterministicBasis
   } as const;
@@ -334,16 +358,26 @@ function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof |
   }
 
   const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
+  const primarySourceLabel = readNonEmptyString(sourceReads.primarySourceLabel);
+  const primarySourceSystem = readNonEmptyString(sourceReads.primarySourceSystem);
   const sapEvidenceRecordIds = collectSapEvidenceRecordIds(sourceReads.sapEvidence);
   const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
   const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
+  const sourceFreshness = readNonEmptyString(sourceReads.sourceFreshness);
   const sourceReadStatus = readNonEmptyString(payloadRecord.sourceReadStatus);
+  const transportLabel = readNonEmptyString(sourceReads.transportLabel);
+  const transportLayer = readNonEmptyString(sourceReads.transportLayer);
   const outputProof: SdkToolOutputProof = {
     ...(canonicalModel === undefined ? {} : { toolOutputCanonicalModel: canonicalModel }),
+    ...(primarySourceLabel === undefined ? {} : { toolOutputPrimarySourceLabel: primarySourceLabel }),
+    ...(primarySourceSystem === undefined ? {} : { toolOutputPrimarySourceSystem: primarySourceSystem }),
     ...(sapEvidenceRecordIds.length === 0 ? {} : { toolOutputSapEvidenceRecordIds: sapEvidenceRecordIds }),
     ...(selectedLineId === undefined ? {} : { toolOutputSelectedLineId: selectedLineId }),
     ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
-    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus })
+    ...(sourceFreshness === undefined ? {} : { toolOutputSourceFreshness: sourceFreshness }),
+    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus }),
+    ...(transportLabel === undefined ? {} : { toolOutputTransportLabel: transportLabel }),
+    ...(transportLayer === undefined ? {} : { toolOutputTransportLayer: transportLayer })
   };
 
   return Object.keys(outputProof).length === 0 ? undefined : outputProof;
