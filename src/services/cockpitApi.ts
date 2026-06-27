@@ -1,4 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
@@ -89,7 +90,17 @@ import {
   type ForensicsSseEvent
 } from "./cockpitModel.js";
 import { buildSourceHealthResultsFromSnapshots } from "./sourceHealth.js";
-import { createToolDataSchemaProbeLoader, startSourceHealthPoller } from "./sourceHealthPoller.js";
+import {
+  createToolDataSchemaProbeLoader,
+  startSourceHealthPoller,
+  type SourceHealthPollerHandle,
+  type SourceHealthPollerOptions
+} from "./sourceHealthPoller.js";
+import {
+  startMcpHttpServer,
+  type StartMcpHttpServerInput,
+  type StartedMcpHttpServer
+} from "../mcp/server.js";
 import { retrieveBureau } from "../tools/retrieval/bureau.js";
 import { retrieveDocs, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { retrieveTpm } from "../tools/retrieval/tpm.js";
@@ -211,6 +222,25 @@ export interface CockpitApiOptions {
   mcpHealthFetcher?: typeof fetch;
   realtimeFetcher?: typeof fetch;
   sapFetcher?: typeof fetch;
+}
+
+export type CockpitSourceHealthPollerFactory = (options: SourceHealthPollerOptions) => SourceHealthPollerHandle;
+export type CockpitMcpServerStarter = (input?: StartMcpHttpServerInput) => Promise<StartedMcpHttpServer>;
+
+export interface CockpitApiRuntimeOptions extends CockpitApiOptions {
+  onError?: (error: unknown) => void;
+  port?: number;
+  sourceHealthPollerFactory?: CockpitSourceHealthPollerFactory;
+  startMcpServer?: CockpitMcpServerStarter;
+}
+
+export interface StartedCockpitApiRuntime {
+  baseUrl: string;
+  close(): Promise<void>;
+  mcpServer?: StartedMcpHttpServer;
+  runtimeEnv: RuntimeEnv;
+  server: Server;
+  sourceHealthPoller?: SourceHealthPollerHandle;
 }
 
 interface LoadedRunControl {
@@ -1889,33 +1919,137 @@ function constantTimeEqual(left: string, right: string): boolean {
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const runtimeEnv = loadLocalRuntimeEnvFiles();
-  const port = Number(runtimeEnv.PORT ?? cockpitApiDefaultPort);
-  const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv);
+export async function startCockpitApiRuntime(options: CockpitApiRuntimeOptions = {}): Promise<StartedCockpitApiRuntime> {
+  const baseRuntimeEnv = options.env ?? loadLocalRuntimeEnvFiles();
+  const mcpRuntime = await startPrivateMcpRuntime(baseRuntimeEnv, options.startMcpServer ?? startMcpHttpServer, options.onError);
+  const runtimeEnv = mcpRuntime.runtimeEnv;
+  const port = options.port ?? Number(runtimeEnv.PORT ?? cockpitApiDefaultPort);
+  const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
   const sourceHealthSupabaseProbe = createSupabaseTableReadinessProbeFromEnv(runtimeEnv);
   const sourceHealthToolDataSchemaProbeLoader = createToolDataSchemaProbeLoader(sourceHealthSupabaseProbe);
   const sourceHealthPoller =
     sourceHealthSnapshotStore === undefined
       ? undefined
-      : startSourceHealthPoller({
+      : (options.sourceHealthPollerFactory ?? startSourceHealthPoller)({
           availableCredentialEnvNames: readConfiguredEnvNames(runtimeEnv),
           env: runtimeEnv,
           onError(error) {
-            console.warn(error instanceof Error ? error.message : "Source health poll failed.");
+            options.onError?.(error);
           },
           snapshotStore: sourceHealthSnapshotStore,
+          ...(options.mcpHealthFetcher === undefined ? {} : { mcpHealthFetcher: options.mcpHealthFetcher }),
+          ...(options.sapFetcher === undefined ? {} : { fetcher: options.sapFetcher }),
           ...(sourceHealthToolDataSchemaProbeLoader === undefined
             ? {}
             : { toolDataSchemaProbeLoader: sourceHealthToolDataSchemaProbeLoader })
         });
-  const server = createCockpitApi({ env: runtimeEnv }).listen(port, () => {
-    console.log(`Recoup cockpit API listening on http://127.0.0.1:${String(port)}`);
-  });
+  const appOptions: CockpitApiOptions = {
+    env: runtimeEnv,
+    ...(options.forensicsStreamRunner === undefined ? {} : { forensicsStreamRunner: options.forensicsStreamRunner }),
+    ...(options.memoryFetcher === undefined ? {} : { memoryFetcher: options.memoryFetcher }),
+    ...(options.mcpHealthFetcher === undefined ? {} : { mcpHealthFetcher: options.mcpHealthFetcher }),
+    ...(options.realtimeFetcher === undefined ? {} : { realtimeFetcher: options.realtimeFetcher }),
+    ...(options.sapFetcher === undefined ? {} : { sapFetcher: options.sapFetcher })
+  };
+  const server = await listenCockpitServer(createCockpitApi(appOptions), port);
+  const address = server.address();
+  const baseUrl =
+    address !== null && typeof address !== "string"
+      ? `http://127.0.0.1:${String(address.port)}`
+      : `http://127.0.0.1:${String(port)}`;
 
-  process.once("SIGTERM", () => {
-    sourceHealthPoller?.stop();
-    server.close();
+  return {
+    baseUrl,
+    close: async () => {
+      sourceHealthPoller?.stop();
+      await closeCockpitServer(server);
+      await mcpRuntime.mcpServer?.close();
+    },
+    ...(mcpRuntime.mcpServer === undefined ? {} : { mcpServer: mcpRuntime.mcpServer }),
+    runtimeEnv,
+    server,
+    ...(sourceHealthPoller === undefined ? {} : { sourceHealthPoller })
+  };
+}
+
+async function startPrivateMcpRuntime(
+  runtimeEnv: RuntimeEnv,
+  startMcpServer: CockpitMcpServerStarter,
+  onError: ((error: unknown) => void) | undefined
+): Promise<{ mcpServer?: StartedMcpHttpServer; runtimeEnv: RuntimeEnv }> {
+  if (readConfiguredRuntimeValue(runtimeEnv.RECOUP_MCP_URL) !== undefined) {
+    return { runtimeEnv };
+  }
+
+  const privateMcpRuntimeEnv = buildPrivateMcpRuntimeEnv(runtimeEnv);
+  try {
+    const mcpServer = await startMcpServer({ env: privateMcpRuntimeEnv, port: 0 });
+    return {
+      mcpServer,
+      runtimeEnv: {
+        ...privateMcpRuntimeEnv,
+        RECOUP_MCP_URL: `${mcpServer.baseUrl}${mcpServer.endpoint}`
+      }
+    };
+  } catch (error) {
+    onError?.(error);
+    return { runtimeEnv };
+  }
+}
+
+function buildPrivateMcpRuntimeEnv(runtimeEnv: RuntimeEnv): RuntimeEnv {
+  return {
+    ...runtimeEnv,
+    RECOUP_MCP_AUTH_TOKEN: readConfiguredRuntimeValue(runtimeEnv.RECOUP_MCP_AUTH_TOKEN) ?? `loopback-${randomUUID()}`,
+    RECOUP_MCP_CLIENT_CAPABILITIES: readConfiguredRuntimeValue(runtimeEnv.RECOUP_MCP_CLIENT_CAPABILITIES) ?? "read",
+    RECOUP_MCP_CLIENT_PRINCIPAL:
+      readConfiguredRuntimeValue(runtimeEnv.RECOUP_MCP_CLIENT_PRINCIPAL) ??
+      readConfiguredRuntimeValue(runtimeEnv.RECOUP_COCKPIT_HUMAN_PRINCIPAL) ??
+      defaultCockpitHumanPrincipal
+  };
+}
+
+function readConfiguredRuntimeValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function listenCockpitServer(app: Express, port: number): Promise<Server> {
+  return new Promise((resolve) => {
+    const server = app.listen(port, () => {
+      resolve(server);
+    });
+  });
+}
+
+function closeCockpitServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const runtimeEnv = loadLocalRuntimeEnvFiles();
+  void startCockpitApiRuntime({
+    env: runtimeEnv,
+    onError(error) {
+      console.warn(error instanceof Error ? error.message : "Runtime background service failed.");
+    }
+  }).then((runtime) => {
+    console.log(`Recoup cockpit API listening on ${runtime.baseUrl}`);
+    process.once("SIGTERM", () => {
+      void runtime.close();
+    });
+  }).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : "Recoup cockpit API failed to start.");
+    process.exitCode = 1;
   });
 }
 

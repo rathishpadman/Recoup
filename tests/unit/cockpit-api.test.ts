@@ -6,7 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { day1GovernedConfigSeed, governedConfigSeedRows, sha256CanonicalJson } from "../../config/governed.js";
-import { createCockpitApi } from "../../src/services/cockpitApi.js";
+import {
+  createCockpitApi,
+  startCockpitApiRuntime,
+  type CockpitMcpServerStarter,
+  type CockpitSourceHealthPollerFactory
+} from "../../src/services/cockpitApi.js";
 import { cockpitHumanProxyIssuedAtFreshnessWindowMs } from "../../config/cockpitHumanPrincipals.js";
 import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
 import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
@@ -4064,6 +4069,126 @@ describe("S5 cockpit API", () => {
       expect(mcpTile?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured"]));
     } finally {
       await close(server);
+    }
+  });
+
+  it("starts a private loopback MCP health endpoint for source-health snapshots when no public MCP URL is configured", async () => {
+    const closeMcp = vi.fn(() => Promise.resolve());
+    const stopPoller = vi.fn();
+    const startMcpServer = vi.fn<CockpitMcpServerStarter>(() =>
+      Promise.resolve({
+        baseUrl: "http://127.0.0.1:57123",
+        close: closeMcp,
+        endpoint: "/mcp" as const,
+        server: {} as Server,
+        transport: "StreamableHTTPServerTransport" as const
+      })
+    );
+    const sourceHealthPollerFactory = vi.fn<CockpitSourceHealthPollerFactory>((options) => {
+      expect(options.env?.RECOUP_MCP_URL).toBe("http://127.0.0.1:57123/mcp");
+      expect(options.availableCredentialEnvNames).toEqual(expect.arrayContaining(["RECOUP_MCP_URL"]));
+
+      return {
+        pollOnce: vi.fn(() => Promise.resolve([])),
+        stop: stopPoller
+      };
+    });
+
+    const runtime = await startCockpitApiRuntime({
+      env: {
+        ...cockpitAuthEnv,
+        ...governedConfigEnv,
+        PORT: "0",
+        RECOUP_MCP_AUTH_TOKEN: "test-mcp-token"
+      },
+      memoryFetcher: withGovernedConfigFetcher(),
+      sourceHealthPollerFactory,
+      startMcpServer
+    });
+    try {
+      const startInput = startMcpServer.mock.calls[0]?.[0];
+      expect(startInput?.env?.RECOUP_MCP_AUTH_TOKEN).toBe("test-mcp-token");
+      expect(startInput?.port).toBe(0);
+      expect(sourceHealthPollerFactory).toHaveBeenCalledTimes(1);
+      const health = await fetch(`${runtime.baseUrl}/healthz`);
+      expect(health.status).toBe(200);
+    } finally {
+      await runtime.close();
+    }
+
+    expect(stopPoller).toHaveBeenCalledTimes(1);
+    expect(closeMcp).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a private loopback MCP server when a public MCP URL is configured", async () => {
+    const startMcpServer = vi.fn<CockpitMcpServerStarter>();
+    const stopPoller = vi.fn();
+    const sourceHealthPollerFactory = vi.fn<CockpitSourceHealthPollerFactory>((options) => {
+      expect(options.env?.RECOUP_MCP_URL).toBe("https://mcp.example.test/mcp");
+
+      return {
+        pollOnce: vi.fn(() => Promise.resolve([])),
+        stop: stopPoller
+      };
+    });
+
+    const runtime = await startCockpitApiRuntime({
+      env: {
+        ...cockpitAuthEnv,
+        ...governedConfigEnv,
+        PORT: "0",
+        RECOUP_MCP_AUTH_TOKEN: "test-mcp-token",
+        RECOUP_MCP_URL: "https://mcp.example.test/mcp"
+      },
+      memoryFetcher: withGovernedConfigFetcher(),
+      sourceHealthPollerFactory,
+      startMcpServer
+    });
+    try {
+      expect(startMcpServer).not.toHaveBeenCalled();
+      expect(sourceHealthPollerFactory).toHaveBeenCalledTimes(1);
+    } finally {
+      await runtime.close();
+    }
+
+    expect(stopPoller).toHaveBeenCalledTimes(1);
+  });
+
+  it("generates private MCP auth for the booted loopback server when deployment auth is absent", async () => {
+    const closeMcp = vi.fn(() => Promise.resolve());
+    const startMcpServer = vi.fn<CockpitMcpServerStarter>(() =>
+      Promise.resolve({
+        baseUrl: "http://127.0.0.1:57124",
+        close: closeMcp,
+        endpoint: "/mcp" as const,
+        server: {} as Server,
+        transport: "StreamableHTTPServerTransport" as const
+      })
+    );
+    const sourceHealthPollerFactory = vi.fn<CockpitSourceHealthPollerFactory>(() => ({
+      pollOnce: vi.fn(() => Promise.resolve([])),
+      stop: vi.fn()
+    }));
+
+    const runtime = await startCockpitApiRuntime({
+      env: {
+        ...cockpitAuthEnv,
+        ...governedConfigEnv,
+        PORT: "0"
+      },
+      memoryFetcher: withGovernedConfigFetcher(),
+      sourceHealthPollerFactory,
+      startMcpServer
+    });
+    try {
+      const startInput = startMcpServer.mock.calls[0]?.[0];
+      expect(startInput?.env?.RECOUP_MCP_AUTH_TOKEN).toMatch(/^loopback-/u);
+      expect(runtime.runtimeEnv.RECOUP_MCP_AUTH_TOKEN).toBe(startInput?.env?.RECOUP_MCP_AUTH_TOKEN);
+      expect(runtime.runtimeEnv.RECOUP_MCP_URL).toBe("http://127.0.0.1:57124/mcp");
+      expect(runtime.runtimeEnv.RECOUP_MCP_CLIENT_CAPABILITIES).toBe("read");
+      expect(runtime.runtimeEnv.RECOUP_MCP_CLIENT_PRINCIPAL).toBe(cockpitAuthEnv.RECOUP_COCKPIT_HUMAN_PRINCIPAL);
+    } finally {
+      await runtime.close();
     }
   });
 
