@@ -1,6 +1,4 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { LockKeyholeIcon, ShieldCheckIcon, WorkflowIcon } from "lucide-react";
-import type { ReactNode } from "react";
 import { buildCockpitDemoLoginPersonas } from "../../../config/cockpitDemoProfiles.ts";
 import { LoginForm } from "./login-form.tsx";
 
@@ -23,7 +21,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       data-testid="maya-login-beat"
     >
       <MayaLoginLineArt />
-      <div className="relative z-10 grid w-full max-w-[1120px] items-stretch gap-6 lg:grid-cols-[minmax(0,500px)_minmax(320px,1fr)]">
+      <div className="relative z-10 grid w-full max-w-[560px] place-items-center">
         <Card
           className="w-full rounded-[20px] border border-border/80 bg-card py-0 shadow-2xl ring-1 ring-border/60"
           data-testid="maya-login-card"
@@ -41,71 +39,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <LoginForm hasInvalidSession={hasInvalidSession} personas={personas} />
           </CardContent>
         </Card>
-
-        <aside
-          aria-label="Workspace access context"
-          className="hidden min-h-full rounded-[20px] border border-border/70 bg-card/90 p-8 shadow-[var(--shadow-sm)] ring-1 ring-border/40 lg:flex lg:flex-col lg:justify-between"
-          data-testid="maya-login-context-panel"
-        >
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                <ShieldCheckIcon aria-hidden="true" className="size-3.5" />
-                Governed access
-              </div>
-              <h1 className="text-3xl font-semibold leading-tight tracking-normal text-foreground">
-                Enter the analyst workspace with evidence controls already on.
-              </h1>
-              <p className="max-w-[34rem] text-sm leading-6 text-muted-foreground">
-                The sign-in flow opens the read-only deduction forensics workspace and preserves the approval boundary for every external action.
-              </p>
-            </div>
-
-            <div className="grid gap-3">
-              <LoginAssuranceItem
-                description="ERP and supporting records stay read-only from the cockpit."
-                icon={<LockKeyholeIcon aria-hidden="true" className="size-4" />}
-                title="Read-only evidence"
-              />
-              <LoginAssuranceItem
-                description="Findings keep deterministic basis and cited records available for review."
-                icon={<WorkflowIcon aria-hidden="true" className="size-4" />}
-                title="Traceable decisions"
-              />
-              <LoginAssuranceItem
-                description="Recovery, routing, and correspondence remain draft-only until a human approves."
-                icon={<ShieldCheckIcon aria-hidden="true" className="size-4" />}
-                title="Human approval gate"
-              />
-            </div>
-          </div>
-
-          <div className="border-t border-border/70 pt-6 text-sm text-muted-foreground">
-            Workspace context is fixed for this demo session. Use your assigned User ID and password to continue.
-          </div>
-        </aside>
       </div>
     </main>
-  );
-}
-
-function LoginAssuranceItem({
-  description,
-  icon,
-  title
-}: {
-  description: string;
-  icon: ReactNode;
-  title: string;
-}) {
-  return (
-    <div className="grid grid-cols-[2rem_1fr] gap-3 rounded-lg border border-border/70 bg-background/70 p-4">
-      <div className="flex size-8 items-center justify-center rounded-md bg-muted text-foreground">{icon}</div>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
-        <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
-      </div>
-    </div>
   );
 }
 

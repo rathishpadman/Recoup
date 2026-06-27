@@ -1894,7 +1894,7 @@ describe("Maya shadcn human QA contract", () => {
     });
   });
 
-  it("requires Task 8 login layout to use a balanced context panel and static workspace chip", () => {
+  it("requires Task 8 login layout to use a single centered login card and static workspace chip", () => {
     const loginPage = stripComments(read("cockpit/app/login/page.tsx"));
     const loginForm = stripComments(read("cockpit/app/login/login-form.tsx"));
     const workspaceChipContext = jsxDataTestIdContext(loginForm, "maya-login-workspace-chip", 900);
@@ -1902,11 +1902,9 @@ describe("Maya shadcn human QA contract", () => {
 
     expect({
       loginCardHook: hasJsxDataTestId(loginPage, "maya-login-card"),
-      contextPanelHook: hasJsxDataTestId(loginPage, "maya-login-context-panel"),
-      contextPanelIsPeerToCard:
-        /data-testid="maya-login-context-panel"[\s\S]{0,2400}data-testid="maya-login-card"|data-testid="maya-login-card"[\s\S]{0,2400}data-testid="maya-login-context-panel"/u.test(
-          loginPage
-        ),
+      contextPanelRemoved: !hasJsxDataTestId(loginPage, "maya-login-context-panel"),
+      loginGridAvoidsPeerContextColumn: !/\blg:grid-cols-\[minmax\(0,500px\)_minmax\(320px,1fr\)\]/u.test(loginPage),
+      loginPageDoesNotRenderAssuranceCards: !/\bLoginAssuranceItem\b/u.test(loginPage),
       workspaceChipHook: hasJsxDataTestId(loginForm, "maya-login-workspace-chip"),
       workspaceChipUsesStaticContainer:
         /<div\b(?=[^>]*\bdata-testid="maya-login-workspace-chip")(?=[^>]*\baria-label="Workspace Forensics")/u.test(
@@ -1927,10 +1925,11 @@ describe("Maya shadcn human QA contract", () => {
       passwordFocusAvoidsBroadRing:
         passwordGroupContext.length > 0 && !/\bhas-\[\[data-slot=input-group-control\]:focus-visible\]:ring-3\b/u.test(passwordGroupContext)
     }).toEqual({
-      contextPanelHook: true,
-      contextPanelIsPeerToCard: true,
+      contextPanelRemoved: true,
       loginCardHook: true,
+      loginGridAvoidsPeerContextColumn: true,
       loginFormDoesNotImportSearchIcon: true,
+      loginPageDoesNotRenderAssuranceCards: true,
       passwordFocusAvoidsBroadRing: true,
       passwordFocusHook: true,
       passwordFocusIsScopedAndSubtle: true,

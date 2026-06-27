@@ -1355,8 +1355,11 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
     await loginPage.goto(`${appUrl}/login?error=demo-login`, { waitUntil: "networkidle" });
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-beat"]', "Maya Beat 1 login scene");
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-card"]', "Maya Beat 1 login card");
-    await expectVisibleLocator(loginPage, '[data-testid="maya-login-context-panel"]', "Maya Beat 1 context panel");
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-workspace-chip"]', "Maya Beat 1 workspace chip");
+    assert(
+      (await loginPage.locator('[data-testid="maya-login-context-panel"]').count()) === 0,
+      "Maya Beat 1 login must not render the adjacent context panel"
+    );
     await expectVisibleLocator(loginPage, 'input[name="loginId"]', "Maya login ID input");
     await expectVisibleLocator(loginPage, 'input[name="password"]', "Maya password input");
     await expectVisibleText(loginPage, "Deduction Forensics");
@@ -1380,14 +1383,9 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
       const chip = document.querySelector<HTMLElement>('[data-testid="maya-login-workspace-chip"]');
       const bodyText = document.body.innerText;
       const cardRect = card?.getBoundingClientRect();
-      const panelRect = panel?.getBoundingClientRect();
       const chipRect = chip?.getBoundingClientRect();
-      const leftEdge = Math.min(cardRect?.left ?? Number.POSITIVE_INFINITY, panelRect?.left ?? Number.POSITIVE_INFINITY);
-      const rightEdge = Math.max(cardRect?.right ?? 0, panelRect?.right ?? 0);
-      const horizontalGap =
-        cardRect !== undefined && panelRect !== undefined
-          ? Math.max(cardRect.left, panelRect.left) - Math.min(cardRect.right, panelRect.right)
-          : 0;
+      const leftEdge = cardRect?.left ?? Number.POSITIVE_INFINITY;
+      const rightEdge = cardRect?.right ?? 0;
 
       return {
         bodyText,
@@ -1403,23 +1401,18 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
                 width: chipRect.width
               },
         compositionWidth: rightEdge - leftEdge,
-        horizontalGap,
-        panel:
-          panelRect === undefined
-            ? undefined
-            : { height: panelRect.height, left: panelRect.left, right: panelRect.right, width: panelRect.width },
+        panelCount: panel === null ? 0 : 1,
         sideZoneDelta: Math.abs(leftEdge - (window.innerWidth - rightEdge)),
         viewportWidth: window.innerWidth
       };
     });
     assert(loginLayout.card !== undefined, "Maya Beat 1 login card must have a bounding box");
-    assert(loginLayout.panel !== undefined, "Maya Beat 1 context panel must have a bounding box");
+    assert(loginLayout.panelCount === 0, "Maya Beat 1 context panel must be absent");
     assert(loginLayout.chip !== undefined, "Maya Beat 1 workspace chip must have a bounding box");
-    assert(loginLayout.panel.width >= 320, `Maya Beat 1 context panel must be substantial at 1440px: ${String(loginLayout.panel.width)}px`);
     assert(loginLayout.card.width >= 440, `Maya Beat 1 login card must remain substantial at 1440px: ${String(loginLayout.card.width)}px`);
-    assert(loginLayout.compositionWidth >= 920, `Maya Beat 1 login must use a balanced desktop composition: ${String(loginLayout.compositionWidth)}px`);
-    assert(loginLayout.horizontalGap >= 24, `Maya Beat 1 login card and context panel must be horizontally separated: ${String(loginLayout.horizontalGap)}px`);
-    assert(loginLayout.sideZoneDelta <= 160, `Maya Beat 1 side zones must remain balanced: ${String(loginLayout.sideZoneDelta)}px delta`);
+    assert(loginLayout.card.width <= 620, `Maya Beat 1 login card must stay compact without a peer panel: ${String(loginLayout.card.width)}px`);
+    assert(loginLayout.compositionWidth <= 620, `Maya Beat 1 login must use a single-card composition: ${String(loginLayout.compositionWidth)}px`);
+    assert(loginLayout.sideZoneDelta <= 80, `Maya Beat 1 login card must stay centered: ${String(loginLayout.sideZoneDelta)}px delta`);
     assert(loginLayout.chip.inputCount === 0, "Maya Beat 1 workspace chip must not be an input or search box");
     assert(loginLayout.chip.text.includes("Forensics"), "Maya Beat 1 workspace chip must expose the workspace context");
     for (const forbiddenName of ["Maya Patel", "David Kim", "CFO"]) {
