@@ -111,6 +111,10 @@ interface ForensicsRealBackendModel {
   kpiStrip: KpiModelItem[];
   selected: {
     approvalActions: ApprovalActionModel[];
+    approvalEligibility: {
+      available: boolean;
+      statusLabel: string;
+    };
     draft: RecoveryDraftModel;
     evidencePack: EvidencePackModel;
     lineId: string;
@@ -127,6 +131,7 @@ interface ConnectorRealBackendModel {
     key: string;
     label: string;
     modeLabel: string;
+    proofItems?: string[];
     stateLabel: string;
     statusTone: "ready" | "synthetic" | "blocked";
     summary: string;
@@ -158,6 +163,10 @@ interface ForensicsWorkItemDetailModel {
   recoveryDraft: RecoveryDraftModel;
   selected: {
     approvalActions: ApprovalActionModel[];
+    approvalEligibility: {
+      available: boolean;
+      statusLabel: string;
+    };
     draft: RecoveryDraftModel;
     evidencePack: EvidencePackModel;
     lineId: string;
@@ -324,7 +333,7 @@ async function main(): Promise<void> {
     await captureMayaBeat(page, "03-recommended-action");
 
     const detail = await openOneRealBackendWorkItem(page, apiServer, forensicsModel);
-    await assertCaseLineSelectorControls(page, detail);
+    await assertCaseLineSelectorControls(page, apiServer, detail, connectorsModel);
     await captureMayaBeat(page, "04-case-overview");
     await assertAgentProcessMapBeforeQuery(page, detail, connectorsModel);
     await openEvidenceTab(page);
@@ -527,7 +536,12 @@ async function openEvidenceQuery(page: Page): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya query input");
 }
 
-async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
+async function assertCaseLineSelectorControls(
+  page: Page,
+  apiServer: ManagedApiServer,
+  detail: ForensicsWorkItemDetailModel,
+  connectorsModel: ConnectorRealBackendModel
+): Promise<void> {
   const lineIds = detail.workItem.lineIds;
   assert(lineIds.length >= 2, `Maya line selector requires a backend work item with multiple lines; received ${lineIds.length.toString()}.`);
   await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace before line selector");
@@ -548,11 +562,84 @@ async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkI
 
   const secondLineId = lineIds[1];
   assert(secondLineId !== undefined, "Maya line selector test could not resolve the second backend line ID.");
-  await page.getByRole("button", { name: /^Line 2$/u }).click();
+  const secondLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, secondLineId, 1);
+  await assertSelectedCaseLineOverviewMatchesBackend(page, lineIds, secondLineDetail, 1);
+  await assertAgentProcessMapBeforeQuery(page, secondLineDetail, connectorsModel);
+  await openEvidenceTab(page);
+  await assertRenderedEvidenceDossierMatchesBackend(page, secondLineDetail, connectorsModel);
+  await openEvidenceQuery(page);
+  await assertRenderedQueryDockMatchesBackend(page, secondLineDetail);
+  await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+  await page.getByRole("tab", { name: /^Draft$/u }).click();
+  await assertRenderedRecoveryDraftMatchesBackend(page, secondLineDetail);
+  await page.getByRole("button", { name: /^Open approval$/u }).click();
+  await assertRenderedApprovalGateMatchesBackend(page, secondLineDetail);
+  await closeVisibleOverlay(page, '[data-testid="maya-approval-gate-dialog"]');
+  await page.getByRole("tab", { name: /^Audit$/u }).click();
+  await assertRenderedAuditConfirmationMatchesBackend(page, secondLineDetail);
+
+  if (lineIds.length >= 3) {
+    const thirdLineId = lineIds[2];
+    assert(thirdLineId !== undefined, "Maya line selector test could not resolve the third backend line ID.");
+    const thirdLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, thirdLineId, 2);
+    await assertSelectedCaseLineOverviewMatchesBackend(page, lineIds, thirdLineDetail, 2);
+  }
+
+  const originalLineIndex = lineIds.indexOf(detail.selected.lineId);
+  assert(originalLineIndex >= 0, `Backend selected line ${detail.selected.lineId} is not present in work item line IDs.`);
+  const restoredDetail = await switchToBackendCaseLine(page, apiServer, lineIds, detail.selected.lineId, originalLineIndex);
+  assert(restoredDetail.lineId === detail.selected.lineId, "Maya restored-line detail did not match the original backend-selected line.");
+  const restoredLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
+  assert(
+    restoredLineLabel.includes(`Line ${String(originalLineIndex + 1)} of ${lineIds.length.toString()}`),
+    `Maya selected-line label did not restore the backend-selected line before downstream query assertions: ${restoredLineLabel}.`
+  );
+}
+
+async function switchToBackendCaseLine(
+  page: Page,
+  apiServer: ManagedApiServer,
+  lineIds: readonly string[],
+  lineId: string,
+  lineIndex: number
+): Promise<ForensicsWorkItemDetailModel> {
+  const detailPath = `/api/forensics/work-items/${encodeURIComponent(lineId)}`;
+  await page.getByTestId("maya-line-selector").scrollIntoViewIfNeeded();
+  const responsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+  await page.getByRole("button", { name: new RegExp(`^Line ${String(lineIndex + 1)}$`, "u") }).click();
+  const lineDetail = await readRequiredJsonResponse<ForensicsWorkItemDetailModel>(
+    await responsePromise,
+    `Maya Line ${String(lineIndex + 1)} work item detail`
+  );
+  assert(lineDetail.lineId === lineId, `Maya Line ${String(lineIndex + 1)} detail returned ${lineDetail.lineId} instead of ${lineId}.`);
+  assert(lineDetail.selected.lineId === lineId, `Maya Line ${String(lineIndex + 1)} selected payload stayed on ${lineDetail.selected.lineId}.`);
+  assert(
+    lineDetail.recommendedAction.lineId === lineId,
+    `Maya Line ${String(lineIndex + 1)} recommended action stayed on ${lineDetail.recommendedAction.lineId}.`
+  );
+  assert(
+    lineDetail.selected.draft.actionId === lineDetail.recoveryDraft.actionId &&
+      lineDetail.recoveryDraft.actionId === lineDetail.recommendedAction.actionId,
+    `Maya Line ${String(lineIndex + 1)} returned mismatched draft/action identity.`
+  );
+  assert(
+    lineIds.includes(lineDetail.selected.lineId),
+    `Maya Line ${String(lineIndex + 1)} selected payload is outside the opened backend work item group.`
+  );
+  await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(lineId)}`);
+  return lineDetail;
+}
+
+async function assertSelectedCaseLineOverviewMatchesBackend(
+  page: Page,
+  lineIds: readonly string[],
+  detail: ForensicsWorkItemDetailModel,
+  lineIndex: number
+): Promise<void> {
   const selectedLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
   assert(
-    selectedLineLabel.includes(`Line 2 of ${lineIds.length.toString()}`),
-    `Maya selected-line label did not move to Line 2 of ${lineIds.length.toString()}: ${selectedLineLabel}.`
+    selectedLineLabel.includes(`Line ${String(lineIndex + 1)} of ${lineIds.length.toString()}`),
+    `Maya selected-line label did not move to Line ${String(lineIndex + 1)} of ${lineIds.length.toString()}: ${selectedLineLabel}.`
   );
   const lineSourceDetailsText = await openDisclosureAndReadText(
     page,
@@ -561,17 +648,13 @@ async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkI
     "Maya line source details"
   );
   assert(
-    lineSourceDetailsText.includes(secondLineId),
-    `Maya case detail did not keep backend raw ID ${secondLineId} available inside line source details.`
+    lineSourceDetailsText.includes(detail.selected.lineId),
+    `Maya case detail did not keep backend raw ID ${detail.selected.lineId} available inside line source details.`
   );
-
-  const originalLineIndex = lineIds.indexOf(detail.selected.lineId);
-  assert(originalLineIndex >= 0, `Backend selected line ${detail.selected.lineId} is not present in work item line IDs.`);
-  await page.getByRole("button", { name: new RegExp(`^Line ${String(originalLineIndex + 1)}$`, "u") }).click();
-  const restoredLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
+  const lineBasisText = normalizeUiText(await page.getByTestId("maya-case-deterministic-basis").innerText());
   assert(
-    restoredLineLabel.includes(`Line ${String(originalLineIndex + 1)} of ${lineIds.length.toString()}`),
-    `Maya selected-line label did not restore the backend-selected line before downstream query assertions: ${restoredLineLabel}.`
+    lineBasisText.includes(normalizeUiText(detail.selected.draft.basis)),
+    `Maya case overview did not update to the backend detail returned for ${detail.selected.lineId}.`
   );
 }
 
@@ -1810,15 +1893,29 @@ function assertConnectorModelReady(model: ConnectorRealBackendModel): void {
   const mcpSource = model.sourceTiles.find((source) => source.key === "mcp");
   assert(mcpSource !== undefined, "Real backend /connectors returned no MCP source readiness tile.");
   if (mcpSource.statusTone === "ready") {
+    const hasLiveMcpHealthDetail =
+      mcpSource.stateLabel === "Connected" && mcpSource.detail.includes("MCP health reachable");
+    const hasSavedMcpHealthSnapshot =
+      mcpSource.stateLabel === "Connected" &&
+      (mcpSource.proofItems ?? []).includes("mcp healthz reachable") &&
+      (mcpSource.proofItems ?? []).includes("supabase source-health snapshot");
     assert(
-      mcpSource.stateLabel === "Connected" && mcpSource.detail.includes("MCP health reachable"),
+      hasLiveMcpHealthDetail || hasSavedMcpHealthSnapshot,
       "Real backend /connectors marked MCP ready without health-confirmed MCP status."
     );
   } else {
+    const failClosedMcpStates = ["Setup", "Probe failed", "Refresh overdue", "Status unavailable"];
     assert(
-      mcpSource.statusTone === "blocked" && (mcpSource.stateLabel === "Setup" || mcpSource.stateLabel === "Probe failed"),
+      mcpSource.statusTone === "blocked" && failClosedMcpStates.includes(mcpSource.stateLabel),
       `Real backend /connectors must fail closed for unavailable MCP health; got ${mcpSource.statusTone}/${mcpSource.stateLabel}.`
     );
+    if (mcpSource.stateLabel === "Refresh overdue") {
+      assert(
+        (mcpSource.proofItems ?? []).includes("source-health refresh overdue") &&
+          (mcpSource.proofItems ?? []).includes("supabase source-health snapshot"),
+        "Real backend /connectors marked MCP refresh overdue without stale source-health snapshot proof."
+      );
+    }
   }
 }
 
@@ -2115,11 +2212,20 @@ async function assertRenderedApprovalGateMatchesBackend(page: Page, detail: Fore
       `Maya approval gate omitted backend approval decision ${action.decision}.`
     );
   }
-  assert(
-    renderedGateText.includes("Approval blocked by missing eligibility") &&
-      renderedGateText.includes("External action remains blocked"),
-    "Maya approval gate did not render the explicit fail-closed approval eligibility state."
-  );
+  if (detail.selected.approvalEligibility.available) {
+    assert(
+      renderedGateText.includes(detail.selected.approvalEligibility.statusLabel) &&
+        renderedGateText.includes("External action remains blocked"),
+      "Maya approval gate did not render the explicit backend approval eligibility state."
+    );
+  } else {
+    assert(
+      renderedGateText.includes(detail.selected.approvalEligibility.statusLabel) &&
+        renderedGateText.includes("Approval blocked by missing eligibility") &&
+        renderedGateText.includes("External action remains blocked"),
+      "Maya approval gate did not render the explicit fail-closed approval eligibility state."
+    );
+  }
 }
 
 async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {

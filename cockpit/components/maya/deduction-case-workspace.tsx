@@ -48,6 +48,7 @@ interface DeductionCaseWorkspaceProps {
   multimodalDock: MayaMultimodalDock;
   onQueryDockIntentConsumed?: (() => void) | undefined;
   onReturnToWorklist: () => void;
+  onSelectLine: (lineId: string) => void;
   openQueryDockLineId?: string | undefined;
   recommendedAction: MayaWorkItemDetail["recommendedAction"];
   selected: MayaSelectedCase;
@@ -64,6 +65,7 @@ export function DeductionCaseWorkspace({
   multimodalDock,
   onQueryDockIntentConsumed,
   onReturnToWorklist,
+  onSelectLine,
   openQueryDockLineId,
   recommendedAction,
   selected,
@@ -73,10 +75,9 @@ export function DeductionCaseWorkspace({
   const [queryDockOpen, setQueryDockOpen] = React.useState(false);
   const [queryResponse, setQueryResponse] = React.useState<QueryEvidenceResponse | undefined>();
   const [approvalResponse, setApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
-  const [displayLineId, setDisplayLineId] = React.useState(selected.lineId);
   const canShowBackendDetail =
     hasBackendDetail && selectedWorklistItem !== undefined && selectedWorklistItem.lineIds.includes(selected.lineId);
-  const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(displayLineId) ?? -1;
+  const selectedLineIndex = selectedWorklistItem?.lineIds.indexOf(selected.lineId) ?? -1;
   const selectedLinePosition =
     selectedWorklistItem !== undefined && selectedLineIndex >= 0
       ? `Line ${String(selectedLineIndex + 1)} of ${String(selectedWorklistItem.lineIds.length)}`
@@ -99,10 +100,6 @@ export function DeductionCaseWorkspace({
     setApprovalResponse(undefined);
     setQueryResponse(undefined);
   }, [selectedEvidenceIdentity]);
-
-  React.useEffect(() => {
-    setDisplayLineId(selected.lineId);
-  }, [selected.lineId, selectedWorklistItem?.lineId]);
 
   React.useEffect(() => {
     if (openQueryDockLineId === undefined || openQueryDockLineId !== selected.lineId) {
@@ -208,23 +205,18 @@ export function DeductionCaseWorkspace({
                 </span>
               </div>
               <p className="text-sm font-medium">Line source metadata available</p>
-              {displayLineId === selected.lineId ? null : (
-                <p className="text-xs text-muted-foreground">
-                  Detail remains grounded to the opened line until source detail is available for this line.
-                </p>
-              )}
             </div>
             <div className="flex flex-wrap gap-1" aria-label="Line selector" data-testid="maya-line-selector">
               {selectedWorklistItem?.lineIds.map((lineId, index) => (
                 <Button
                   aria-label={`Line ${String(index + 1)}`}
-                  aria-pressed={lineId === displayLineId}
+                  aria-pressed={lineId === selected.lineId}
                   key={`case-line-${lineId}`}
                   onClick={() => {
-                    setDisplayLineId(lineId);
+                    onSelectLine(lineId);
                   }}
                   type="button"
-                  variant={lineId === displayLineId ? "secondary" : "outline"}
+                  variant={lineId === selected.lineId ? "secondary" : "outline"}
                 >
                   Line {String(index + 1)}
                 </Button>
@@ -232,7 +224,7 @@ export function DeductionCaseWorkspace({
             </div>
           </div>
           <SourceRecordDetails
-            recordIds={[displayLineId]}
+            recordIds={[selected.lineId]}
             testId="maya-case-line-source-details"
             title="Line source details"
           />

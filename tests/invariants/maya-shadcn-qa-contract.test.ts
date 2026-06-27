@@ -1956,18 +1956,35 @@ describe("Maya shadcn human QA contract", () => {
   });
 
   it("requires case detail line selection to use accessible Line 1 and Line 2 controls", () => {
+    const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
     const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
 
     expect({
-      e2eCallsLineSelectorContract: e2e.includes("await assertCaseLineSelectorControls(page, detail);"),
+      e2eCallsLineSelectorContract: e2e.includes("await assertCaseLineSelectorControls(page, apiServer, detail, connectorsModel);"),
       e2eClicksHumanLineButton:
         /\bgetByRole\s*\(\s*["']button["']\s*,\s*\{\s*name:\s*new RegExp\s*\(\s*`\^Line \$\{String\(index \+ 1\)\}\$`/u.test(
           e2e
         ),
+      e2eVerifiesSecondLineBackendDetail:
+        /const\s+secondLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*secondLineId,\s*1\)/u.test(e2e) &&
+        /assertSelectedCaseLineOverviewMatchesBackend\(page,\s*lineIds,\s*secondLineDetail,\s*1\)/u.test(e2e) &&
+        /assertAgentProcessMapBeforeQuery\(page,\s*secondLineDetail,\s*connectorsModel\)/u.test(e2e) &&
+        /assertRenderedEvidenceDossierMatchesBackend\(page,\s*secondLineDetail,\s*connectorsModel\)/u.test(e2e) &&
+        /assertRenderedQueryDockMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
+        /assertRenderedRecoveryDraftMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
+        /assertRenderedApprovalGateMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
+        /assertRenderedAuditConfirmationMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
+        /const\s+thirdLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*thirdLineId,\s*2\)/u.test(e2e) &&
+        /assertObservedRealBackendCall\s*\(\s*apiServer,\s*["']GET["']\s*,\s*`\/forensics\/work-items\/\$\{encodeURIComponent\(lineId\)\}`\s*\)/u.test(e2e),
       e2eRequiresSelectedLineHook: e2e.includes('page.getByTestId("maya-selected-line-label")'),
       lineSelectorHasGroupLabel: /aria-label=["']Deduction lines["']|aria-label=["']Line selector["']/u.test(workspace),
-      lineSelectorUsesPressedState: /\baria-pressed\s*=\s*\{\s*lineId\s*===\s*displayLineId\s*\}/u.test(workspace),
+      lineSelectorCallsBackendDetailHandler:
+        /\bonSelectLine\b/u.test(workspace) &&
+        /\bonClick=\{\(\)\s*=>\s*\{\s*onSelectLine\(lineId\);\s*\}\}/u.test(workspace),
+      lineSelectorDoesNotUseDisplayOnlyState:
+        !/\bdisplayLineId\b/u.test(workspace) && !/\bsetDisplayLineId\b/u.test(workspace),
+      lineSelectorUsesPressedState: /\baria-pressed\s*=\s*\{\s*lineId\s*===\s*selected\.lineId\s*\}/u.test(workspace),
       lineSelectorRendersButtons:
         /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<button\b[\s\S]{0,500}Line\s*\{String\(index \+ 1\)\}/u.test(
           workspace
@@ -1977,15 +1994,25 @@ describe("Maya shadcn human QA contract", () => {
         ),
       rawLineIdsAreNotPrimaryBadgeControls:
         !/aria-label="Opened work item line IDs"[\s\S]{0,1400}<Badge\b[\s\S]{0,300}\{lineId\}/u.test(workspace),
+      surfaceAllowsSiblingLineDetails:
+        /openedCaseWorklistItem\.lineIds\.includes\(openedCaseDetail\.lineId\)/u.test(surface) &&
+        /assertWorkItemDetailIdentity\s*\(\s*detail\s*,\s*requestedLineId/u.test(surface),
+      surfacePassesLineSelectionHandler:
+        /<DeductionCaseWorkspace\b[\s\S]{0,1600}\bonSelectLine=\{handleSelectCaseLine\}/u.test(surface),
       selectedLineLabelHook: hasJsxDataTestId(workspace, "maya-selected-line-label")
     }).toEqual({
       e2eCallsLineSelectorContract: true,
       e2eClicksHumanLineButton: true,
+      e2eVerifiesSecondLineBackendDetail: true,
       e2eRequiresSelectedLineHook: true,
       lineSelectorHasGroupLabel: true,
+      lineSelectorCallsBackendDetailHandler: true,
+      lineSelectorDoesNotUseDisplayOnlyState: true,
       lineSelectorUsesPressedState: true,
       lineSelectorRendersButtons: true,
       rawLineIdsAreNotPrimaryBadgeControls: true,
+      surfaceAllowsSiblingLineDetails: true,
+      surfacePassesLineSelectionHandler: true,
       selectedLineLabelHook: true
     });
   });
@@ -2675,9 +2702,15 @@ describe("Maya shadcn human QA contract", () => {
         (surface.match(/data-testid="maya-work-item-detail-skeleton-line"/gu) ?? []).length >= 2,
       detailIdentityMismatchFailsClosed:
         /\bfunction\s+assertWorkItemDetailIdentity\b/u.test(surface) &&
-        /\bdetail\.lineId\s*!==\s*item\.lineId\b/u.test(surface) &&
+        /\bdetail\.lineId\s*!==\s*requestedLineId\b/u.test(surface) &&
+        /\bdetail\.selected\.lineId\s*!==\s*requestedLineId\b/u.test(surface) &&
+        /\bdetail\.recommendedAction\.lineId\s*!==\s*requestedLineId\b/u.test(surface) &&
+        /\bdetail\.recoveryDraft\.actionId\s*!==\s*detail\.recommendedAction\.actionId\b/u.test(surface) &&
+        /\bdetail\.selected\.draft\.actionId\s*!==\s*detail\.recoveryDraft\.actionId\b/u.test(surface) &&
+        /!detail\.workItem\.lineIds\.includes\(requestedLineId\)/u.test(surface) &&
+        /!item\.lineIds\.includes\(requestedLineId\)/u.test(surface) &&
         /\bdetail\.workItem\.lineId\s*!==\s*item\.lineId\b/u.test(surface) &&
-        /\bassertWorkItemDetailIdentity\s*\(\s*detail\s*,\s*item\s*\)/u.test(surface),
+        /\bassertWorkItemDetailIdentity\s*\(\s*detail\s*,\s*requestedLineId,\s*item\s*\)/u.test(surface),
       emptyStateHasStableHook: hasJsxDataTestId(emptyState, "maya-empty-state"),
       emptyStateExposesIconHook: hasJsxDataTestId(emptyState, "maya-empty-state-icon"),
       e2eChecksDetailSkeleton: e2e.includes("maya-work-item-detail-loading-skeleton")

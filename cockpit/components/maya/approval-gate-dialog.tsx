@@ -28,6 +28,7 @@ interface ApprovalGateDialogProps {
   approverLabel?: string;
   draft: MayaSelectedCase["draft"];
   evidenceReviewEligibilityAvailable?: boolean;
+  evidenceReviewEligibilityStatusLabel?: string | undefined;
   onOpenChange: (open: boolean) => void;
   onResponse: (response: ApprovalGateResponse) => void;
   open: boolean;
@@ -48,6 +49,7 @@ export function ApprovalGateDialog({
   approverLabel,
   draft,
   evidenceReviewEligibilityAvailable = false,
+  evidenceReviewEligibilityStatusLabel,
   onOpenChange,
   onResponse,
   open,
@@ -59,6 +61,9 @@ export function ApprovalGateDialog({
   const [submitting, setSubmitting] = React.useState(false);
   const [success, setSuccess] = React.useState<ApprovalGateResponse | undefined>();
   const approvalEligibilityUnavailable = !evidenceReviewEligibilityAvailable;
+  const eligibilityStatusLabel =
+    evidenceReviewEligibilityStatusLabel?.trim() ??
+    (evidenceReviewEligibilityAvailable ? "Ready for human approval" : "Eligibility unavailable");
   const orderedActions = React.useMemo(
     () => actions.map((action) => action).sort((left, right) => decisionSortIndex(left.decision) - decisionSortIndex(right.decision)),
     [actions]
@@ -176,11 +181,23 @@ export function ApprovalGateDialog({
               <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
               <AlertTitle>Approval blocked by missing eligibility</AlertTitle>
               <AlertDescription>
+                <Badge className="mr-2" variant="outline">
+                  {eligibilityStatusLabel}
+                </Badge>
                 Evidence reviewed state and approval eligibility are unavailable in the current read model. Decision buttons
-                stay disabled until the backend exposes that contract.
+                stay disabled until the backend exposes that contract. External action remains blocked.
               </AlertDescription>
             </Alert>
-          ) : null}
+          ) : (
+            <Alert data-testid="maya-approval-eligibility-alert">
+              <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
+              <AlertTitle>{eligibilityStatusLabel}</AlertTitle>
+              <AlertDescription>
+                Backend evidence eligibility is available for this draft. External action remains blocked until a human
+                records a decision.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {error === undefined ? null : (
             <Alert variant="destructive">

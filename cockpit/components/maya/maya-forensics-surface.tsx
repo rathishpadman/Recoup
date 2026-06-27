@@ -226,31 +226,35 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   const activeCaseDetail =
     openedCaseDetail !== undefined &&
     openedCaseWorklistItem !== undefined &&
-    openedCaseDetail.lineId === openedCaseWorklistItem.lineId
+    openedCaseWorklistItem.lineIds.includes(openedCaseDetail.lineId)
       ? openedCaseDetail
       : undefined;
   const agentLaunchItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem ?? visibleSelectedWorklistItem;
 
-  const openInvestigationForItem = React.useCallback(async (item: MayaWorklistItem, options?: { openQueryDockOnReady?: boolean }) => {
+  const openInvestigationForLine = React.useCallback(async (
+    item: MayaWorklistItem,
+    requestedLineId: string,
+    options?: { openQueryDockOnReady?: boolean }
+  ) => {
     const requestId = beginWorkItemDetailRequest(detailRequestSequence);
     setActiveSection("cases");
     setReturnContextLineId(undefined);
     setSelectedWorklistItem(item);
     setOpenedCaseWorklistItem(item);
     setOpenedCaseDetail(undefined);
-    setWorkItemDetailLoadState({ lineId: item.lineId, state: "loading" });
+    setWorkItemDetailLoadState({ lineId: requestedLineId, state: "loading" });
     if (options?.openQueryDockOnReady === true) {
-      setAgentDockOpenLineId(item.lineId);
+      setAgentDockOpenLineId(requestedLineId);
     } else {
       setAgentDockOpenLineId(undefined);
     }
 
     try {
-      const detail = await fetchForensicsWorkItemDetail(item.lineId);
+      const detail = await fetchForensicsWorkItemDetail(requestedLineId);
       if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
         return;
       }
-      assertWorkItemDetailIdentity(detail, item);
+      assertWorkItemDetailIdentity(detail, requestedLineId, item);
 
       setOpenedCaseDetail(detail);
       setOpenedCaseWorklistItem(detail.workItem);
@@ -262,10 +266,31 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       }
 
       setOpenedCaseDetail(undefined);
-      setWorkItemDetailLoadState(toWorkItemDetailLoadError(item.lineId, error));
+      setWorkItemDetailLoadState(toWorkItemDetailLoadError(requestedLineId, error));
       setAgentDockOpenLineId(undefined);
     }
   }, []);
+
+  const openInvestigationForItem = React.useCallback(
+    async (item: MayaWorklistItem, options?: { openQueryDockOnReady?: boolean }) => {
+      await openInvestigationForLine(item, item.lineId, options);
+    },
+    [openInvestigationForLine]
+  );
+
+  const handleSelectCaseLine = React.useCallback(
+    (lineId: string) => {
+      if (activeCaseDetail === undefined || !activeCaseDetail.workItem.lineIds.includes(lineId)) {
+        return;
+      }
+      if (lineId === activeCaseDetail.lineId) {
+        return;
+      }
+
+      void openInvestigationForLine(activeCaseDetail.workItem, lineId);
+    },
+    [activeCaseDetail, openInvestigationForLine]
+  );
 
   const handleSelectWorklistItem = React.useCallback(
     (item: MayaWorklistItem) => {
@@ -296,17 +321,18 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   }, [openedCaseWorklistItem]);
 
   const handleLaunchRecoupAgent = React.useCallback(() => {
+    if (activeCaseDetail !== undefined) {
+      setAgentDockOpenLineId(activeCaseDetail.lineId);
+      return;
+    }
+
     if (agentLaunchItem === undefined) {
       return;
     }
 
     setAgentDockOpenLineId(agentLaunchItem.lineId);
-    if (activeCaseDetail !== undefined && openedCaseWorklistItem?.lineId === agentLaunchItem.lineId) {
-      return;
-    }
-
     void openInvestigationForItem(agentLaunchItem, { openQueryDockOnReady: true });
-  }, [activeCaseDetail, agentLaunchItem, openInvestigationForItem, openedCaseWorklistItem?.lineId]);
+  }, [activeCaseDetail, agentLaunchItem, openInvestigationForItem]);
 
   const handleQueryDockIntentConsumed = React.useCallback(() => {
     setAgentDockOpenLineId(undefined);
@@ -981,7 +1007,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         pendingActionCount={model.actionInbox.length}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
-        support={`${caseWorklistItem.customerLabel} / ${caseWorklistItem.lineId}`}
+        support={`${caseWorklistItem.customerLabel} / ${activeCaseDetail?.lineId ?? caseWorklistItem.lineId}`}
         worklistCount={model.worklist.length}
       >
         <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
@@ -1014,6 +1040,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
               multimodalDock={activeCaseDetail.multimodalDock}
               onQueryDockIntentConsumed={handleQueryDockIntentConsumed}
               onReturnToWorklist={handleReturnToWorklist}
+              onSelectLine={handleSelectCaseLine}
               openQueryDockLineId={agentDockOpenLineId}
               recommendedAction={activeCaseDetail.recommendedAction}
               selected={activeCaseDetail.selected}
@@ -1215,9 +1242,18 @@ function toWorkItemDetailLoadError(lineId: string, error: unknown): WorkItemDeta
   };
 }
 
-function assertWorkItemDetailIdentity(detail: MayaWorkItemDetail, item: MayaWorklistItem): void {
-  if (detail.lineId !== item.lineId || detail.workItem.lineId !== item.lineId) {
-    throw new WorkItemDetailIdentityError(item.lineId);
+function assertWorkItemDetailIdentity(detail: MayaWorkItemDetail, requestedLineId: string, item: MayaWorklistItem): void {
+  if (
+    detail.lineId !== requestedLineId ||
+    detail.selected.lineId !== requestedLineId ||
+    detail.recommendedAction.lineId !== requestedLineId ||
+    detail.recoveryDraft.actionId !== detail.recommendedAction.actionId ||
+    detail.selected.draft.actionId !== detail.recoveryDraft.actionId ||
+    !detail.workItem.lineIds.includes(requestedLineId) ||
+    !item.lineIds.includes(requestedLineId) ||
+    detail.workItem.lineId !== item.lineId
+  ) {
+    throw new WorkItemDetailIdentityError(requestedLineId);
   }
 }
 
