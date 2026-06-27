@@ -1117,6 +1117,10 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
           : await newRoleContext(browser, target.role, breakpoint.width, breakpoint.height);
       const page = await context.newPage();
       await page.goto(`${appUrl}${target.path}`, { waitUntil: "networkidle" });
+      if (target.name === "maya-shadcn-forensics") {
+        await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn screenshot workbench");
+        await expectVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', "Maya shadcn screenshot source readiness");
+      }
       await page.screenshot({
         fullPage: true,
         path: `${outputDir}/${target.name}-${breakpoint.label}.png`
@@ -1471,8 +1475,13 @@ async function newRoleContext(
   await loginPage.goto(`${appUrl}/login`, { waitUntil: "networkidle" });
   await expectVisibleLocator(loginPage, 'input[name="loginId"]', `${profile.displayName} login ID input`);
   await expectVisibleLocator(loginPage, 'input[name="password"]', `${profile.displayName} password input`);
-  await loginPage.locator('input[name="loginId"]').fill(profile.loginId);
-  await loginPage.locator('input[name="password"]').fill(demoPassword);
+  const loginIdInput = loginPage.locator('input[name="loginId"]');
+  const passwordInput = loginPage.locator('input[name="password"]');
+  await loginIdInput.fill(profile.loginId);
+  await passwordInput.fill(demoPassword);
+  assert((await loginIdInput.inputValue()) === profile.loginId, `${profile.displayName} login ID input must be filled`);
+  assert((await passwordInput.inputValue()) === demoPassword, `${profile.displayName} password input must be filled`);
+  await delay(50);
   const loginRequest = loginPage.waitForRequest((request) => new URL(request.url()).pathname === "/api/demo-login");
   await loginPage.getByRole("button", { name: /Open (Forensics )?Workspace/u }).waitFor({ state: "visible", timeout: 10_000 });
   await loginPage.getByRole("button", { name: /Open (Forensics )?Workspace/u }).click();

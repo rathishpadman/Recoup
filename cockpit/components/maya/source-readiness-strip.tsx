@@ -176,7 +176,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
           </div>
           <CardDescription className="truncate text-xs leading-3">{checkedAtLabel}</CardDescription>
         </div>
-        <div className="grid min-w-0 grid-cols-[repeat(7,minmax(104px,1fr))] gap-1.5">
+        <div className="grid min-w-0 grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-[repeat(7,minmax(104px,1fr))]">
           {currentConnectors.sourceTiles.map((source) => {
             const displayLabel = displaySourceLabel(source.label);
             const displayState = displayStateLabel(source.stateLabel);

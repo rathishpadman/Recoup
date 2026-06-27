@@ -3310,6 +3310,27 @@ describe("Maya shadcn human QA contract", () => {
     });
   });
 
+  it("keeps Maya source readiness tiles visible on mobile while preserving the desktop single-row strip", () => {
+    const sourceReadiness = stripComments(readMayaComponent("source-readiness-strip.tsx"));
+    const sourceTileGridClass =
+      /<div\s+className="([^"]*)"[\s\S]{0,160}\{currentConnectors\.sourceTiles\.map/u.exec(sourceReadiness)?.[1] ?? "";
+
+    expect({
+      avoidsMobileSevenColumnClamp: !/(?:^|\s)grid-cols-\[repeat\(7,minmax\(104px,1fr\)\)\](?:\s|$)/u.test(
+        sourceTileGridClass
+      ),
+      hasMobileWrappingColumns: /\bgrid-cols-2\b/u.test(sourceTileGridClass),
+      hasTabletWrappingColumns: /\bsm:grid-cols-3\b/u.test(sourceTileGridClass),
+      preservesDesktopSingleRow:
+        /(?:^|\s)lg:grid-cols-\[repeat\(7,minmax\(104px,1fr\)\)\](?:\s|$)/u.test(sourceTileGridClass)
+    }).toEqual({
+      avoidsMobileSevenColumnClamp: true,
+      hasMobileWrappingColumns: true,
+      hasTabletWrappingColumns: true,
+      preservesDesktopSingleRow: true
+    });
+  });
+
   it("requires Task 6 KPI typography to use one stable backend value treatment", () => {
     const kpiStrip = stripComments(readMayaComponent("maya-run-kpi-strip.tsx"));
 
