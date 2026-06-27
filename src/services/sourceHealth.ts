@@ -119,6 +119,37 @@ export async function buildSourceHealthResultsWithSnapshots(
   return results;
 }
 
+export async function buildSourceHealthResultsFromSnapshots(
+  options: SourceHealthOptions & {
+    snapshotMaxAgeMs?: number;
+    snapshotStore?: SourceHealthSnapshotStore | undefined;
+  } = {}
+): Promise<SourceHealthResult[]> {
+  const env = options.env ?? process.env;
+  const now = options.now ?? (() => new Date());
+  const checkedAtIso = now().toISOString();
+  const availableCredentialEnvNames = options.availableCredentialEnvNames ?? readConfiguredEnvNames(env);
+  const connectors = buildConnectorReadiness([], availableCredentialEnvNames, options.toolDataSchemaProbe);
+  const connectorNames = new Set<string>(connectors.map((connector) => connector.name));
+  const snapshotMaxAgeMs = options.snapshotMaxAgeMs ?? defaultSourceHealthSnapshotMaxAgeMs;
+  const snapshots = options.snapshotStore === undefined ? [] : await options.snapshotStore.loadLatest().catch(() => []);
+  const snapshotsBySourceName = new Map(snapshots.map((snapshot) => [snapshot.sourceName, snapshot]));
+
+  const connectorResults = connectors.map((connector) => {
+    const snapshot = snapshotsBySourceName.get(connector.name);
+    if (snapshot !== undefined) {
+      return sourceHealthFromSnapshot(snapshot, now(), snapshotMaxAgeMs);
+    }
+
+    return unavailableSourceHealthFromConnector(connector, checkedAtIso);
+  });
+  const extraSnapshotResults = snapshots
+    .filter((snapshot) => !connectorNames.has(snapshot.sourceName))
+    .map((snapshot) => sourceHealthFromSnapshot(snapshot, now(), snapshotMaxAgeMs));
+
+  return [...connectorResults, ...extraSnapshotResults];
+}
+
 export function buildSourceHealthFromConnectorReadiness(
   connectors: readonly ConnectorReadiness[],
   checkedAtIso: string
@@ -269,6 +300,38 @@ function withSourceHealthSnapshotProof(snapshot: SourceHealthResult): SourceHeal
     ...snapshot,
     proofItems: uniqueStrings([...snapshot.proofItems, "supabase source-health snapshot"]),
     recordIds: uniqueStrings([...snapshot.recordIds, `recoup_source_health_snapshots:${snapshot.sourceName}`])
+  };
+}
+
+function sourceHealthFromSnapshot(
+  snapshot: SourceHealthResult,
+  now: Date,
+  snapshotMaxAgeMs: number
+): SourceHealthResult {
+  const withSnapshotProof = withSourceHealthSnapshotProof(snapshot);
+  if (isFreshSourceHealthSnapshot(snapshot, now, snapshotMaxAgeMs)) {
+    return withSnapshotProof;
+  }
+
+  return {
+    ...withSnapshotProof,
+    proofItems: uniqueStrings([...withSnapshotProof.proofItems, "source-health refresh overdue"])
+  };
+}
+
+function unavailableSourceHealthFromConnector(
+  connector: ConnectorReadiness,
+  checkedAtIso: string
+): SourceHealthResult {
+  return {
+    checkedAtIso,
+    lastError: "Source health status unavailable until the background refresh stores a snapshot.",
+    latencyMs: 0,
+    proofItems: ["source-health status unavailable", "external writes blocked"],
+    recordIds: uniqueStrings([...sourceHealthRecordIds(connector), `recoup_source_health_snapshots:${connector.name}`]),
+    sourceMode: "unavailable",
+    sourceName: connector.name,
+    status: "blocked"
   };
 }
 

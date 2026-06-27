@@ -2249,17 +2249,28 @@ function buildSourceReadinessTiles(
       requiredSourceHealth(healthBySourceName, edi.name)
     ),
     sourceTileFromConnector(docs, requiredSourceHealth(healthBySourceName, docs.name)),
-    mcpSourceTile(checkedAtIso, mcpReadiness)
+    mcpSourceTile(checkedAtIso, mcpReadiness, healthBySourceName.get("mcp"))
   ];
 
   return sourceTileOrder;
 }
 
-function mcpSourceTile(sourceCheckedAtIso: string, mcpReadiness: McpReadinessStatus | undefined): SourceReadinessTile {
+function mcpSourceTile(
+  sourceCheckedAtIso: string,
+  mcpReadiness: McpReadinessStatus | undefined,
+  mcpHealthSnapshot: SourceHealthResult | undefined
+): SourceReadinessTile {
+  if (mcpReadiness === undefined && mcpHealthSnapshot !== undefined) {
+    return mcpSourceTileFromHealth(mcpHealthSnapshot);
+  }
+
   const serviceToolRecordIds = Object.keys(serviceToolMetadata);
   if (mcpReadiness === undefined || mcpReadiness.status === "unavailable") {
     const checkedAtIso = mcpReadiness?.checkedAtIso ?? sourceCheckedAtIso;
     const detail = mcpReadiness?.lastError ?? "MCP health endpoint is not configured or has not been probed.";
+    const stateLabel = mcpReadiness?.proofItems.includes("mcp health probe failed") === true
+      ? "Probe failed"
+      : "Status unavailable";
 
     return {
       checkedAtIso,
@@ -2281,9 +2292,9 @@ function mcpSourceTile(sourceCheckedAtIso: string, mcpReadiness: McpReadinessSta
         deterministicBasis:
           "MCP SourceReadinessTile failed closed because the MCP health endpoint was unavailable; read-only proof still comes from serviceToolMetadata visibility and sideEffectClass values"
       }),
-      stateLabel: "Setup",
+      stateLabel,
       statusTone: "blocked",
-      summary: "Health unavailable"
+      summary: stateLabel
     };
   }
 
@@ -2343,6 +2354,34 @@ function mcpSourceTile(sourceCheckedAtIso: string, mcpReadiness: McpReadinessSta
     stateLabel: "Connected",
     statusTone: "ready",
     summary: "Read-only tools gated"
+  };
+}
+
+function mcpSourceTileFromHealth(health: SourceHealthResult): SourceReadinessTile {
+  const serviceToolRecordIds = Object.keys(serviceToolMetadata);
+  const stateLabel = sourceHealthStateLabel(health);
+  const statusTone = sourceHealthStatusTone(health);
+  const isConnected = health.status === "connected" && stateLabel === "Connected";
+
+  return {
+    checkedAtIso: health.checkedAtIso,
+    detail: health.lastError ?? "MCP status loaded from saved source-health snapshot.",
+    key: "mcp",
+    label: "MCP",
+    mark: "M",
+    modeLabel: "Read-only tools",
+    proofItems: uniqueStrings([...health.proofItems, "tools filtered", "draft-only actions", "no ERP write-back"]),
+    provenance: businessProvenance("sourceTiles.mcp", {
+      sourceKind: "supabase",
+      sourceName: "MCP source-health snapshot",
+      recordIds: uniqueStrings([...serviceToolRecordIds, ...health.recordIds]),
+      deterministicBasis:
+        "MCP SourceReadinessTile rendered from saved recoup_source_health_snapshots state plus serviceToolMetadata read-only/draft-only proof; no page-load MCP probe is required",
+      checkedAtIso: health.checkedAtIso
+    }),
+    stateLabel,
+    statusTone,
+    summary: isConnected ? "Read-only tools gated" : sourceHealthSummary(health)
   };
 }
 
@@ -2450,6 +2489,10 @@ function requiredSourceHealth(
 }
 
 function sourceHealthStatusTone(health: SourceHealthResult): SourceReadinessTile["statusTone"] {
+  if (health.proofItems.includes("source-health refresh overdue")) {
+    return "blocked";
+  }
+
   if (health.status !== "connected") {
     return "blocked";
   }
@@ -2470,24 +2513,40 @@ function sourceHealthModeLabel(health: SourceHealthResult): string {
 }
 
 function sourceHealthStateLabel(health: SourceHealthResult): string {
+  if (health.proofItems.includes("source-health refresh overdue")) {
+    return "Refresh overdue";
+  }
+
+  if (health.proofItems.includes("source-health status unavailable")) {
+    return "Status unavailable";
+  }
+
   if (health.status !== "connected") {
     if (health.proofItems.includes("source probe failed")) {
       return "Probe failed";
     }
 
-    return "Setup";
+    return "Status unavailable";
   }
 
   return health.sourceMode === "synthetic_static_table" ? "Proxy - Supabase" : "Connected";
 }
 
 function sourceHealthSummary(health: SourceHealthResult): string {
+  if (health.proofItems.includes("source-health refresh overdue")) {
+    return "Refresh overdue";
+  }
+
+  if (health.proofItems.includes("source-health status unavailable")) {
+    return "Status unavailable";
+  }
+
   if (health.status === "blocked") {
     if (health.proofItems.includes("source probe failed")) {
       return "Live probe failed";
     }
 
-    return "Input required";
+    return "Status unavailable";
   }
 
   if (health.status === "degraded") {

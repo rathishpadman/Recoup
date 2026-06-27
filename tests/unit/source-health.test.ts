@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ALL_TOOLS_DATA_TABLE_NAMES, type SupabaseToolDataSchemaProbe } from "../../src/adapters/connectorRegistry.js";
 import {
+  buildSourceHealthResultsFromSnapshots,
   buildSourceHealthResults,
   buildSourceHealthResultsWithSnapshots,
   type SourceHealthResult
@@ -92,6 +93,138 @@ describe("source health", () => {
     expect(sap.lastError).toBe("local TLS certificate failure");
     expect(fetcher).toHaveBeenCalled();
     expect(snapshotStore.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ sourceName: "sap-odata" })]));
+  });
+
+  it("loads saved source-health snapshots immediately without probing SAP", async () => {
+    const sapFetcher = vi.fn(() => Promise.reject(new Error("SAP probe should not run for snapshot read model.")));
+    const snapshotCheckedAt = new Date(fixedNow.getTime() - 2 * 60 * 1000).toISOString();
+    const snapshotStore = {
+      loadLatest: vi.fn(() =>
+        Promise.resolve([
+          {
+            checkedAtIso: snapshotCheckedAt,
+            latencyMs: 128,
+            proofItems: ["read-only metadata probe", "credentials present", "external writes blocked"],
+            recordIds: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+            sourceMode: "live" as const,
+            sourceName: "sap-odata",
+            status: "connected" as const
+          },
+          {
+            checkedAtIso: snapshotCheckedAt,
+            latencyMs: 9,
+            proofItems: ["schema probe passed", "external writes blocked", "synthetic labelled"],
+            recordIds: ["tpm", "recoup_src_tpm", "promotions", "contracts"],
+            sourceMode: "synthetic_static_table" as const,
+            sourceName: "tpm",
+            status: "connected" as const
+          }
+        ])
+      ),
+      upsert: vi.fn()
+    };
+
+    const health = await buildSourceHealthResultsFromSnapshots({
+      availableCredentialEnvNames: Object.keys(basicSapEnv),
+      env: basicSapEnv,
+      fetcher: sapFetcher,
+      now: () => fixedNow,
+      snapshotStore,
+      toolDataSchemaProbe: allTablesAvailableProbe()
+    });
+
+    const sap = requiredHealth(health, "sap-odata");
+    const tpm = requiredHealth(health, "tpm");
+    expect(sapFetcher).not.toHaveBeenCalled();
+    expect(snapshotStore.upsert).not.toHaveBeenCalled();
+    expect(sap).toMatchObject({
+      checkedAtIso: snapshotCheckedAt,
+      sourceMode: "live",
+      status: "connected"
+    });
+    expect(sap.proofItems).toEqual(expect.arrayContaining(["supabase source-health snapshot"]));
+    expect(sap.proofItems).not.toContain("source probe failed");
+    expect(sap.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
+    expect(tpm).toMatchObject({
+      sourceMode: "synthetic_static_table",
+      status: "connected"
+    });
+    expect(tpm.proofItems).toEqual(expect.arrayContaining(["supabase source-health snapshot"]));
+  });
+
+  it("marks stale saved source-health snapshots as refresh overdue without probing SAP", async () => {
+    const sapFetcher = vi.fn(() => Promise.reject(new Error("SAP probe should not run for stale snapshot read model.")));
+    const staleCheckedAt = new Date(fixedNow.getTime() - 16 * 60 * 1000).toISOString();
+    const snapshotStore = {
+      loadLatest: vi.fn(() =>
+        Promise.resolve([
+          {
+            checkedAtIso: staleCheckedAt,
+            latencyMs: 128,
+            proofItems: ["read-only metadata probe", "credentials present", "external writes blocked"],
+            recordIds: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001"],
+            sourceMode: "live" as const,
+            sourceName: "sap-odata",
+            status: "connected" as const
+          }
+        ])
+      ),
+      upsert: vi.fn()
+    };
+
+    const health = await buildSourceHealthResultsFromSnapshots({
+      availableCredentialEnvNames: Object.keys(basicSapEnv),
+      env: basicSapEnv,
+      fetcher: sapFetcher,
+      now: () => fixedNow,
+      snapshotStore,
+      toolDataSchemaProbe: allTablesAvailableProbe()
+    });
+
+    const sap = requiredHealth(health, "sap-odata");
+    expect(sapFetcher).not.toHaveBeenCalled();
+    expect(snapshotStore.upsert).not.toHaveBeenCalled();
+    expect(sap).toMatchObject({
+      checkedAtIso: staleCheckedAt,
+      sourceMode: "live",
+      status: "connected"
+    });
+    expect(sap.proofItems).toEqual(
+      expect.arrayContaining(["supabase source-health snapshot", "source-health refresh overdue"])
+    );
+    expect(sap.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
+  });
+
+  it("returns status-unavailable source health when no saved snapshot exists", async () => {
+    const snapshotStore = {
+      loadLatest: vi.fn(() => Promise.resolve([])),
+      upsert: vi.fn()
+    };
+
+    const health = await buildSourceHealthResultsFromSnapshots({
+      availableCredentialEnvNames: ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"],
+      env: {
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+        SUPABASE_URL: "https://supabase.example.test"
+      },
+      now: () => fixedNow,
+      snapshotStore,
+      toolDataSchemaProbe: allTablesAvailableProbe()
+    });
+
+    const sap = requiredHealth(health, "sap-odata");
+    expect(sap).toMatchObject({
+      checkedAtIso: fixedNow.toISOString(),
+      lastError: "Source health status unavailable until the background refresh stores a snapshot.",
+      sourceMode: "unavailable",
+      sourceName: "sap-odata",
+      status: "blocked"
+    });
+    expect(sap.proofItems).toEqual(
+      expect.arrayContaining(["source-health status unavailable", "external writes blocked"])
+    );
+    expect(sap.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
+    expect(snapshotStore.upsert).not.toHaveBeenCalled();
   });
 
   it("ignores stale SAP source-health snapshots and fails closed on a failed fresh probe", async () => {

@@ -3993,7 +3993,32 @@ describe("S5 cockpit API", () => {
     }
   });
 
-  it("probes configured MCP health for connector source readiness", async () => {
+  it("serves MCP connector source readiness from a saved snapshot without live-probing during page load", async () => {
+    const snapshotCheckedAt = new Date().toISOString();
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_source_health_snapshots")) {
+        expect(init.headers).toMatchObject({
+          apikey: "supabase-secret-key",
+          authorization: "Bearer supabase-secret-key"
+        });
+        return Promise.resolve(
+          Response.json([
+            {
+              checked_at: snapshotCheckedAt,
+              last_error: null,
+              latency_ms: 11,
+              proof_items_json: ["mcp healthz reachable", "auth configured", "supabase source-health snapshot"],
+              record_ids_json: ["mcp", "recoup_source_health_snapshots:mcp"],
+              source_mode: "live",
+              source_name: "mcp",
+              status: "connected"
+            }
+          ])
+        );
+      }
+
+      return Promise.resolve(Response.json([]));
+    };
     const mcpHealthFetcher = vi.fn((url: string | URL | Request) => {
       const requestedUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       expect(requestedUrl).toBe("https://mcp.example.test/healthz");
@@ -4011,6 +4036,7 @@ describe("S5 cockpit API", () => {
         ...cockpitAuthEnv,
         RECOUP_MCP_URL: "https://mcp.example.test/mcp"
       },
+      memoryFetcher,
       mcpHealthFetcher
     });
     try {
@@ -4028,9 +4054,9 @@ describe("S5 cockpit API", () => {
       const mcpTile = connectors.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
 
       expect(response.status).toBe(200);
-      expect(mcpHealthFetcher).toHaveBeenCalledTimes(1);
+      expect(mcpHealthFetcher).not.toHaveBeenCalled();
       expect(mcpTile).toMatchObject({
-        detail: "MCP health reachable at /mcp with StreamableHTTPServerTransport/stateful.",
+        detail: "MCP status loaded from saved source-health snapshot.",
         stateLabel: "Connected",
         statusTone: "ready",
         summary: "Read-only tools gated"
@@ -4041,8 +4067,9 @@ describe("S5 cockpit API", () => {
     }
   });
 
-  it("serves SAP connector readiness only after a fresh live probe, even when a Supabase snapshot exists", async () => {
+  it("serves SAP connector readiness from a saved snapshot without live-probing during page load", async () => {
     const sapFetcher = vi.fn(() => Promise.resolve(new Response("<edmx:Edmx />", { status: 200 })));
+    const snapshotCheckedAt = new Date().toISOString();
     const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
       if (url.includes("/rest/v1/recoup_source_health_snapshots")) {
         expect(init.headers).toMatchObject({
@@ -4052,7 +4079,7 @@ describe("S5 cockpit API", () => {
         return Promise.resolve(
           Response.json([
             {
-              checked_at: new Date().toISOString(),
+              checked_at: snapshotCheckedAt,
               last_error: null,
               latency_ms: 128,
               proof_items_json: ["read-only metadata probe", "credentials present", "external writes blocked"],
@@ -4095,14 +4122,15 @@ describe("S5 cockpit API", () => {
       const sapTile = connectors.sourceTiles.find((source) => source.label === "SAP OData");
 
       expect(response.status).toBe(200);
-      expect(sapFetcher).toHaveBeenCalledTimes(1);
+      expect(sapFetcher).not.toHaveBeenCalled();
       expect(sapHealth).toMatchObject({
+        checkedAtIso: snapshotCheckedAt,
         sourceMode: "live",
         status: "connected"
       });
       expect(sapHealth?.proofItems).toEqual(expect.arrayContaining(["read-only metadata probe"]));
-      expect(sapHealth?.proofItems).not.toContain("supabase source-health snapshot");
-      expect(sapHealth?.recordIds).not.toContain("recoup_source_health_snapshots:sap-odata");
+      expect(sapHealth?.proofItems).toContain("supabase source-health snapshot");
+      expect(sapHealth?.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
       expect(sapTile).toMatchObject({
         modeLabel: "Live read",
         stateLabel: "Connected",
@@ -4110,7 +4138,7 @@ describe("S5 cockpit API", () => {
       });
       expect(sapTile?.provenance.sourceKind).toBe("sap_odata");
       expect(sapTile?.provenance.deterministicBasis).toContain("read-only proof");
-      expect(sapTile?.provenance.recordIds).not.toContain("recoup_source_health_snapshots:sap-odata");
+      expect(sapTile?.provenance.recordIds).toContain("recoup_source_health_snapshots:sap-odata");
     } finally {
       await close(server);
     }

@@ -10,9 +10,12 @@ import {
   type SourceHealthResult,
   type SourceHealthSnapshotStore
 } from "./sourceHealth.js";
+import { probeMcpReadiness, type McpReadinessStatus } from "./mcpHealth.js";
 
 export interface SourceHealthPollerOptions extends SourceHealthOptions {
   intervalMs?: number;
+  mcpHealthFetcher?: typeof fetch;
+  mcpHealthProbeTimeoutMs?: number;
   onError?: (error: unknown) => void;
   snapshotStore: SourceHealthSnapshotStore;
   toolDataSchemaProbeLoader?: () => Promise<SupabaseToolDataSchemaProbe | undefined>;
@@ -25,9 +28,56 @@ export interface SourceHealthPollerHandle {
 
 export async function pollAndPersistSourceHealth(options: SourceHealthPollerOptions): Promise<SourceHealthResult[]> {
   const toolDataSchemaProbe = options.toolDataSchemaProbe ?? (await options.toolDataSchemaProbeLoader?.());
-  const results = await buildSourceHealthResults({ ...options, toolDataSchemaProbe });
+  const [sourceResults, mcpReadiness] = await Promise.all([
+    buildSourceHealthResults({ ...options, toolDataSchemaProbe }),
+    probeMcpReadiness({
+      ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.mcpHealthFetcher === undefined ? {} : { fetcher: options.mcpHealthFetcher }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.timeoutAfter === undefined ? {} : { timeoutAfter: options.timeoutAfter }),
+      ...(options.mcpHealthProbeTimeoutMs === undefined ? {} : { timeoutMs: options.mcpHealthProbeTimeoutMs })
+    })
+  ]);
+  const results = [...sourceResults, sourceHealthFromMcpReadiness(mcpReadiness)];
   await options.snapshotStore.upsert(results);
   return results;
+}
+
+function sourceHealthFromMcpReadiness(readiness: McpReadinessStatus): SourceHealthResult {
+  const recordIds = uniqueStrings([
+    "mcp",
+    ...(readiness.healthUrl === undefined ? [] : [readiness.healthUrl]),
+    ...(readiness.endpoint === undefined ? [] : [readiness.endpoint]),
+    ...(readiness.transport === undefined ? [] : [readiness.transport]),
+    ...(readiness.sessionMode === undefined ? [] : [readiness.sessionMode])
+  ]);
+
+  if (readiness.status === "connected") {
+    return {
+      checkedAtIso: readiness.checkedAtIso,
+      latencyMs: readiness.latencyMs,
+      proofItems: ["mcp healthz reachable", "auth configured", "no ERP write-back"],
+      recordIds,
+      sourceMode: "live",
+      sourceName: "mcp",
+      status: "connected"
+    };
+  }
+
+  return {
+    checkedAtIso: readiness.checkedAtIso,
+    lastError: readiness.lastError,
+    latencyMs: readiness.latencyMs,
+    proofItems: uniqueStrings([...readiness.proofItems, "no ERP write-back"]),
+    recordIds,
+    sourceMode: "unavailable",
+    sourceName: "mcp",
+    status: "blocked"
+  };
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 export function createToolDataSchemaProbeLoader(

@@ -20,7 +20,6 @@ import {
   verifyCockpitHumanProxyPrincipal,
   type CockpitHumanProxyPurpose
 } from "../../config/cockpitHumanPrincipals.js";
-import { ALL_TOOLS_DATA_TABLE_NAMES } from "../adapters/connectorRegistry.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
 import type { MemoryRecord } from "../memory/schema.js";
@@ -89,9 +88,8 @@ import {
   ForensicsWorkItemNotFoundError,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
-import { buildSourceHealthResultsWithSnapshots } from "./sourceHealth.js";
+import { buildSourceHealthResultsFromSnapshots } from "./sourceHealth.js";
 import { createToolDataSchemaProbeLoader, startSourceHealthPoller } from "./sourceHealthPoller.js";
-import { probeMcpReadiness } from "./mcpHealth.js";
 import { retrieveBureau } from "../tools/retrieval/bureau.js";
 import { retrieveDocs, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { retrieveTpm } from "../tools/retrieval/tpm.js";
@@ -446,25 +444,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const supabaseProbe = createSupabaseTableReadinessProbeFromEnv(runtimeEnv, options.memoryFetcher);
     const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
-    const toolDataSchemaProbe = supabaseProbe === undefined ? undefined : await supabaseProbe.probeTables(ALL_TOOLS_DATA_TABLE_NAMES);
     const availableCredentialEnvNames = readConfiguredEnvNames(runtimeEnv);
-    const [sourceHealth, mcpReadiness] = await Promise.all([
-      buildSourceHealthResultsWithSnapshots({
-        availableCredentialEnvNames,
-        env: runtimeEnv,
-        fetcher: options.sapFetcher,
-        snapshotStore: sourceHealthSnapshotStore,
-        toolDataSchemaProbe
-      }),
-      probeMcpReadiness({
-        env: runtimeEnv,
-        ...(options.mcpHealthFetcher === undefined ? {} : { fetcher: options.mcpHealthFetcher })
-      })
-    ]);
+    const sourceHealth = await buildSourceHealthResultsFromSnapshots({
+      availableCredentialEnvNames,
+      env: runtimeEnv,
+      fetcher: options.sapFetcher,
+      snapshotStore: sourceHealthSnapshotStore
+    });
 
-    response.json(buildConnectorReadinessModel(availableCredentialEnvNames, toolDataSchemaProbe, sourceHealth, mcpReadiness));
+    response.json(buildConnectorReadinessModel(availableCredentialEnvNames, undefined, sourceHealth));
   });
 
   app.get("/sources/r1/:need", async (request, response) => {

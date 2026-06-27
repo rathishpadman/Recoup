@@ -1018,13 +1018,13 @@ describe("S5 Forensics cockpit model", () => {
       "MCP"
     ]);
     expect(model.sourceTiles.find((source) => source.label === "3PL POD")).toMatchObject({
-      stateLabel: "Setup",
+      stateLabel: "Status unavailable",
       statusTone: "blocked"
     });
     expect(model.sourceTiles.find((source) => source.label === "MCP")).toMatchObject({
-      stateLabel: "Setup",
+      stateLabel: "Status unavailable",
       statusTone: "blocked",
-      summary: "Health unavailable"
+      summary: "Status unavailable"
     });
     const sap = model.connectors.find((connector) => connector.name === "sap-odata");
     const tpm = model.connectors.find((connector) => connector.name === "tpm");
@@ -1082,7 +1082,7 @@ describe("S5 Forensics cockpit model", () => {
 
     expect(markup).toContain("SAP OData");
     expect(markup).toContain("Needs setup");
-    expect(markup).toContain("Input required");
+    expect(markup).toContain("Status unavailable");
     expect(markup).not.toContain("Schema checked");
   });
 
@@ -1154,6 +1154,96 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(markup).toContain("Unavailable");
     expect(markup).not.toContain("Live source");
+  });
+
+  it("labels stale source-health snapshots as refresh overdue instead of connected", () => {
+    const availableEnvNames = [
+      "SAP_ODATA_BASE_URL",
+      "SAP_ODATA_CLIENT",
+      "SAP_ODATA_USERID",
+      "SAP_ODATA_CLIENT_SECRET",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ];
+    const sourceHealth = sourceHealthForConnectorModel(availableEnvNames).map((health) =>
+      health.sourceName === "sap-odata"
+        ? {
+            ...health,
+            proofItems: [
+              "read-only metadata probe",
+              "credentials present",
+              "external writes blocked",
+              "supabase source-health snapshot",
+              "source-health refresh overdue"
+            ],
+            recordIds: ["sap-odata", "ZUI_BILLINGDOCUMENTFS_0001", "recoup_source_health_snapshots:sap-odata"],
+            sourceMode: "live" as const,
+            status: "connected" as const
+          }
+        : health
+    );
+    const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
+    const sap = model.sourceTiles.find((source) => source.label === "SAP OData");
+
+    expect(sap).toMatchObject({
+      modeLabel: "Live read",
+      stateLabel: "Refresh overdue",
+      statusTone: "blocked",
+      summary: "Refresh overdue"
+    });
+  });
+
+  it("labels missing source-health snapshots as status unavailable", () => {
+    const sourceHealth = sourceHealthForConnectorModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]).map((health) =>
+      health.sourceName === "sap-odata"
+        ? {
+            ...health,
+            lastError: "Source health status unavailable until the background refresh stores a snapshot.",
+            proofItems: ["source-health status unavailable", "external writes blocked"],
+            recordIds: ["sap-odata", "recoup_source_health_snapshots:sap-odata"],
+            sourceMode: "unavailable" as const,
+            status: "blocked" as const
+          }
+        : health
+    );
+    const model = buildConnectorReadinessModel(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], undefined, sourceHealth);
+    const sap = model.sourceTiles.find((source) => source.label === "SAP OData");
+
+    expect(sap).toMatchObject({
+      modeLabel: "Unavailable",
+      stateLabel: "Status unavailable",
+      statusTone: "blocked",
+      summary: "Status unavailable"
+    });
+  });
+
+  it("renders MCP source tile from saved source-health snapshot when no live MCP probe is provided", () => {
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const sourceHealth = [
+      ...sourceHealthForConnectorModel(availableEnvNames),
+      {
+        checkedAtIso: "2026-06-24T10:31:00.000Z",
+        latencyMs: 11,
+        proofItems: ["mcp healthz reachable", "auth configured", "supabase source-health snapshot"],
+        recordIds: ["mcp", "recoup_source_health_snapshots:mcp"],
+        sourceMode: "live" as const,
+        sourceName: "mcp",
+        status: "connected" as const
+      }
+    ];
+    const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
+    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+
+    expect(mcp).toMatchObject({
+      checkedAtIso: "2026-06-24T10:31:00.000Z",
+      detail: "MCP status loaded from saved source-health snapshot.",
+      modeLabel: "Read-only tools",
+      stateLabel: "Connected",
+      statusTone: "ready",
+      summary: "Read-only tools gated"
+    });
+    expect(mcp?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured"]));
+    expect(mcp?.provenance.recordIds).toContain("recoup_source_health_snapshots:mcp");
   });
 
   it("names Supabase source-health snapshot provenance for cached SAP readiness", () => {

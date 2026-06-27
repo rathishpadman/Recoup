@@ -79,6 +79,58 @@ describe("source health poller", () => {
       ])
     );
   });
+
+  it("persists MCP gateway health into the source-health snapshot store", async () => {
+    const snapshotStore = {
+      loadLatest: vi.fn(),
+      upsert: vi.fn()
+    };
+    const mcpHealthFetcher = vi.fn((url: string | URL | Request) => {
+      const requestedUrl = stringifyFetchInput(url);
+      expect(requestedUrl).toBe("https://mcp.example.test/healthz");
+      return Promise.resolve(
+        Response.json({
+          authConfigured: true,
+          endpoint: "/mcp",
+          sessionMode: "stateful",
+          transport: "StreamableHTTPServerTransport"
+        })
+      );
+    });
+
+    const results = await pollAndPersistSourceHealth({
+      availableCredentialEnvNames: [...Object.keys(sapEnv), "RECOUP_MCP_URL"],
+      env: {
+        ...sapEnv,
+        RECOUP_MCP_URL: "https://mcp.example.test/mcp"
+      },
+      fetcher: () => Promise.resolve(new Response(sapMetadataXml(), { status: 200 })),
+      mcpHealthFetcher,
+      now: () => fixedNow,
+      snapshotStore,
+      toolDataSchemaProbe: allTablesAvailableProbe()
+    });
+
+    const mcp = results.find((source) => source.sourceName === "mcp");
+    expect(mcpHealthFetcher).toHaveBeenCalledTimes(1);
+    expect(mcp).toMatchObject({
+      checkedAtIso: fixedNow.toISOString(),
+      sourceMode: "live",
+      sourceName: "mcp",
+      status: "connected"
+    });
+    expect(mcp?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured", "no ERP write-back"]));
+    expect(mcp?.recordIds).toEqual(expect.arrayContaining(["mcp", "https://mcp.example.test/healthz", "/mcp"]));
+    expect(snapshotStore.upsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceMode: "live",
+          sourceName: "mcp",
+          status: "connected"
+        })
+      ])
+    );
+  });
 });
 
 function requiredStatus(results: ReadonlyArray<{ sourceName: string; status: string }>, sourceName: string): string {
