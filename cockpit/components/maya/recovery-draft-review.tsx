@@ -56,6 +56,8 @@ export function RecoveryDraftReview({
   const [approvalDialogOpen, setApprovalDialogOpen] = React.useState(false);
   const canOpenApproval = approvalActions.length > 0;
   const draftSourceRecordIds = dedupeSourceRecordIds([selectedLineId, ...evidencePack.recordIds]);
+  const draftApprovalEligibility = (draft as { approvalEligibility?: { available?: boolean } }).approvalEligibility;
+  const evidenceReviewEligibilityAvailable = draftApprovalEligibility?.available ?? false;
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-recovery-draft-review">
@@ -344,7 +346,7 @@ export function RecoveryDraftReview({
         actionId={draft.actionId}
         actions={approvalActions}
         draft={draft}
-        evidenceReviewEligibilityAvailable={draft.approvalEligibility.available}
+        evidenceReviewEligibilityAvailable={evidenceReviewEligibilityAvailable}
         onOpenChange={setApprovalDialogOpen}
         onResponse={onApprovalResponse}
         open={approvalDialogOpen}

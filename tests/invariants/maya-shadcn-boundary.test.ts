@@ -514,6 +514,9 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).toContain("approvalDialogOpen");
     expect(recoveryDraftReview).toContain("setApprovalDialogOpen(true)");
     expect(recoveryDraftReview).toContain("actionId={draft.actionId}");
+    expect(recoveryDraftReview).toContain("const draftApprovalEligibility = (draft as { approvalEligibility?: { available?: boolean } }).approvalEligibility");
+    expect(recoveryDraftReview).toContain("const evidenceReviewEligibilityAvailable = draftApprovalEligibility?.available ?? false");
+    expect(recoveryDraftReview).toContain("evidenceReviewEligibilityAvailable={evidenceReviewEligibilityAvailable}");
     expect(recoveryDraftReview).toContain("onApprovalResponse");
     expect(recoveryDraftReview).not.toContain("/api/approval");
     expect(recoveryDraftReview).not.toContain("fetch(");
