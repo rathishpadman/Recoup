@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -1803,6 +1803,21 @@ function extractMayaOverviewSource(surface: string): string {
 }
 
 describe("Maya shadcn human QA contract", () => {
+  it("requires the Maya shadcn route to show an honest loading shell during cold server streams", () => {
+    const loadingPath = "cockpit/app/forensics/shadcn/loading.tsx";
+
+    expect(existsSync(loadingPath)).toBe(true);
+    const loading = read(loadingPath);
+
+    expect(loading).toContain('data-testid="maya-shadcn-loading-shell"');
+    expect(loading).toContain('aria-busy="true"');
+    expect(loading).toContain("Connecting workspace");
+    expect(loading).not.toMatch(/\$[0-9]/u);
+    expect(loading).not.toMatch(/\bS[0-9]+-L[0-9]+\b/u);
+    expect(loading).not.toMatch(/\b(?:Crestline|Greenleaf|ValuMart|Harbor)\b/u);
+    expect(loading).not.toMatch(/\b(?:Connected|Proxy - Supabase|Status unavailable|Probe failed|Refresh overdue)\b/u);
+  });
+
   it("rejects fixture, dummy, hardcoded-business, UI-decision, and Playwright fulfillment paths", () => {
     const files = readMayaUiAndE2ESources();
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
