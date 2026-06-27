@@ -146,6 +146,12 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.selected.evidencePack.documents.every((document) => /^[BPRST]\d+$/u.test(document.citationId))).toBe(true);
     expect(model.selected.draft.status).toBe("pending_human");
     expect(model.selected.draft.actionLabel).toBe("Recovery draft staged");
+    expect(model.selected).toMatchObject({
+      approvalEligibility: {
+        available: false,
+        statusLabel: "Eligibility unavailable"
+      }
+    });
     expect(model.selected.approvalActions.map((action) => action.decision)).toEqual(["approve", "modify", "reject"]);
     expect(model.multimodalDock.policyLabel).toBe("voice/text citation parity");
     expect(model.retrievalStatus.map((status) => status.source)).toEqual(expectedEvidenceSourceLabels);
@@ -1015,6 +1021,11 @@ describe("S5 Forensics cockpit model", () => {
       stateLabel: "Setup",
       statusTone: "blocked"
     });
+    expect(model.sourceTiles.find((source) => source.label === "MCP")).toMatchObject({
+      stateLabel: "Setup",
+      statusTone: "blocked",
+      summary: "Health unavailable"
+    });
     const sap = model.connectors.find((connector) => connector.name === "sap-odata");
     const tpm = model.connectors.find((connector) => connector.name === "tpm");
 
@@ -1023,6 +1034,36 @@ describe("S5 Forensics cockpit model", () => {
     expect(tpm?.sourceTableName).toBe("recoup_src_tpm");
     expect(tpm?.liveContractStatus).toBe("deferred_verify_v3");
     expect(tpm?.status).toBe("blocked_schema_required");
+  });
+
+  it("uses MCP health state for the MCP source readiness tile", () => {
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const model = buildConnectorReadinessModel(
+      availableEnvNames,
+      undefined,
+      sourceHealthForConnectorModel(availableEnvNames),
+      {
+        authConfigured: true,
+        checkedAtIso: "2026-06-24T10:31:00.000Z",
+        endpoint: "/mcp",
+        healthUrl: "http://127.0.0.1:4318/healthz",
+        latencyMs: 12,
+        sessionMode: "stateful",
+        status: "connected",
+        transport: "StreamableHTTPServerTransport"
+      }
+    );
+    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+
+    expect(mcp).toMatchObject({
+      checkedAtIso: "2026-06-24T10:31:00.000Z",
+      detail: "MCP health reachable at /mcp with StreamableHTTPServerTransport/stateful.",
+      modeLabel: "Read-only tools",
+      stateLabel: "Connected",
+      statusTone: "ready",
+      summary: "Read-only tools gated"
+    });
+    expect(mcp?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured", "no ERP write-back"]));
   });
 
   it("requires backend source health when building connector readiness tiles", () => {
@@ -1043,6 +1084,38 @@ describe("S5 Forensics cockpit model", () => {
     expect(markup).toContain("Needs setup");
     expect(markup).toContain("Input required");
     expect(markup).not.toContain("Schema checked");
+  });
+
+  it("renders proxy-backed ToolStatusRail mode labels without calling them live", () => {
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const toolDataSchemaProbe = allTablesAvailableProbe();
+    const model = buildConnectorReadinessModel(
+      availableEnvNames,
+      toolDataSchemaProbe,
+      sourceHealthForConnectorModel(availableEnvNames, toolDataSchemaProbe)
+    );
+    const proxyTile = model.sourceTiles.find((sourceTile) => sourceTile.modeLabel === "Proxy - Supabase");
+    if (proxyTile === undefined) {
+      throw new Error("Expected a proxy-backed source tile.");
+    }
+    const proxyOnlyModel = {
+      ...model,
+      sourceTiles: [
+        proxyTile,
+        {
+          ...proxyTile,
+          detail: "Proxy source unavailable.",
+          key: "proxy-unavailable",
+          stateLabel: "Setup",
+          statusTone: "blocked" as const,
+          summary: "Input required"
+        }
+      ]
+    };
+    const markup = renderToStaticMarkup(createElement(ToolStatusRail, { connectors: proxyOnlyModel }));
+
+    expect(markup).toContain("Proxy - Supabase");
+    expect(markup).not.toContain("Live source");
   });
 
   it("labels configured SAP with a failed live probe instead of generic setup", () => {
@@ -1067,6 +1140,10 @@ describe("S5 Forensics cockpit model", () => {
     );
     const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
     const sap = model.sourceTiles.find((source) => source.label === "SAP OData");
+    if (sap === undefined) {
+      throw new Error("Expected SAP source readiness tile.");
+    }
+    const markup = renderToStaticMarkup(createElement(ToolStatusRail, { connectors: { ...model, sourceTiles: [sap] } }));
 
     expect(sap).toMatchObject({
       detail: "fetch failed",
@@ -1075,6 +1152,8 @@ describe("S5 Forensics cockpit model", () => {
       statusTone: "blocked",
       summary: "Live probe failed"
     });
+    expect(markup).toContain("Unavailable");
+    expect(markup).not.toContain("Live source");
   });
 
   it("names Supabase source-health snapshot provenance for cached SAP readiness", () => {
@@ -1135,6 +1214,17 @@ describe("S5 Forensics cockpit model", () => {
       status: "ready_synthetic",
       toolDataTableNames: ["customers", "payments", "promotions", "contracts"]
     });
+    expect(
+      model.sourceTiles
+        .filter((sourceTile) => sourceTile.statusTone === "synthetic")
+        .map((sourceTile) => sourceTile.stateLabel)
+    ).toEqual([
+      "Proxy - Supabase",
+      "Proxy - Supabase",
+      "Proxy - Supabase",
+      "Proxy - Supabase",
+      "Proxy - Supabase"
+    ]);
   });
 });
 

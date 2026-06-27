@@ -5,6 +5,7 @@ import {
   CheckCircle2Icon,
   CircleAlertIcon,
   ChevronLeftIcon,
+  CircleHelpIcon,
   FileSearchIcon,
   FlaskConicalIcon,
   MessageCircleIcon,
@@ -15,17 +16,21 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { MayaRunKpiStrip } from "./maya-run-kpi-strip.tsx";
 import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
 import { SourceReadinessStrip } from "./source-readiness-strip.tsx";
+import { verdictBadgeVariant } from "./verdict-badge-variant.ts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   beginWorkItemDetailRequest,
   cancelWorkItemDetailRequest,
@@ -129,7 +134,7 @@ function beatTwelveMetricCards(
   return [
     {
       label: "Cases in Worklist",
-      support: "Fetched rows only",
+      support: "Current source count",
       value: items.length.toString()
     },
     {
@@ -139,17 +144,17 @@ function beatTwelveMetricCards(
     },
     {
       label: "Recommended next",
-      support: "Next-case ranking not exposed",
+      support: "Review manually",
       value: "Unavailable"
     },
     {
       label: "Avg. age",
-      support: "Age field not exposed",
+      support: "Awaiting source value",
       value: "Unavailable"
     },
     {
       label: "Audit coverage",
-      support: "Committed audit receipt not exposed",
+      support: "Receipt not confirmed",
       value: "Unavailable"
     }
   ];
@@ -348,7 +353,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             >
               <div className="grid min-w-0 gap-3">
                 <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
-                  <DetailStateFact label="Fetched cases" value={model.worklist.length.toString()} />
+                  <DetailStateFact label="Cases in queue" value={model.worklist.length.toString()} />
                   <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
                   <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
                   <DetailStateFact
@@ -362,20 +367,26 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="grid min-w-0 gap-1">
                         <CardTitle className="text-base">Positive deduction cases</CardTitle>
-                        <CardDescription>Rows marked valid by the fetched Maya read model.</CardDescription>
+                        <CardDescription>Cases marked valid for review.</CardDescription>
                       </div>
-                      <span
-                        className="inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-xs font-medium text-muted-foreground"
+                      <Badge
+                        className="h-7 shrink-0 px-2 text-xs"
                         data-testid="maya-valid-deduction-signal"
+                        data-verdict="valid"
+                        variant={verdictBadgeVariant("valid")}
                       >
                         {validDeductionCount.toString()} valid
-                      </span>
+                      </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
                     {validDeductionItems.length === 0 ? (
                       <div className="px-4 pb-4">
-                        <MayaEmptyState description="The fetched worklist returned no valid deduction rows." title="No valid rows" />
+                        <MayaEmptyState
+                          description="The current worklist has no valid deduction rows."
+                          kind="worklist"
+                          title="No valid rows"
+                        />
                       </div>
                     ) : (
                       <>
@@ -390,7 +401,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                               </div>
                               <div className="flex flex-wrap gap-1.5">
-                                <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                                <Badge className="gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                                   <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                                   {item.verdictLabel}
                                 </Badge>
@@ -427,7 +438,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                                   </TableCell>
                                   <TableCell>{item.customerLabel}</TableCell>
                                   <TableCell>
-                                    <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                                    <Badge className="gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                                       <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                                       {item.verdictLabel}
                                     </Badge>
@@ -456,14 +467,18 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="grid min-w-0 gap-1">
                       <CardTitle className="text-base">{overviewFocusLabel}</CardTitle>
-                      <CardDescription>Fetched read-model row selected for review.</CardDescription>
+                      <CardDescription>Selected case for review.</CardDescription>
                     </div>
-                    <Badge variant="outline">Read-model backed</Badge>
+                    <Badge variant="outline">Evidence-backed</Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
                   {overviewFocusItem === undefined ? (
-                    <MayaEmptyState description="Select a fetched worklist row to inspect the case without inferring a next-best case." title="No selected case" />
+                    <MayaEmptyState
+                      description="Select a work item to inspect the case without inferring a next-best case."
+                      kind="worklist"
+                      title="No selected case"
+                    />
                   ) : (() => {
                     const overviewFocusIsLoading =
                       workItemDetailLoadState?.state === "loading" &&
@@ -473,7 +488,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                       <>
                         <div className="grid min-w-0 gap-2">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <Badge className="gap-1.5" data-verdict={overviewFocusItem.verdict} variant="secondary">
+                            <Badge className="gap-1.5" data-verdict={overviewFocusItem.verdict} variant={verdictBadgeVariant(overviewFocusItem.verdict)}>
                               {overviewFocusItem.verdict === "valid" ? (
                                 <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                               ) : null}
@@ -531,30 +546,30 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                 <CardTitle className="text-base">Selected evidence</CardTitle>
                 <CardDescription>
                   {visibleSelectedWorklistItem === undefined
-                    ? "Select a fetched row to inspect evidence readiness."
+                    ? "Select a work item to inspect evidence readiness."
                     : visibleSelectedWorklistItem.lineId}
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 {visibleSelectedWorklistItem === undefined ? (
-                  <MayaEmptyState description="No row is selected for evidence review." title="Select a case" />
+                  <MayaEmptyState description="No row is selected for evidence review." kind="evidence" title="Select a case" />
                 ) : (
                   <>
                     <div className="grid gap-3 md:grid-cols-3">
                       <DetailStateFact label="Evidence score" value={visibleSelectedWorklistItem.evidenceScoreLabel} />
                       <DetailStateFact
                         label="Documents"
-                        value={selectedHasBackendDetail ? model.selected.evidencePack.documents.length.toString() : "Contract gap"}
+                        value={selectedHasBackendDetail ? model.selected.evidencePack.documents.length.toString() : "Source detail pending"}
                       />
                       <DetailStateFact label="Readiness" value={visibleSelectedWorklistItem.evidenceLabel} />
                     </div>
                     <Alert>
                       <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
-                      <AlertTitle>{selectedHasBackendDetail ? "Backend evidence attached" : "Contract gap"}</AlertTitle>
+                      <AlertTitle>{selectedHasBackendDetail ? "Evidence attached" : "Source detail pending"}</AlertTitle>
                       <AlertDescription>
                         {selectedHasBackendDetail
-                          ? "The selected backend detail packet exposes evidence documents and record IDs."
-                          : "Row-switched evidence documents are unavailable until the backend exposes detail for this row."}
+                          ? "The selected detail packet exposes evidence documents and record IDs."
+                          : "Open the investigation to request row-specific evidence detail."}
                       </AlertDescription>
                     </Alert>
                     <Button
@@ -572,7 +587,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                 )}
               </CardContent>
             </Card>
-            <Card className="rounded-lg shadow-none" size="sm">
+            <Card className="rounded-lg shadow-none" data-testid="maya-evidence-source-readiness-group" size="sm">
               <CardHeader>
                 <CardTitle className="text-base">Source readiness</CardTitle>
                 <CardDescription>{connectors.lastRefreshedLabel}</CardDescription>
@@ -597,11 +612,15 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             <Card className="rounded-lg shadow-none" size="sm">
               <CardHeader>
                 <CardTitle className="text-base">Action inbox</CardTitle>
-                <CardDescription>Backend HITL posture from fetched action rows.</CardDescription>
+                <CardDescription>Approval posture from action queue.</CardDescription>
               </CardHeader>
               <CardContent>
                 {model.actionInbox.length === 0 ? (
-                  <MayaEmptyState description="The read model returned no pending human actions." title="No pending HITL actions" />
+                  <MayaEmptyState
+                    description="The current action queue has no pending human actions."
+                    kind="approval"
+                    title="No pending HITL actions"
+                  />
                 ) : (
                   <Table>
                     <TableHeader>
@@ -640,6 +659,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         <section className="min-w-0" aria-label="Maya queue">
           <DeductionWorklistTable
             items={model.worklist}
+            onOpenItem={(item) => {
+              void openInvestigationForItem(item);
+            }}
             onSelectItem={handleSelectWorklistItem}
             {...(visibleSelectedWorklistItem === undefined ? {} : { selectedLineId: visibleSelectedWorklistItem.lineId })}
           />
@@ -651,15 +673,16 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                 {backendSelectionUnavailable && model.worklist.length > 0 ? (
                   <Alert className="mb-4" variant="destructive">
                     <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
-                    <AlertTitle>Backend-selected line unavailable</AlertTitle>
+                    <AlertTitle>Selected line unavailable</AlertTitle>
                     <AlertDescription>
-                      The backend selected line is not present in the fetched worklist. Select a row to request its
+                      The selected line is not present in the current worklist. Select a row to request its
                       governed detail packet; no fallback business values are displayed.
                     </AlertDescription>
                   </Alert>
                 ) : null}
                 <MayaEmptyState
                   description="View details, evidence, and workflow actions for the selected item."
+                  kind="worklist"
                   title="Select a deduction to open its work item"
                 />
               </CardContent>
@@ -688,21 +711,25 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                         <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
                         <AlertTitle>Audit status unavailable</AlertTitle>
                         <AlertDescription>
-                          Returned locally from the Audit tab. Local focus only; no backend queue update or audit refresh is inferred.
+                          Returned locally from the Audit tab. Local focus only; no queue update or audit refresh is inferred.
                         </AlertDescription>
                       </Alert>
                     ) : null}
-                    <div className="grid gap-1">
-                      <p className="text-sm text-muted-foreground">Scenario</p>
-                      <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.scenarioLabel}</h2>
-                      <div className="flex flex-wrap gap-1" aria-label="Selected work item line IDs">
-                        {visibleSelectedWorklistItem.lineIds.map((lineId) => (
-                          <Badge key={`selected-${lineId}`} variant="outline">
-                            {lineId}
-                          </Badge>
-                        ))}
+                      <div className="grid gap-1">
+                        <p className="text-sm text-muted-foreground">Scenario</p>
+                        <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.scenarioLabel}</h2>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button className="w-fit gap-1.5 px-2 text-[11px]" size="xs" type="button" variant="outline">
+                              <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
+                              Source lines
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-72">
+                            <span>{visibleSelectedWorklistItem.lineIds.join(", ")}</span>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
-                    </div>
                     <Separator />
                     <div className="grid gap-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
@@ -711,7 +738,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-muted-foreground">Verdict</span>
-                        <Badge data-verdict={visibleSelectedWorklistItem.verdict} variant="secondary">
+                        <Badge data-verdict={visibleSelectedWorklistItem.verdict} variant={verdictBadgeVariant(visibleSelectedWorklistItem.verdict)}>
                           {visibleSelectedWorklistItem.verdict === "valid" ? (
                             <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                           ) : null}
@@ -748,11 +775,11 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                         </Badge>
                       </div>
                       <div className="grid gap-1.5">
-                        <p className="text-sm font-medium">Read-model detail packet</p>
+                        <p className="text-sm font-medium">Detail packet</p>
                         <p className="text-sm text-muted-foreground" data-testid="maya-selected-row-contract-note">
                           {selectedHasBackendDetail
                             ? "The current fixed evidence packet corresponds to this row."
-                            : "Detailed evidence is unavailable for this row until the backend exposes row switching."}
+                            : "Detailed evidence is unavailable until a governed detail packet is requested for this row."}
                         </p>
                       </div>
                       <Button
@@ -797,15 +824,16 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       >
         <Card className="rounded-lg shadow-none" data-testid="maya-cases-fetched-rows" size="sm">
           <CardHeader>
-            <CardTitle className="text-base">Fetched cases</CardTitle>
-            <CardDescription>{model.worklist.length.toString()} fetched rows from the read model.</CardDescription>
+            <CardTitle className="text-base">Cases</CardTitle>
+            <CardDescription>{model.worklist.length.toString()} work items in the current queue.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {model.worklist.length === 0 ? (
               <div className="px-6 py-8">
-                <MayaEmptyState description="The read model returned no deduction case rows." title="No fetched cases" />
+                <MayaEmptyState description="The current queue has no deduction case rows." kind="worklist" title="No cases" />
               </div>
             ) : (
+              <ScrollArea className="h-[min(46rem,calc(100vh-15rem))]" data-testid="maya-cases-table-scroll">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -823,7 +851,13 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                     const isSelected = visibleSelectedWorklistItem?.lineId === item.lineId;
 
                     return (
-                      <TableRow aria-selected={isSelected} data-testid="maya-case-row" key={`case-${item.lineId}`}>
+                      <TableRow
+                        aria-selected={isSelected}
+                        className="data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)]"
+                        data-selected={isSelected ? "true" : undefined}
+                        data-testid="maya-case-row"
+                        key={`case-${item.lineId}`}
+                      >
                         <TableCell>
                           <div className="grid gap-0.5">
                             <span className="font-medium">{item.scenarioLabel}</span>
@@ -832,7 +866,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                         </TableCell>
                         <TableCell>{item.customerLabel}</TableCell>
                         <TableCell>
-                          <Badge data-verdict={item.verdict} variant="secondary">
+                          <Badge data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                             {item.verdict === "valid" ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                             {item.verdictLabel}
                           </Badge>
@@ -856,6 +890,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                   })}
                 </TableBody>
               </Table>
+              </ScrollArea>
             )}
           </CardContent>
         </Card>
@@ -864,7 +899,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             <CardHeader>
               <CardTitle className="text-base">Selected case</CardTitle>
               <CardDescription>
-                {visibleSelectedWorklistItem === undefined ? "No fetched case selected." : visibleSelectedWorklistItem.lineId}
+                {visibleSelectedWorklistItem === undefined ? "No case selected." : visibleSelectedWorklistItem.lineId}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -873,29 +908,34 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                   {backendSelectionUnavailable && model.worklist.length > 0 ? (
                     <Alert variant="destructive">
                       <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
-                      <AlertTitle>Backend-selected line unavailable</AlertTitle>
+                      <AlertTitle>Selected line unavailable</AlertTitle>
                       <AlertDescription>
-                        The backend selected line is not present in the fetched cases. Select a fetched row; no fallback business values are displayed.
+                        The selected line is not present in the current cases. Select a work item; no fallback business values are displayed.
                       </AlertDescription>
                     </Alert>
                   ) : null}
-                  <MayaEmptyState description="Select a fetched row to prepare the case detail request." title="Select a case" />
+                  <MayaEmptyState
+                    description="Select a work item to prepare the case detail request."
+                    kind="worklist"
+                    title="Select a case"
+                  />
                 </>
               ) : (
                 <>
                   <div className="grid gap-3">
                     <DetailStateFact label="Customer" value={visibleSelectedWorklistItem.customerLabel} />
                     <DetailStateFact label="Scenario" value={visibleSelectedWorklistItem.scenarioLabel} />
-                    <DetailStateFact label="Fetched line IDs" value={visibleSelectedWorklistItem.lineIds.length.toString()} />
+                    <DetailStateFact label="Amount" value={visibleSelectedWorklistItem.amount} />
+                    <DetailStateFact label="Line IDs" value={visibleSelectedWorklistItem.lineIds.length.toString()} />
                     <DetailStateFact label="Evidence" value={visibleSelectedWorklistItem.evidenceLabel} />
                   </div>
                   <Alert>
                     <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
-                    <AlertTitle>{selectedHasBackendDetail ? "Backend detail starter" : "Contract gap"}</AlertTitle>
+                    <AlertTitle>{selectedHasBackendDetail ? "Detail starter" : "Source detail pending"}</AlertTitle>
                     <AlertDescription>
                       {selectedHasBackendDetail
-                        ? "This selected case corresponds to the backend detail packet exposed by the read model."
-                        : "Case detail for this row remains unavailable until the backend exposes row-specific detail."}
+                        ? "This selected case corresponds to the detail packet for this work item."
+                        : "Open the investigation to request case detail for this row."}
                     </AlertDescription>
                   </Alert>
                   <Button
@@ -948,6 +988,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           <aside className="min-w-0" data-testid="maya-case-worklist-rail">
             <DeductionWorklistTable
               items={model.worklist}
+              onOpenItem={(item) => {
+                void openInvestigationForItem(item);
+              }}
               onSelectItem={handleSelectWorklistItem}
               selectedLineId={caseWorklistItem.lineId}
               variant="rail"
@@ -956,6 +999,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           {activeCaseDetail === undefined ? (
             <WorkItemDetailStatePanel
               loadState={workItemDetailLoadState ?? { lineId: caseWorklistItem.lineId, state: "loading" }}
+              onRetry={() => {
+                void openInvestigationForItem(caseWorklistItem);
+              }}
               onReturnToWorklist={handleReturnToWorklist}
             />
           ) : (
@@ -989,7 +1035,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         pendingActionCount={model.actionInbox.length}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
-        support="Review, audit, and action fetched deduction cases."
+        support={`${model.worklist.length.toString()} work items / ${model.actionInbox.length.toString()} human actions pending`}
         worklistCount={model.worklist.length}
       >
         <BeatTwelveReturnedWorklist
@@ -1041,9 +1087,11 @@ function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick
 
 function WorkItemDetailStatePanel({
   loadState,
+  onRetry,
   onReturnToWorklist
 }: {
   loadState: WorkItemDetailLoadState;
+  onRetry: () => void;
   onReturnToWorklist: () => void;
 }) {
   const isLoading = loadState.state === "loading";
@@ -1058,7 +1106,7 @@ function WorkItemDetailStatePanel({
             ) : (
               <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
             )}
-            {isLoading ? "Loading backend detail" : "Backend detail unavailable"}
+            {isLoading ? "Loading detail" : "Detail unavailable"}
           </CardTitle>
           <CardDescription>{loadState.lineId}</CardDescription>
         </CardHeader>
@@ -1076,26 +1124,52 @@ function WorkItemDetailStatePanel({
             ) : (
               <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
             )}
-            <AlertTitle>{isLoading ? "Fetching governed detail packet" : "Fail-closed detail fetch"}</AlertTitle>
+            <AlertTitle>{isLoading ? "Fetching governed detail packet" : "Source unavailable"}</AlertTitle>
             <AlertDescription>
               {isLoading
-                ? "Case evidence, draft, approval, and audit state will remain unavailable until the backend detail packet returns."
-                : loadState.message}
+                ? "Case evidence, draft, approval, and audit state will remain unavailable until the detail packet returns."
+                : "The governed detail packet is unavailable from source systems. Retry the request or review technical details."}
             </AlertDescription>
           </Alert>
           {loadState.state === "error" ? (
-            <div className="grid gap-3 md:grid-cols-3" data-testid="maya-work-item-detail-error">
-              <DetailStateFact label="Status" value={loadState.status === undefined ? "Unavailable" : String(loadState.status)} />
-              <DetailStateFact label="Missing source" value={loadState.missingSource ?? "Unavailable"} />
-              <DetailStateFact label="Correlation" value={loadState.correlationId ?? "Unavailable"} />
-            </div>
+            <Collapsible className="rounded-lg border bg-muted/20 p-3" data-testid="maya-work-item-detail-error-details">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="grid min-w-0 gap-1">
+                  <p className="text-sm font-medium">Detail request details</p>
+                  <p className="text-xs text-muted-foreground">
+                    Technical fields are available for support without showing fallback case data.
+                  </p>
+                </div>
+                <CollapsibleTrigger asChild>
+                  <Button size="sm" type="button" variant="outline">
+                    Error details
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent className="pt-3">
+                <div className="grid gap-3 md:grid-cols-4" data-testid="maya-work-item-detail-error">
+                  <DetailStateFact label="Status" value={loadState.status === undefined ? "Unavailable" : String(loadState.status)} />
+                  <DetailStateFact label="Missing source" value={loadState.missingSource ?? "Unavailable"} />
+                  <DetailStateFact label="Correlation" value={loadState.correlationId ?? "Unavailable"} />
+                  <DetailStateFact label="Source error" value={loadState.message} />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
         </CardContent>
         <CardContent className="pt-0">
-          <Button onClick={onReturnToWorklist} size="sm" type="button" variant="outline">
-            <ChevronLeftIcon aria-hidden="true" data-icon="inline-start" />
-            Return to worklist
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {loadState.state === "error" ? (
+              <Button onClick={onRetry} size="sm" type="button">
+                <RotateCwIcon aria-hidden="true" data-icon="inline-start" />
+                Retry
+              </Button>
+            ) : null}
+            <Button onClick={onReturnToWorklist} size="sm" type="button" variant="outline">
+              <ChevronLeftIcon aria-hidden="true" data-icon="inline-start" />
+              Return to worklist
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </section>
@@ -1135,7 +1209,7 @@ function toWorkItemDetailLoadError(lineId: string, error: unknown): WorkItemDeta
 
   return {
     lineId,
-    message: "Forensics work item detail is unavailable from governed backend sources.",
+    message: "Forensics work item detail is unavailable from governed sources.",
     state: "error"
   };
 }
@@ -1186,14 +1260,17 @@ function BeatTwelveReturnedWorklist({
                 Returned from local audit review
               </Badge>
             </div>
-            <div className="flex shrink-0 flex-wrap justify-end gap-1.5" aria-label="Returned worklist source constraints">
-              <Badge className="h-7 px-2 text-[11px]" variant="outline">
-                Fetched rows only
-              </Badge>
-              <Badge className="h-7 px-2 text-[11px]" variant="outline">
-                Read-model gaps
-              </Badge>
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button className="h-7 gap-1.5 px-2 text-[11px]" size="sm" type="button" variant="outline">
+                  <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
+                  Source details
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-80">
+                <span>Queued source rows only. Pending source fields: {missingBeatTwelveFields.join(", ")}.</span>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
         <Alert className="min-h-[96px] self-start py-2 shadow-lg" data-testid="maya-beat-12-audit-unavailable-toast">
@@ -1257,7 +1334,7 @@ function BeatTwelveReturnedWorklist({
         <CardHeader className="gap-3 border-b pb-0">
           <Tabs defaultValue="all">
             <TabsList className="h-10">
-              <TabsTrigger value="all">All fetched {items.length.toString()}</TabsTrigger>
+              <TabsTrigger value="all">All work items {items.length.toString()}</TabsTrigger>
               <TabsTrigger value="recommended">Recommended</TabsTrigger>
               <TabsTrigger value="review">Review</TabsTrigger>
               <TabsTrigger value="billing">Billing</TabsTrigger>
@@ -1272,22 +1349,16 @@ function BeatTwelveReturnedWorklist({
                 <TableHead className="px-4">
                   <span className="sr-only">Local selection</span>
                 </TableHead>
-                <TableHead>
-                  Priority <span className="text-xs font-normal text-muted-foreground">(gap)</span>
-                </TableHead>
+                <TableHead>Priority</TableHead>
                 <TableHead>Deduction case</TableHead>
                 <TableHead>Reference</TableHead>
                 <TableHead>Counterparty</TableHead>
                 <TableHead>Verdict</TableHead>
                 <TableHead>Potential exposure</TableHead>
-                <TableHead>
-                  Age <span className="text-xs font-normal text-muted-foreground">(gap)</span>
-                </TableHead>
+                <TableHead>Age</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Recommended action</TableHead>
-                <TableHead>
-                  Last updated <span className="text-xs font-normal text-muted-foreground">(gap)</span>
-                </TableHead>
+                <TableHead>Last updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1298,7 +1369,7 @@ function BeatTwelveReturnedWorklist({
                 return (
                   <TableRow
                     aria-selected={isSelected}
-                    className="cursor-pointer outline-none data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                    className="cursor-pointer outline-none data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                     data-line-id={item.lineId}
                     data-selected={isSelected ? "true" : undefined}
                     data-testid="maya-worklist-row"
@@ -1353,7 +1424,7 @@ function BeatTwelveReturnedWorklist({
                     </TableCell>
                     <TableCell>{item.customerLabel}</TableCell>
                     <TableCell>
-                      <Badge className="gap-1.5" data-verdict={item.verdict} variant="secondary">
+                      <Badge className="gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                         {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                         {item.verdictLabel}
                       </Badge>
@@ -1388,9 +1459,19 @@ function BeatTwelveReturnedWorklist({
           </Table>
         </CardContent>
         <div className="flex min-h-12 items-center justify-between gap-3 border-t px-4 text-xs text-muted-foreground">
-          <span>Showing {items.length.toString()} of {items.length.toString()} fetched rows</span>
+          <span>Showing {items.length.toString()} of {items.length.toString()} work items</span>
           <div className="flex min-w-0 items-center gap-3">
-            <span className="hidden truncate xl:inline">Backend gaps: {missingBeatTwelveFields.join(", ")}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button className="hidden h-6 gap-1 px-2 text-[11px] xl:inline-flex" size="xs" type="button" variant="outline">
+                  <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
+                  Source fields pending
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-80">
+                <span>Pending source fields: {missingBeatTwelveFields.join(", ")}.</span>
+              </TooltipContent>
+            </Tooltip>
             <span className="hidden items-center gap-1 md:inline-flex">
               Rows per page
               <Badge className="h-6 px-2 text-[11px]" variant="outline">

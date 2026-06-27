@@ -12,7 +12,6 @@ import {
   RefreshCwIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -89,9 +88,8 @@ export function MayaWorkspaceShell({
   support,
   worklistCount
 }: MayaWorkspaceShellProps) {
-  const firstName = session.displayName.split(" ")[0] ?? session.displayName;
-  const displayHeading = heading ?? `Welcome back, ${firstName}`;
-  const displaySupport = support ?? "Here's what's happening in Maya Forensics.";
+  const displayHeading = heading ?? "Deduction forensics queue";
+  const displaySupport = support ?? `${worklistCount.toString()} work items / ${pendingActionCount.toString()} human actions pending`;
 
   return (
     <SidebarProvider
@@ -225,32 +223,13 @@ export function MayaWorkspaceShell({
             </span>
             <span
               aria-label={`${pendingActionCount.toString()} pending human actions`}
-              className="relative inline-flex size-8 items-center justify-center rounded-md border bg-background text-foreground"
+              className="relative inline-flex size-8 items-center justify-center text-muted-foreground"
             >
               <BellIcon aria-hidden="true" data-icon="header-notification" />
               <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">
                 {pendingActionCount}
               </span>
             </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex" data-testid="maya-refresh-contract-gap">
-                  <Button
-                    aria-label="Refresh unavailable: no backend refresh action is exposed by the read model"
-                    disabled
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
-                    Refresh
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <span>No backend refresh action is exposed by the read model.</span>
-              </TooltipContent>
-            </Tooltip>
             <LogoutButton className="inline-flex" size="sm" variant="outline">
               Sign out
             </LogoutButton>

@@ -3993,6 +3993,54 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("probes configured MCP health for connector source readiness", async () => {
+    const mcpHealthFetcher = vi.fn((url: string | URL | Request) => {
+      const requestedUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      expect(requestedUrl).toBe("https://mcp.example.test/healthz");
+      return Promise.resolve(
+        Response.json({
+          authConfigured: true,
+          endpoint: "/mcp",
+          sessionMode: "stateful",
+          transport: "StreamableHTTPServerTransport"
+        })
+      );
+    });
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_MCP_URL: "https://mcp.example.test/mcp"
+      },
+      mcpHealthFetcher
+    });
+    try {
+      const response = await fetch(`${baseUrl}/connectors`, { headers: cockpitAuthHeaders });
+      const connectors = (await response.json()) as {
+        sourceTiles: Array<{
+          detail: string;
+          label: string;
+          proofItems: string[];
+          stateLabel: string;
+          statusTone: string;
+          summary: string;
+        }>;
+      };
+      const mcpTile = connectors.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+
+      expect(response.status).toBe(200);
+      expect(mcpHealthFetcher).toHaveBeenCalledTimes(1);
+      expect(mcpTile).toMatchObject({
+        detail: "MCP health reachable at /mcp with StreamableHTTPServerTransport/stateful.",
+        stateLabel: "Connected",
+        statusTone: "ready",
+        summary: "Read-only tools gated"
+      });
+      expect(mcpTile?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured"]));
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves SAP connector readiness only after a fresh live probe, even when a Supabase snapshot exists", async () => {
     const sapFetcher = vi.fn(() => Promise.resolve(new Response("<edmx:Edmx />", { status: 200 })));
     const memoryFetcher: SupabaseMemoryFetch = (url, init) => {

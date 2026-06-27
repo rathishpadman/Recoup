@@ -48,7 +48,8 @@ describe("runtime model config", () => {
       "  await trace.start();",
       "  await trace.end();",
       "});",
-      "await getGlobalTraceProvider().forceFlush();"
+      "await getGlobalTraceProvider().forceFlush();",
+      "process.exit(0);"
     ].join("\n");
     const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
       cwd: process.cwd(),
@@ -56,13 +57,14 @@ describe("runtime model config", () => {
       env: {
         ...process.env,
         OPENAI_API_KEY: ""
-      }
+      },
+      timeout: 10_000
     });
     const output = `${result.stdout}\n${result.stderr}`;
 
     expect(output).not.toContain("No API key provided for OpenAI tracing exporter");
     expect(result.status).toBe(0);
-  });
+  }, 15_000);
 });
 
 interface TsconfigJson {

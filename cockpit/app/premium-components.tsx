@@ -66,8 +66,16 @@ export function ToolStatusRail({ connectors }: Readonly<{ connectors: ConnectorR
 }
 
 function displaySourceMode(modeLabel: string): string {
+  if (modeLabel === "Proxy - Supabase") {
+    return "Proxy - Supabase";
+  }
+
+  if (modeLabel === "Unavailable") {
+    return "Unavailable";
+  }
+
   if (modeLabel.toLowerCase().includes("synthetic")) {
-    return "Demo evidence";
+    return "Proxy - Supabase";
   }
 
   if (modeLabel.toLowerCase().includes("read-only")) {
@@ -118,7 +126,11 @@ function displaySourceState(sourceKey: string, stateLabel: string): string {
     return "Connected";
   }
 
-  if (stateLabel === "Synthetic" || stateLabel === "Connected") {
+  if (stateLabel === "Synthetic" || stateLabel === "Proxy - Supabase") {
+    return "Proxy - Supabase";
+  }
+
+  if (stateLabel === "Connected") {
     return "OK";
   }
 
@@ -211,7 +223,7 @@ function displaySourceDetail(sourceKey: string, detail: string): string {
   }
 
   if (detail.toLowerCase().includes("synthetic")) {
-    return "Demo evidence is labelled before live cutover.";
+    return "Supabase proxy evidence is labelled before live cutover.";
   }
 
   return detail;
@@ -239,7 +251,7 @@ function displaySourceProof(item: string): string {
   }
 
   if (item === "synthetic labelled") {
-    return "demo labelled";
+    return "proxy labelled";
   }
 
   return item;

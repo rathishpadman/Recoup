@@ -4,22 +4,13 @@ import * as React from "react";
 import {
   CheckCircle2Icon,
   CircleHelpIcon,
-  MoreHorizontalIcon,
+  FileSearchIcon,
   SearchIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -28,9 +19,11 @@ import { cn } from "@/lib/utils";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
+import { verdictBadgeVariant } from "./verdict-badge-variant.ts";
 
 interface DeductionWorklistTableProps {
   items: MayaWorklistItem[];
+  onOpenItem: (item: MayaWorklistItem) => void;
   onSelectItem: (item: MayaWorklistItem) => void;
   selectedLineId?: string;
   variant?: "rail" | "table";
@@ -38,7 +31,19 @@ interface DeductionWorklistTableProps {
 
 const missingOperationalFields = ["Priority", "Work type", "Source", "Age", "Owner"] as const;
 
-export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, variant = "table" }: DeductionWorklistTableProps) {
+function isInteractiveDescendantEvent(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    ? target.closest("button,a,input,textarea,select,summary,[role='button'],[role='checkbox'],[role='menuitem']") !== null
+    : false;
+}
+
+export function DeductionWorklistTable({
+  items,
+  onOpenItem,
+  onSelectItem,
+  selectedLineId,
+  variant = "table"
+}: DeductionWorklistTableProps) {
   const [query, setQuery] = React.useState("");
   const filteredItems = React.useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -69,11 +74,11 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
           <div className="flex min-w-0 items-center justify-between gap-2">
             <div className="grid min-w-0 gap-1">
               <CardTitle>Worklist</CardTitle>
-              <CardDescription className="truncate">{items.length.toString()} fetched rows</CardDescription>
+              <CardDescription className="truncate">{items.length.toString()} work items</CardDescription>
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button aria-label="Read-model gaps" size="icon-sm" type="button" variant="outline">
+                <Button aria-label="Worklist source fields" size="icon-sm" type="button" variant="outline">
                   <CircleHelpIcon aria-hidden="true" data-icon="button-icon" />
                 </Button>
               </TooltipTrigger>
@@ -99,9 +104,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
         </CardHeader>
         <CardContent className="min-h-0 px-2">
           {items.length === 0 ? (
-            <MayaEmptyState description="The forensics read model returned no worklist rows." title="Worklist unavailable" />
+            <MayaEmptyState description="The current queue has no worklist rows." title="Worklist unavailable" />
           ) : filteredItems.length === 0 ? (
-            <MayaEmptyState description="No fetched worklist rows match the current local search." title="No matching rows" />
+            <MayaEmptyState description="No worklist items match the current local search." title="No matching rows" />
           ) : (
             <ScrollArea className="h-[calc(100vh-13rem)] min-h-[520px]">
               <div className="flex min-w-0 flex-col gap-1 pr-2">
@@ -113,7 +118,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                       aria-selected={item.lineId === selectedLineId}
                       className={cn(
                         "h-auto min-h-[104px] w-full justify-start rounded-md border px-3 py-3 text-left font-normal",
-                        "data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                        "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
                       )}
                       data-line-id={item.lineId}
                       data-selected={item.lineId === selectedLineId ? "true" : undefined}
@@ -137,7 +142,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                         </span>
                         <span className="line-clamp-2 text-xs text-muted-foreground">{item.customerLabel}</span>
                         <span className="flex min-w-0 flex-wrap gap-1">
-                          <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant="secondary">
+                          <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                             {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                             {item.verdictLabel}
                           </Badge>
@@ -176,15 +181,21 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <CardTitle>Deduction Worklist ({items.length})</CardTitle>
-            <CardDescription>Forensics read-model rows grouped by scenario and queue</CardDescription>
+            <CardDescription>Work items grouped by scenario and queue</CardDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge className="hidden h-8 gap-1.5 px-2 text-[11px] md:inline-flex" data-testid="maya-worklist-contract-gap" variant="outline">
+                <Button
+                  className="hidden h-8 gap-1.5 px-2 text-[11px] md:inline-flex"
+                  data-testid="maya-worklist-contract-gap"
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
                   <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
-                  Read-model gaps
-                </Badge>
+                  Source details
+                </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-72">
                 <span>Not exposed on worklist rows: {missingOperationalFields.join(", ")}.</span>
@@ -211,9 +222,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
       </CardHeader>
       <CardContent className="min-h-0">
         {items.length === 0 ? (
-          <MayaEmptyState description="The forensics read model returned no worklist rows." title="Worklist unavailable" />
+          <MayaEmptyState description="The current queue has no worklist rows." title="Worklist unavailable" />
         ) : filteredItems.length === 0 ? (
-          <MayaEmptyState description="No fetched worklist rows match the current local search." title="No matching rows" />
+          <MayaEmptyState description="No worklist items match the current local search." title="No matching rows" />
         ) : (
           <>
             <div className="grid gap-2 md:hidden" data-testid="maya-mobile-worklist-list">
@@ -223,8 +234,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                 return (
                   <Button
                     aria-selected={item.lineId === selectedLineId}
-                    className="h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal"
+                    className="h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:shadow-[var(--shadow-sm)]"
                     data-line-id={item.lineId}
+                    data-selected={item.lineId === selectedLineId ? "true" : undefined}
                     data-state={item.lineId === selectedLineId ? "selected" : undefined}
                     data-testid="maya-mobile-worklist-row"
                     data-verdict={item.verdict}
@@ -245,7 +257,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                       </span>
                       <span className="line-clamp-1 text-xs text-muted-foreground">{item.customerLabel}</span>
                       <span className="flex min-w-0 flex-wrap gap-1">
-                        <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant="secondary">
+                        <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                           {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                           {item.verdictLabel}
                         </Badge>
@@ -285,7 +297,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                       aria-selected={item.lineId === selectedLineId}
                       className={cn(
                         "cursor-pointer align-top outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                        "data-[selected=true]:bg-muted/35 data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                        "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
                       )}
                       data-line-id={item.lineId}
                       data-selected={item.lineId === selectedLineId ? "true" : undefined}
@@ -297,6 +309,9 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                         onSelectItem(item);
                       }}
                       onKeyDown={(event) => {
+                        if (isInteractiveDescendantEvent(event.target)) {
+                          return;
+                        }
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           onSelectItem(item);
@@ -306,7 +321,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                     >
                     <TableCell className="px-2 py-2 align-middle">
                       <Checkbox
-                        aria-label={`${item.scenarioLabel} local row selection`}
+                        aria-label={`${item.scenarioLabel} local focus selection`}
                         checked={item.lineId === selectedLineId}
                         onCheckedChange={() => {
                           onSelectItem(item);
@@ -323,22 +338,6 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                       <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate font-medium">{item.lineId}</p>
                         <span className="text-[11px] leading-3 text-muted-foreground">{item.lineCount.toString()} lines</span>
-                        <div className="flex min-w-0 items-center gap-1" aria-label={`${item.lineId} line IDs`}>
-                          {item.lineIds.slice(0, 1).map((lineId) => (
-                            <Badge className="h-5 px-1.5 text-[10px]" key={`${item.lineId}-${lineId}`} variant="outline">
-                              {lineId}
-                            </Badge>
-                          ))}
-                          {item.lineIds.length > 1 ? (
-                            <Badge
-                              className="h-5 px-1.5 text-[10px]"
-                              title={item.lineIds.slice(1).join(", ")}
-                              variant="outline"
-                            >
-                              +{item.lineIds.length - 1}
-                            </Badge>
-                          ) : null}
-                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-normal px-2 py-2">
@@ -360,7 +359,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                           data-verdict={item.verdict}
                           data-testid="maya-verdict-badge"
                           title={item.verdictLabel}
-                          variant="secondary"
+                          variant={verdictBadgeVariant(item.verdict)}
                         >
                           {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
                           <span className="min-w-0 truncate">{item.verdictLabel}</span>
@@ -378,7 +377,7 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-normal px-2 py-2">
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1.5">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1.5">
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="break-words" title={item.queueLabel}>
                             {item.queueLabel}
@@ -391,41 +390,20 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
                             {item.routingLabel}
                           </span>
                         </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              aria-label={`Open ${item.scenarioLabel} row actions`}
-                              className="shrink-0"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                              }}
-                              size="icon-xs"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <MoreHorizontalIcon aria-hidden="true" data-icon="button-icon" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                            }}
-                          >
-                            <DropdownMenuLabel>Fetched row</DropdownMenuLabel>
-                            <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  onSelectItem(item);
-                                }}
-                              >
-                                Open work item
-                              </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem disabled>Deep evidence switching requires backend support</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <Button
+                          aria-label={`Open investigation for ${item.scenarioLabel}`}
+                          className="shrink-0"
+                          data-testid="maya-row-action-open"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenItem(item);
+                          }}
+                          size="icon-xs"
+                          type="button"
+                          variant="outline"
+                        >
+                          <FileSearchIcon aria-hidden="true" data-icon="button-icon" />
+                        </Button>
                       </div>
                     </TableCell>
                     </TableRow>
@@ -440,10 +418,10 @@ export function DeductionWorklistTable({ items, onSelectItem, selectedLineId, va
       {items.length > 0 ? (
         <CardFooter className="min-h-11 justify-between gap-3 bg-transparent px-3 py-2">
           <p className="truncate text-xs text-muted-foreground">
-            Showing {filteredItems.length.toString()} of {items.length.toString()} fetched rows
+            Showing {filteredItems.length.toString()} of {items.length.toString()} work items
           </p>
           <Badge className="h-6 px-2 text-[11px]" variant="outline">
-            Fetched rows only
+            Current queue
           </Badge>
         </CardFooter>
       ) : null}

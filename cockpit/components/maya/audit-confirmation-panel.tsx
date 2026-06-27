@@ -5,7 +5,6 @@ import {
   ArrowLeftIcon,
   ChevronDownIcon,
   ClipboardCopyIcon,
-  FileSearchIcon,
   LockKeyholeIcon,
   ShieldAlertIcon,
   ShieldCheckIcon
@@ -117,8 +116,8 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
               value={gapCount === 0 ? "No missing receipt fields" : `${String(gapCount)} missing receipt fields`}
             />
             <SummaryFact
-              label="Pending receipt fields"
-              value={waitingCount === 0 ? "No unavailable receipt fields" : `${String(waitingCount)} unavailable receipt fields`}
+              label="Receipt proof"
+              value="Open details for field availability"
             />
           </div>
           <p className="text-sm leading-6 text-muted-foreground">
@@ -140,6 +139,9 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
           </CollapsibleTrigger>
           {receiptDetailsOpen ? (
             <CollapsibleContent className="min-w-0 overflow-x-auto rounded-lg border border-border bg-background">
+              <div className="border-b px-3 py-2 text-sm text-muted-foreground">
+                {waitingCount === 0 ? "No unavailable receipt fields" : `${String(waitingCount)} unavailable receipt fields`}
+              </div>
               <ReceiptTable
                 copyButton={
                   confirmedResponse === undefined ? undefined : (
@@ -170,16 +172,15 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
             <ContextFact label="Selected basis" value={selectedActionContext.basis} />
             <div className="grid min-w-0 gap-1.5">
               <span className="text-sm font-medium">Selected action citations</span>
-              <RecordIdStrip recordIds={selectedActionContext.recordIds} />
+              <span className="text-sm text-muted-foreground">
+                {selectedActionContext.recordIds.length === 0 ? "No selected action citations attached." : "Cited evidence available."}
+              </span>
+              <SelectedActionSourceDetails recordIds={selectedActionContext.recordIds} />
             </div>
           </div>
         </section>
       </CardContent>
       <CardFooter className="flex flex-wrap justify-end gap-2">
-        <Button disabled type="button" variant="outline">
-          <FileSearchIcon data-icon="inline-start" />
-          View audit trail
-        </Button>
         <Button onClick={onReturnToWorklist} type="button" variant="outline">
           <ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
           Return to worklist
@@ -413,6 +414,22 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
         </Badge>
       ))}
     </div>
+  );
+}
+
+function SelectedActionSourceDetails({ recordIds }: { recordIds: string[] }) {
+  return (
+    <Collapsible className="grid min-w-0 gap-2" data-testid="maya-audit-selected-action-source-details">
+      <CollapsibleTrigger asChild>
+        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+          <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
+          Selected action source details
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <RecordIdStrip recordIds={recordIds} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

@@ -29,6 +29,14 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-success: var(--status-success-text);
+  --color-success-surface: var(--status-success-bg);
+  --color-success-border: var(--status-success-border);
+  --color-warning: var(--status-warning-text);
+  --color-danger: var(--status-danger-text);
+  --color-dispute: var(--status-dispute-text);
+  --color-info: var(--status-info-text);
+  --color-neutral-status: var(--status-neutral-text);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;

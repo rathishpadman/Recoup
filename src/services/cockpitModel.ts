@@ -19,6 +19,7 @@ import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { money, type Money } from "../types/money.js";
 import { buildCockpitDemoLoginPersonas } from "../../config/cockpitDemoProfiles.js";
 import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataProvenance.js";
+import type { McpReadinessStatus } from "./mcpHealth.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
 export type ForensicsSseEvent = ForensicsTraceEvent;
@@ -65,6 +66,12 @@ export interface LoginCockpitModel {
   }>;
 }
 
+export interface ApprovalEligibilityCockpitModel {
+  available: boolean;
+  provenance: MayaFieldProvenance;
+  statusLabel: string;
+}
+
 export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
   kpiStrip: Array<{
@@ -76,6 +83,7 @@ export interface ForensicsCockpitModel {
   worklist: WorklistItem[];
   selected: {
     lineId: string;
+    approvalEligibility: ApprovalEligibilityCockpitModel;
     evidencePack: {
       provenance: MayaFieldProvenance;
       recordIds: string[];
@@ -99,6 +107,7 @@ export interface ForensicsCockpitModel {
       statusLabel: string;
       amount: string;
       basis: string;
+      approvalEligibility: ApprovalEligibilityCockpitModel;
       provenance: MayaFieldProvenance;
     };
     approvalActions: Array<{
@@ -1424,7 +1433,8 @@ export function buildAgentGraphModel(): AgentGraphCockpitModel {
 export function buildConnectorReadinessModel(
   availableCredentialEnvNames: readonly string[],
   toolDataSchemaProbe: SupabaseToolDataSchemaProbe | undefined,
-  sourceHealthResults: readonly SourceHealthResult[]
+  sourceHealthResults: readonly SourceHealthResult[],
+  mcpReadiness?: McpReadinessStatus
 ): ConnectorReadinessCockpitModel {
   if (arguments.length < 3 || sourceHealthResults.length === 0) {
     throw new Error("Connector readiness model requires backend source health.");
@@ -1451,7 +1461,7 @@ export function buildConnectorReadinessModel(
       deterministicBasis: "buildConnectorReadiness output joined to SourceHealthResult checkedAtIso values from backend source probes"
     }),
     sourceHealth,
-    sourceTiles: buildSourceReadinessTiles(connectors, sourceHealth)
+    sourceTiles: buildSourceReadinessTiles(connectors, sourceHealth, mcpReadiness)
   };
 }
 
@@ -1842,8 +1852,11 @@ function buildSelectedForensicsCase(
   selectedDecision: DeductionDecision,
   selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number]
 ): ForensicsCockpitModel["selected"] {
+  const approvalEligibility = approvalEligibilityUnavailable(selectedAction);
+
   return {
     lineId: selectedDecision.lineId,
+    approvalEligibility,
     evidencePack: {
       provenance: businessProvenance("selected.evidencePack", {
         sourceKind: "derived_backend",
@@ -1862,6 +1875,7 @@ function buildSelectedForensicsCase(
       statusLabel: statusLabel(selectedAction.status),
       amount: formatMoney(selectedAction.proposedAmount),
       basis: selectedAction.basis,
+      approvalEligibility,
       provenance: businessProvenance("selected.draft", {
         sourceKind: "derived_backend",
         sourceName: "Forensics draft action",
@@ -1874,6 +1888,21 @@ function buildSelectedForensicsCase(
       { decision: "modify", label: "Modify", requiresReason: true, provenance: approvalControlProvenance("modify") },
       { decision: "reject", label: "Reject", requiresReason: true, provenance: approvalControlProvenance("reject") }
     ]
+  };
+}
+
+function approvalEligibilityUnavailable(
+  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number]
+): ApprovalEligibilityCockpitModel {
+  return {
+    available: false,
+    provenance: businessProvenance("selected.approvalEligibility", {
+      sourceKind: "derived_backend",
+      sourceName: "Forensics approval eligibility contract",
+      recordIds: selectedAction.recordIds,
+      deterministicBasis: `action ${selectedAction.actionId} approval eligibility is unavailable because the backend read model does not expose an evidence-reviewed eligibility field`
+    }),
+    statusLabel: "Eligibility unavailable"
   };
 }
 
@@ -2196,7 +2225,8 @@ function buildQueryPromptSuggestions(
 
 function buildSourceReadinessTiles(
   connectors: ConnectorReadiness[],
-  sourceHealth: readonly SourceHealthResult[]
+  sourceHealth: readonly SourceHealthResult[],
+  mcpReadiness: McpReadinessStatus | undefined
 ): SourceReadinessTile[] {
   const connectorsByName = new Map(connectors.map((connector) => [connector.name, connector]));
   const healthBySourceName = new Map(sourceHealth.map((health) => [health.sourceName, health]));
@@ -2219,27 +2249,101 @@ function buildSourceReadinessTiles(
       requiredSourceHealth(healthBySourceName, edi.name)
     ),
     sourceTileFromConnector(docs, requiredSourceHealth(healthBySourceName, docs.name)),
-    {
+    mcpSourceTile(checkedAtIso, mcpReadiness)
+  ];
+
+  return sourceTileOrder;
+}
+
+function mcpSourceTile(sourceCheckedAtIso: string, mcpReadiness: McpReadinessStatus | undefined): SourceReadinessTile {
+  const serviceToolRecordIds = Object.keys(serviceToolMetadata);
+  if (mcpReadiness === undefined || mcpReadiness.status === "unavailable") {
+    const checkedAtIso = mcpReadiness?.checkedAtIso ?? sourceCheckedAtIso;
+    const detail = mcpReadiness?.lastError ?? "MCP health endpoint is not configured or has not been probed.";
+
+    return {
       checkedAtIso,
-      detail: "Public tool facade filters draft actions behind HITL and audit policy.",
+      detail,
       key: "mcp",
       label: "MCP",
       mark: "M",
       modeLabel: "Read-only tools",
-      proofItems: ["tools filtered", "draft-only actions", "no ERP write-back"],
+      proofItems: uniqueStrings([
+        ...(mcpReadiness?.proofItems ?? ["mcp health unavailable"]),
+        "tools filtered",
+        "draft-only actions",
+        "no ERP write-back"
+      ]),
       provenance: businessProvenance("sourceTiles.mcp", {
         sourceKind: "derived_backend",
-        sourceName: "Service tool metadata registry",
-        recordIds: Object.keys(serviceToolMetadata),
-        deterministicBasis: "serviceToolMetadata visibility and sideEffectClass values"
+        sourceName: "MCP health readiness",
+        recordIds: serviceToolRecordIds,
+        deterministicBasis:
+          "MCP SourceReadinessTile failed closed because the MCP health endpoint was unavailable; read-only proof still comes from serviceToolMetadata visibility and sideEffectClass values"
       }),
-      stateLabel: "Connected",
-      statusTone: "ready",
-      summary: "Draft tools gated"
-    } satisfies SourceReadinessTile
-  ];
+      stateLabel: "Setup",
+      statusTone: "blocked",
+      summary: "Health unavailable"
+    };
+  }
 
-  return sourceTileOrder;
+  const healthRecordIds = uniqueStrings([
+    ...serviceToolRecordIds,
+    ...(mcpReadiness.endpoint === undefined ? [] : [mcpReadiness.endpoint]),
+    ...(mcpReadiness.transport === undefined ? [] : [mcpReadiness.transport])
+  ]);
+
+  if (mcpReadiness.status === "blocked") {
+    return {
+      checkedAtIso: mcpReadiness.checkedAtIso,
+      detail: mcpReadiness.lastError,
+      key: "mcp",
+      label: "MCP",
+      mark: "M",
+      modeLabel: "Read-only tools",
+      proofItems: uniqueStrings([...mcpReadiness.proofItems, "tools filtered", "draft-only actions", "no ERP write-back"]),
+      provenance: businessProvenance("sourceTiles.mcp", {
+        sourceKind: "derived_backend",
+        sourceName: "MCP health readiness",
+        recordIds: healthRecordIds,
+        deterministicBasis:
+          "MCP SourceReadinessTile blocked from MCP health probe status and serviceToolMetadata read-only proof; no ERP write-back path is exposed"
+      }),
+      stateLabel: mcpReadiness.proofItems.includes("mcp health probe failed") ? "Probe failed" : "Setup",
+      statusTone: "blocked",
+      summary: mcpReadiness.proofItems.includes("mcp health probe failed") ? "Health probe failed" : "Health unavailable"
+    };
+  }
+
+  const mcpEndpoint = mcpReadiness.endpoint ?? "unknown endpoint";
+  const mcpTransport = mcpReadiness.transport ?? "unknown transport";
+  const mcpSessionMode = mcpReadiness.sessionMode ?? "unknown session mode";
+
+  return {
+    checkedAtIso: mcpReadiness.checkedAtIso,
+    detail: `MCP health reachable at ${mcpEndpoint} with ${mcpTransport}/${mcpSessionMode}.`,
+    key: "mcp",
+    label: "MCP",
+    mark: "M",
+    modeLabel: "Read-only tools",
+    proofItems: uniqueStrings([
+      "mcp healthz reachable",
+      "auth configured",
+      "tools filtered",
+      "draft-only actions",
+      "no ERP write-back"
+    ]),
+    provenance: businessProvenance("sourceTiles.mcp", {
+      sourceKind: "derived_backend",
+      sourceName: "MCP health readiness",
+      recordIds: healthRecordIds,
+      deterministicBasis:
+        "MCP SourceReadinessTile connected only after /healthz returned authConfigured true plus endpoint/sessionMode/transport metadata; serviceToolMetadata proves read-only/draft-only visibility and no ERP write-back"
+    }),
+    stateLabel: "Connected",
+    statusTone: "ready",
+    summary: "Read-only tools gated"
+  };
 }
 
 function sourceTileFromConnector(connector: ConnectorReadiness, health: SourceHealthResult): SourceReadinessTile {
@@ -2282,7 +2386,7 @@ function remittanceEdiTile(
     key: "remittance-edi",
     label: "Remittance / EDI",
     mark: "R",
-    modeLabel: statusTone === "ready" ? "Live read" : "Synthetic table",
+    modeLabel: statusTone === "ready" ? "Live read" : "Proxy - Supabase",
     proofItems: uniqueStrings([...remittanceTile.proofItems, ...ediTile.proofItems]),
     provenance: businessProvenance("sourceTiles.remittance-edi", {
       sourceKind: remittanceHealth.status === "connected" && ediHealth.status === "connected" ? "supabase" : "derived_backend",
@@ -2291,7 +2395,7 @@ function remittanceEdiTile(
       deterministicBasis: `merged remittance and edi-remittance SourceHealthResult statuses ${remittanceHealth.status}/${ediHealth.status} from ConnectorReadiness credential/schema probe/read-only proof flags`,
       checkedAtIso: mostRecentSourceHealthCheckedAt([remittanceHealth, ediHealth]) ?? remittanceHealth.checkedAtIso
     }),
-    stateLabel: statusTone === "blocked" ? "Setup" : statusTone === "synthetic" ? "Synthetic" : "Connected",
+    stateLabel: statusTone === "blocked" ? "Setup" : statusTone === "synthetic" ? "Proxy - Supabase" : "Connected",
     statusTone,
     summary: statusTone === "blocked" ? "Input required" : "Payment advice verified"
   };
@@ -2306,7 +2410,7 @@ function podSourceTile(docsHealth: SourceHealthResult): SourceReadinessTile {
     key: "pod-3pl",
     label: "3PL POD",
     mark: "P",
-    modeLabel: docsHealth.sourceMode === "synthetic_static_table" ? "Synthetic evidence" : sourceHealthModeLabel(docsHealth),
+    modeLabel: docsHealth.sourceMode === "synthetic_static_table" ? "Proxy - Supabase" : sourceHealthModeLabel(docsHealth),
     proofItems: uniqueStrings([...docsHealth.proofItems, "POD evidence source"]),
     provenance: businessProvenance("sourceTiles.pod-3pl", {
       sourceKind: docsHealth.status === "connected" ? "supabase" : "derived_backend",
@@ -2359,7 +2463,7 @@ function sourceHealthModeLabel(health: SourceHealthResult): string {
   }
 
   if (health.sourceMode === "synthetic_static_table") {
-    return "Synthetic table";
+    return "Proxy - Supabase";
   }
 
   return "Unavailable";
@@ -2374,7 +2478,7 @@ function sourceHealthStateLabel(health: SourceHealthResult): string {
     return "Setup";
   }
 
-  return health.sourceMode === "synthetic_static_table" ? "Synthetic" : "Connected";
+  return health.sourceMode === "synthetic_static_table" ? "Proxy - Supabase" : "Connected";
 }
 
 function sourceHealthSummary(health: SourceHealthResult): string {

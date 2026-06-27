@@ -91,6 +91,7 @@ import {
 } from "./cockpitModel.js";
 import { buildSourceHealthResultsWithSnapshots } from "./sourceHealth.js";
 import { createToolDataSchemaProbeLoader, startSourceHealthPoller } from "./sourceHealthPoller.js";
+import { probeMcpReadiness } from "./mcpHealth.js";
 import { retrieveBureau } from "../tools/retrieval/bureau.js";
 import { retrieveDocs, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { retrieveTpm } from "../tools/retrieval/tpm.js";
@@ -209,6 +210,7 @@ export interface CockpitApiOptions {
   env?: RuntimeEnv;
   forensicsStreamRunner?: LiveForensicsStreamRunner;
   memoryFetcher?: SupabaseMemoryFetch;
+  mcpHealthFetcher?: typeof fetch;
   realtimeFetcher?: typeof fetch;
   sapFetcher?: typeof fetch;
 }
@@ -448,15 +450,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
     const toolDataSchemaProbe = supabaseProbe === undefined ? undefined : await supabaseProbe.probeTables(ALL_TOOLS_DATA_TABLE_NAMES);
     const availableCredentialEnvNames = readConfiguredEnvNames(runtimeEnv);
-    const sourceHealth = await buildSourceHealthResultsWithSnapshots({
-      availableCredentialEnvNames,
-      env: runtimeEnv,
-      fetcher: options.sapFetcher,
-      snapshotStore: sourceHealthSnapshotStore,
-      toolDataSchemaProbe
-    });
+    const [sourceHealth, mcpReadiness] = await Promise.all([
+      buildSourceHealthResultsWithSnapshots({
+        availableCredentialEnvNames,
+        env: runtimeEnv,
+        fetcher: options.sapFetcher,
+        snapshotStore: sourceHealthSnapshotStore,
+        toolDataSchemaProbe
+      }),
+      probeMcpReadiness({
+        env: runtimeEnv,
+        ...(options.mcpHealthFetcher === undefined ? {} : { fetcher: options.mcpHealthFetcher })
+      })
+    ]);
 
-    response.json(buildConnectorReadinessModel(availableCredentialEnvNames, toolDataSchemaProbe, sourceHealth));
+    response.json(buildConnectorReadinessModel(availableCredentialEnvNames, toolDataSchemaProbe, sourceHealth, mcpReadiness));
   });
 
   app.get("/sources/r1/:need", async (request, response) => {

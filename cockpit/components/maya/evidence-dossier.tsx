@@ -1,4 +1,4 @@
-import { FileTextIcon, FilterIcon, InfoIcon, SearchIcon, Settings2Icon, ShieldCheckIcon } from "lucide-react";
+import { FileTextIcon, InfoIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,14 +52,6 @@ export function EvidenceDossier({
                   Query evidence
                 </Button>
               )}
-              <Button aria-label="Filter unavailable for current evidence packet" disabled size="sm" type="button" variant="outline">
-                <FilterIcon aria-hidden="true" data-icon="inline-start" />
-                Filter
-              </Button>
-              <Button aria-label="View options unavailable for current evidence packet" disabled size="sm" type="button" variant="outline">
-                <Settings2Icon aria-hidden="true" data-icon="inline-start" />
-                View options
-              </Button>
             </CardAction>
           </CardHeader>
           <CardContent className="flex min-w-0 flex-col gap-3">

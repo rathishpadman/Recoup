@@ -193,9 +193,12 @@ interface ForensicsQueryResponse {
   deterministicBasis?: string;
   modelExecution?: {
     agentNames?: string[];
+    deterministicBasis?: string;
     handoffCount?: number;
     mode: string;
     rawModelTextPolicy?: string;
+    reason?: string;
+    tokenUsage?: number;
   };
   trace: QueryTraceEvent[];
 }
@@ -224,6 +227,7 @@ interface RenderedAgentProcessNode {
   retrievalSource: string | null;
   sourceKind: string | null;
   text: string;
+  toolName: string | null;
   traceLabel: string | null;
   uiProcessKind: string | null;
 }
@@ -534,6 +538,13 @@ async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkI
     const rawLineIdButton = page.getByRole("button", { name: new RegExp(`^${escapeRegExp(lineId)}$`, "u") });
     assert((await rawLineIdButton.count()) === 0, `Maya exposed raw line ID ${lineId} as a primary button instead of Line ${String(index + 1)}.`);
   }
+  const lineSelectorText = normalizeUiText(await page.getByTestId("maya-line-selector").innerText());
+  for (const lineId of lineIds) {
+    assert(
+      !lineSelectorText.includes(normalizeUiText(lineId)),
+      `Maya exposed raw line ID ${lineId} inside the primary line selector.`
+    );
+  }
 
   const secondLineId = lineIds[1];
   assert(secondLineId !== undefined, "Maya line selector test could not resolve the second backend line ID.");
@@ -543,8 +554,16 @@ async function assertCaseLineSelectorControls(page: Page, detail: ForensicsWorkI
     selectedLineLabel.includes(`Line 2 of ${lineIds.length.toString()}`),
     `Maya selected-line label did not move to Line 2 of ${lineIds.length.toString()}: ${selectedLineLabel}.`
   );
-  const caseWorkspaceText = normalizeUiText(await page.getByTestId("maya-case-workspace").innerText());
-  assert(caseWorkspaceText.includes(secondLineId), `Maya case detail did not keep backend raw ID ${secondLineId} available as metadata.`);
+  const lineSourceDetailsText = await openDisclosureAndReadText(
+    page,
+    "maya-case-line-source-details",
+    /^Line source details$/u,
+    "Maya line source details"
+  );
+  assert(
+    lineSourceDetailsText.includes(secondLineId),
+    `Maya case detail did not keep backend raw ID ${secondLineId} available inside line source details.`
+  );
 
   const originalLineIndex = lineIds.indexOf(detail.selected.lineId);
   assert(originalLineIndex >= 0, `Backend selected line ${detail.selected.lineId} is not present in work item line IDs.`);
@@ -657,10 +676,16 @@ async function assertClosingRunningQueryResetsParentTrace(
     const backendTraceRows = await visibleLocatorCount(page, '[data-testid="maya-backend-trace-row"]');
     assert(backendTraceRows > 0, "Closing an answered Maya query removed backend trace rows from the parent Agent Trace tab.");
   }
-  const parentTraceText = normalizeUiText(await page.getByTestId("maya-agent-trace").innerText());
+  const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
+  const parentTraceRecordIds = new Set(renderedProcessNodes.flatMap((node) => splitRecordIdsAttribute(node.recordIds)));
   assert(
-    parentTraceText.includes(normalizeUiText(detail.selected.lineId)),
-    `Parent trace reset omitted selected backend line ${detail.selected.lineId}.`
+    parentTraceRecordIds.has(detail.selected.lineId),
+    `Parent trace reset omitted selected backend line ${detail.selected.lineId} from process-node data-record-ids.`
+  );
+  const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
+  assert(
+    traceDetailsText.includes(normalizeUiText(detail.selected.lineId)),
+    `Parent trace reset omitted selected backend line ${detail.selected.lineId} from Trace details.`
   );
 }
 
@@ -802,19 +827,31 @@ async function assertVisibleSelectedEvidenceScope(page: Page, detail: ForensicsW
 }
 
 async function assertRenderedPromptChipsMatchBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
-  const promptSuggestions = detail.multimodalDock.promptSuggestions;
+  const promptSuggestions = dedupePromptSuggestionsByQuestion(detail.multimodalDock.promptSuggestions);
   const renderedChipLabels = (await page.getByTestId("maya-query-prompt-chip").allTextContents()).map(normalizeUiText);
   assert(
     renderedChipLabels.length === promptSuggestions.length,
-    `Maya rendered ${renderedChipLabels.length.toString()} prompt chips for ${promptSuggestions.length.toString()} backend prompt suggestions.`
+    `Maya rendered ${renderedChipLabels.length.toString()} prompt chips for ${promptSuggestions.length.toString()} unique backend prompt questions.`
   );
   promptSuggestions.forEach((prompt, index) => {
     assert(
-      renderedChipLabels[index] === normalizeUiText(prompt.label),
-      `Maya prompt chip ${index.toString()} did not match backend prompt label ${prompt.label}.`
+      renderedChipLabels[index] === normalizeUiText(prompt.question),
+      `Maya prompt chip ${index.toString()} did not match backend prompt question ${prompt.question}.`
     );
     assert(prompt.question.trim().length > 0, `Backend prompt suggestion ${prompt.label} returned no question.`);
     assert(prompt.recordIds.length > 0, `Backend prompt suggestion ${prompt.label} returned no cited record IDs.`);
+  });
+}
+
+function dedupePromptSuggestionsByQuestion<T extends { question: string }>(prompts: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return prompts.filter((prompt) => {
+    const normalizedQuestion = normalizeUiText(prompt.question).toLowerCase();
+    if (normalizedQuestion.length === 0 || seen.has(normalizedQuestion)) {
+      return false;
+    }
+    seen.add(normalizedQuestion);
+    return true;
   });
 }
 
@@ -1037,17 +1074,21 @@ async function assertAgentProcessMapBeforeQuery(
     `Pre-query process map rendered ${renderedProcessNodes.length.toString()} nodes for ${sourceTiles.length.toString()} backend source tiles.`
   );
   assert(
-    renderedProcessText.includes(normalizeUiText(selectedLineId)),
-    `Pre-query process map omitted selected backend line ${selectedLineId}.`
+    !renderedProcessText.includes(normalizeUiText(selectedLineId)),
+    `Pre-query compact process map leaked selected backend line ${selectedLineId}; raw IDs belong in Trace details or data-record-ids.`
   );
   const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
+  for (const sourceLabel of ["SAP OData", "Supabase", "Source-backed"]) {
+    assert(
+      !renderedProcessText.includes(sourceLabel),
+      `Pre-query compact process map leaked primary source/plumbing label ${sourceLabel}; source proof belongs in Trace details or data attributes.`
+    );
+  }
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    if (recordId !== selectedLineId) {
-      assert(
-        !renderedProcessText.includes(normalizeUiText(recordId)),
-        `Pre-query compact process map leaked selected backend evidence recordId ${recordId}; raw IDs belong in Trace details or data-record-ids.`
-      );
-    }
+    assert(
+      !renderedProcessText.includes(normalizeUiText(recordId)),
+      `Pre-query compact process map leaked selected backend evidence recordId ${recordId}; raw IDs belong in Trace details or data-record-ids.`
+    );
     assert(
       recordIdsInProcessNodeData.has(recordId),
       `Pre-query process map omitted selected backend evidence recordId ${recordId} from data-record-ids.`
@@ -1062,24 +1103,23 @@ async function assertAgentProcessMapBeforeQuery(
       (node) =>
         node.sourceKind === "sap_odata" ||
         node.retrievalSource === "sap_odata" ||
-        node.text.includes("SAP OData")
+        traceDetailsText.includes("SAP OData")
     ),
-    "Pre-query process map omitted SAP OData retrieval provenance from backend/read-model evidence."
+    "Pre-query Agent Trace omitted SAP OData retrieval provenance from Trace details or data attributes."
   );
   assert(
     renderedProcessNodes.some((node) => {
-      const renderedText = normalizeUiText(node.text);
       const hasSupabaseProvenance =
         node.sourceKind === "supabase" ||
         node.retrievalSource === "supabase" ||
-        renderedText.includes("Supabase source-backed retrieval");
+        traceDetailsText.includes("Supabase");
       const hasSourceBackedUiSummary =
         node.uiProcessKind !== null && node.retrievalSource === null && node.sourceKind === null;
-      const hasVisibleSourceBackedBackendLabel = /\bsource-backed\b/iu.test(renderedText) || /\bbackend\b/iu.test(renderedText);
+      const hasTraceDetailsSourceBackedLabel = /\bsource-backed\b/iu.test(traceDetailsText) || /\bbackend\b/iu.test(traceDetailsText);
 
-      return hasSupabaseProvenance || (hasSourceBackedUiSummary && hasVisibleSourceBackedBackendLabel);
+      return hasSupabaseProvenance || (hasSourceBackedUiSummary && hasTraceDetailsSourceBackedLabel);
     }),
-    "Pre-query process map omitted Supabase/source-backed retrieval provenance from backend/read-model evidence."
+    "Pre-query Agent Trace omitted Supabase/source-backed retrieval provenance from Trace details or data attributes."
   );
 }
 
@@ -1126,6 +1166,14 @@ async function assertRenderedAgentTracePanelMatchesBackend(
   const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
   const backendTraceNodes = renderedProcessNodes.filter(isRenderedBackendTraceNode);
   const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
+  const compactTraceText = normalizeUiText(backendTraceNodes.map((node) => node.text).join(" "));
+  for (const debugTerm of ["agent_tool_start", "agent_tool_end", "sourceKind", "retrievalSource", "OpenAI Agents SDK", "SAP OData", "Supabase", "Source-backed"]) {
+    assert(
+      !compactTraceText.includes(debugTerm),
+      `Agent process primary timeline leaked debug term ${debugTerm}; technical trace text belongs in Trace details.`
+    );
+  }
+  assertModelExecutionVisibleInTraceDetails(traceDetailsText, queryResult.backendResponse);
   assert(
     renderedProcessNodeCount === renderedProcessNodes.length &&
       backendTraceNodes.length === backendTrace.length &&
@@ -1146,6 +1194,17 @@ async function assertRenderedAgentTracePanelMatchesBackend(
       normalizeUiText(renderedNode.hook ?? "") === normalizeUiText(event.hook),
       `Agent process node ${event.label} data-hook omitted backend hook ${event.hook}.`
     );
+    assert(
+      traceDetailsText.includes(normalizeUiText(event.hook)) && traceDetailsText.includes(normalizeUiText(event.agentName)),
+      `Agent trace details omitted backend hook/agent receipt for process node ${event.label}.`
+    );
+    if (event.toolName !== undefined) {
+      assert(
+        normalizeUiText(renderedNode.toolName ?? "") === normalizeUiText(event.toolName) &&
+          traceDetailsText.includes(normalizeUiText(event.toolName)),
+        `Agent trace receipts omitted backend toolName ${event.toolName} for process node ${event.label}.`
+      );
+    }
     assert(
       normalizeUiText(renderedNode.deterministicBasis ?? "") === normalizeUiText(event.deterministicBasis) ||
         traceDetailsText.includes(normalizeUiText(event.deterministicBasis)),
@@ -1172,21 +1231,76 @@ async function assertRenderedAgentTracePanelMatchesBackend(
         renderedNode.sourceKind === event.sourceKind,
         `Agent process node ${event.label} rendered sourceKind ${renderedNode.sourceKind ?? "missing"} instead of backend sourceKind ${event.sourceKind}.`
       );
+      assert(
+        traceDetailsText.includes(normalizeUiText(event.sourceKind)) ||
+          traceDetailsText.includes(normalizeUiText(sourceKindDetailLabel(event.sourceKind))),
+        `Agent trace details omitted backend sourceKind ${event.sourceKind} for process node ${event.label}.`
+      );
     }
     if (event.retrievalSource !== undefined) {
       assert(
         renderedNode.retrievalSource === event.retrievalSource,
         `Agent process node ${event.label} rendered retrievalSource ${renderedNode.retrievalSource ?? "missing"} instead of backend retrievalSource ${event.retrievalSource}.`
       );
+      assert(
+        traceDetailsText.includes(normalizeUiText(event.retrievalSource)) ||
+          traceDetailsText.includes(normalizeUiText(retrievalSourceDetailLabel(event.retrievalSource))),
+        `Agent trace details omitted backend retrievalSource ${event.retrievalSource} for process node ${event.label}.`
+      );
     }
     if (event.retrievalSource === "source_backed") {
       assert(
-        renderedText.includes("Source-backed"),
-        `Agent process node ${event.label} did not label source-backed retrieval honestly. Rendered sourceKind=${
+        traceDetailsText.includes("Source-backed") || traceDetailsText.includes("Deterministic backend"),
+        `Agent process node ${event.label} did not preserve source-backed retrieval proof in Trace details. Rendered sourceKind=${
           renderedNode.sourceKind ?? "missing"
         } retrievalSource=${renderedNode.retrievalSource ?? "missing"} text=${JSON.stringify(renderedText)}.`
       );
     }
+  }
+}
+
+function assertModelExecutionVisibleInTraceDetails(traceDetailsText: string, backendResponse: ForensicsQueryResponse): void {
+  const modelExecution = backendResponse.modelExecution;
+  assert(modelExecution !== undefined, "Maya backend response omitted modelExecution proof for Trace details assertion.");
+  assert(
+    traceDetailsText.includes(normalizeUiText(modelExecution.mode)),
+    `Agent trace details omitted modelExecution mode ${modelExecution.mode}.`
+  );
+  if (modelExecution.rawModelTextPolicy !== undefined) {
+    assert(
+      traceDetailsText.includes(normalizeUiText(modelExecution.rawModelTextPolicy)),
+      `Agent trace details omitted raw-model policy ${modelExecution.rawModelTextPolicy}.`
+    );
+  }
+  if (modelExecution.deterministicBasis !== undefined) {
+    assert(
+      traceDetailsText.includes(normalizeUiText(modelExecution.deterministicBasis)),
+      "Agent trace details omitted modelExecution deterministic basis."
+    );
+  }
+  if (modelExecution.reason !== undefined) {
+    assert(
+      traceDetailsText.includes(normalizeUiText(modelExecution.reason)),
+      "Agent trace details omitted modelExecution blocked reason."
+    );
+  }
+  if (modelExecution.handoffCount !== undefined) {
+    assert(
+      traceDetailsText.includes(modelExecution.handoffCount.toString()),
+      `Agent trace details omitted modelExecution handoff count ${modelExecution.handoffCount.toString()}.`
+    );
+  }
+  if (modelExecution.tokenUsage !== undefined) {
+    assert(
+      traceDetailsText.includes(modelExecution.tokenUsage.toString()),
+      `Agent trace details omitted modelExecution token usage ${modelExecution.tokenUsage.toString()}.`
+    );
+  }
+  for (const agentName of modelExecution.agentNames ?? []) {
+    assert(
+      traceDetailsText.includes(normalizeUiText(agentName)),
+      `Agent trace details omitted modelExecution agent ${agentName}.`
+    );
   }
 }
 
@@ -1269,6 +1383,7 @@ function assertAgentTraceNodeMatchingDisambiguatesDuplicateLabels(): void {
         retrievalSource: "source_backed",
         sourceKind: "agent_trace",
         text: "agent start Forensics Investigator investigate OpenAI Agents SDK live trace event TRACE-RECORD-001",
+        toolName: null,
         traceLabel: "agent start",
         uiProcessKind: null
       },
@@ -1282,6 +1397,7 @@ function assertAgentTraceNodeMatchingDisambiguatesDuplicateLabels(): void {
         retrievalSource: "source_backed",
         sourceKind: "agent_trace",
         text: "agent start Recovery Drafter draft_recovery OpenAI Agents SDK live trace event TRACE-RECORD-001",
+        toolName: null,
         traceLabel: "agent start",
         uiProcessKind: null
       }
@@ -1316,6 +1432,7 @@ function assertAgentTraceNodeMatchingDisambiguatesDuplicateLabels(): void {
         retrievalSource: "source_backed",
         sourceKind: "agent_trace",
         text: "Scope accepted investigate OpenAI Agents SDK live trace event TRACE-RECORD-002",
+        toolName: null,
         traceLabel: "Scope accepted",
         uiProcessKind: null
       },
@@ -1329,6 +1446,7 @@ function assertAgentTraceNodeMatchingDisambiguatesDuplicateLabels(): void {
         retrievalSource: "source_backed",
         sourceKind: "agent_trace",
         text: "Scope accepted scope_resolution OpenAI Agents SDK live trace event TRACE-RECORD-002",
+        toolName: null,
         traceLabel: "Scope accepted",
         uiProcessKind: null
       }
@@ -1356,10 +1474,42 @@ async function readRenderedAgentProcessNodes(page: Page): Promise<RenderedAgentP
       retrievalSource: node.getAttribute("data-retrieval-source"),
       sourceKind: node.getAttribute("data-source-kind"),
       text: node.textContent,
+      toolName: node.getAttribute("data-tool-name"),
       traceLabel: node.getAttribute("data-trace-label"),
       uiProcessKind: node.getAttribute("data-ui-process-kind")
     }))
   );
+}
+
+function sourceKindDetailLabel(sourceKind: string): string {
+  if (sourceKind === "sap_odata") {
+    return "SAP OData";
+  }
+  if (sourceKind === "derived_backend") {
+    return "Deterministic backend";
+  }
+  if (sourceKind === "agent_trace") {
+    return "OpenAI Agents SDK trace";
+  }
+  if (sourceKind === "operator_session") {
+    return "Operator session";
+  }
+
+  return sourceKind;
+}
+
+function retrievalSourceDetailLabel(retrievalSource: string): string {
+  if (retrievalSource === "sap_odata") {
+    return "SAP OData";
+  }
+  if (retrievalSource === "source_backed") {
+    return "Source-backed";
+  }
+  if (retrievalSource === "agent_trace") {
+    return "Agent trace";
+  }
+
+  return retrievalSource;
 }
 
 async function openAgentTraceDetailsAndReadText(page: Page): Promise<string> {
@@ -1371,6 +1521,22 @@ async function openAgentTraceDetailsAndReadText(page: Page): Promise<string> {
   }
 
   return normalizeUiText(await traceDetails.innerText());
+}
+
+async function openDisclosureAndReadText(
+  page: Page,
+  testId: string,
+  triggerName: RegExp,
+  label: string
+): Promise<string> {
+  await expectVisibleLocator(page, `[data-testid="${testId}"]`, label);
+  const details = page.getByTestId(testId);
+  const trigger = details.getByRole("button", { name: triggerName });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+
+  return normalizeUiText(await details.innerText());
 }
 
 function splitRecordIdsAttribute(recordIds: string | null): string[] {
@@ -1442,24 +1608,29 @@ async function assertRenderedCitedAnswerMatchesBackend(
   );
 
   const assistantText = normalizeUiText(await page.getByTestId("maya-query-assistant-message").innerText());
-  assert(
-    !assistantText.includes(normalizeUiText(backendResponse.answer)),
-    `Maya assistant status bubble duplicated backend answer for scenario ${scenario.id}.`
+  await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya persistent query input after cited answer");
+  const expectedDisplayAnswer = displayAnswerWithoutInlineRecordIds(
+    backendResponse.answer,
+    backendResponse.citations.map((citation) => citation.recordId)
   );
-  const citedReviewText = normalizeUiText(await page.getByTestId("maya-cited-answer-text").innerText());
   assert(
-    citedReviewText.includes(normalizeUiText(backendResponse.answer)),
-    `Maya cited answer card did not render backend answer for scenario ${scenario.id}.`
+    assistantText.includes(normalizeUiText(expectedDisplayAnswer)),
+    `Maya assistant answer bubble did not render the redacted backend answer for scenario ${scenario.id}.`
   );
-  const combinedAssistantAnswerText = normalizeUiText(`${assistantText} ${citedReviewText}`);
-  assert(
-    countNormalizedOccurrences(combinedAssistantAnswerText, backendResponse.answer) === 1,
-    `Maya assistant/provenance region duplicated or omitted the backend answer for scenario ${scenario.id}.`
-  );
+  for (const citation of backendResponse.citations) {
+    assert(
+      !assistantText.includes(normalizeUiText(citation.recordId)),
+      `Maya assistant answer prose leaked raw backend recordId ${citation.recordId}; raw IDs belong in Sources.`
+    );
+  }
+  const citedBasisDetails = page.getByTestId("maya-cited-answer-basis");
+  if ((await citedBasisDetails.getAttribute("data-state")) !== "open") {
+    await citedBasisDetails.getByRole("button", { name: "Basis" }).click();
+  }
   const basisText = normalizeUiText(await page.getByTestId("maya-cited-answer-basis").innerText());
   assert(
     basisText.includes(normalizeUiText(backendResponse.deterministicBasis)),
-    `Maya visible deterministic basis did not match backend basis for scenario ${scenario.id}.`
+    `Maya deterministic basis details did not match backend basis for scenario ${scenario.id}.`
   );
 
   const citedSourceDetails = page.getByTestId("maya-cited-source-details");
@@ -1526,29 +1697,37 @@ async function assertRenderedConversationTurnsMatchBackend(
     `Maya user conversation turn did not match backend query scenario ${queryResult.scenario.id}.`
   );
   const assistantTurnText = normalizeUiText(await page.getByTestId("maya-query-assistant-message").innerText());
+  const expectedDisplayAnswer = displayAnswerWithoutInlineRecordIds(
+    queryResult.backendResponse.answer,
+    queryResult.backendResponse.citations.map((citation) => citation.recordId)
+  );
   const citedRecordIdCount = new Set(
     queryResult.backendResponse.citations.map((citation) => citation.recordId.trim()).filter((recordId) => recordId.length > 0)
   ).size;
   assert(
-    !assistantTurnText.includes(normalizeUiText(queryResult.backendResponse.answer)),
-    `Maya assistant status bubble duplicated backend answer for ${queryResult.scenario.id}.`
+    assistantTurnText.includes(normalizeUiText(expectedDisplayAnswer)),
+    `Maya assistant answer bubble omitted backend answer for ${queryResult.scenario.id}.`
   );
   assert(
     !assistantTurnText.includes(normalizeUiText(queryResult.backendResponse.deterministicBasis)),
-    `Maya assistant status bubble duplicated backend basis for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble leaked backend technical basis for ${queryResult.scenario.id}.`
   );
   assert(
     assistantTurnText.includes(`${queryResult.backendResponse.citations.length.toString()} citations`),
-    `Maya assistant status bubble omitted backend citation count for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble omitted backend citation count for ${queryResult.scenario.id}.`
   );
   assert(
     assistantTurnText.includes(`${citedRecordIdCount.toString()} record IDs`),
-    `Maya assistant status bubble omitted backend cited record ID count for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble omitted backend cited record ID count for ${queryResult.scenario.id}.`
   );
   for (const citation of queryResult.backendResponse.citations) {
     assert(
       !assistantTurnText.includes(normalizeUiText(citation.deterministicBasis)),
-      `Maya assistant status bubble duplicated backend citation basis for ${citation.recordId}.`
+      `Maya assistant answer bubble leaked backend citation basis for ${citation.recordId}.`
+    );
+    assert(
+      !assistantTurnText.includes(normalizeUiText(citation.recordId)),
+      `Maya assistant answer bubble leaked raw backend recordId ${citation.recordId}.`
     );
   }
 }
@@ -1628,10 +1807,19 @@ function assertConnectorModelReady(model: ConnectorRealBackendModel): void {
     model.sourceTiles.some((source) => source.key === "sap-odata"),
     "Real backend /connectors returned no SAP OData readiness tile."
   );
-  assert(
-    model.sourceTiles.some((source) => source.key === "mcp" && source.statusTone === "ready"),
-    "Real backend /connectors returned no ready MCP source readiness tile."
-  );
+  const mcpSource = model.sourceTiles.find((source) => source.key === "mcp");
+  assert(mcpSource !== undefined, "Real backend /connectors returned no MCP source readiness tile.");
+  if (mcpSource.statusTone === "ready") {
+    assert(
+      mcpSource.stateLabel === "Connected" && mcpSource.detail.includes("MCP health reachable"),
+      "Real backend /connectors marked MCP ready without health-confirmed MCP status."
+    );
+  } else {
+    assert(
+      mcpSource.statusTone === "blocked" && (mcpSource.stateLabel === "Setup" || mcpSource.stateLabel === "Probe failed"),
+      `Real backend /connectors must fail closed for unavailable MCP health; got ${mcpSource.statusTone}/${mcpSource.stateLabel}.`
+    );
+  }
 }
 
 async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: ForensicsRealBackendModel): Promise<void> {
@@ -1861,14 +2049,27 @@ async function assertRenderedRecoveryDraftMatchesBackend(page: Page, detail: For
   const draft = detail.recoveryDraft;
   const approvalActions = detail.approvalState.actions;
   const renderedDraftText = normalizeUiText(await page.getByTestId("maya-recovery-draft-review").innerText());
-  for (const expectedText of [draft.actionLabel, draft.statusLabel, draft.amount, draft.basis, detail.selected.lineId]) {
+  for (const expectedText of [draft.actionLabel, draft.statusLabel, draft.amount, draft.basis]) {
     assert(
       renderedDraftText.includes(normalizeUiText(expectedText)),
       `Maya recovery draft review omitted backend draft text ${expectedText}.`
     );
   }
+  const draftSourceDetailsText = await openDisclosureAndReadText(
+    page,
+    "maya-draft-source-details",
+    /^Draft source details$/u,
+    "Maya draft source details"
+  );
+  assert(
+    draftSourceDetailsText.includes(normalizeUiText(detail.selected.lineId)),
+    `Maya recovery draft source details omitted backend selected line ${detail.selected.lineId}.`
+  );
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(renderedDraftText.includes(normalizeUiText(recordId)), `Maya recovery draft review omitted backend recordId ${recordId}.`);
+    assert(
+      draftSourceDetailsText.includes(normalizeUiText(recordId)),
+      `Maya recovery draft source details omitted backend recordId ${recordId}.`
+    );
   }
   const humanDecisionText = normalizeUiText(await page.getByTestId("maya-draft-rail-human-decisions").innerText());
   assert(
@@ -1893,8 +2094,17 @@ async function assertRenderedApprovalGateMatchesBackend(page: Page, detail: Fore
   for (const expectedText of [draft.actionLabel, draft.statusLabel, draft.basis]) {
     assert(renderedGateText.includes(normalizeUiText(expectedText)), `Maya approval gate omitted backend draft text ${expectedText}.`);
   }
+  const approvalSourceDetailsText = await openDisclosureAndReadText(
+    page,
+    "maya-approval-source-details",
+    /^Approval source details$/u,
+    "Maya approval source details"
+  );
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(renderedGateText.includes(normalizeUiText(recordId)), `Maya approval gate omitted backend cited recordId ${recordId}.`);
+    assert(
+      approvalSourceDetailsText.includes(normalizeUiText(recordId)),
+      `Maya approval source details omitted backend cited recordId ${recordId}.`
+    );
   }
   const renderedButtonText = normalizeUiText(
     (await page.getByTestId("maya-approval-gate-dialog").locator("button").allTextContents()).join(" ")
@@ -1924,8 +2134,17 @@ async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail:
   for (const expectedText of [detail.recommendedAction.actionLabel, auditState.statusLabel, detail.recommendedAction.basis ?? detail.recoveryDraft.basis]) {
     assert(renderedAuditText.includes(normalizeUiText(expectedText)), `Maya audit confirmation omitted backend audit text ${expectedText}.`);
   }
+  const auditActionDetailsText = await openDisclosureAndReadText(
+    page,
+    "maya-audit-selected-action-source-details",
+    /^Selected action source details$/u,
+    "Maya selected action source details"
+  );
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(renderedAuditText.includes(normalizeUiText(recordId)), `Maya audit confirmation omitted selected action recordId ${recordId}.`);
+    assert(
+      auditActionDetailsText.includes(normalizeUiText(recordId)),
+      `Maya audit selected action details omitted selected action recordId ${recordId}.`
+    );
   }
   assert(
     auditState.recordIds.length > 0 &&
@@ -2335,13 +2554,23 @@ function normalizeUiText(value: string): string {
   return value.replace(/\s+/gu, " ").trim();
 }
 
-function countNormalizedOccurrences(haystack: string, needle: string): number {
-  const normalizedNeedle = normalizeUiText(needle);
-  if (normalizedNeedle.length === 0) {
-    return 0;
-  }
+function displayAnswerWithoutInlineRecordIds(answer: string, recordIds: readonly string[]): string {
+  const trimmedAnswer = answer.trim();
+  const withoutTrailingRecordList = trimmedAnswer
+    .replace(/\s*(?:The answer is limited to cited record IDs|Cited record IDs|Record IDs)\s*:\s*[^.]+\.?\s*$/iu, "")
+    .trim();
+  const redacted = [...recordIds]
+    .sort((left, right) => right.length - left.length)
+    .reduce((current, recordId) => {
+      const escapedRecordId = escapeRegExp(recordId);
+      return current
+        .replace(new RegExp(`\\bLine\\s+${escapedRecordId}\\b`, "gu"), "The selected line")
+        .replace(new RegExp(escapedRecordId, "gu"), "a cited record");
+    }, withoutTrailingRecordList)
+    .replace(/\s+/gu, " ")
+    .trim();
 
-  return haystack.split(normalizedNeedle).length - 1;
+  return redacted.length === 0 ? "Answer details are available with citations in source details." : redacted;
 }
 
 function assertCitationsStayWithinSelectedEvidenceScope(

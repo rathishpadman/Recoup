@@ -13,9 +13,9 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   AlertTriangleIcon,
+  Building2Icon,
   EyeIcon,
   LockKeyholeIcon,
-  SearchIcon,
   ShieldCheckIcon,
   UserIcon,
   XIcon
@@ -169,12 +169,15 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
       <FieldGroup>
         <Field>
           <FieldLabel>Workspace</FieldLabel>
-          <div
-            aria-label="Workspace Forensics"
-            className="flex h-14 w-full items-center gap-3 rounded-md border bg-muted/20 px-4 text-base font-medium shadow-sm"
-          >
-            <SearchIcon data-icon="inline-start" />
-            <span>Forensics</span>
+          <div className="flex">
+            <div
+              aria-label="Workspace Forensics"
+              className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-muted/30 px-3.5 py-2 text-sm font-medium text-foreground shadow-[var(--shadow-sm)]"
+              data-testid="maya-login-workspace-chip"
+            >
+              <Building2Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+              <span>Forensics</span>
+            </div>
           </div>
         </Field>
 
@@ -182,7 +185,7 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
 
         <Field>
           <FieldLabel htmlFor="loginId">User ID</FieldLabel>
-          <InputGroup className="h-13">
+          <InputGroup className="h-13 has-[[data-slot=input-group-control]:focus-visible]:border-ring/60 has-[[data-slot=input-group-control]:focus-visible]:ring-1 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20">
             <InputGroupAddon>
               <UserIcon />
             </InputGroupAddon>
@@ -202,7 +205,10 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
 
         <Field>
           <FieldLabel htmlFor="password">Password</FieldLabel>
-          <InputGroup className="h-13">
+          <InputGroup
+            className="h-13 has-[[data-slot=input-group-control]:focus-visible]:border-ring/60 has-[[data-slot=input-group-control]:focus-visible]:ring-1 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20"
+            data-testid="maya-login-password-group"
+          >
             <InputGroupAddon>
               <LockKeyholeIcon />
             </InputGroupAddon>
@@ -239,18 +245,8 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
               Remember user ID
             </FieldLabel>
           </Field>
-          <Button
-            aria-describedby="forgot-password-unavailable"
-            aria-label="Forgot password unavailable"
-            className="h-auto px-0 text-sm"
-            disabled
-            type="button"
-            variant="link"
-          >
-            Forgot password?
-          </Button>
-          <span className="sr-only" id="forgot-password-unavailable">
-            Password recovery is unavailable in this deterministic demo login.
+          <span className="text-sm text-muted-foreground">
+            Password recovery unavailable in demo
           </span>
         </div>
       </FieldGroup>

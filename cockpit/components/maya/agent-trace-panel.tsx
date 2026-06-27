@@ -8,6 +8,7 @@ import type { MayaEvidencePack, QueryEvidenceResponse } from "./types.ts";
 
 type QueryTraceEvent = QueryEvidenceResponse["trace"][number];
 type QueryCitation = QueryEvidenceResponse["citations"][number];
+type QueryModelExecution = NonNullable<QueryEvidenceResponse["modelExecution"]>;
 type TraceSourceKind = NonNullable<QueryTraceEvent["sourceKind"]>;
 type TraceRetrievalSource = NonNullable<QueryTraceEvent["retrievalSource"]>;
 
@@ -145,8 +146,6 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
         >
           {processNodes.map((node, index) => {
             const isBackendTrace = isBackendTraceProcessNode(node);
-            const sourceTrustLabel = formatTraceRetrievalSourceLabel(node);
-            const sourceTransportLabel = isBackendTrace ? formatTraceTransportLabel(node) : undefined;
 
             return (
               <li
@@ -156,12 +155,14 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                 data-deterministic-basis={isBackendTrace ? node.deterministicBasis : undefined}
                 data-hook={isBackendTrace ? node.hook : undefined}
                 data-next-agent={isBackendTrace ? node.nextAgentName : undefined}
+                data-phase={isBackendTrace ? node.phase : undefined}
                 data-process-node-kind={isBackendTrace ? node.nodeKind : undefined}
                 data-record-ids={node.recordIds.join(" ")}
                 data-retrieval-source={isBackendTrace ? resolveTraceRetrievalSource(node) : undefined}
                 data-selected-line={node.nodeKind === "selected-evidence" ? node.label : undefined}
                 data-source-kind={isBackendTrace ? resolveTraceSourceKind(node) : undefined}
                 data-testid="maya-agent-process-node"
+                data-tool-name={isBackendTrace ? node.toolName : undefined}
                 data-trace-label={isBackendTrace ? node.label : undefined}
                 data-ui-process-kind={!isBackendTrace ? node.nodeKind : undefined}
                 data-ui-process-label={!isBackendTrace ? node.label : undefined}
@@ -175,20 +176,16 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                 </span>
                 <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="grid min-w-0 gap-1">
-                    <span className="truncate text-sm font-medium" title={node.label}>
-                      {node.label}
+                    <span className="truncate text-sm font-medium" title={formatPrimaryProcessNodeLabel(node)}>
+                      {formatPrimaryProcessNodeLabel(node)}
                     </span>
-                      <span className="text-xs text-muted-foreground">{formatProcessNodeKind(node.nodeKind)}</span>
-                    </div>
-                  <Badge variant="secondary">{isBackendTrace ? node.phase : "UI summary"}</Badge>
+                    <span className="text-xs text-muted-foreground">{formatPrimaryProcessNodeCaption(node)}</span>
+                  </div>
+                  <Badge variant="secondary">{formatPrimaryProcessNodePhaseLabel(node)}</Badge>
                 </div>
-                <p className="text-sm text-muted-foreground">{node.message}</p>
-                <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} trace summary`}>
-                  <Badge variant="outline">{formatProcessNodeKind(node.nodeKind)}</Badge>
-                  {sourceTrustLabel === undefined ? null : <Badge variant="outline">{sourceTrustLabel}</Badge>}
-                  {sourceTransportLabel === undefined ? null : <Badge variant="outline">{sourceTransportLabel}</Badge>}
-                  <Badge variant="outline">{`${node.recordIds.length.toString()} records`}</Badge>
-                  <Badge variant="outline">{`${node.citations.length.toString()} citations`}</Badge>
+                <p className="text-sm text-muted-foreground">{formatPrimaryProcessNodeMessage(node)}</p>
+                <div className="flex flex-wrap gap-1.5" aria-label={`${formatPrimaryProcessNodeLabel(node)} trace summary`}>
+                  <Badge variant="outline">{formatPrimaryEvidenceSummary(node)}</Badge>
                 </div>
               </li>
             );
@@ -199,9 +196,33 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
             <AccordionTrigger>Trace details</AccordionTrigger>
             <AccordionContent>
               <div className="flex min-w-0 flex-col gap-3">
+                {response?.modelExecution === undefined ? null : (
+                  <section
+                    className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3"
+                    data-testid="maya-agent-model-execution-details"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <div className="grid min-w-0 gap-1">
+                        <span className="font-medium">Model execution proof</span>
+                        <span className="text-sm text-muted-foreground">Live agent run receipts preserved for review.</span>
+                      </div>
+                      <Badge variant="secondary">{response.modelExecution.mode}</Badge>
+                    </div>
+                    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                      {modelExecutionDetailRows(response.modelExecution).map((row) => (
+                        <div className="grid min-w-0 gap-1 rounded-md border bg-background p-2" key={`model-execution-${row.label}`}>
+                          <span className="text-xs text-muted-foreground">{row.label}</span>
+                          <span className="break-words text-sm">{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
                 <section className="grid min-w-0 gap-2" aria-label="Process node record and basis details">
                   {processNodes.map((node) => {
                     const isBackendTrace = isBackendTraceProcessNode(node);
+                    const sourceTrustLabel = formatTraceRetrievalSourceLabel(node);
+                    const sourceTransportLabel = isBackendTrace ? formatTraceTransportLabel(node) : undefined;
 
                     return (
                       <div className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3" key={`detail-${node.key}`}>
@@ -213,6 +234,19 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                             <span className="text-sm text-muted-foreground">{node.sourceLabel}</span>
                           </div>
                           <Badge variant="secondary">{isBackendTrace ? node.hook : formatProcessNodeKind(node.nodeKind)}</Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} source and technical receipt details`}>
+                          <Badge variant="outline">{node.sourceLabel}</Badge>
+                          {sourceTrustLabel === undefined ? null : <Badge variant="outline">{sourceTrustLabel}</Badge>}
+                          {sourceTransportLabel === undefined ? null : <Badge variant="outline">{sourceTransportLabel}</Badge>}
+                          {isBackendTrace ? <Badge variant="outline">{node.agentName}</Badge> : null}
+                          {isBackendTrace && node.toolName !== undefined ? <Badge variant="outline">{node.toolName}</Badge> : null}
+                          {isBackendTrace && node.sourceKind !== undefined ? (
+                            <Badge variant="outline">{formatTraceSourceKindLabel(node.sourceKind)}</Badge>
+                          ) : null}
+                          {isBackendTrace && node.retrievalSource !== undefined ? (
+                            <Badge variant="outline">{formatTraceRetrievalSourceValueLabel(node.retrievalSource)}</Badge>
+                          ) : null}
                         </div>
                         {node.detailMessage === undefined ? null : (
                           <p className="text-sm leading-5 text-muted-foreground">{node.detailMessage}</p>
@@ -397,7 +431,7 @@ function sourceNodesFromEvidencePack(evidencePack: MayaEvidencePack | undefined)
       detailMessage: document.summary,
       key: `source-${index.toString()}-${document.documentId}`,
       label: `${document.sourceLabel} retrieval`,
-      message: compactEvidenceDocumentProcessMessage(document, sourceLabel),
+      message: compactEvidenceDocumentProcessMessage(document),
       nodeKind: "retrieval-source",
       recordIds: document.provenance.recordIds,
       sourceLabel,
@@ -418,7 +452,7 @@ function sourceNodesFromCitations(citations: readonly QueryCitation[]): AgentPro
         detailMessage: citation.summary ?? "Citation metadata supplied this process node.",
         key: `citation-source-${citation.recordId}`,
         label: `${sourceLabel} citation`,
-        message: compactCitationProcessMessage(sourceLabel),
+        message: compactCitationProcessMessage(),
         nodeKind: "retrieval-source",
         recordIds: [citation.recordId],
         sourceLabel,
@@ -427,25 +461,16 @@ function sourceNodesFromCitations(citations: readonly QueryCitation[]): AgentPro
     });
 }
 
-function compactEvidenceDocumentProcessMessage(
-  document: MayaEvidencePack["documents"][number],
-  sourceLabel: string
-): string {
-  return `${sourceLabel}; ${formatEvidenceDocumentType(document.documentType)} evidence with ${formatRecordCount(
-    document.provenance.recordIds.length
-  )} held in Trace details.`;
+function compactEvidenceDocumentProcessMessage(document: MayaEvidencePack["documents"][number]): string {
+  return `${formatEvidenceDocumentType(document.documentType)} evidence checked; technical receipt is held in Trace details.`;
 }
 
-function compactCitationProcessMessage(sourceLabel: string): string {
-  return `${sourceLabel}; cited source with ${formatRecordCount(1)} held in Trace details.`;
+function compactCitationProcessMessage(): string {
+  return "Cited evidence checked; technical receipt is held in Trace details.";
 }
 
 function formatEvidenceDocumentType(documentType: string): string {
   return documentType.replace(/-/gu, " ");
-}
-
-function formatRecordCount(count: number): string {
-  return `${count.toString()} ${count === 1 ? "record" : "records"}`;
 }
 
 function citationGuardProcessNode(
@@ -488,6 +513,113 @@ function deterministicBasisProcessNode(
 
 function isBackendTraceProcessNode(node: AgentProcessNode): node is BackendTraceProcessNode {
   return "backendTraceEvent" in node;
+}
+
+function modelExecutionDetailRows(modelExecution: QueryModelExecution): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [
+    { label: "Mode", value: modelExecution.mode },
+    { label: "Deterministic basis", value: modelExecution.deterministicBasis }
+  ];
+
+  if ("agentNames" in modelExecution) {
+    rows.push(
+      { label: "Agents", value: modelExecution.agentNames.join(", ") },
+      { label: "Handoff count", value: modelExecution.handoffCount.toString() },
+      { label: "Raw model policy", value: modelExecution.rawModelTextPolicy }
+    );
+    if (modelExecution.tokenUsage !== undefined) {
+      rows.push({ label: "Token usage", value: modelExecution.tokenUsage.toString() });
+    }
+  }
+  if ("reason" in modelExecution) {
+    rows.push({ label: "Reason", value: modelExecution.reason });
+  }
+
+  return rows;
+}
+
+function formatPrimaryProcessNodeLabel(node: AgentProcessNode): string {
+  return formatPrimaryProcessNodePhaseLabel(node);
+}
+
+function formatPrimaryProcessNodeCaption(node: AgentProcessNode): string {
+  if (node.nodeKind === "selected-evidence") {
+    return "Question scope is tied to selected evidence.";
+  }
+  if (node.nodeKind === "retrieval-source") {
+    return "Source evidence checked.";
+  }
+  if (node.nodeKind === "handoff") {
+    return "Work prepared for the next review step.";
+  }
+  if (node.nodeKind === "citation-guard") {
+    return "Answer citations checked.";
+  }
+  if (node.nodeKind === "basis") {
+    return "Deterministic basis checked.";
+  }
+
+  return "Evidence reasoning step completed.";
+}
+
+function formatPrimaryProcessNodeMessage(node: AgentProcessNode): string {
+  if (node.nodeKind === "selected-evidence") {
+    return "Maya starts from the selected case evidence; receipts stay in Trace details.";
+  }
+  if (node.nodeKind === "retrieval-source") {
+    return "Maya checked the evidence needed for this step; source receipts stay in Trace details.";
+  }
+  if (node.nodeKind === "handoff") {
+    return "Maya prepared the draft or handoff context for human review.";
+  }
+  if (node.nodeKind === "citation-guard") {
+    return "Maya checked that the answer is tied to cited evidence.";
+  }
+  if (node.nodeKind === "basis") {
+    return "Maya confirmed deterministic basis is available before the answer is shown.";
+  }
+
+  return "Maya evaluated the evidence step and kept the technical receipt in Trace details.";
+}
+
+function formatPrimaryEvidenceSummary(node: AgentProcessNode): string {
+  const evidenceLinkCount = new Set([...node.recordIds, ...node.citations]).size;
+  return evidenceLinkCount === 1 ? "1 evidence link" : `${evidenceLinkCount.toString()} evidence links`;
+}
+
+function formatPrimaryProcessNodePhaseLabel(node: AgentProcessNode): string {
+  if (!isBackendTraceProcessNode(node)) {
+    if (node.nodeKind === "selected-evidence") {
+      return "Scope";
+    }
+    if (node.nodeKind === "retrieval-source") {
+      return "Retrieve";
+    }
+    if (node.nodeKind === "citation-guard") {
+      return "Cited answer";
+    }
+    if (node.nodeKind === "basis") {
+      return "Reason";
+    }
+
+    return "Reason";
+  }
+
+  const searchable = `${node.phase} ${node.hook} ${node.label} ${node.toolName ?? ""}`.toLowerCase();
+  if (node.nodeKind === "handoff" || node.nextAgentName !== undefined || /\b(?:handoff|draft|recovery)\b/u.test(searchable)) {
+    return "Draft/Handoff";
+  }
+  if (/\b(?:scope|selected)\b/u.test(searchable)) {
+    return "Scope";
+  }
+  if (/\b(?:retrieval|retrieve|source|evidence|citation|cited)\b/u.test(searchable)) {
+    return "Retrieve";
+  }
+  if (/\b(?:answer|respond|final)\b/u.test(searchable)) {
+    return "Cited answer";
+  }
+
+  return "Reason";
 }
 
 function resolveTraceSourceKind(node: Pick<BackendTraceProcessNode, "retrievalSource" | "sourceKind" | "toolName">): TraceSourceKind {

@@ -2,16 +2,16 @@
 
 import * as React from "react";
 import {
+  ChevronDownIcon,
   FileTextIcon,
-  MessageSquareTextIcon,
   ShieldCheckIcon,
-  TriangleAlertIcon,
-  XIcon
+  TriangleAlertIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -37,8 +37,6 @@ interface RecoveryDraftReviewProps {
   selectedWorklistItem: MayaWorklistItem | undefined;
 }
 
-type DraftCommandIntent = "open-approval" | "reject" | "request-changes";
-
 const backendGapLabels = [
   "Packet display ID not exposed",
   "Case account and currency not exposed",
@@ -55,11 +53,9 @@ export function RecoveryDraftReview({
   selectedLineId,
   selectedWorklistItem
 }: RecoveryDraftReviewProps) {
-  const [commandIntent, setCommandIntent] = React.useState<DraftCommandIntent | undefined>();
   const [approvalDialogOpen, setApprovalDialogOpen] = React.useState(false);
-  const modifyAction = approvalActions.find((action) => action.decision === "modify");
-  const rejectAction = approvalActions.find((action) => action.decision === "reject");
   const canOpenApproval = approvalActions.length > 0;
+  const draftSourceRecordIds = dedupeSourceRecordIds([selectedLineId, ...evidencePack.recordIds]);
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-recovery-draft-review">
@@ -70,13 +66,13 @@ export function RecoveryDraftReview({
             <Badge variant="secondary">Human approval required</Badge>
           </div>
           <CardDescription>
-            Review the backend-staged recovery draft. No external action before human approval.
+            Review the prepared recovery draft. No external action before human approval.
           </CardDescription>
         </div>
         <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-          <HeaderFact label="Selected line" value={selectedLineId} />
+          <HeaderFact label="Selected line" value="Opened line" />
           <HeaderFact label="Draft status" value={draft.statusLabel} />
-          <HeaderFact label="Work item" value={selectedWorklistItem?.scenarioLabel ?? "Contract gap"} />
+          <HeaderFact label="Work item" value={selectedWorklistItem?.scenarioLabel ?? "Source detail pending"} />
         </div>
       </div>
 
@@ -99,10 +95,14 @@ export function RecoveryDraftReview({
                   <Badge variant="outline">Draft only</Badge>
                   <Badge variant="secondary">{draft.statusLabel}</Badge>
                 </div>
-                <CardDescription>Backend draft label and status from the selected detail packet</CardDescription>
+                <CardDescription>Draft label and status for the selected work item</CardDescription>
               </div>
-              <div className="flex flex-wrap gap-2" aria-label="Draft basis record IDs">
-                <RecordIdStrip recordIds={evidencePack.recordIds} />
+              <div className="flex flex-wrap gap-2" aria-label="Draft basis source details">
+                <SourceRecordDetails
+                  recordIds={draftSourceRecordIds}
+                  testId="maya-draft-source-details"
+                  title="Draft source details"
+                />
               </div>
             </div>
           </CardHeader>
@@ -119,22 +119,22 @@ export function RecoveryDraftReview({
                   <div className="grid min-w-0 gap-3">
                     <SectionKicker>Draft packet</SectionKicker>
                     <FactBlock label="Draft label" value={draft.actionLabel} />
-                    <FactBlock label="Selected line" value={selectedLineId} />
-                    <FactBlock label="Recipient" value="Contract gap" />
+                    <FactBlock label="Selected line" value="Opened line" />
+                    <FactBlock label="Recipient" value="Source detail pending" />
                   </div>
                   <div
-                    aria-label="Backend amount, read-only"
+                    aria-label="Read-only draft amount"
                     aria-readonly="true"
                     className="grid min-w-0 gap-2 rounded-lg border bg-muted/30 p-4"
                     data-testid="maya-draft-readonly-amount"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
-                      <span className="text-sm font-medium">Backend amount, read-only</span>
+                      <span className="text-sm font-medium">Read-only amount</span>
                     </div>
                     <strong className="text-3xl leading-tight tabular-nums">{draft.amount}</strong>
                     <p className="text-sm text-muted-foreground">
-                      Displayed exactly from the selected draft read model. Calculation-detail fields are not exposed.
+                      Displayed from the selected draft source. Calculation detail remains source-owned.
                     </p>
                   </div>
                   <div className="grid min-w-0 gap-3 rounded-lg border bg-muted/20 p-3">
@@ -160,7 +160,8 @@ export function RecoveryDraftReview({
               </TabsContent>
               <TabsContent className="mt-4" value="message">
                 <MayaEmptyState
-                  description="The current draft read model does not expose a recovery message body."
+                  description="The current draft source does not expose a recovery message body."
+                  kind="search"
                   title="Draft message unavailable"
                 />
               </TabsContent>
@@ -171,9 +172,17 @@ export function RecoveryDraftReview({
                     <AlertTitle>Deterministic draft basis</AlertTitle>
                     <AlertDescription>{draft.basis}</AlertDescription>
                   </Alert>
-                  <RecordIdStrip recordIds={evidencePack.recordIds} />
+                  <SourceRecordDetails
+                    recordIds={draftSourceRecordIds}
+                    testId="maya-draft-audit-basis-source-details"
+                    title="Audit basis source details"
+                  />
                   {actionInbox.length === 0 ? (
-                    <MayaEmptyState description="The action inbox read model returned no draft rows." title="Action inbox unavailable" />
+                    <MayaEmptyState
+                      description="The current action inbox has no draft rows."
+                      kind="approval"
+                      title="Action inbox unavailable"
+                    />
                   ) : (
                     <Table>
                       <TableHeader>
@@ -193,7 +202,7 @@ export function RecoveryDraftReview({
                                 <span className="text-sm text-muted-foreground">{item.basis}</span>
                               </div>
                             </TableCell>
-                            <TableCell>{item.lineId}</TableCell>
+                            <TableCell>{actionLineDisplayLabel(item.lineId, selectedLineId)}</TableCell>
                             <TableCell>{item.amount}</TableCell>
                             <TableCell>{item.statusLabel}</TableCell>
                           </TableRow>
@@ -210,20 +219,20 @@ export function RecoveryDraftReview({
         <Card className="rounded-lg shadow-none" data-testid="maya-draft-context-rail" size="sm">
           <CardHeader>
             <CardTitle>Case context</CardTitle>
-            <CardDescription>Read-model facts for the opened work item</CardDescription>
+            <CardDescription>Facts for the opened work item</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {selectedWorklistItem === undefined ? (
               <Alert>
                 <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
-                <AlertTitle>Contract gap</AlertTitle>
+                <AlertTitle>Source detail pending</AlertTitle>
                 <AlertDescription>The selected worklist row is unavailable for this draft review.</AlertDescription>
               </Alert>
             ) : (
               <div className="grid min-w-0 gap-2">
                 <ContextFact label="Customer" value={selectedWorklistItem.customerLabel} />
                 <ContextFact label="Scenario" value={selectedWorklistItem.scenarioLabel} />
-                <ContextFact label="Selected line" value={selectedLineId} />
+                <ContextFact label="Selected line" value="Opened line" />
                 <ContextFact label="Worklist amount" value={selectedWorklistItem.amount} />
                 <ContextFact label="Queue" value={selectedWorklistItem.queueLabel} />
                 <ContextFact label="Routing" value={selectedWorklistItem.routingLabel} />
@@ -250,7 +259,11 @@ export function RecoveryDraftReview({
             <Separator />
             <div className="grid min-w-0 gap-2" data-testid="maya-draft-rail-record-ids">
               <SectionKicker>Evidence records</SectionKicker>
-              <RecordIdStrip recordIds={evidencePack.recordIds} />
+              <SourceRecordDetails
+                recordIds={draftSourceRecordIds}
+                testId="maya-draft-rail-source-details"
+                title="Evidence source details"
+              />
             </div>
             <Separator />
             <div className="grid min-w-0 gap-2" data-testid="maya-draft-rail-human-decisions">
@@ -277,15 +290,24 @@ export function RecoveryDraftReview({
             </div>
             <Separator />
             <div className="grid min-w-0 gap-2" data-testid="maya-draft-rail-backend-gaps">
-              <SectionKicker>Backend gaps</SectionKicker>
-              <ul className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-                {backendGapLabels.map((gapLabel) => (
-                  <li className="flex gap-2" key={gapLabel}>
-                    <span aria-hidden="true">-</span>
-                    <span>{gapLabel}</span>
-                  </li>
-                ))}
-              </ul>
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+                    <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
+                    Source fields pending
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <ul className="grid min-w-0 gap-1 pt-2 text-xs text-muted-foreground">
+                    {backendGapLabels.map((gapLabel) => (
+                      <li className="flex gap-2" key={gapLabel}>
+                        <span aria-hidden="true">-</span>
+                        <span>{gapLabel}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
           </CardContent>
         </Card>
@@ -302,38 +324,12 @@ export function RecoveryDraftReview({
               <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
               <span className="font-medium">No external action before human approval</span>
             </div>
-            <span className="text-sm text-muted-foreground">Command buttons prepare the next human step locally only.</span>
-            <span className="text-sm text-muted-foreground" data-testid="maya-draft-command-intent">
-              {commandIntent === undefined ? "No draft command prepared" : commandIntentLabel(commandIntent)}
-            </span>
+            <span className="text-sm text-muted-foreground">Open the human approval dialog to review source-owned decisions.</span>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={modifyAction === undefined}
-              onClick={() => {
-                setCommandIntent("request-changes");
-              }}
-              type="button"
-              variant="outline"
-            >
-              <MessageSquareTextIcon data-icon="inline-start" />
-              Request changes
-            </Button>
-            <Button
-              disabled={rejectAction === undefined}
-              onClick={() => {
-                setCommandIntent("reject");
-              }}
-              type="button"
-              variant="outline"
-            >
-              <XIcon data-icon="inline-start" />
-              Reject draft
-            </Button>
-            <Button
               disabled={!canOpenApproval}
               onClick={() => {
-                setCommandIntent("open-approval");
                 setApprovalDialogOpen(true);
               }}
               type="button"
@@ -348,6 +344,7 @@ export function RecoveryDraftReview({
         actionId={draft.actionId}
         actions={approvalActions}
         draft={draft}
+        evidenceReviewEligibilityAvailable={draft.approvalEligibility.available}
         onOpenChange={setApprovalDialogOpen}
         onResponse={onApprovalResponse}
         open={approvalDialogOpen}
@@ -355,17 +352,6 @@ export function RecoveryDraftReview({
       />
     </section>
   );
-}
-
-function commandIntentLabel(commandIntent: DraftCommandIntent): string {
-  switch (commandIntent) {
-    case "open-approval":
-      return "Open approval prepared";
-    case "reject":
-      return "Reject draft prepared";
-    case "request-changes":
-      return "Request changes prepared";
-  }
 }
 
 function humanDecisionLabel(decision: MayaApprovalAction["decision"]): string {
@@ -381,7 +367,13 @@ function humanDecisionLabel(decision: MayaApprovalAction["decision"]): string {
 
 function EvidenceTable({ evidencePack }: { evidencePack: MayaEvidencePack }) {
   if (evidencePack.documents.length === 0) {
-    return <MayaEmptyState description="The selected draft returned no evidence documents." title="Supporting evidence unavailable" />;
+    return (
+      <MayaEmptyState
+        description="The selected draft returned no evidence documents."
+        kind="evidence"
+        title="Supporting evidence unavailable"
+      />
+    );
   }
 
   return (
@@ -479,6 +471,38 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
       ))}
     </div>
   );
+}
+
+function SourceRecordDetails({
+  recordIds,
+  testId,
+  title
+}: {
+  recordIds: string[];
+  testId: string;
+  title: string;
+}) {
+  return (
+    <Collapsible className="grid min-w-0 gap-2" data-testid={testId}>
+      <CollapsibleTrigger asChild>
+        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+          <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
+          {title}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <RecordIdStrip recordIds={recordIds} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function dedupeSourceRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
+}
+
+function actionLineDisplayLabel(lineId: string, selectedLineId: string): string {
+  return lineId === selectedLineId ? "Opened line" : "Related line";
 }
 
 function SectionKicker({ children }: { children: React.ReactNode }) {

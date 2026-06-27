@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckIcon, PencilIcon, ShieldCheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, PencilIcon, ShieldCheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -168,14 +169,16 @@ export function ApprovalGateDialog({
         <Separator />
 
         <div className="flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
-          <Alert data-testid="maya-approval-eligibility-alert">
-            <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
-            <AlertTitle>Approval blocked by missing eligibility</AlertTitle>
-            <AlertDescription>
-              Evidence reviewed state and approval eligibility are unavailable in the current read model. Decision buttons
-              stay disabled until the backend exposes that contract.
-            </AlertDescription>
-          </Alert>
+          {approvalEligibilityUnavailable ? (
+            <Alert data-testid="maya-approval-eligibility-alert">
+              <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
+              <AlertTitle>Approval blocked by missing eligibility</AlertTitle>
+              <AlertDescription>
+                Evidence reviewed state and approval eligibility are unavailable in the current read model. Decision buttons
+                stay disabled until the backend exposes that contract.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           {error === undefined ? null : (
             <Alert variant="destructive">
@@ -186,11 +189,9 @@ export function ApprovalGateDialog({
           {success === undefined ? null : (
             <Alert>
               <AlertTitle>Approval response recorded</AlertTitle>
-              <AlertDescription>
-                <div className="flex flex-col gap-2">
-                  <span>{success.auditEntryHash}</span>
-                  {success.status === undefined ? null : <Badge variant="secondary">{success.status}</Badge>}
-                </div>
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                <span>Committed receipt returned by the approval service.</span>
+                {success.status === undefined ? null : <Badge variant="secondary">{success.status}</Badge>}
               </AlertDescription>
             </Alert>
           )}
@@ -220,17 +221,10 @@ export function ApprovalGateDialog({
             </ApprovalFactRow>
             <Separator />
             <ApprovalFactRow label="Cited records">
-              <div className="flex flex-wrap gap-1.5" aria-label="Approval cited records">
-                {recordIds.length === 0 ? (
-                  <Badge variant="outline">No record IDs</Badge>
-                ) : (
-                  recordIds.map((recordId) => (
-                    <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
-                      {recordId}
-                    </Badge>
-                  ))
-                )}
-              </div>
+              <span className="text-muted-foreground">
+                {recordIds.length === 0 ? "No cited evidence records are attached." : "Cited evidence available."}
+              </span>
+              <ApprovalSourceDetails recordIds={recordIds} />
             </ApprovalFactRow>
           </div>
 
@@ -314,6 +308,32 @@ function DecisionIcon({ decision }: { decision: MayaApprovalAction["decision"] }
     case "reject":
       return <XIcon data-icon="inline-start" />;
   }
+}
+
+function ApprovalSourceDetails({ recordIds }: { recordIds: string[] }) {
+  return (
+    <Collapsible className="grid min-w-0 gap-2" data-testid="maya-approval-source-details">
+      <CollapsibleTrigger asChild>
+        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+          <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
+          Approval source details
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-wrap gap-1.5" aria-label="Approval cited records">
+          {recordIds.length === 0 ? (
+            <Badge variant="outline">No record IDs</Badge>
+          ) : (
+            recordIds.map((recordId) => (
+              <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+                {recordId}
+              </Badge>
+            ))
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function decisionButtonLabel(decision: MayaApprovalAction["decision"]): string {

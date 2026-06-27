@@ -69,12 +69,8 @@ function displaySourceLabel(label: string): string {
 }
 
 function displayStateLabel(stateLabel: string): string {
-  if (stateLabel === "Connected") {
-    return "OK";
-  }
-
   if (stateLabel === "Synthetic") {
-    return "Synth";
+    return "Proxy - Supabase";
   }
 
   return stateLabel;
@@ -153,7 +149,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
   const checkedAtLabel = displayCheckedAt(currentConnectors.checkedAtIso);
 
   return (
-    <Card className="rounded-lg py-0 shadow-none" size="sm">
+    <Card className="rounded-lg py-0 shadow-[var(--shadow-sm)]" size="sm">
       <CardContent
         aria-label={`${checkedAtLabel}; ${currentConnectors.lastRefreshedLabel}`}
         className="grid min-h-[58px] min-w-0 items-center gap-3 px-3 py-1.5 lg:grid-cols-[190px_minmax(0,1fr)]"
@@ -212,12 +208,12 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
                           {sourceStatusIcon(source.statusTone)}
                         </span>
                         <Badge
-                          className="h-4 max-w-full shrink-0 justify-start px-0.5 text-[9px]"
+                          className="grid !h-auto max-h-6 min-h-4 min-w-0 max-w-full shrink place-items-center justify-start px-0.5 py-0 text-center text-[8px] leading-[9px] whitespace-normal"
                           data-testid="maya-source-status"
                           title={source.stateLabel}
                           variant={sourceToneVariant(source.statusTone)}
                         >
-                          <span>{displayState}</span>
+                          <span className="min-w-0 max-w-full [overflow-wrap:anywhere]">{displayState}</span>
                         </Badge>
                       </div>
                     </div>

@@ -52,10 +52,18 @@ export function QueryEvidenceDock({
   const openRef = React.useRef(open);
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const sessionTokenRef = React.useRef(0);
+  const onResponseRef = React.useRef(onResponse);
+  onResponseRef.current = onResponse;
   const selectedEvidenceIdentity = React.useMemo(
     () => buildSelectedEvidenceIdentity(selectedLine, recordIds),
     [recordIds, selectedLine]
   );
+  const selectedEvidenceResetResponse = React.useMemo(
+    () => buildStoppedQuerySnapshot(selectedLine, recordIds, evidencePack.recordIds),
+    [evidencePack.recordIds, recordIds, selectedLine]
+  );
+  const selectedEvidenceResetResponseRef = React.useRef(selectedEvidenceResetResponse);
+  selectedEvidenceResetResponseRef.current = selectedEvidenceResetResponse;
   const latestEvidenceIdentityRef = React.useRef(selectedEvidenceIdentity);
   latestEvidenceIdentityRef.current = selectedEvidenceIdentity;
   const resetEvidenceIdentityRef = React.useRef(selectedEvidenceIdentity);
@@ -74,14 +82,20 @@ export function QueryEvidenceDock({
     snapshot.deterministicBasis !== undefined &&
     snapshot.deterministicBasis.trim().length > 0 &&
     snapshot.recordIds.length > 0;
-  const shouldShowComposer = !isRunning && !canShowCitedAnswer;
+  const promptSuggestions = React.useMemo(
+    () => dedupePromptSuggestions(dock.promptSuggestions ?? []),
+    [dock.promptSuggestions]
+  );
   const citedAnswerCard = canShowCitedAnswer ? <CitedAnswerCard evidencePack={evidencePack} response={snapshot} /> : null;
 
-  const closeActiveSession = React.useCallback((options: { resetComposer?: boolean } = {}) => {
+  const closeActiveSession = React.useCallback((options: { resetComposer?: boolean; resetParentTrace?: boolean } = {}) => {
     sessionTokenRef.current += 1;
     const abortController = abortControllerRef.current;
     abortControllerRef.current = null;
     abortController?.abort();
+    if (options.resetParentTrace === true) {
+      onResponseRef.current(selectedEvidenceResetResponseRef.current);
+    }
     if (options.resetComposer !== false) {
       setError(undefined);
       setQuestion("");
@@ -226,13 +240,12 @@ export function QueryEvidenceDock({
           <SheetTitle>{canShowCitedAnswer ? "Cited response" : "Query Evidence"}</SheetTitle>
           <SheetDescription>
             {canShowCitedAnswer
-              ? "Answer, basis, and citations from the current evidence packet."
+              ? "Answer and source disclosures from the current evidence packet."
               : "Ask from the current evidence packet."}
           </SheetDescription>
           <div className="flex flex-wrap gap-2" aria-label="Query policy">
             <Badge variant="secondary">Selected evidence context</Badge>
             <Badge variant="secondary">Read-only query</Badge>
-            <Badge variant="outline">{dock.languageLabel}</Badge>
           </div>
         </SheetHeader>
         <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
@@ -290,7 +303,7 @@ export function QueryEvidenceDock({
             </AccordionItem>
           </Accordion>
           <div className="flex flex-wrap gap-2" aria-label="Backend suggested evidence questions">
-            {dock.promptSuggestions?.map((prompt) => {
+            {promptSuggestions.map((prompt) => {
               const promptChipDescriptionId = buildPromptSuggestionDescriptionId(promptChipDescriptionPrefix, prompt);
 
               return (
@@ -298,7 +311,7 @@ export function QueryEvidenceDock({
                   <Button
                     aria-describedby={promptChipDescriptionId}
                     data-testid="maya-query-prompt-chip"
-                    disabled={isRunning || canShowCitedAnswer}
+                    disabled={isRunning}
                     onClick={() => {
                       setQuestion(prompt.question);
                     }}
@@ -306,7 +319,7 @@ export function QueryEvidenceDock({
                     type="button"
                     variant="outline"
                   >
-                    {prompt.label}
+                    {prompt.question}
                   </Button>
                   <span className="sr-only" id={promptChipDescriptionId}>
                     {buildPromptSuggestionDescription(prompt)}
@@ -315,34 +328,31 @@ export function QueryEvidenceDock({
               );
             })}
           </div>
-          {shouldShowComposer ? (
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
-                <InputGroup>
-                  <InputGroupTextarea
-                    aria-describedby={`${statusId} ${questionHelpId}`}
-                    data-testid="maya-query-input"
-                    disabled={isRunning}
-                    id={questionId}
-                    maxLength={QUERY_QUESTION_CHARACTER_LIMIT}
-                    onChange={(event) => {
-                      setQuestion(event.target.value);
-                    }}
-                    placeholder={dock.promptPlaceholder}
-                    value={question}
-                  />
-                  <InputGroupAddon align="block-end" className="justify-between">
-                    <span>{`${question.length.toString()} / ${QUERY_QUESTION_CHARACTER_LIMIT.toString()}`}</span>
-                    <span>{dock.languageLabel}</span>
-                  </InputGroupAddon>
-                </InputGroup>
-                <FieldDescription id={questionHelpId}>
-                  Citations required before display.
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-          ) : null}
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor={questionId}>Your question</FieldLabel>
+              <InputGroup>
+                <InputGroupTextarea
+                  aria-describedby={`${statusId} ${questionHelpId}`}
+                  data-testid="maya-query-input"
+                  disabled={isRunning}
+                  id={questionId}
+                  maxLength={QUERY_QUESTION_CHARACTER_LIMIT}
+                  onChange={(event) => {
+                    setQuestion(event.target.value);
+                  }}
+                  placeholder={dock.promptPlaceholder}
+                  value={question}
+                />
+                <InputGroupAddon align="block-end" className="justify-between">
+                  <span>{`${question.length.toString()} / ${QUERY_QUESTION_CHARACTER_LIMIT.toString()}`}</span>
+                </InputGroupAddon>
+              </InputGroup>
+              <FieldDescription id={questionHelpId}>
+                Answers display only with cited evidence.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
           <section
             aria-label="Maya evidence query conversation"
             className="grid min-w-0 gap-3"
@@ -364,10 +374,13 @@ export function QueryEvidenceDock({
                 <div className="grid min-w-0 gap-3">
                   <div className="grid min-w-0 gap-2 rounded-lg border bg-background p-3" data-testid="maya-query-assistant-message">
                     <span className="text-sm font-medium">Maya</span>
-                    <p className="text-sm leading-6 text-muted-foreground">{snapshot.message}</p>
+                    <p className="text-sm leading-6 text-muted-foreground" data-testid="maya-query-assistant-answer">
+                      {displayAnswerWithoutInlineRecordIds(snapshot.answer ?? "", snapshot.recordIds)}
+                    </p>
                     <div className="flex flex-wrap gap-1.5" aria-label="Assistant citation summary">
                       <Badge variant="secondary">{`${snapshot.citations.length.toString()} citations`}</Badge>
                       <Badge variant="outline">{`${snapshot.recordIds.length.toString()} record IDs`}</Badge>
+                      <Badge variant="outline">Basis available in trace details</Badge>
                     </div>
                   </div>
                   {citedAnswerCard}
@@ -379,10 +392,10 @@ export function QueryEvidenceDock({
                 </Alert>
               ) : snapshot === undefined ? (
                 <Alert data-testid="maya-query-readiness-preview">
-                  <AlertTitle>Cited query standby</AlertTitle>
+                  <AlertTitle>Ready for an evidence-backed question</AlertTitle>
                   <AlertDescription>
                     <div className="flex flex-col gap-2">
-                      <span>Ready for an evidence-backed question.</span>
+                      <span>Maya will answer inside this conversation and keep sources behind details.</span>
                     </div>
                   </AlertDescription>
                 </Alert>
@@ -401,12 +414,14 @@ export function QueryEvidenceDock({
                   <AlertDescription>{snapshot.message}</AlertDescription>
                 </Alert>
               ) : isRunning ? (
-                <AgentTracePanel
-                  evidencePack={evidencePack}
-                  recordIds={recordIds}
-                  response={snapshot}
-                  selectedLine={selectedLine}
-                />
+                <div className="grid min-w-0 gap-2 rounded-lg border bg-background p-3" data-testid="maya-query-assistant-message">
+                  <span className="text-sm font-medium">Maya</span>
+                  <p className="text-sm leading-6 text-muted-foreground">Maya is checking evidence.</p>
+                  <div className="flex flex-wrap gap-1.5" aria-label="Assistant running summary">
+                    <Badge variant="secondary">Checking citations</Badge>
+                    <Badge variant="outline">{`${snapshot.recordIds.length.toString()} records`}</Badge>
+                  </div>
+                </div>
               ) : (
                 <Alert>
                   <AlertTitle>{snapshot.message}</AlertTitle>
@@ -423,7 +438,14 @@ export function QueryEvidenceDock({
             <AccordionItem data-testid="maya-query-trace-details" value="trace-details">
               <AccordionTrigger>Trace details</AccordionTrigger>
               <AccordionContent>
-                {snapshot !== undefined ? <AgentTracePanel response={snapshot} /> : null}
+                {snapshot !== undefined ? (
+                  <AgentTracePanel
+                    evidencePack={evidencePack}
+                    recordIds={recordIds}
+                    response={snapshot}
+                    selectedLine={selectedLine}
+                  />
+                ) : null}
                 {snapshot === undefined ? (
                   <Alert>
                     <AlertTitle>Trace unavailable</AlertTitle>
@@ -435,12 +457,11 @@ export function QueryEvidenceDock({
           </Accordion>
         </div>
         <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">Citations required.</p>
           {isRunning ? (
             <Button
               className="sm:w-auto"
               onClick={() => {
-                closeActiveSession({ resetComposer: false });
+                closeActiveSession({ resetComposer: false, resetParentTrace: true });
               }}
               type="button"
               variant="outline"
@@ -450,7 +471,7 @@ export function QueryEvidenceDock({
           ) : (
             <Button
               className="sm:w-auto"
-              disabled={canShowCitedAnswer || question.trim().length === 0}
+              disabled={question.trim().length === 0}
               onClick={() => {
                 void startQuery();
               }}
@@ -525,10 +546,25 @@ function buildSelectedEvidenceIdentity(selectedLine: string, recordIds: readonly
   return JSON.stringify({ recordIds: recordIds.map((recordId) => recordId.trim()), selectedLine: selectedLine.trim() });
 }
 
+function buildStoppedQuerySnapshot(
+  selectedLine: string,
+  recordIds: readonly string[],
+  evidencePackRecordIds: readonly string[]
+): QueryEvidenceResponse {
+  return {
+    citations: [],
+    message: "Query stopped; selected evidence process map is ready.",
+    recordIds: dedupeRecordIds([selectedLine, ...recordIds, ...evidencePackRecordIds]),
+    status: "blocked",
+    trace: []
+  };
+}
+
 function buildPromptSuggestionKey(prompt: NonNullable<MayaMultimodalDock["promptSuggestions"]>[number]): string {
   return JSON.stringify({
     deterministicBasis: prompt.provenance.deterministicBasis.trim(),
     label: prompt.label.trim(),
+    question: prompt.question.trim(),
     recordIds: dedupeRecordIds([...prompt.recordIds, ...prompt.provenance.recordIds]).sort()
   });
 }
@@ -549,4 +585,41 @@ function buildPromptSuggestionDescription(prompt: NonNullable<MayaMultimodalDock
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {
   return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
+}
+
+function dedupePromptSuggestions(
+  prompts: readonly NonNullable<MayaMultimodalDock["promptSuggestions"]>[number][]
+): NonNullable<MayaMultimodalDock["promptSuggestions"]> {
+  const seen = new Set<string>();
+  return prompts.filter((prompt) => {
+    const normalizedQuestion = prompt.question.trim().replace(/\s+/gu, " ").toLowerCase();
+    if (normalizedQuestion.length === 0 || seen.has(normalizedQuestion)) {
+      return false;
+    }
+    seen.add(normalizedQuestion);
+    return true;
+  }).slice(0, 4);
+}
+
+function displayAnswerWithoutInlineRecordIds(answer: string, recordIds: readonly string[]): string {
+  const trimmedAnswer = answer.trim();
+  const withoutTrailingRecordList = trimmedAnswer
+    .replace(/\s*(?:The answer is limited to cited record IDs|Cited record IDs|Record IDs)\s*:\s*[^.]+\.?\s*$/iu, "")
+    .trim();
+  const redacted = [...recordIds]
+    .sort((left, right) => right.length - left.length)
+    .reduce((current, recordId) => {
+      const escapedRecordId = escapeRegExp(recordId);
+      return current
+        .replace(new RegExp(`\\bLine\\s+${escapedRecordId}\\b`, "gu"), "The selected line")
+        .replace(new RegExp(escapedRecordId, "gu"), "a cited record");
+    }, withoutTrailingRecordList)
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  return redacted.length === 0 ? "Answer details are available with citations in source details." : redacted;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

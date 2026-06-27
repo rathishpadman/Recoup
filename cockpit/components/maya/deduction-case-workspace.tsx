@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   AlertCircleIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   CheckCircle2Icon,
   ClipboardListIcon,
@@ -15,14 +16,17 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { AuditConfirmationPanel } from "./audit-confirmation-panel.tsx";
 import { EvidenceDossier } from "./evidence-dossier.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { RecoveryDraftReview } from "./recovery-draft-review.tsx";
+import { verdictBadgeVariant, type VerdictBadgeVariant } from "./verdict-badge-variant.ts";
 import type {
   ApprovalGateResponse,
   MayaActionInboxItem,
@@ -116,7 +120,7 @@ export function DeductionCaseWorkspace({
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-case-workspace">
-      <Card className="rounded-lg shadow-none" size="sm">
+      <Card className="rounded-lg shadow-[var(--shadow-sm)]" size="sm">
         <CardHeader className="gap-4">
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="grid min-w-0 gap-2">
@@ -134,7 +138,7 @@ export function DeductionCaseWorkspace({
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span>Worklist</span>
                 <span aria-hidden="true">/</span>
-                <span className="truncate">{selectedWorklistItem?.lineId ?? selected.lineId}</span>
+                <span className="truncate">Selected case</span>
               </div>
               <div className="grid min-w-0 gap-1">
                 <CardTitle className="text-2xl leading-tight">{title}</CardTitle>
@@ -142,23 +146,21 @@ export function DeductionCaseWorkspace({
               </div>
               <div className="flex flex-wrap gap-2" data-testid="maya-case-detail-backend-status">
                 {selectedWorklistItem === undefined ? (
-                  <StaticStatusBadge>Contract gap</StaticStatusBadge>
+                  <StaticStatusBadge>Source detail pending</StaticStatusBadge>
                 ) : (
                   <>
                     <StaticStatusBadge
                       data-verdict={selectedWorklistItem.verdict}
+                      variant={verdictBadgeVariant(selectedWorklistItem.verdict)}
                     >
                       {selectedWorklistItem.verdict === "valid" ? (
                         <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
                       ) : null}
                       {selectedWorklistItem.verdictLabel}
                     </StaticStatusBadge>
-                    <StaticStatusBadge>{selectedWorklistItem.routingLabel}</StaticStatusBadge>
                     <StaticStatusBadge>{selectedWorklistItem.queueLabel}</StaticStatusBadge>
-                    <StaticStatusBadge>{selectedWorklistItem.confidenceLabel}</StaticStatusBadge>
                   </>
                 )}
-                {canShowBackendDetail ? <StaticStatusBadge>{selected.draft.statusLabel}</StaticStatusBadge> : null}
               </div>
             </div>
             <div
@@ -167,12 +169,18 @@ export function DeductionCaseWorkspace({
               className="grid min-w-56 gap-1 rounded-lg border bg-muted/30 p-3 text-right"
               data-testid="maya-case-overview-readonly-amount"
             >
-              <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-                <LockIcon aria-hidden="true" data-icon="inline-start" />
-                <span>Amount read-only</span>
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button aria-label="Amount source details" className="ml-auto" size="icon-sm" type="button" variant="outline">
+                    <LockIcon aria-hidden="true" data-icon="inline-start" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span>Amount is displayed from the source read model and cannot be edited here.</span>
+                </TooltipContent>
+              </Tooltip>
               <strong className="text-2xl tabular-nums">{amount}</strong>
-              <span className="text-xs text-muted-foreground">Backend formatted</span>
+              <span className="text-xs text-muted-foreground">Source read-only</span>
             </div>
           </div>
           <Separator />
@@ -182,6 +190,7 @@ export function DeductionCaseWorkspace({
             <CaseFact label="Scenario type" value={selectedWorklistItem?.scenarioType ?? "Unavailable"} />
             <CaseFact label="Lines" value={selectedWorklistItem?.lineCount.toString() ?? "Unavailable"} />
             <CaseFact label="Evidence" value={selectedWorklistItem?.evidenceLabel ?? "Unavailable"} />
+            <CaseFact label="Confidence" value={selectedWorklistItem?.confidenceLabel ?? "Unavailable"} />
           </div>
         </CardHeader>
       </Card>
@@ -196,14 +205,14 @@ export function DeductionCaseWorkspace({
                   {selectedLinePosition}
                 </span>
               </div>
-              <p className="text-sm font-medium">Line metadata: {displayLineId}</p>
+              <p className="text-sm font-medium">Line source metadata available</p>
               {displayLineId === selected.lineId ? null : (
                 <p className="text-xs text-muted-foreground">
-                  Backend detail remains grounded to {selected.lineId} until row-switched evidence is exposed.
+                  Detail remains grounded to the opened line until source detail is available for this line.
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap gap-1" aria-label="Line selector">
+            <div className="flex flex-wrap gap-1" aria-label="Line selector" data-testid="maya-line-selector">
               {selectedWorklistItem?.lineIds.map((lineId, index) => (
                 <Button
                   aria-label={`Line ${String(index + 1)}`}
@@ -216,13 +225,15 @@ export function DeductionCaseWorkspace({
                   variant={lineId === displayLineId ? "secondary" : "outline"}
                 >
                   Line {String(index + 1)}
-                  <span aria-hidden="true" className="max-w-28 truncate text-[10px] font-normal text-muted-foreground">
-                    {lineId}
-                  </span>
                 </Button>
               )) ?? <StaticStatusBadge>Unavailable</StaticStatusBadge>}
             </div>
           </div>
+          <SourceRecordDetails
+            recordIds={[displayLineId]}
+            testId="maya-case-line-source-details"
+            title="Line source details"
+          />
           {canShowBackendDetail ? null : <CaseContractGap />}
         </CardContent>
       </Card>
@@ -247,7 +258,7 @@ export function DeductionCaseWorkspace({
                     Deterministic basis summary
                   </CardTitle>
                   <CardDescription>
-                    {canShowBackendDetail ? "Backend selected detail packet" : "Backend row-switch gap"}
+                    {canShowBackendDetail ? "Selected detail packet" : "Source detail pending"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4" data-testid="maya-case-deterministic-basis">
@@ -260,7 +271,11 @@ export function DeductionCaseWorkspace({
                         <CaseFact label="Audit state" value={auditState.statusLabel} />
                       </div>
                       <Separator />
-                      <RecordIdStrip recordIds={selected.evidencePack.recordIds} />
+                      <SourceRecordDetails
+                        recordIds={selected.evidencePack.recordIds}
+                        testId="maya-case-basis-source-details"
+                        title="Basis source details"
+                      />
                     </>
                   ) : (
                     <CaseContractGap />
@@ -288,8 +303,8 @@ export function DeductionCaseWorkspace({
                 <AlertTitle>{canShowBackendDetail ? "Evidence dossier available" : "Evidence detail unavailable"}</AlertTitle>
                 <AlertDescription>
                   {canShowBackendDetail
-                    ? `${selected.evidencePack.documents.length.toString()} backend evidence documents and ${selected.evidencePack.recordIds.length.toString()} record IDs are attached to this opened line.`
-                    : "This opened row is a fetched worklist row, but the backend has not exposed row-switched evidence detail."}
+                    ? `${selected.evidencePack.documents.length.toString()} evidence documents and ${selected.evidencePack.recordIds.length.toString()} record IDs are attached to this opened line.`
+                    : "This work item is selected, but evidence detail is not available for this line."}
                 </AlertDescription>
               </Alert>
               <Card className="rounded-lg shadow-none" size="sm">
@@ -299,7 +314,7 @@ export function DeductionCaseWorkspace({
                     Draft and approval
                   </CardTitle>
                   <CardDescription>
-                    {canShowBackendDetail ? auditState.statusLabel : "Unavailable until backend detail maps to this row"}
+                    {canShowBackendDetail ? auditState.statusLabel : "Unavailable until detail maps to this row"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
@@ -308,8 +323,8 @@ export function DeductionCaseWorkspace({
                     <AlertTitle>Read-only draft status</AlertTitle>
                     <AlertDescription>
                       {canShowBackendDetail
-                        ? "Backend draft status is displayed for this opened line. This overview exposes status and evidence context only."
-                        : "Draft status is unavailable until backend detail maps to this row."}
+                        ? "Draft status is displayed for this opened line. This overview exposes status and evidence context only."
+                        : "Draft status is unavailable until detail maps to this row."}
                     </AlertDescription>
                   </Alert>
                   <Separator />
@@ -328,7 +343,7 @@ export function DeductionCaseWorkspace({
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   {journey.length === 0 ? (
-                    <MayaEmptyState description="The Maya journey read model returned no timeline rows." title="Timeline unavailable" />
+                    <MayaEmptyState description="The Maya journey has no timeline rows." title="Timeline unavailable" />
                   ) : (
                     journey.map((item) => (
                       <div className="grid gap-1 border-l pl-3" key={`${item.timestamp}-${item.label}`}>
@@ -337,7 +352,11 @@ export function DeductionCaseWorkspace({
                           <Badge variant="outline">{item.status}</Badge>
                         </div>
                         <span className="text-xs text-muted-foreground">{item.timestamp}</span>
-                        <RecordIdStrip recordIds={item.recordIds} />
+                        <SourceRecordDetails
+                          recordIds={item.recordIds}
+                          testId="maya-case-timeline-source-details"
+                          title="Timeline source details"
+                        />
                       </div>
                     ))
                   )}
@@ -422,10 +441,29 @@ function CaseFact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StaticStatusBadge({ className = "", ...props }: React.ComponentProps<"span">) {
+const staticStatusBadgeClassByVariant: Record<VerdictBadgeVariant, string> = {
+  dispute: "border-[color:var(--status-dispute-border)] bg-[var(--status-dispute-bg)] text-[color:var(--status-dispute-text)]",
+  info: "border-[color:var(--status-info-border)] bg-[var(--status-info-bg)] text-[color:var(--status-info-text)]",
+  invalid: "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]",
+  neutralStatus:
+    "border-[color:var(--status-neutral-border)] bg-[var(--status-neutral-bg)] text-[color:var(--status-neutral-text)]",
+  review: "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[color:var(--status-warning-text)]",
+  valid: "border-success-border bg-success-surface text-success"
+};
+
+function StaticStatusBadge({
+  className = "",
+  variant,
+  ...props
+}: React.ComponentProps<"span"> & { variant?: VerdictBadgeVariant }) {
+  const variantClassName =
+    variant === undefined
+      ? "border-border bg-background text-muted-foreground"
+      : staticStatusBadgeClassByVariant[variant];
+
   return (
     <span
-      className={`inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium leading-none text-muted-foreground ${className}`}
+      className={`inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium leading-none ${variantClassName} ${className}`}
       data-testid="maya-static-status-badge"
       {...props}
     />
@@ -452,13 +490,37 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   );
 }
 
+function SourceRecordDetails({
+  recordIds,
+  testId,
+  title
+}: {
+  recordIds: string[];
+  testId: string;
+  title: string;
+}) {
+  return (
+    <Collapsible className="grid min-w-0 gap-2" data-testid={testId}>
+      <CollapsibleTrigger asChild>
+        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+          <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
+          {title}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <RecordIdStrip recordIds={recordIds} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function CaseContractGap() {
   return (
     <Alert data-testid="maya-case-detail-contract-gap">
       <AlertCircleIcon aria-hidden="true" data-icon="inline-start" />
-      <AlertTitle>Contract gap</AlertTitle>
+      <AlertTitle>Source detail pending</AlertTitle>
       <AlertDescription>
-        Detailed evidence is unavailable for this row until the backend exposes row switching.
+        Detailed evidence is unavailable until a governed detail packet is requested for this row.
       </AlertDescription>
     </Alert>
   );
@@ -469,13 +531,13 @@ function DetailGapCard({ title }: { title: string }) {
     <Card className="rounded-lg shadow-none" size="sm">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>Backend row-switch gap</CardDescription>
+        <CardDescription>Source detail pending</CardDescription>
       </CardHeader>
       <CardContent>
         <CaseContractGap />
       </CardContent>
       <CardFooter>
-        <Badge variant="outline">Read model required</Badge>
+        <Badge variant="outline">Detail required</Badge>
       </CardFooter>
     </Card>
   );

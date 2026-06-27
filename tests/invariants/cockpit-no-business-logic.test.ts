@@ -115,15 +115,24 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("const blockedRecordIds");
     expect(queryDock).toContain("citations: response.citations");
     expect(queryDock).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
-    expect(queryDock).not.toMatch(/return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u);
+    const backendQuerySnapshot = queryDock.slice(
+      queryDock.indexOf("function toQueryEvidenceSnapshot"),
+      queryDock.indexOf("function buildSelectedEvidenceIdentity")
+    );
+    expect(backendQuerySnapshot).not.toMatch(
+      /return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u
+    );
+    expect(queryDock).toContain("function buildStoppedQuerySnapshot");
+    expect(queryDock).toMatch(
+      /function buildStoppedQuerySnapshot[\s\S]{0,500}return\s*\{[\s\S]{0,120}citations\s*:\s*\[\][\s\S]{0,220}status\s*:\s*"blocked"/u
+    );
     expect(queryDock).toContain("aria-describedby={promptChipDescriptionId}");
     expect(queryDock).toContain("id={promptChipDescriptionId}");
     expect(queryDock).toMatch(
       /<div\b(?=[^>]*\bclassName="grid min-w-0 gap-2 rounded-lg border bg-background p-3")(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
     );
-    expect(queryDock).not.toMatch(
-      /data-testid="maya-query-assistant-message"[\s\S]{0,900}\b(?:snapshot|response)\.answer\b/u
-    );
+    expect(queryDock).toContain("displayAnswerWithoutInlineRecordIds(snapshot.answer");
+    expect(queryDock).not.toMatch(/\{(?:snapshot|response)\.answer\}/u);
     expect(queryDock).toContain("evidencePack: MayaEvidencePack");
     expect(queryDock).toContain("evidencePack,");
     expect(queryDock).toContain("evidencePack={evidencePack}");
@@ -271,7 +280,7 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(auditPanel).toContain("Receipt fields remain source-owned");
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
-    expect(auditPanel).toContain("View audit trail");
+    expect(auditPanel).not.toContain("View audit trail");
     expect(auditPanel).toContain("onReturnToWorklist");
     expect(auditPanel).toContain("Return to worklist");
     expect(auditPanel).toContain("setCopyStatus(undefined)");
@@ -330,16 +339,17 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(recoveryDraftReview).toContain("approvalActions: MayaApprovalAction[]");
     expect(recoveryDraftReview).toContain("evidencePack: MayaEvidencePack");
     expect(recoveryDraftReview).toContain("selectedWorklistItem: MayaWorklistItem | undefined");
-    expect(recoveryDraftReview).toContain("approvalActions.find((action) => action.decision === \"modify\")");
-    expect(recoveryDraftReview).toContain("approvalActions.find((action) => action.decision === \"reject\")");
+    expect(recoveryDraftReview).toContain("canOpenApproval");
+    expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"modify\")");
+    expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"reject\")");
     expect(recoveryDraftReview).toContain("evidencePack.documents.map");
     expect(recoveryDraftReview).toContain('data-testid="maya-draft-readonly-amount"');
     expect(recoveryDraftReview).toContain('aria-readonly="true"');
     expect(recoveryDraftReview).toContain('data-testid="maya-draft-command-bar"');
-    expect(recoveryDraftReview).toContain('data-testid="maya-draft-command-intent"');
-    expect(recoveryDraftReview).toContain("Request changes");
-    expect(recoveryDraftReview).toContain("Reject draft");
     expect(recoveryDraftReview).toContain("Open approval");
+    expect(recoveryDraftReview).not.toContain('data-testid="maya-draft-command-intent"');
+    expect(recoveryDraftReview).not.toContain("Request changes");
+    expect(recoveryDraftReview).not.toContain("Reject draft");
     expect(recoveryDraftReview).toContain("sticky bottom-0");
     expect(recoveryDraftReview).toContain("pb-24");
     expect(recoveryDraftReview).not.toContain("/api/approval");
@@ -427,13 +437,14 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(surface).toContain('heading="Deduction Cases"');
     expect(surface).toContain('data-testid="maya-beat-12-worklist-page"');
     expect(surface).toContain('data-testid="maya-beat-12-return-table"');
-    expect(surface).toContain("Backend gaps:");
+    expect(surface).toContain("Source fields pending");
+    expect(surface).toContain("Pending source fields:");
     expect(surface).toContain("no committed audit receipt, queue update, or next-case assignment");
     expect(workspace).toContain("onReturnToWorklist: () => void");
     expect(auditPanel).toContain("onClick={onReturnToWorklist}");
     expect(table).toContain("items.length");
     expect(table).toContain("filteredItems.length");
-    expect(table).toContain("Fetched rows only");
+    expect(table).toContain("Current queue");
     expect(surface).not.toContain("nextRecommendedLineId");
     expect(beat12Sources).not.toMatch(/\b(?:Next Case|Next case|Next recommended|Recommended Next|Audit recorded|audit recorded)\b/u);
     expect(beat12Sources).not.toMatch(/\b(?:Completed|Closed|Case closure|queue decremented|Audit verified)\b/u);

@@ -67,13 +67,9 @@ function kpiIconTone(index: number): string {
   return "border-[color:color-mix(in_srgb,var(--color-primary)_20%,var(--border-default))] bg-[color:color-mix(in_srgb,var(--color-primary)_7%,var(--bg-surface))] text-primary";
 }
 
-function kpiValueClassName(value: string): string {
-  return value.length > 9 ? "text-[1.45rem]" : "text-[1.9rem]";
-}
-
 export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
   if (items.length === 0) {
-    return <MayaEmptyState description="The run read model returned no KPI rows." title="KPI strip unavailable" />;
+    return <MayaEmptyState description="The run read model returned no KPI rows." kind="generic" title="KPI strip unavailable" />;
   }
 
   return (
@@ -85,7 +81,7 @@ export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
       {items.map((item, index) => {
         return (
           <Card
-            className="min-h-[166px] justify-between rounded-lg border-border/80 bg-card shadow-xs"
+            className="min-h-[166px] justify-between rounded-lg border-border/80 bg-card shadow-[var(--shadow-sm)]"
             data-kpi-label={item.label}
             data-testid="maya-kpi-card"
             key={item.label}
@@ -112,7 +108,10 @@ export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
               </div>
             </CardHeader>
             <CardContent className="grid min-w-0 gap-2">
-              <CardTitle className={cn("min-w-0 truncate font-semibold leading-none tabular-nums", kpiValueClassName(item.value))}>
+              <CardTitle
+                className="min-w-0 text-2xl font-semibold leading-none tabular-nums truncate"
+                title={item.value}
+              >
                 {item.value}
               </CardTitle>
               <p className="truncate text-xs text-muted-foreground">{item.support}</p>

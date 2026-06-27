@@ -14,6 +14,18 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        valid:
+          "border-success-border bg-success-surface text-success focus-visible:ring-success/20 [a]:hover:bg-success-surface/80",
+        invalid:
+          "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-danger focus-visible:ring-danger/20 [a]:hover:bg-[var(--status-danger-bg)]/80",
+        review:
+          "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-warning focus-visible:ring-warning/20 [a]:hover:bg-[var(--status-warning-bg)]/80",
+        dispute:
+          "border-[color:var(--status-dispute-border)] bg-[var(--status-dispute-bg)] text-dispute focus-visible:ring-dispute/20 [a]:hover:bg-[var(--status-dispute-bg)]/80",
+        info:
+          "border-[color:var(--status-info-border)] bg-[var(--status-info-bg)] text-info focus-visible:ring-info/20 [a]:hover:bg-[var(--status-info-bg)]/80",
+        neutralStatus:
+          "border-[color:var(--status-neutral-border)] bg-[var(--status-neutral-bg)] text-neutral-status focus-visible:ring-neutral-status/20 [a]:hover:bg-[var(--status-neutral-bg)]/80",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

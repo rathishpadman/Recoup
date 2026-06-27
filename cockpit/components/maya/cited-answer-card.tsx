@@ -59,19 +59,33 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
           <CardTitle>Cited answer</CardTitle>
           <CardDescription>Blocked unless a response includes citations and deterministic basis</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-3">
           <Alert data-testid="maya-cited-answer-blocked">
             <AlertTitle>{response?.message ?? "No cited answer returned"}</AlertTitle>
             <AlertDescription>
-              <div className="flex flex-wrap gap-2">
-                {(response?.recordIds ?? []).map((recordId) => (
-                  <Badge key={recordId} variant="outline">
-                    {recordId}
-                  </Badge>
-                ))}
-              </div>
+              {(response?.recordIds ?? []).length === 0
+                ? "No cited record IDs were returned with this response."
+                : "Cited record IDs are available in source details."}
             </AlertDescription>
           </Alert>
+          <Accordion collapsible type="single">
+            <AccordionItem data-testid="maya-cited-blocked-source-details" value="blocked-source-details">
+              <AccordionTrigger>Source details</AccordionTrigger>
+              <AccordionContent>
+                <div className="flex flex-wrap gap-2" aria-label="Blocked cited answer record IDs">
+                  {(response?.recordIds ?? []).length === 0 ? (
+                    <Badge variant="outline">No record IDs</Badge>
+                  ) : (
+                    (response?.recordIds ?? []).map((recordId) => (
+                      <Badge key={recordId} variant="outline">
+                        {recordId}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </CardContent>
       </Card>
     );
@@ -87,9 +101,9 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
       <CardHeader>
         <CardTitle className="flex min-w-0 items-center gap-2">
           <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-          <span>Citation review</span>
+          <span>Sources and basis</span>
         </CardTitle>
-        <CardDescription>Accepted only after answer, deterministic basis, and cited record IDs are present.</CardDescription>
+        <CardDescription>Citations and deterministic basis for the current answer.</CardDescription>
         <CardAction>
           <Badge variant="secondary">Answered</Badge>
         </CardAction>
@@ -103,15 +117,22 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
               <Badge variant="outline">{`${evidencePack.documents.length.toString()} loaded documents`}</Badge>
             </div>
             <p className="text-sm leading-6" data-testid="maya-cited-answer-text">
-              {response.answer}
+              {displayAnswerWithoutInlineRecordIds(response.answer, response.recordIds)}
             </p>
           </div>
           <Separator />
-          <Alert data-testid="maya-cited-answer-basis">
-            <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
-            <AlertTitle>Deterministic basis</AlertTitle>
-            <AlertDescription>{response.deterministicBasis}</AlertDescription>
-          </Alert>
+          <Accordion collapsible type="single">
+            <AccordionItem data-testid="maya-cited-answer-basis" value="basis">
+              <AccordionTrigger>Basis</AccordionTrigger>
+              <AccordionContent>
+                <Alert>
+                  <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
+                  <AlertTitle>Basis available in trace details</AlertTitle>
+                  <AlertDescription>{response.deterministicBasis}</AlertDescription>
+                </Alert>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
         <Accordion collapsible type="single">
           <AccordionItem data-testid="maya-cited-source-details" value="source-details">
@@ -211,4 +232,27 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
       </CardContent>
     </Card>
   );
+}
+
+function displayAnswerWithoutInlineRecordIds(answer: string, recordIds: readonly string[]): string {
+  const trimmedAnswer = answer.trim();
+  const withoutTrailingRecordList = trimmedAnswer
+    .replace(/\s*(?:The answer is limited to cited record IDs|Cited record IDs|Record IDs)\s*:\s*[^.]+\.?\s*$/iu, "")
+    .trim();
+  const redacted = [...recordIds]
+    .sort((left, right) => right.length - left.length)
+    .reduce((current, recordId) => {
+      const escapedRecordId = escapeRegExp(recordId);
+      return current
+        .replace(new RegExp(`\\bLine\\s+${escapedRecordId}\\b`, "gu"), "The selected line")
+        .replace(new RegExp(escapedRecordId, "gu"), "a cited record");
+    }, withoutTrailingRecordList)
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  return redacted.length === 0 ? "Answer details are available with citations in source details." : redacted;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

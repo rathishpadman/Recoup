@@ -110,6 +110,12 @@ export interface LoginCockpitModel {
   }>;
 }
 
+export interface ApprovalEligibilityCockpitModel {
+  available: boolean;
+  provenance: MayaFieldProvenance;
+  statusLabel: string;
+}
+
 export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
   kpiStrip: Array<{
@@ -121,6 +127,7 @@ export interface ForensicsCockpitModel {
   worklist: WorklistItem[];
   selected: {
     lineId: string;
+    approvalEligibility: ApprovalEligibilityCockpitModel;
     approvalActions: Array<{
       decision: "approve" | "modify" | "reject";
       label: string;
@@ -150,6 +157,7 @@ export interface ForensicsCockpitModel {
       statusLabel: string;
       amount: string;
       basis: string;
+      approvalEligibility: ApprovalEligibilityCockpitModel;
       provenance: MayaFieldProvenance;
     };
   };

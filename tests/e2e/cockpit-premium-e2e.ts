@@ -30,6 +30,7 @@ interface DemoProfile {
 }
 
 interface ForensicsE2EModel {
+  actionInbox: unknown[];
   kpiStrip: Array<{
     label: string;
   }>;
@@ -49,6 +50,10 @@ interface ForensicsE2EModel {
   }>;
   selected: {
     lineId: string;
+    approvalEligibility: {
+      available: boolean;
+      statusLabel: string;
+    };
     approvalActions: Array<{
       decision: "approve" | "modify" | "reject";
       label: string;
@@ -57,6 +62,10 @@ interface ForensicsE2EModel {
     draft: {
       actionId: string;
       actionLabel: string;
+      approvalEligibility: {
+        available: boolean;
+        statusLabel: string;
+      };
       amount: string;
       basis: string;
       statusLabel: string;
@@ -270,7 +279,7 @@ async function ensureApi(): Promise<ManagedProcess | undefined> {
 }
 
 async function ensureCockpit(): Promise<ManagedProcess | undefined> {
-  if (await hasAnyHttpResponse(`${appUrl}/login`)) {
+  if ((await hasAnyHttpResponse(`${appUrl}/login`)) && (await hasHealthyResponse(workItemDetailRouteProbeUrl(), 401))) {
     return undefined;
   }
 
@@ -282,6 +291,7 @@ async function ensureCockpit(): Promise<ManagedProcess | undefined> {
   );
   try {
     await waitForAnyHttpResponse(`${appUrl}/login`, 60_000);
+    await waitForUrl(workItemDetailRouteProbeUrl(), 401, 60_000);
   } catch (error) {
     dumpRecentOutput(managedProcess);
     stopProcess(managedProcess.child);
@@ -289,6 +299,10 @@ async function ensureCockpit(): Promise<ManagedProcess | undefined> {
   }
 
   return managedProcess;
+}
+
+function workItemDetailRouteProbeUrl(): string {
+  return `${appUrl}/api/forensics/work-items/__route_probe__`;
 }
 
 async function assertApiHealth(): Promise<void> {
@@ -382,12 +396,17 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await assertBeat2HeaderFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2OverviewIsNotBlank(page, model, `Maya Beat 2 ${String(target.width)}px`);
-      await assertBeat2SourceReadinessFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2SourceReadinessFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
       if (target.label === "") {
         await assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(browser, backendSelectedRow, beat2RowOpenTarget);
+        await assertMayaDetailErrorStateIsActionable(browser, beat2RowOpenTarget);
         await assertRecoupAgentLauncherOpensGroundedDock(page);
       }
+      await page.getByRole("button", { name: /^Cases$/u }).click();
+      await assertBeat2CasesRootFidelity(page, model, backendSelectedRow, `Maya Beat 2 ${String(target.width)}px`);
+      await page.getByRole("button", { name: /^Evidence$/u }).click();
+      await assertBeat2EvidenceRootFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await page.getByRole("button", { name: /^Worklist$/u }).click();
       await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist section");
       await expectVisibleText(page, "Deduction Worklist");
@@ -412,7 +431,11 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
         (request) => request.method() === "GET" && request.url().includes(expectedDetailPath),
         { timeout: 5_000 }
       );
-      await page.getByTestId("maya-local-row-action-open").click();
+      const rowScopedOpenButton = page
+        .locator(`[data-testid="maya-worklist-row"][data-line-id="${beat2RowOpenTarget.lineId}"]`)
+        .getByTestId("maya-row-action-open");
+      await rowScopedOpenButton.focus();
+      await page.keyboard.press("Enter");
       await explicitDetailRequest;
       if (target.label === "") {
         await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "hidden", timeout: 5_000 });
@@ -530,6 +553,65 @@ async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(
       (await page.locator('[data-testid="maya-query-dock"]').count()) === 0,
       "Recoup Agent launcher signal must not replay after canceled detail loading"
     );
+  } finally {
+    await page.unroute(routePattern).catch(() => undefined);
+    await context.close();
+  }
+}
+
+async function assertMayaDetailErrorStateIsActionable(browser: Browser, errorTarget: ForensicsE2EWorklistItem): Promise<void> {
+  const context = await newRoleContext(browser, "maya", 1440, 900);
+  const page = await context.newPage();
+  const routePattern = "**/api/forensics/work-items/**";
+  const expectedDetailPath = `/api/forensics/work-items/${encodeURIComponent(errorTarget.lineId)}`;
+  let failedOnce = false;
+
+  await page.route(routePattern, async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "GET" && pathname.endsWith(expectedDetailPath) && !failedOnce) {
+      failedOnce = true;
+      await route.fulfill({
+        body: JSON.stringify({
+          correlationId: "maya-task-9-detail-error-e2e",
+          error: "Detail source unavailable for E2E.",
+          missingSource: "sapOData"
+        }),
+        contentType: "application/json",
+        status: 503
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await openMayaWorklistSection(page);
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${errorTarget.lineId}"]`).click();
+    await page.getByTestId("maya-local-row-action-open").click();
+    await expectVisibleLocator(page, '[data-testid="maya-work-item-detail-state"]', "Maya detail error state");
+    await expectVisibleText(page, "Source unavailable");
+    await expectVisibleText(page, "Retry");
+    await expectVisibleText(page, "Return to worklist");
+
+    const details = page.getByTestId("maya-work-item-detail-error-details");
+    await expectVisibleLocator(page, '[data-testid="maya-work-item-detail-error-details"]', "Maya detail error details");
+    await details.getByRole("button", { name: /details/u }).click();
+    const detailsText = await details.innerText();
+    assert(detailsText.includes("maya-task-9-detail-error-e2e"), "Maya detail error details must expose correlation ID");
+    assert(detailsText.includes("sapOData"), "Maya detail error details must expose missing source");
+    assert(detailsText.includes("503"), "Maya detail error details must expose response status");
+
+    const retryResponse = page.waitForResponse(
+      (response) => response.request().method() === "GET" && response.url().includes(expectedDetailPath),
+      { timeout: 20_000 }
+    );
+    await page.getByRole("button", { name: /^Retry$/u }).click();
+    const response = await retryResponse;
+    assert(response.ok(), `Maya detail retry must restore governed detail after one fail-closed 503: ${response.status().toString()}`);
+    await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 20_000 });
   } finally {
     await page.unroute(routePattern).catch(() => undefined);
     await context.close();
@@ -701,6 +783,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
       })
     ]);
     await assertBeat7AgentTraceInProgressFidelity(page, model, localQuestion, forbiddenRequests, backendQueryRequestCount);
+    await assertBeat7StopQueryResetsParentTrace(page);
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-07-agent-trace.png` });
   } finally {
     releaseForensicsQueryRequest?.();
@@ -1069,12 +1152,8 @@ async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<
     await assertLocatorInsideViewport(page, '[data-testid="maya-draft-command-bar"]', "Maya Beat 9 command bar");
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-09-draft-review.png` });
 
-    await page.getByRole("button", { name: /^Request changes$/u }).click();
-    await expectVisibleText(page, "Request changes prepared");
-    await page.getByRole("button", { name: /^Reject draft$/u }).click();
-    await expectVisibleText(page, "Reject draft prepared");
     await page.getByRole("button", { name: /^Open approval$/u }).click();
-    await expectVisibleText(page, "Open approval prepared");
+    await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya draft command approval dialog");
     assert(forbiddenRequests.length === 0, `Beat 9 commands must not call forbidden routes: ${forbiddenRequests.join(", ")}`);
   } finally {
     await context.close();
@@ -1275,6 +1354,9 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
   try {
     await loginPage.goto(`${appUrl}/login?error=demo-login`, { waitUntil: "networkidle" });
     await expectVisibleLocator(loginPage, '[data-testid="maya-login-beat"]', "Maya Beat 1 login scene");
+    await expectVisibleLocator(loginPage, '[data-testid="maya-login-card"]', "Maya Beat 1 login card");
+    await expectVisibleLocator(loginPage, '[data-testid="maya-login-context-panel"]', "Maya Beat 1 context panel");
+    await expectVisibleLocator(loginPage, '[data-testid="maya-login-workspace-chip"]', "Maya Beat 1 workspace chip");
     await expectVisibleLocator(loginPage, 'input[name="loginId"]', "Maya login ID input");
     await expectVisibleLocator(loginPage, 'input[name="password"]', "Maya password input");
     await expectVisibleText(loginPage, "Deduction Forensics");
@@ -1286,9 +1368,63 @@ async function captureMayaLoginBeatScreenshot(browser: Browser): Promise<void> {
       "Maya Beat 1 login must not expose persona radio controls"
     );
 
-    const forgotPassword = loginPage.getByRole("button", { name: /Forgot password unavailable/u });
-    assert((await forgotPassword.count()) === 1, "forgot password must render as unavailable instead of an active inert control");
-    assert(await forgotPassword.isDisabled(), "forgot password unavailable control must be disabled");
+    await expectVisibleText(loginPage, "Password recovery unavailable in demo");
+    assert(
+      (await loginPage.getByRole("button", { name: /Forgot password/u }).count()) === 0,
+      "Maya Beat 1 login must not expose a disabled forgot-password control"
+    );
+
+    const loginLayout = await loginPage.evaluate(() => {
+      const card = document.querySelector<HTMLElement>('[data-testid="maya-login-card"]');
+      const panel = document.querySelector<HTMLElement>('[data-testid="maya-login-context-panel"]');
+      const chip = document.querySelector<HTMLElement>('[data-testid="maya-login-workspace-chip"]');
+      const bodyText = document.body.innerText;
+      const cardRect = card?.getBoundingClientRect();
+      const panelRect = panel?.getBoundingClientRect();
+      const chipRect = chip?.getBoundingClientRect();
+      const leftEdge = Math.min(cardRect?.left ?? Number.POSITIVE_INFINITY, panelRect?.left ?? Number.POSITIVE_INFINITY);
+      const rightEdge = Math.max(cardRect?.right ?? 0, panelRect?.right ?? 0);
+      const horizontalGap =
+        cardRect !== undefined && panelRect !== undefined
+          ? Math.max(cardRect.left, panelRect.left) - Math.min(cardRect.right, panelRect.right)
+          : 0;
+
+      return {
+        bodyText,
+        card: cardRect === undefined ? undefined : { height: cardRect.height, left: cardRect.left, right: cardRect.right, width: cardRect.width },
+        chip:
+          chipRect === undefined
+            ? undefined
+            : {
+                ariaLabel: chip?.getAttribute("aria-label") ?? "",
+                height: chipRect.height,
+                inputCount: chip?.querySelectorAll('input, [role="searchbox"], [type="search"]').length ?? 0,
+                text: chip?.innerText.trim() ?? "",
+                width: chipRect.width
+              },
+        compositionWidth: rightEdge - leftEdge,
+        horizontalGap,
+        panel:
+          panelRect === undefined
+            ? undefined
+            : { height: panelRect.height, left: panelRect.left, right: panelRect.right, width: panelRect.width },
+        sideZoneDelta: Math.abs(leftEdge - (window.innerWidth - rightEdge)),
+        viewportWidth: window.innerWidth
+      };
+    });
+    assert(loginLayout.card !== undefined, "Maya Beat 1 login card must have a bounding box");
+    assert(loginLayout.panel !== undefined, "Maya Beat 1 context panel must have a bounding box");
+    assert(loginLayout.chip !== undefined, "Maya Beat 1 workspace chip must have a bounding box");
+    assert(loginLayout.panel.width >= 320, `Maya Beat 1 context panel must be substantial at 1440px: ${String(loginLayout.panel.width)}px`);
+    assert(loginLayout.card.width >= 440, `Maya Beat 1 login card must remain substantial at 1440px: ${String(loginLayout.card.width)}px`);
+    assert(loginLayout.compositionWidth >= 920, `Maya Beat 1 login must use a balanced desktop composition: ${String(loginLayout.compositionWidth)}px`);
+    assert(loginLayout.horizontalGap >= 24, `Maya Beat 1 login card and context panel must be horizontally separated: ${String(loginLayout.horizontalGap)}px`);
+    assert(loginLayout.sideZoneDelta <= 160, `Maya Beat 1 side zones must remain balanced: ${String(loginLayout.sideZoneDelta)}px delta`);
+    assert(loginLayout.chip.inputCount === 0, "Maya Beat 1 workspace chip must not be an input or search box");
+    assert(loginLayout.chip.text.includes("Forensics"), "Maya Beat 1 workspace chip must expose the workspace context");
+    for (const forbiddenName of ["Maya Patel", "David Kim", "CFO"]) {
+      assert(!loginLayout.bodyText.includes(forbiddenName), `Maya Beat 1 login must not visibly leak persona name ${forbiddenName}`);
+    }
 
     const legacyLoginNodes = await loginPage
       .locator(".state-shell, .login-workstation, .login-rail, .login-source-rack, .login-form, .login-fields")
@@ -1660,15 +1796,14 @@ async function assertBeat2HeaderFidelity(page: Page, connectors: ConnectorE2EMod
   const header = await page.evaluate(() => {
     const runDateGap = document.querySelector<HTMLElement>('[data-testid="maya-run-date-contract-gap"]');
     const refreshMetadata = document.querySelector<HTMLElement>('[data-testid="maya-refresh-metadata"]');
-    const refreshGap = document.querySelector<HTMLElement>('[data-testid="maya-refresh-contract-gap"]');
     const sourceReadiness = document.querySelector<HTMLElement>('[data-testid="maya-source-readiness-strip"]');
-    const disabledRefresh = refreshGap?.querySelector<HTMLButtonElement>("button:disabled");
 
     return {
-      refreshButtonLabel: disabledRefresh?.getAttribute("aria-label") ?? "",
-      refreshButtonText: disabledRefresh?.innerText.trim() ?? "",
+      refreshContractGapExists: document.querySelector('[data-testid="maya-refresh-contract-gap"]') !== null,
+      refreshButtonCount: [...document.querySelectorAll<HTMLButtonElement>("button")].filter((button) =>
+        button.innerText.trim() === "Refresh"
+      ).length,
       refreshMetadataText: refreshMetadata?.innerText.trim() ?? "",
-      refreshUnavailableDisabled: disabledRefresh !== null && disabledRefresh !== undefined,
       runDateLabel: runDateGap?.getAttribute("aria-label") ?? "",
       sourceReadinessLabel: sourceReadiness?.getAttribute("aria-label") ?? ""
     };
@@ -1700,12 +1835,8 @@ async function assertBeat2HeaderFidelity(page: Page, connectors: ConnectorE2EMod
     header.sourceReadinessLabel.includes(header.refreshMetadataText),
     `${label} header source refresh metadata must match the same page-rendered source readiness model`
   );
-  assert(header.refreshButtonText === "Refresh", `${label} header refresh affordance should stay visually light`);
-  assert(
-    header.refreshButtonLabel.includes("Refresh unavailable"),
-    `${label} header must label missing backend refresh action`
-  );
-  assert(header.refreshUnavailableDisabled, `${label} refresh control must not trigger a page reload as a fake refresh`);
+  assert(!header.refreshContractGapExists, `${label} header must hide unavailable refresh controls`);
+  assert(header.refreshButtonCount === 0, `${label} header must not render a fake refresh button`);
 }
 
 async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> {
@@ -1731,12 +1862,12 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
       worklistTable === null
         ? []
         : [...worklistTable.querySelectorAll<HTMLElement>("[title]")].filter((element) => element.offsetParent !== null);
-    const fetchedRowsOnlyMentions = [...document.querySelectorAll<HTMLElement>("body *")]
+    const currentQueueMentions = [...document.querySelectorAll<HTMLElement>("body *")]
       .filter(
         (element) =>
           element.offsetParent !== null &&
           typeof element.innerText === "string" &&
-          element.innerText.trim() === "Fetched rows only"
+          element.innerText.trim() === "Current queue"
       )
       .map((element) => element.getBoundingClientRect());
 
@@ -1759,8 +1890,8 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
           title: element.getAttribute("title") ?? ""
         }))
         .filter((cell) => cell.scrollWidth > cell.clientWidth + 1),
-      fetchedRowsOnlyVisibleCount: fetchedRowsOnlyMentions.length,
-      hasContractGapAffordance: contractGap?.innerText.includes("Read-model gaps") ?? false,
+      currentQueueVisibleCount: currentQueueMentions.length,
+      hasContractGapAffordance: contractGap?.innerText.includes("Source details") ?? false,
       maxRowHeight: Math.max(...rows.map((row) => row.getBoundingClientRect().height)),
       routingLabelMetrics: routingLabels.map((routingLabel) => ({
         height: routingLabel.getBoundingClientRect().height,
@@ -1778,8 +1909,8 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
   });
 
   assert(fit.tableWidth > 0, `${label} worklist table must render with a measurable width`);
-  assert(fit.rowCount > 0, `${label} worklist rows must render from fetched data`);
-  assert(fit.hasContractGapAffordance, `${label} worklist must honestly mark missing mockup contract fields`);
+  assert(fit.rowCount > 0, `${label} worklist rows must render from source data`);
+  assert(fit.hasContractGapAffordance, `${label} worklist must expose source field details`);
   assert(
     fit.workItemHeaderLineCount === 1,
     `${label} Work item header must stay single-line: ${String(fit.workItemHeaderLineCount)} rendered lines`
@@ -1790,9 +1921,9 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
     `${label} worklist title-backed text must not be visibly clipped: ${JSON.stringify(fit.clippedTitleBackedCells)}`
   );
   assert(
-    fit.fetchedRowsOnlyVisibleCount === 1,
-    `${label} worklist footer rhythm must expose exactly one Fetched rows only label: ${String(
-      fit.fetchedRowsOnlyVisibleCount
+    fit.currentQueueVisibleCount === 1,
+    `${label} worklist footer rhythm must expose exactly one Current queue label: ${String(
+      fit.currentQueueVisibleCount
     )}`
   );
 
@@ -1806,9 +1937,9 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
       `${label} worklist chip must stay single-line (${chip.label}): ${String(chip.height)}px`
     );
   }
-  assert(fit.routingLabelMetrics.length > 0, `${label} routing labels must render from fetched rows`);
+  assert(fit.routingLabelMetrics.length > 0, `${label} routing labels must render from source rows`);
   for (const routingLabel of fit.routingLabelMetrics) {
-    assert(routingLabel.label.length > 0, `${label} routing labels must expose backend text`);
+    assert(routingLabel.label.length > 0, `${label} routing labels must expose source text`);
     assert(
       routingLabel.height <= routingLabel.lineHeight * 2 + 4 && routingLabel.scrollHeight <= routingLabel.height + 1,
       `${label} routing label must stay compact and unclipped (${routingLabel.label}): ${String(routingLabel.height)}px`
@@ -1894,6 +2025,114 @@ async function assertBeat2OverviewIsNotBlank(
   assert(
     visibleValidRows.length > 0,
     `${label} Overview positive cases must render valid-deduction rows from the backend read model`
+  );
+}
+
+async function assertBeat2CasesRootFidelity(
+  page: Page,
+  model: ForensicsE2EModel,
+  expectedRow: ForensicsE2EModel["worklist"][number],
+  label: string
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-root-section-cases"]', `${label} Cases root section`);
+  await expectVisibleLocator(page, '[data-testid="maya-cases-table-scroll"]', `${label} Cases table scroll area`);
+  await expectVisibleLocator(page, '[data-testid="maya-cases-selected-starter"]', `${label} Cases selected starter`);
+  await page
+    .locator('[data-testid="maya-case-row"]')
+    .filter({ hasText: expectedRow.scenarioLabel })
+    .getByRole("button", { name: /^Select$/u })
+    .click();
+
+  const result = await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>('[data-testid="maya-root-section-cases"]');
+    const scroll = document.querySelector<HTMLElement>('[data-testid="maya-cases-table-scroll"]');
+    const starter = document.querySelector<HTMLElement>('[data-testid="maya-cases-selected-starter"]');
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-case-row"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+    const selectedRows = rows.filter((row) => row.getAttribute("aria-selected") === "true");
+    const selectedRow = selectedRows[0];
+    const selectedStyle = selectedRow === undefined ? undefined : window.getComputedStyle(selectedRow);
+    const visibleCells = [...(root?.querySelectorAll<HTMLElement>("td, th, button, [data-slot='badge']") ?? [])].filter(
+      (node) => {
+        const rect = node.getBoundingClientRect();
+
+        return node.offsetParent !== null && rect.width > 4 && rect.height > 4;
+      }
+    );
+
+    return {
+      cellCount: visibleCells.length,
+      rootText: root?.innerText ?? "",
+      rowCount: rows.length,
+      scrollHeight: scroll?.getBoundingClientRect().height ?? 0,
+      selectedRowCount: selectedRows.length,
+      selectedRowText: selectedRow?.innerText ?? "",
+      selectedStarterHeight: starter?.getBoundingClientRect().height ?? 0,
+      selectedStarterText: starter?.innerText ?? "",
+      selectedStyle: {
+        boxShadow: selectedStyle?.boxShadow ?? "",
+        borderLeftWidth: selectedStyle?.borderLeftWidth ?? ""
+      }
+    };
+  });
+
+  assert(result.rowCount === model.worklist.length, `${label} Cases root must render every backend work item`);
+  assert(result.cellCount >= model.worklist.length * 4, `${label} Cases root must use dense table content, not sparse blank space`);
+  assert(result.scrollHeight >= 360, `${label} Cases table must reserve useful operational height: ${String(result.scrollHeight)}px`);
+  assert(
+    result.selectedStarterHeight >= 360,
+    `${label} Cases selected starter must fill the side pane instead of leaving a sparse column`
+  );
+  assert(result.selectedRowCount === 1, `${label} Cases root must expose one selected row after Select`);
+  assert(result.selectedRowText.includes(expectedRow.scenarioLabel), `${label} selected Cases row must use backend scenario`);
+  assert(result.selectedStarterText.includes(expectedRow.customerLabel), `${label} selected starter must use backend customer`);
+  assert(result.selectedStarterText.includes(expectedRow.amount), `${label} selected starter must use backend amount`);
+  assert(result.rootText.includes(expectedRow.verdictLabel), `${label} Cases root must show backend verdict labels`);
+  assert(
+    result.selectedStyle.borderLeftWidth !== "0px" || result.selectedStyle.boxShadow !== "none",
+    `${label} Cases selected state must have visible elevation or left-edge treatment`
+  );
+}
+
+async function assertBeat2EvidenceRootFidelity(page: Page, connectors: ConnectorE2EModel, label: string): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-root-section-evidence"]', `${label} Evidence root section`);
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-source-readiness-group"]', `${label} Evidence source readiness`);
+
+  const result = await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>('[data-testid="maya-root-section-evidence"]');
+    const readinessGroup = document.querySelector<HTMLElement>('[data-testid="maya-evidence-source-readiness-group"]');
+    const sourceRows = [...(readinessGroup?.querySelectorAll<HTMLElement>("[data-status-tone]") ?? [])].filter(
+      (row) => row.offsetParent !== null
+    );
+    const visibleChildren = [...(root?.querySelectorAll<HTMLElement>("button, [role='alert'], [data-status-tone], dl, div") ?? [])].filter(
+      (node) => {
+        const rect = node.getBoundingClientRect();
+
+        return node.offsetParent !== null && rect.width > 4 && rect.height > 4;
+      }
+    );
+
+    return {
+      evidenceHeight: root?.getBoundingClientRect().height ?? 0,
+      readinessText: readinessGroup?.innerText ?? "",
+      sourceRowCount: sourceRows.length,
+      text: root?.innerText ?? "",
+      visibleChildCount: visibleChildren.length
+    };
+  });
+
+  assert(result.evidenceHeight >= 320, `${label} Evidence root must occupy useful space: ${String(result.evidenceHeight)}px`);
+  assert(result.visibleChildCount >= 12, `${label} Evidence root must render dense selected/source content`);
+  assert(
+    result.sourceRowCount === connectors.sourceTiles.length,
+    `${label} Evidence root must render all backend source readiness rows`
+  );
+  assert(result.text.includes("Selected evidence"), `${label} Evidence root must keep selected evidence context`);
+  assert(result.text.includes("Source readiness"), `${label} Evidence root must keep source readiness context`);
+  assert(
+    connectors.sourceTiles.every((source) => result.readinessText.includes(source.label)),
+    `${label} Evidence root source readiness must use connector read-model labels`
   );
 }
 
@@ -2037,7 +2276,7 @@ async function assertBeat3RecommendedActionFidelity(
   assert(result.calloutText.includes(expectedRow.recommendedActionLabel), `${label} pane callout must use backend recommendation`);
   assert(
     result.contractText.includes("fixed evidence packet corresponds") ||
-      result.contractText.includes("Detailed evidence is unavailable for this row until the backend exposes row switching."),
+      result.contractText.includes("Detailed evidence is unavailable until a governed detail packet is requested for this row."),
     `${label} must identify whether the selected row has backend-selected detail availability`
   );
   assert(result.buttonLabels.includes("Open investigation"), `${label} must render local open-investigation affordance`);
@@ -2068,7 +2307,7 @@ async function assertBeat3ReadModelMismatch(
   assert(result.selectedDataLineId === expectedRow.lineId, `local selection must switch to ${expectedRow.lineId}`);
   assert(result.paneText.includes(expectedRow.customerLabel), "mismatch pane must summarize the clicked fetched row");
   assert(
-    result.contractText.includes("Detailed evidence is unavailable for this row until the backend exposes row switching."),
+    result.contractText.includes("Detailed evidence is unavailable until a governed detail packet is requested for this row."),
     "mismatch pane must not reuse backend-selected deep evidence for another row"
   );
 }
@@ -2119,7 +2358,10 @@ async function assertBeat4CaseOverviewFidelity(
   assert(result.text.includes(expectedRow.routingLabel), "Beat 4 workspace must use backend routing label");
   assert(result.text.includes(expectedRow.queueLabel), "Beat 4 workspace must use backend queue label");
   assert(result.text.includes(expectedRow.confidenceLabel), "Beat 4 workspace must use backend confidence label");
-  assert(result.text.includes(recordId), "Beat 4 workspace must show backend record IDs");
+  assert(!result.text.includes(recordId), "Beat 4 workspace must keep backend record IDs out of primary overview copy");
+  await page.locator('[data-testid="maya-case-basis-source-details"]').getByRole("button", { name: /^Basis source details$/u }).click();
+  const basisSourceDetailsText = await page.locator('[data-testid="maya-case-basis-source-details"]').innerText();
+  assert(basisSourceDetailsText.includes(recordId), "Beat 4 basis source details must retain backend record IDs");
   assert(result.primaryDraftFactsText.includes("Draft action"), "Beat 4 primary draft facts must keep the backend action label");
   assert(
     !result.primaryDraftFactsText.includes(model.selected.draft.actionId),
@@ -2195,7 +2437,13 @@ async function assertBeat4DraftTabFidelity(
   assert(result.text.includes(model.selected.draft.statusLabel), "Beat 4 Draft tab must keep the backend status label");
   assert(result.text.includes(model.selected.draft.amount), "Beat 4 Draft tab must keep the backend amount");
   assert(result.text.includes(model.selected.draft.basis), "Beat 4 Draft tab must keep the backend deterministic basis");
-  assert(result.text.includes(recordId), "Beat 4 Draft tab must keep backend record IDs");
+  assert(!result.text.includes(recordId), "Beat 4 Draft tab must keep backend record IDs out of primary draft copy");
+  await page
+    .locator('[data-testid="maya-draft-audit-basis-source-details"]')
+    .getByRole("button", { name: /^Audit basis source details$/u })
+    .click();
+  const draftSourceDetailsText = await page.locator('[data-testid="maya-draft-audit-basis-source-details"]').innerText();
+  assert(draftSourceDetailsText.includes(recordId), "Beat 4 Draft tab source details must retain backend record IDs");
   assert(result.headers.includes("Draft label"), "Beat 4 Draft tab inbox must use neutral draft-label copy");
   assert(!result.headers.includes("Action"), "Beat 4 Draft tab inbox must not use command-like Action header copy");
   assert(!result.text.includes("Action ID"), "Beat 4 Draft tab must not expose raw Action ID labels");
@@ -2227,8 +2475,6 @@ async function assertBeat9DraftReviewFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-draft-readonly-amount"]', "Maya Beat 9 read-only amount");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
-  const hasModify = model.selected.approvalActions.some((action) => action.decision === "modify");
-  const hasReject = model.selected.approvalActions.some((action) => action.decision === "reject");
 
   const result = await page.evaluate(() => {
     const draft = document.querySelector<HTMLElement>('[data-testid="maya-recovery-draft-review"]');
@@ -2260,15 +2506,23 @@ async function assertBeat9DraftReviewFidelity(
   assert(result.text.includes(model.selected.draft.statusLabel), "Beat 9 must render the backend draft status");
   assert(result.text.includes(model.selected.draft.amount), "Beat 9 must render the backend draft amount");
   assert(result.text.includes(model.selected.draft.basis), "Beat 9 must render the backend draft basis");
-  assert(result.text.includes(recordId), "Beat 9 must render backend record IDs");
+  assert(!result.text.includes(recordId), "Beat 9 must keep backend record IDs out of primary draft copy");
   assert(result.text.includes("Draft gate"), "Beat 9 context rail must show the backend draft gate section");
   assert(result.text.includes("Human decisions"), "Beat 9 context rail must show available human decisions");
   assert(result.text.includes("Evidence records"), "Beat 9 context rail must show backend evidence record IDs");
-  assert(result.text.includes("Backend gaps"), "Beat 9 context rail must call out backend contract gaps");
-  assert(result.text.includes("Packet display ID not exposed"), "Beat 9 context rail must avoid fake packet IDs");
-  assert(result.text.includes("Case account and currency not exposed"), "Beat 9 context rail must avoid fake account/currency facts");
-  assert(result.text.includes("Approval owner and timestamps not exposed"), "Beat 9 context rail must avoid fake owner/timestamp facts");
-  assert(result.text.includes("Audit hash waits for human decision"), "Beat 9 context rail must avoid fake audit hashes");
+  await page.locator('[data-testid="maya-draft-rail-record-ids"]').getByRole("button", { name: /^Evidence source details$/u }).click();
+  const draftRecordDetailsText = await page.locator('[data-testid="maya-draft-rail-record-ids"]').innerText();
+  assert(draftRecordDetailsText.includes(recordId), "Beat 9 evidence source details must retain backend record IDs");
+  assert(result.text.includes("Source fields pending"), "Beat 9 context rail must call out source-field gaps");
+  const sourceGapDisclosure = page.locator('[data-testid="maya-draft-rail-backend-gaps"]').getByRole("button", {
+    name: /^Source fields pending$/u
+  });
+  await sourceGapDisclosure.click();
+  const sourceGapDetailText = await page.locator('[data-testid="maya-draft-rail-backend-gaps"]').innerText();
+  assert(sourceGapDetailText.includes("Packet display ID not exposed"), "Beat 9 source details must avoid fake packet IDs");
+  assert(sourceGapDetailText.includes("Case account and currency not exposed"), "Beat 9 source details must avoid fake account/currency facts");
+  assert(sourceGapDetailText.includes("Approval owner and timestamps not exposed"), "Beat 9 source details must avoid fake owner/timestamp facts");
+  assert(sourceGapDetailText.includes("Audit hash waits for human decision"), "Beat 9 source details must avoid fake audit hashes");
   assert(result.text.includes(selectedRow.customerLabel), "Beat 9 context rail must use the selected worklist customer label");
   assert(result.text.includes(selectedRow.scenarioLabel), "Beat 9 context rail must use the selected worklist scenario label");
   assert(result.text.includes(evidenceDocument.citationId), "Beat 9 evidence table must show backend citation IDs");
@@ -2284,12 +2538,8 @@ async function assertBeat9DraftReviewFidelity(
   assert(!result.headers.includes("Included"), "Beat 9 evidence table must not invent included flags");
   assert(result.amountReadonly === "true", "Beat 9 amount must be marked read-only");
   assert(result.inputCount === 0, "Beat 9 must not render editable draft fields");
-  if (hasModify) {
-    assert(result.buttonLabels.includes("Request changes"), "Beat 9 modify action must surface as Request changes");
-  }
-  if (hasReject) {
-    assert(result.buttonLabels.includes("Reject draft"), "Beat 9 reject action must surface as Reject draft");
-  }
+  assert(!result.buttonLabels.includes("Request changes"), "Beat 9 must not expose caption-only Request changes controls");
+  assert(!result.buttonLabels.includes("Reject draft"), "Beat 9 must not expose caption-only Reject draft controls");
   assert(result.buttonLabels.includes("Open approval"), "Beat 9 must expose an Open approval affordance");
   assert(result.disabledButtonLabels.length === 0, "Beat 9 available command buttons must be keyboard reachable");
   assert(!result.text.includes("Action ID"), "Beat 9 must not expose raw Action ID as primary copy");
@@ -2316,7 +2566,11 @@ async function assertBeat10HumanApprovalFidelity(
   await expectVisibleText(page, model.selected.draft.statusLabel);
   await expectVisibleText(page, model.selected.draft.basis);
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
-  await expectVisibleText(page, recordId);
+  await expectVisibleText(page, "Cited evidence available");
+  const approvalSourceDetails = page.locator('[data-testid="maya-approval-source-details"]');
+  await approvalSourceDetails.getByRole("button", { name: /^Approval source details$/u }).click();
+  const approvalSourceDetailsText = await approvalSourceDetails.innerText();
+  assert(approvalSourceDetailsText.includes(recordId), "Beat 10 approval source details must retain backend record IDs");
 
   const expectedDecisionLabels = model.selected.approvalActions.map((action) => approvalDecisionButtonLabel(action.decision));
   const result = await page.evaluate(() => {
@@ -2434,9 +2688,17 @@ async function assertBeat11AuditConfirmationFidelity(
   assert(result.text.includes(model.selected.draft.actionLabel), "Beat 11 must show selected backend action label only as context");
   assert(result.text.includes(detailModel.auditState.statusLabel), "Beat 11 must show selected backend audit status only as context");
   assert(result.text.includes(model.selected.draft.basis), "Beat 11 must show selected backend basis only as context");
-  assert(result.text.includes(selectedRecordId), "Beat 11 must show selected record IDs as selected action citations");
+  assert(!primaryResult.text.includes(selectedRecordId), "Beat 11 primary audit copy must keep selected record IDs behind details");
+  await page
+    .locator('[data-testid="maya-audit-selected-action-source-details"]')
+    .getByRole("button", { name: /^Selected action source details$/u })
+    .click();
+  const selectedActionSourceDetailsText = await page
+    .locator('[data-testid="maya-audit-selected-action-source-details"]')
+    .innerText();
+  assert(selectedActionSourceDetailsText.includes(selectedRecordId), "Beat 11 selected action source details must retain record IDs");
   assert(result.text.includes("Committed audit receipt citations unavailable"), "Beat 11 must not relabel selected IDs as receipt IDs");
-  assert(result.buttons.some((button) => button.label === "View audit trail" && button.disabled), "Beat 11 audit-route control must be disabled");
+  assert(!result.buttons.some((button) => button.label === "View audit trail"), "Beat 11 must hide unavailable audit-route controls");
   assert(result.copyButtonCount === 0, "Beat 11 unavailable state must not expose copy controls for absent hashes");
   assert(!result.text.includes(model.selected.draft.actionId), "Beat 11 unavailable state must not render raw action IDs as receipt IDs");
   assert(!/[a-fA-F0-9]{64}/u.test(result.text), "Beat 11 unavailable state must not render a fake 64-hex audit hash");
@@ -2461,7 +2723,10 @@ async function assertBeat12ReturnWorklistFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-beat-12-deduction-cases"]', "Maya Beat 12 deduction cases table");
   await expectVisibleLocator(page, '[data-testid="maya-beat-12-return-table"]', "Maya Beat 12 return table");
   await expectVisibleText(page, "Deduction Cases");
-  await expectVisibleText(page, "Review, audit, and action fetched deduction cases.");
+  await expectVisibleText(
+    page,
+    `${model.worklist.length.toString()} work items / ${model.actionInbox.length.toString()} human actions pending`
+  );
   await expectVisibleText(page, "Audit status unavailable");
   await expectVisibleText(page, "Local focus");
 
@@ -2490,18 +2755,18 @@ async function assertBeat12ReturnWorklistFidelity(
 
   assert(result.caseWorkspaceCount === 0, "Beat 12 return must leave the case workspace and render the worklist surface");
   assert(result.auditPanelCount === 0, "Beat 12 returned worklist must not keep the audit panel mounted");
-  assert(result.rowCount === model.worklist.length, "Beat 12 must keep all fetched worklist rows visible without queue mutation");
+  assert(result.rowCount === model.worklist.length, "Beat 12 must keep all source worklist rows visible without queue mutation");
   assert(result.selectedRowCount === 1, "Beat 12 must keep exactly one local focused row");
   assert(result.selectedDataLineId === expectedRow.lineId, `Beat 12 must keep ${expectedRow.lineId} as local focus`);
   assert(
-    result.text.includes(`Showing ${model.worklist.length.toString()} of ${model.worklist.length.toString()} fetched rows`),
-    "Beat 12 table must show fetched-row count only"
+    result.text.includes(`Showing ${model.worklist.length.toString()} of ${model.worklist.length.toString()} work items`),
+    "Beat 12 table must show work-item count only"
   );
-  assert(result.pageText.includes(expectedRow.customerLabel), "Beat 12 table must use the returned fetched row customer");
-  assert(result.pageText.includes(expectedRow.scenarioLabel), "Beat 12 table must use the returned fetched row scenario");
-  assert(result.pageText.includes(expectedRow.amount), "Beat 12 table must show backend amount string");
-  assert(result.pageText.includes("All fetched"), "Beat 12 must render the target-style fetched case tabs");
-  assert(result.pageText.includes("Backend gaps:"), "Beat 12 must label missing mockup fields as backend gaps");
+  assert(result.pageText.includes(expectedRow.customerLabel), "Beat 12 table must use the returned work-item customer");
+  assert(result.pageText.includes(expectedRow.scenarioLabel), "Beat 12 table must use the returned work-item scenario");
+  assert(result.pageText.includes(expectedRow.amount), "Beat 12 table must show source amount string");
+  assert(result.pageText.includes("All work items"), "Beat 12 must render the target-style work-item tabs");
+  assert(result.pageText.includes("Source fields pending"), "Beat 12 must expose missing source fields through a disclosure control");
   assert(result.pageText.includes("Audit status unavailable"), "Beat 12 must avoid fake audit-success toast or status");
   assert(result.pageText.includes("no committed audit receipt"), "Beat 12 must not claim an audit receipt exists");
   assert(result.pageText.includes("Local focus"), "Beat 12 must label returned context as local focus");
@@ -2730,7 +2995,14 @@ async function assertBeat7AgentTraceInProgressFidelity(
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 7 evidence dossier stays visible");
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 7 query dock");
-  await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya Beat 7 agent trace");
+  await expectVisibleLocator(page, '[data-testid="maya-query-assistant-message"]', "Maya Beat 7 compact checking bubble");
+  await expectVisibleLocator(page, '[data-testid="maya-query-trace-details"]', "Maya Beat 7 trace details disclosure");
+  const traceDetails = page.getByTestId("maya-query-trace-details");
+  const traceDetailsTrigger = traceDetails.getByRole("button", { name: /^Trace details$/u });
+  if ((await traceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
+    await traceDetailsTrigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya Beat 7 agent trace details");
   await expectVisibleLocator(page, '[data-testid="maya-trace-running-session"]', "Maya Beat 7 running session row");
   await expectVisibleLocator(page, '[data-testid="maya-trace-running-skeleton"]', "Maya Beat 7 running skeleton");
   await expectVisibleLocator(page, '[data-testid="maya-selected-evidence-context"]', "Maya Beat 7 selected evidence context");
@@ -2753,6 +3025,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
     const contextRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-static-context-row"]')];
     const sourceDetails = document.querySelector<HTMLElement>('[data-testid="maya-query-source-details"]');
     const citedAnswer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
+    const assistant = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]');
     const selectedContext = document.querySelector<HTMLElement>('[data-testid="maya-selected-evidence-context"]');
     const submittedQuery = document.querySelector<HTMLElement>('[data-testid="maya-submitted-query"]')?.innerText ?? "";
     const viewportHeight = window.innerHeight;
@@ -2763,6 +3036,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
       dockText: dock?.innerText ?? "",
       dossierText: dossier?.innerText ?? "",
       hasCitedAnswer: citedAnswer !== null,
+      checkingBubbleText: assistant?.innerText ?? "",
       runningStatus: runningSession?.getAttribute("data-run-status") ?? "",
       runningText: runningSession?.innerText ?? "",
       selectedContextText: selectedContext?.innerText ?? "",
@@ -2783,6 +3057,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
   assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 7 must keep evidence document context visible");
   assert(result.dossierText.includes(evidenceDocument.summary), "Beat 7 must keep backend evidence summaries visible");
   assert(result.submittedQuery.includes(localQuestion), "Beat 7 must show the local submitted query as query context");
+  assert(result.checkingBubbleText.includes("Maya is checking evidence"), "Beat 7 must show compact evidence-checking copy");
   assert(result.runningStatus === "connecting", "Beat 7 running row must be tied to the session connecting state");
   assert(result.sourceRecordBadges.includes(recordId), "Beat 7 source details must keep selected evidence record badges visible");
   assert(result.selectedContextText.includes("Selected evidence packet"), "Beat 7 must promote selected evidence context in the dock");
@@ -2800,10 +3075,6 @@ async function assertBeat7AgentTraceInProgressFidelity(
   assert(
     result.contextRowCount === model.selected.evidencePack.documents.length || result.contextRowCount > 0,
     "Beat 7 must show selected source context rows"
-  );
-  assert(
-    result.visibleContextRowCount >= Math.min(2, result.contextRowCount),
-    "Beat 7 must keep multiple selected source context rows in the first viewport"
   );
   assert(result.traceText.includes("Trace rail"), "Beat 7 trace panel must read as an operational trace rail");
   assert(result.contextText.includes("Selected source context"), "Beat 7 context rows must be labeled as selected source context");
@@ -2826,6 +3097,43 @@ async function assertBeat7AgentTraceInProgressFidelity(
   );
 }
 
+async function assertBeat7StopQueryResetsParentTrace(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /^Stop query$/u }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="maya-trace-running-session"]') === null, {
+    timeout: 5_000
+  });
+  await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+  await page.getByTestId("maya-case-agent-trace-tab").click();
+  await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya Beat 7 parent trace after Stop query");
+  const result = await page.evaluate(() => {
+    const runningSessions = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-running-session"]')].filter(
+      (node) => node.offsetParent !== null
+    );
+    const selectedEvidenceSessions = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-selected-evidence-session"]')].filter(
+      (node) => node.offsetParent !== null
+    );
+    const answeredSessions = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-answered-session"]')].filter(
+      (node) => node.offsetParent !== null
+    );
+    const traceText = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-agent-trace"]')]
+      .map((trace) => trace.innerText)
+      .join("\n");
+
+    return {
+      answeredSessionCount: answeredSessions.length,
+      runningSessionCount: runningSessions.length,
+      selectedEvidenceSessionCount: selectedEvidenceSessions.length,
+      traceText
+    };
+  });
+
+  assert(result.runningSessionCount === 0, "Beat 7 Stop query must not leave parent Agent Trace stuck in connecting");
+  assert(
+    result.traceText.includes("Query stopped"),
+    "Beat 7 Stop query must publish a stopped parent Agent Trace state before the drawer closes"
+  );
+}
+
 async function assertBeat8CitedAnswerFidelity(
   page: Page,
   model: ForensicsE2EModel,
@@ -2845,21 +3153,28 @@ async function assertBeat8CitedAnswerFidelity(
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 8 evidence dossier stays visible");
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 8 query dock");
+  await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya Beat 8 persistent query input");
+  await expectVisibleLocator(page, '[data-testid="maya-query-assistant-message"]', "Maya Beat 8 assistant answer bubble");
   await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', "Maya Beat 8 cited answer");
-  await expectVisibleLocator(page, '[data-testid="maya-cited-answer-text"]', "Maya Beat 8 cited answer text");
   await expectVisibleLocator(page, '[data-testid="maya-cited-answer-basis"]', "Maya Beat 8 deterministic basis");
   await expectVisibleLocator(page, '[data-testid="maya-cited-source-details"]', "Maya Beat 8 expandable source details");
+  const basisDetails = page.getByTestId("maya-cited-answer-basis");
+  const basisDetailsTrigger = basisDetails.getByRole("button", { name: /^Basis$/u });
+  if ((await basisDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
+    await basisDetailsTrigger.click();
+  }
   await page.getByRole("button", { name: /^Sources$/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-cited-record-row"]', "Maya Beat 8 citation rows");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
 
   const result = await page.evaluate(() => {
     const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
+    const assistant = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]');
     const answer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
-    const answerText = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer-text"]')?.innerText ?? "";
     const basis = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer-basis"]')?.innerText ?? "";
     const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
     const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const composer = document.querySelector<HTMLElement>('[data-testid="maya-query-input"]');
     const submittedQuery = document.querySelector<HTMLElement>('[data-testid="maya-submitted-query"]')?.innerText ?? "";
     const blockedAlerts = answer?.querySelectorAll<HTMLElement>('[data-testid="maya-cited-answer-blocked"]') ?? [];
     const citationRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-cited-record-row"]')].map((row) => ({
@@ -2873,7 +3188,7 @@ async function assertBeat8CitedAnswerFidelity(
     const dockRect = dock?.getBoundingClientRect();
 
     return {
-      answerText,
+      assistantText: assistant?.innerText ?? "",
       basis,
       blockedCount: blockedAlerts.length,
       buttons,
@@ -2882,6 +3197,7 @@ async function assertBeat8CitedAnswerFidelity(
       dockText: dock?.innerText ?? "",
       dockWidth: dockRect?.width ?? 0,
       dossierText: dossier?.innerText ?? "",
+      hasComposer: composer !== null,
       submittedQuery,
       text: answer?.innerText ?? "",
       traceText: trace?.innerText ?? ""
@@ -2889,7 +3205,8 @@ async function assertBeat8CitedAnswerFidelity(
   });
 
   assert(backendQueryRequestCount === 1, "Beat 8 must request exactly one backend forensics query response");
-  assert(result.answerText.includes(acceptedAnswer), "Beat 8 must render the backend/test accepted answer text");
+  assert(result.hasComposer, "Beat 8 must keep the query composer available after a cited answer");
+  assert(result.assistantText.includes(acceptedAnswer), "Beat 8 assistant bubble must render the backend/test accepted answer text");
   assert(result.basis.includes(acceptedBasis), "Beat 8 must render the backend/test deterministic basis");
   assert(result.submittedQuery.includes(localQuestion), "Beat 8 must preserve the local submitted query context");
   assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 8 must keep adjacent evidence context visible");
@@ -3149,7 +3466,11 @@ function approvalDecisionButtonLabel(decision: ForensicsE2EModel["selected"]["ap
   }
 }
 
-async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Promise<void> {
+async function assertBeat2SourceReadinessFidelity(page: Page, connectors: ConnectorE2EModel, label: string): Promise<void> {
+  const expectedTones = connectors.sourceTiles.map((sourceTile) => sourceTile.statusTone);
+  const expectedHasReady = expectedTones.includes("ready");
+  const expectedHasSynthetic = expectedTones.includes("synthetic");
+  const expectedHasBlocked = expectedTones.includes("blocked");
   const sourceStrip = await page.evaluate(() => {
     const strip = document.querySelector<HTMLElement>('[data-testid="maya-source-readiness-strip"]');
     const tiles = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-tile"]')].filter(
@@ -3197,7 +3518,10 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
       sourceStrip.stripHeight
     )}px`
   );
-  assert(sourceStrip.tileCount === 7, `${label} source readiness strip must render all backend source tiles`);
+  assert(
+    sourceStrip.tileCount === connectors.sourceTiles.length,
+    `${label} source readiness strip must render all backend source tiles`
+  );
   assert(
     sourceStrip.tileMinWidth >= 104,
     `${label} source readiness tiles must stay scan-friendly: ${String(sourceStrip.tileMinWidth)}px`
@@ -3207,8 +3531,28 @@ async function assertBeat2SourceReadinessFidelity(page: Page, label: string): Pr
     `${label} source readiness must not hide Contract Repo`
   );
   assert(sourceStrip.tileText.some((text) => text.includes("MCP")), `${label} source readiness must not hide MCP`);
-  assert(sourceStrip.hasReady, `${label} source readiness must show backend ready/connected state`);
-  assert(sourceStrip.hasSynthetic, `${label} source readiness must show backend synthetic state distinctly`);
+  assert(
+    sourceStrip.hasReady === expectedHasReady,
+    `${label} source readiness must reflect backend ready state truthfully`
+  );
+  assert(
+    sourceStrip.hasSynthetic === expectedHasSynthetic,
+    `${label} source readiness must reflect backend proxy state truthfully`
+  );
+  assert(
+    sourceStrip.hasBlocked === expectedHasBlocked,
+    `${label} source readiness must reflect backend blocked state truthfully`
+  );
+  if (expectedHasSynthetic) {
+    assert(
+      sourceStrip.tileText.some((text) => text.includes("Proxy - Supabase")),
+      `${label} source readiness must label proxy-backed source states as Proxy - Supabase`
+    );
+    assert(
+      sourceStrip.statusMetrics.some((status) => status.label === "Proxy - Supabase"),
+      `${label} source readiness status badge must not abbreviate Proxy - Supabase`
+    );
+  }
   for (const sourceLabel of sourceStrip.labelMetrics) {
     assert(sourceLabel.label.length > 0, `${label} source labels must expose backend text`);
     assert(
