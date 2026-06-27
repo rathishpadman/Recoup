@@ -69,7 +69,7 @@ function kpiIconTone(index: number): string {
 
 export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
   if (items.length === 0) {
-    return <MayaEmptyState description="The run read model returned no KPI rows." kind="generic" title="KPI strip unavailable" />;
+    return <MayaEmptyState description="No run KPI rows are available for this session." kind="generic" title="KPI strip unavailable" />;
   }
 
   return (

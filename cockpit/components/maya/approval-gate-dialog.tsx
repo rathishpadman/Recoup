@@ -91,7 +91,7 @@ export function ApprovalGateDialog({
   async function submitDecision(action: MayaApprovalAction): Promise<void> {
     const trimmedReason = reason.trim();
     if (approvalEligibilityUnavailable) {
-      setError("Evidence reviewed state and approval eligibility are unavailable in the current read model.");
+      setError("Evidence review status and approval availability are unavailable for this draft.");
       return;
     }
     if (action.requiresReason && trimmedReason.length === 0) {
@@ -179,13 +179,13 @@ export function ApprovalGateDialog({
           {approvalEligibilityUnavailable ? (
             <Alert data-testid="maya-approval-eligibility-alert">
               <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
-              <AlertTitle>Approval blocked by missing eligibility</AlertTitle>
+              <AlertTitle>Approval unavailable</AlertTitle>
               <AlertDescription>
                 <Badge className="mr-2" variant="outline">
                   {eligibilityStatusLabel}
                 </Badge>
-                Evidence reviewed state and approval eligibility are unavailable in the current read model. Decision buttons
-                stay disabled until the backend exposes that contract. External action remains blocked.
+                Evidence review status and approval eligibility are unavailable for this draft. Decision buttons stay disabled
+                until the approval source provides eligibility. External action remains blocked.
               </AlertDescription>
             </Alert>
           ) : (
@@ -193,8 +193,8 @@ export function ApprovalGateDialog({
               <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
               <AlertTitle>{eligibilityStatusLabel}</AlertTitle>
               <AlertDescription>
-                Backend evidence eligibility is available for this draft. External action remains blocked until a human
-                records a decision.
+                Evidence eligibility is available for this draft. External action remains blocked until a human records a
+                decision.
               </AlertDescription>
             </Alert>
           )}
@@ -219,7 +219,7 @@ export function ApprovalGateDialog({
             <ApprovalFactRow label="Approver">
               <span className="font-medium">{approverText}</span>
               <Badge className="w-fit" variant="outline">
-                Contract gap
+                Approval owner pending
               </Badge>
             </ApprovalFactRow>
             <Separator />

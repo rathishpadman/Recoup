@@ -222,7 +222,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("evidenceReviewEligibilityAvailable = false");
     expect(approvalDialog).toContain("approvalEligibilityUnavailable");
-    expect(approvalDialog).toContain("Evidence reviewed state and approval eligibility are unavailable");
+    expect(approvalDialog).toContain("Evidence review status and approval availability are unavailable");
+    expect(approvalDialog).toContain("Approval unavailable");
     expect(approvalDialog).toContain("Verified human principal unavailable");
     expect(approvalDialog).toContain("Opening this dialog does not dispatch anything");
     expect(approvalDialog).toContain("No action will be taken until you choose an option");

@@ -123,7 +123,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
         }
       } catch {
         if (active) {
-          setSourceRefreshError("Connector refresh failed before a backend response.");
+          setSourceRefreshError("Connector refresh failed before source readiness returned.");
         }
         return;
       }
@@ -142,7 +142,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
     return (
       <Alert>
         <AlertTitle>Source readiness unavailable</AlertTitle>
-        <AlertDescription>The connector read model returned no source readiness rows.</AlertDescription>
+        <AlertDescription>No source readiness rows are available for this session.</AlertDescription>
       </Alert>
     );
   }

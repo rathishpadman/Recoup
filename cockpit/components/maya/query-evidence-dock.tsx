@@ -512,7 +512,7 @@ function toQueryEvidenceSnapshot(
     citationsHaveBasis;
   let message = "Forensics query returned no cited answer.";
   if (hasAnswer) {
-    message = "Cited answer returned from backend evidence.";
+    message = "Cited answer returned from selected evidence.";
   } else if (!citationsWithinSelectedScope) {
     message = "Forensics query cited records outside the selected evidence packet.";
   }

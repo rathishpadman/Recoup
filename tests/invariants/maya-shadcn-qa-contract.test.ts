@@ -3047,6 +3047,11 @@ describe("Maya shadcn human QA contract", () => {
       "deduction-worklist-table.tsx",
       "recovery-draft-review.tsx",
       "deduction-case-workspace.tsx",
+      "approval-gate-dialog.tsx",
+      "evidence-dossier.tsx",
+      "query-evidence-dock.tsx",
+      "source-readiness-strip.tsx",
+      "maya-run-kpi-strip.tsx",
       "audit-confirmation-panel.tsx"
     ].map((fileName) => ({
       path: `cockpit/components/maya/${fileName}`,
@@ -3064,7 +3069,7 @@ describe("Maya shadcn human QA contract", () => {
     expect({
       bannedPrimaryLines: matchingLines(
         primarySources,
-        /\b(?:Fetched rows only|Read-model gaps|Backend gaps:|Backend gaps|Backend formatted|Backend row-switch gap|row-switched|row switching|Backend amount, read-only|Forensics read-model rows|read model rows|from the read model|backend-staged|Backend draft label|(?:Ranking|Age|Receipt) field pending|Source scoped|fetched rows)\b/u
+        /\b(?:Contract gap|Backend contract gap|Fetched rows only|Read-model gaps|Backend gaps:|Backend gaps|Backend formatted|Backend row-switch gap|row-switched|row switching|Backend amount, read-only|Forensics read-model rows|read model rows|from the read model|backend-staged|Backend draft label|(?:Ranking|Age|Receipt) field pending|Source scoped|fetched rows)\b/u
       ),
       genericPrimaryPlumbingLines: visiblePrimaryPlumbingLines(primarySources),
       bannedPrimaryVisibleText: matchingLines(

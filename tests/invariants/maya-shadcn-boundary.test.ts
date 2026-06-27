@@ -520,7 +520,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("evidenceReviewEligibilityAvailable = false");
     expect(approvalDialog).toContain("approvalEligibilityUnavailable");
-    expect(approvalDialog).toContain("Evidence reviewed state and approval eligibility are unavailable");
+    expect(approvalDialog).toContain("Evidence review status and approval availability are unavailable");
     expect(approvalDialog).toContain("Verified human principal unavailable");
     expect(approvalDialog).toContain("Opening this dialog does not dispatch anything");
     expect(approvalDialog).toContain("No action will be taken until you choose an option");
@@ -907,13 +907,13 @@ describe("Maya shadcn cockpit boundary", () => {
       expect(evidenceDossier).toContain(requiredPropRead);
     }
 
-    expect(evidenceDossier).toContain("Business documents grouped from the selected read model");
+    expect(evidenceDossier).toContain("Business documents grouped for the selected case");
     expect(evidenceDossier).toContain("Source details");
     expect(evidenceDossier).not.toContain("Backend evidence packet");
     expect(evidenceDossier).toContain("Evidence dossier available");
     expect(evidenceDossier).toContain("Review state unavailable");
     expect(evidenceDossier).toContain("Deterministic basis unavailable");
-    expect(evidenceDossier).toContain("Contract gap");
+    expect(evidenceDossier).toContain("Additional proof fields pending");
     expect(evidenceDossier).toContain('source.statusTone === "synthetic"');
     expect(evidenceDossier).not.toMatch(
       /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu

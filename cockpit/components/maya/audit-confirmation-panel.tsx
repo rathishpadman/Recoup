@@ -220,7 +220,7 @@ function unavailableRows(): ReceiptRow[] {
       label: "Audit entry hash",
       state: "Unavailable",
       tone: "waiting",
-      value: "Waiting for committed backend approval response"
+      value: "Waiting for committed approval receipt"
     },
     {
       basis: "The current approval response/read model does not expose previousHash.",
@@ -234,14 +234,14 @@ function unavailableRows(): ReceiptRow[] {
       label: "Decision/action reference",
       state: "Unavailable",
       tone: "waiting",
-      value: "Waiting for committed backend approval response"
+      value: "Waiting for committed approval receipt"
     },
     {
       basis: "Decision outcome renders only from a committed backend approval response.",
       label: "Decision outcome",
       state: "Unavailable",
       tone: "waiting",
-      value: "Waiting for committed backend approval response"
+      value: "Waiting for committed approval receipt"
     },
     {
       basis: "The browser read model does not expose the verified human approver for Beat 11.",
@@ -269,7 +269,7 @@ function unavailableRows(): ReceiptRow[] {
       label: "Action state",
       state: "Unavailable",
       tone: "waiting",
-      value: "Waiting for committed backend approval response"
+      value: "Waiting for committed approval receipt"
     }
   ];
 }

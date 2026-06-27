@@ -43,7 +43,7 @@ export function EvidenceDossier({
           <CardHeader>
             <div className="grid min-w-0 gap-1">
               <CardTitle>Evidence dossier</CardTitle>
-              <CardDescription>Business documents grouped from the selected read model</CardDescription>
+              <CardDescription>Business documents grouped for the selected case</CardDescription>
             </div>
             <CardAction className="flex gap-2">
               {onQueryEvidence === undefined ? null : (
@@ -100,7 +100,7 @@ export function EvidenceDossier({
                 <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
                 Deterministic basis
               </CardTitle>
-              <CardDescription>Draft basis text from the selected backend detail</CardDescription>
+              <CardDescription>Draft basis for the selected case</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{deterministicBasis}</p>
@@ -112,7 +112,7 @@ export function EvidenceDossier({
                 <InfoIcon aria-hidden="true" data-icon="inline-start" />
                 <AlertTitle>Deterministic basis unavailable</AlertTitle>
                 <AlertDescription>
-                  Contract gap: structured criteria, counts, reviewer, and review timestamp are not exposed by the read model.
+                  Additional proof fields pending: structured criteria, counts, reviewer, and review timestamp are unavailable.
                 </AlertDescription>
               </Alert>
             </CardContent>
@@ -121,7 +121,7 @@ export function EvidenceDossier({
           <Card className="rounded-lg shadow-none" data-testid="maya-source-provenance-rail" size="sm">
             <CardHeader>
               <CardTitle>Source provenance</CardTitle>
-              <CardDescription>Connector readiness labels from the source read model</CardDescription>
+              <CardDescription>Connector readiness labels from governed sources</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {sourceTiles.length === 0 ? (
@@ -158,7 +158,7 @@ export function EvidenceDossier({
         <FileTextIcon aria-hidden="true" data-icon="inline-start" />
         <AlertTitle>Evidence dossier available</AlertTitle>
         <AlertDescription>
-          Evidence documents are available for this opened line. Review state unavailable until the backend exposes evidence
+          Evidence documents are available for this opened line. Review state unavailable until source detail provides evidence
           review status, criteria, reviewer, timestamp, and cited basis.
         </AlertDescription>
       </Alert>
