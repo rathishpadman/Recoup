@@ -121,3 +121,57 @@ Important distinction: the per-query trace proves an SDK-visible governed MCP so
 2. **MCP tile is fail-closed.** The MCP source tile says `Status unavailable` because no saved MCP health snapshot is available to the UI. The query responses still include SDK MCP source-tool receipts (`query.answer`) and `retrieval.evidence` trace rows, but this does not make the gateway health tile green.
 3. **Workspace load was 15.7 seconds.** The workspace route still takes about 16 seconds in this prod run and should remain a performance item.
 4. **Render request logs were not returned by MCP.** Browser API evidence is authoritative for this run; provider request-path logs should be enabled or queried differently if per-request provider evidence is required.
+
+## Latency And Source-Health Recheck - 2026-06-27T11:50Z
+
+**Result:** PASS. The earlier login `503` / long-load concern is not reproducing after the Supabase-backed login change. The remaining measurable wait is the post-login Maya workspace document, which still server-renders from Render-backed read models.
+
+| Check | Evidence | Result |
+|---|---:|---|
+| Production browser runner | `npm.cmd exec tsx scripts/runMayaProdQa.ts` | PASS |
+| Login API | `POST /api/demo-login` | 200 |
+| Login page interactive | `loginPageInteractiveMs` | 3,905 ms |
+| Workspace ready | `workspaceReadyMs` | 11,825 ms |
+| Source readiness fetch | `GET /api/connectors` via browser | 795 ms |
+| Console/page errors | Captured by Playwright | 0 |
+| Query scenarios | 8 production UI queries | 8 passed / 0 failed |
+| Query duration range | `POST /api/forensics/query` | 9,162-16,012 ms |
+
+Current source tiles from the recheck:
+
+| Source tile | Mode label | State label | Tone |
+|---|---|---|---|
+| SAP OData | Unavailable | Probe failed | blocked |
+| TPM | Proxy - Supabase | Proxy - Supabase | synthetic |
+| 3PL POD | Proxy - Supabase | Proxy - Supabase | synthetic |
+| Bureau | Proxy - Supabase | Proxy - Supabase | synthetic |
+| Remittance / EDI | Proxy - Supabase | Proxy - Supabase | synthetic |
+| Contract Repo | Proxy - Supabase | Proxy - Supabase | synthetic |
+| MCP | Read-only tools | Connected | ready |
+
+Focused production timing split:
+
+| Path | Timing evidence | Interpretation |
+|---|---:|---|
+| `GET /login` browser document | 438-497 ms in focused runs | Vercel login page is not the 10-20 second bottleneck. |
+| `/login` inputs visible | 1,094-1,314 ms in focused runs | Login becomes interactive quickly after warm deployment. |
+| `POST /api/demo-login` | 505-1,052 ms in focused runs | Vercel is calling the Supabase credential RPC successfully; no Render hop is involved. |
+| `GET /forensics/shadcn` browser document | 1,121-3,576 ms in focused runs | This document waits on server-side workspace data. |
+| Full workspace ready | 3,220-5,461 ms in focused warm runs | Warm path is materially better than the earlier 15.7s run, but still depends on Render-backed workspace data. |
+| Direct Render `GET /healthz` | 485-1,140 ms | Render is reachable; first hit is slower than warm hits. |
+| Direct Render `GET /forensics` | 3,740 ms first hit, then 932-966 ms | Main remaining workspace latency is Render `/forensics` read-model hydration/coldness. |
+| Direct Render `GET /connectors` | 488-624 ms | Source-health tile read is not the dominant delay. |
+
+Architecture finding from this recheck:
+
+- `/api/demo-login` is now Vercel -> Supabase RPC. It no longer calls Render.
+- `/forensics/shadcn` still fetches the Maya workbench read model and connector model from Render through `RECOUP_API_URL`.
+- `/api/connectors`, `/api/forensics/query`, `/api/forensics/work-items/*`, `/api/approval`, and realtime query proxy routes still use Render as the Node service/agent orchestration layer.
+- Source-health state is snapshot-backed, not static. Missing snapshots fail closed as unavailable; stale snapshots are labelled overdue. The current MCP snapshot is now available and renders `Connected`.
+
+Recommended next remediation:
+
+1. Keep login as-is; current production evidence does not support more login-path surgery.
+2. Treat `/forensics/shadcn` first paint as the remaining performance target.
+3. Prefer a safe prewarm/keep-warm or workspace shell strategy over moving agent/service orchestration into Vercel. Render still owns the deterministic service layer, MCP/tool surface, guardrails, and query execution.
+4. If workspace latency must be reduced further, add TDD coverage for route timing behavior and split the initial Maya shell from heavy evidence hydration without changing backend-owned business content.
