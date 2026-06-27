@@ -230,11 +230,12 @@ const settlementDeductionLineRowSchema = z.object({
 export function createSupabaseSyntheticSourceReader(options: SupabaseSyntheticSourceReaderOptions): SupabaseSyntheticSourceReader {
   const baseUrl = normalizeSupabaseUrl(options.url);
   const fetcher = options.fetcher ?? fetch;
+  const sourceRowsByTableAndCustomer = new Map<string, Promise<unknown[]>>();
 
   return {
     async readEvidence(connectorName, line) {
       const tableName = SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR[connectorName];
-      const rows = await requestSyntheticRows(fetcher, {
+      const rows = await requestCachedSyntheticRows(sourceRowsByTableAndCustomer, fetcher, {
         baseUrl,
         line,
         serviceRoleKey: options.serviceRoleKey,
@@ -249,10 +250,11 @@ export function createSupabaseSyntheticSourceReader(options: SupabaseSyntheticSo
 export function createSupabaseSapEvidenceReader(options: SupabaseSapEvidenceReaderOptions): SupabaseSapEvidenceReader {
   const baseUrl = normalizeSupabaseUrl(options.url);
   const fetcher = options.fetcher ?? fetch;
+  const sourceRowsByTableAndCustomer = new Map<string, Promise<unknown[]>>();
 
   return {
     async readEvidence(line) {
-      const rows = await requestSyntheticRows(fetcher, {
+      const rows = await requestCachedSyntheticRows(sourceRowsByTableAndCustomer, fetcher, {
         baseUrl,
         line,
         serviceRoleKey: options.serviceRoleKey,
@@ -577,6 +579,31 @@ async function requestSyntheticRows(
   return rows.map((row: unknown) => row);
 }
 
+async function requestCachedSyntheticRows(
+  cache: Map<string, Promise<unknown[]>>,
+  fetcher: SupabaseSyntheticSourceFetch,
+  input: {
+    baseUrl: string;
+    line: DeductionLine;
+    serviceRoleKey: string;
+    tableName: string;
+  }
+): Promise<unknown[]> {
+  const cacheKey = sourceRowsCacheKey(input.tableName, input.line.customerId);
+  const cachedRows = cache.get(cacheKey);
+  if (cachedRows !== undefined) {
+    return cachedRows;
+  }
+
+  const rowsPromise = requestSyntheticRows(fetcher, input).catch((error: unknown) => {
+    cache.delete(cacheKey);
+    throw error;
+  });
+  cache.set(cacheKey, rowsPromise);
+
+  return rowsPromise;
+}
+
 async function requestToolsDataRows(
   fetcher: SupabaseSyntheticSourceFetch,
   input: {
@@ -781,4 +808,8 @@ function normalizeTableName(tableName: string): string {
   }
 
   return tableName;
+}
+
+function sourceRowsCacheKey(tableName: string, customerId: string): string {
+  return `${normalizeTableName(tableName)}:${customerId}`;
 }

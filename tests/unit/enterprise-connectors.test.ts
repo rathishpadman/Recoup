@@ -453,7 +453,6 @@ describe("enterprise read-only connector adapters", () => {
       "recoup_src_bureau",
       "recoup_src_docs",
       "recoup_src_remittance",
-      "recoup_src_remittance",
       "recoup_src_tpm"
     ]);
     expect(allEvidence.map((evidence) => evidence.provenance)).toEqual(Array<"synthetic">(5).fill("synthetic"));
@@ -552,6 +551,94 @@ describe("enterprise read-only connector adapters", () => {
     });
 
     await expect(reader.readEvidence(line)).resolves.toEqual([]);
+  });
+
+  it("reuses Supabase source table reads per customer while preserving line-specific evidence filtering", async () => {
+    const firstLine = {
+      ...line,
+      lineId: "S1-L1",
+      recordIds: ["S1-L1", "DOC-POD-1", "INV-S1-1"]
+    };
+    const secondLine = {
+      ...line,
+      lineId: "S1-L2",
+      recordIds: ["S1-L2", "DOC-POD-2", "INV-S1-2"]
+    };
+    const calls: string[] = [];
+    const fetcher: SupabaseSyntheticSourceFetch = (url) => {
+      calls.push(url);
+      const tableName = new URL(url).pathname.split("/").at(-1);
+      if (tableName === "recoup_src_docs") {
+        return Promise.resolve(jsonResponse([
+          {
+            customer_id: line.customerId,
+            doc_id: "DOC-POD-1",
+            doc_type: "POD",
+            linked_record_ids: ["S1-L1", "DOC-POD-1"],
+            provenance: "synthetic",
+            signed_date: "2026-06-20",
+            uri: "supabase://recoup_src_docs/DOC-POD-1"
+          },
+          {
+            customer_id: line.customerId,
+            doc_id: "DOC-POD-2",
+            doc_type: "POD",
+            linked_record_ids: ["S1-L2", "DOC-POD-2"],
+            provenance: "synthetic",
+            signed_date: "2026-06-20",
+            uri: "supabase://recoup_src_docs/DOC-POD-2"
+          }
+        ]));
+      }
+      if (tableName === "recoup_src_sap") {
+        return Promise.resolve(jsonResponse([
+          {
+            customer_id: line.customerId,
+            document_type: "invoice",
+            entity_set: "C_BillingDocumentFs",
+            linked_record_ids: ["S1-L1", "INV-S1-1"],
+            payload_json: { BillingDocument: "S1-1" },
+            provenance: "sap-odata",
+            retrieved_at: "2026-06-20T00:00:00.000Z",
+            sap_document_id: "SAP-INV-S1-1",
+            service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+            summary: "Supabase SAP source row for INV-S1-1."
+          },
+          {
+            customer_id: line.customerId,
+            document_type: "invoice",
+            entity_set: "C_BillingDocumentFs",
+            linked_record_ids: ["S1-L2", "INV-S1-2"],
+            payload_json: { BillingDocument: "S1-2" },
+            provenance: "sap-odata",
+            retrieved_at: "2026-06-20T00:00:00.000Z",
+            sap_document_id: "SAP-INV-S1-2",
+            service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+            summary: "Supabase SAP source row for INV-S1-2."
+          }
+        ]));
+      }
+
+      throw new Error(`Unexpected source table ${String(tableName)}.`);
+    };
+    const syntheticReader = createSupabaseSyntheticSourceReader({
+      fetcher,
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+    const sapReader = createSupabaseSapEvidenceReader({
+      fetcher,
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+
+    await expect(syntheticReader.readEvidence("docs-repo", firstLine)).resolves.toMatchObject([{ documentId: "DOC-POD-1" }]);
+    await expect(syntheticReader.readEvidence("docs-repo", secondLine)).resolves.toMatchObject([{ documentId: "DOC-POD-2" }]);
+    await expect(sapReader.readEvidence(firstLine)).resolves.toMatchObject([{ documentId: "SAP-INV-S1-1" }]);
+    await expect(sapReader.readEvidence(secondLine)).resolves.toMatchObject([{ documentId: "SAP-INV-S1-2" }]);
+
+    expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_docs"))).toHaveLength(1);
+    expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"))).toHaveLength(1);
   });
 
   it("fails closed when a SAP source row is not tagged with SAP OData provenance", async () => {

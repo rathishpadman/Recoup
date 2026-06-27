@@ -1342,6 +1342,7 @@ describe("S5 cockpit API", () => {
   it("reuses a validated real-backend source context across consecutive forensic query sessions", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1387,7 +1388,42 @@ describe("S5 cockpit API", () => {
       expect(secondBody.answer).toContain("S6-L1");
       expect(secondBody.missingSource).toBeUndefined();
       expect(liveRunner).toHaveBeenCalledTimes(2);
-      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+      expect(sapSourceReads).toHaveLength(expectedSourceReads);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("hydrates Maya forensics source evidence without duplicate per-line Supabase reads", async () => {
+    const calls: string[] = [];
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0"
+        },
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as { surface?: string };
+
+      expect(response.status).toBe(200);
+      expect(body.surface).toBe("forensics-analyst");
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedSourceReads);
+      expect(sourceTableReadCount(calls, "recoup_src_docs")).toBe(expectedSourceReads);
+      expect(sourceTableReadCount(calls, "recoup_src_tpm")).toBe(expectedSourceReads);
+      expect(sourceTableReadCount(calls, "recoup_src_bureau")).toBe(expectedSourceReads);
     } finally {
       await close(server);
     }
@@ -1396,6 +1432,7 @@ describe("S5 cockpit API", () => {
   it("does not reuse a validated forensic query source context after the technical TTL expires", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1440,7 +1477,7 @@ describe("S5 cockpit API", () => {
       expect(second.status).toBe(200);
       expect(secondBody.answer).toContain("S6-L1");
       expect(liveRunner).toHaveBeenCalledTimes(2);
-      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+      expect(sapSourceReads).toHaveLength(expectedSourceReads * 2);
     } finally {
       await close(server);
     }
@@ -1449,6 +1486,7 @@ describe("S5 cockpit API", () => {
   it("expires forensic query source context after the capped technical TTL elapses", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const nowSpy = vi.spyOn(Date, "now");
     let nowMs = 1_000_000;
     nowSpy.mockImplementation(() => nowMs);
@@ -1497,7 +1535,7 @@ describe("S5 cockpit API", () => {
       expect(second.status).toBe(200);
       expect(secondBody.answer).toContain("S6-L1");
       expect(liveRunner).toHaveBeenCalledTimes(2);
-      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+      expect(sapSourceReads).toHaveLength(expectedSourceReads * 2);
     } finally {
       nowSpy.mockRestore();
       await close(server);
@@ -1507,6 +1545,7 @@ describe("S5 cockpit API", () => {
   it("invalidates forensic query source context when the Supabase source identity changes", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const mutableEnv = {
       ...governedConfigEnv,
       ...cockpitAuthEnv,
@@ -1554,7 +1593,7 @@ describe("S5 cockpit API", () => {
       expect(second.status).toBe(200);
       expect(secondBody.answer).toContain("S6-L1");
       expect(liveRunner).toHaveBeenCalledTimes(2);
-      expect(sapSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+      expect(sapSourceReads).toHaveLength(expectedSourceReads * 2);
     } finally {
       await close(server);
     }
@@ -1564,6 +1603,7 @@ describe("S5 cockpit API", () => {
     const calls: string[] = [];
     let sapRowsAvailable = false;
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const server = createServer(
       createCockpitApi({
         env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
@@ -1607,7 +1647,7 @@ describe("S5 cockpit API", () => {
       expect(retriedBody.answer).toContain("S6-L1");
       expect(retriedBody.missingSource).toBeUndefined();
       expect(liveRunner).toHaveBeenCalledTimes(1);
-      expect(sapSourceReads.length).toBeGreaterThan(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+      expect(sapSourceReads).toHaveLength(expectedSourceReads + 1);
     } finally {
       await close(server);
     }
@@ -1617,6 +1657,7 @@ describe("S5 cockpit API", () => {
     const calls: string[] = [];
     let docsRowsAvailable = false;
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const expectedSourceReads = expectedForensicsSourceCustomerReads();
     const server = createServer(
       createCockpitApi({
         env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
@@ -1657,7 +1698,7 @@ describe("S5 cockpit API", () => {
       expect(retriedBody.answer).toContain("S3-L1");
       expect(retriedBody.missingSource).toBeUndefined();
       expect(liveRunner).toHaveBeenCalledTimes(1);
-      expect(docsSourceReads).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length * 2);
+      expect(docsSourceReads).toHaveLength(expectedSourceReads * 2);
     } finally {
       await close(server);
     }
@@ -5214,6 +5255,14 @@ function isSyntheticEvidenceSourceUrl(url: string): boolean {
     tableName === "recoup_src_sap" ||
     tableName === "recoup_src_tpm"
   );
+}
+
+function expectedForensicsSourceCustomerReads(): number {
+  return new Set(buildSyntheticDataset({ seed: 42 }).deductionLines.map((line) => line.customerId)).size;
+}
+
+function sourceTableReadCount(calls: readonly string[], tableName: string): number {
+  return calls.filter((url) => new URL(url).pathname.split("/").at(-1) === tableName).length;
 }
 
 function toPostgrestSettlementRows(tableName: string): unknown[] {
