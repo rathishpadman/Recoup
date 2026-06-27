@@ -111,12 +111,40 @@ describe("Maya shadcn cockpit boundary", () => {
 
   it("renders through a dedicated review route backed by canonical read models", () => {
     const route = readFileSync("cockpit/app/forensics/shadcn/page.tsx", "utf8");
+    const forensicsApiPath = "cockpit/app/api/forensics/route.ts";
+    const forensicsApi = existsSync(forensicsApiPath) ? readFileSync(forensicsApiPath, "utf8") : "";
 
     expect(route).toMatch(/requireRouteAccess\(\s*["']\/forensics\/shadcn["']\s*\)/u);
-    expect(route).toContain("requireMayaBackendReadAuthHeaders");
-    expect(route).toMatch(/\bfetchForensicsModel\s*\(\s*backendReadAuthHeaders\s*\)/u);
-    expect(route).toMatch(/\bfetchConnectorReadinessModel\s*\(\s*backendReadAuthHeaders\s*\)/u);
-    expect(route).toMatch(/<MayaForensicsSurface\b/u);
+    expect(route).toContain("MayaForensicsSurfaceLoader");
+    expect(route).not.toContain("fetchForensicsModel");
+    expect(route).not.toContain("fetchConnectorReadinessModel");
+    expect(existsSync(forensicsApiPath), `${forensicsApiPath} should exist`).toBe(true);
+    expect(forensicsApi).toContain("buildVerifiedHumanAuthHeaders");
+    expect(forensicsApi).toContain('allowDemoSessionRoles: ["maya"]');
+    expect(forensicsApi).toContain("/forensics");
+  });
+
+  it("streams the Maya shadcn workspace shell before client-hydrated backend read models resolve", () => {
+    const route = readFileSync("cockpit/app/forensics/shadcn/page.tsx", "utf8");
+    const loaderPath = "cockpit/components/maya/maya-forensics-surface-loader.tsx";
+    const loadingShellPath = "cockpit/components/maya/maya-shadcn-loading-shell.tsx";
+    const loader = existsSync(loaderPath) ? readFileSync(loaderPath, "utf8") : "";
+    const loadingShell = existsSync(loadingShellPath) ? readFileSync(loadingShellPath, "utf8") : "";
+
+    expect(route).toContain("<MayaForensicsSurfaceLoader");
+    expect(route).not.toMatch(/\bawait\s+Promise\.all\s*\(/u);
+    expect(route).not.toMatch(/\bawait\s+fetchForensicsModel\s*\(/u);
+    expect(route).not.toMatch(/\bawait\s+fetchConnectorReadinessModel\s*\(/u);
+    expect(existsSync(loaderPath), `${loaderPath} should exist`).toBe(true);
+    expect(loader).toContain('"use client"');
+    expect(loader).toContain("<MayaShadcnLoadingShell");
+    expect(loader).toContain('"/api/forensics"');
+    expect(loader).toContain('"/api/connectors"');
+    expect(loader).toMatch(/\bfetch\s*\(\s*path\s*,\s*\{\s*cache:\s*["']no-store["']/u);
+    expect(loader).toContain("<MayaForensicsSurface");
+    expect(existsSync(loadingShellPath), `${loadingShellPath} should exist`).toBe(true);
+    expect(loadingShell).toContain('data-testid="maya-shadcn-loading-shell"');
+    expect(loadingShell).toContain('aria-busy="true"');
   });
 
   it("keeps the Maya shadcn surface free of old bespoke UI and business logic", () => {

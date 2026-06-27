@@ -1805,17 +1805,21 @@ function extractMayaOverviewSource(surface: string): string {
 describe("Maya shadcn human QA contract", () => {
   it("requires the Maya shadcn route to show an honest loading shell during cold server streams", () => {
     const loadingPath = "cockpit/app/forensics/shadcn/loading.tsx";
+    const loadingShellPath = "cockpit/components/maya/maya-shadcn-loading-shell.tsx";
 
     expect(existsSync(loadingPath)).toBe(true);
+    expect(existsSync(loadingShellPath)).toBe(true);
     const loading = read(loadingPath);
+    const loadingShell = read(loadingShellPath);
 
-    expect(loading).toContain('data-testid="maya-shadcn-loading-shell"');
-    expect(loading).toContain('aria-busy="true"');
-    expect(loading).toContain("Connecting workspace");
-    expect(loading).not.toMatch(/\$[0-9]/u);
-    expect(loading).not.toMatch(/\bS[0-9]+-L[0-9]+\b/u);
-    expect(loading).not.toMatch(/\b(?:Crestline|Greenleaf|ValuMart|Harbor)\b/u);
-    expect(loading).not.toMatch(/\b(?:Connected|Proxy - Supabase|Status unavailable|Probe failed|Refresh overdue)\b/u);
+    expect(loading).toContain("MayaShadcnLoadingShell");
+    expect(loadingShell).toContain('data-testid="maya-shadcn-loading-shell"');
+    expect(loadingShell).toContain('aria-busy="true"');
+    expect(loadingShell).toContain("Connecting workspace");
+    expect(loadingShell).not.toMatch(/\$[0-9]/u);
+    expect(loadingShell).not.toMatch(/\bS[0-9]+-L[0-9]+\b/u);
+    expect(loadingShell).not.toMatch(/\b(?:Crestline|Greenleaf|ValuMart|Harbor)\b/u);
+    expect(loadingShell).not.toMatch(/\b(?:Connected|Proxy - Supabase|Status unavailable|Probe failed|Refresh overdue)\b/u);
   });
 
   it("rejects fixture, dummy, hardcoded-business, UI-decision, and Playwright fulfillment paths", () => {

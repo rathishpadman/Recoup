@@ -250,6 +250,7 @@ const reuseCockpitRequested = readBooleanEnv("RECOUP_E2E_REUSE_COCKPIT");
 const demoPassword = readEnvValue("RECOUP_E2E_DEMO_PASSWORD", "Welcome#123");
 const queryResponseTimeoutMs = 120_000;
 const observedCalls: ObservedApiCall[] = [];
+const backendDelayMsByPath = new Map<string, number>();
 const fixtureProcessStarted = false;
 const screenshotDir = join("output", "playwright", "e2e", "real-backend");
 const realMayaQueryScenarios = [
@@ -317,6 +318,7 @@ async function main(): Promise<void> {
     observeBrowserCalls(page, appUrl, apiServer.url);
 
     await loginAsMaya(page, appUrl);
+    await assertMayaShadcnLoadingShellStreamsDuringBackendDelay(page, appUrl);
     clearObservedCalls();
     apiServer.recorder.clear();
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
@@ -486,6 +488,25 @@ async function loginAsMaya(page: Page, appUrl: string): Promise<void> {
   const postData = (await loginRequest).postDataJSON() as { loginId?: string };
   assert(postData.loginId === "Maya", "Maya demo login must POST loginId Maya.");
   await page.waitForURL("**/forensics/shadcn", { timeout: 30_000 });
+}
+
+async function assertMayaShadcnLoadingShellStreamsDuringBackendDelay(page: Page, appUrl: string): Promise<void> {
+  backendDelayMsByPath.set("/forensics", 2_500);
+  backendDelayMsByPath.set("/connectors", 2_500);
+  try {
+    const startedAt = Date.now();
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-loading-shell"]', "Maya shadcn streaming loading shell");
+    const shellVisibleMs = Date.now() - startedAt;
+    assert(
+      shellVisibleMs < 2_500,
+      `Maya shadcn loading shell appeared only after the delayed backend window: ${shellVisibleMs.toString()}ms.`
+    );
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench after delayed backend reads");
+    console.log(`MAYA_STREAMING_SHELL_RESULT {"loadingShellVisibleMs":${shellVisibleMs.toString()},"delayedBackendMs":2500}`);
+  } finally {
+    backendDelayMsByPath.clear();
+  }
 }
 
 async function openOneRealBackendWorkItem(
@@ -2530,6 +2551,10 @@ async function proxyRequestToRealBackend(
     const targetUrl = new URL(requestPath, `${targetBaseUrl}/`);
     const method = request.method ?? "GET";
     const body = await readIncomingBody(request);
+    const delayMs = backendDelayMsByPath.get(normalizeObservedPath(targetUrl.pathname));
+    if (delayMs !== undefined) {
+      await delay(delayMs);
+    }
     if (body.length > 0 && method !== "GET" && method !== "HEAD") {
       recorder.recordRequestBody(call, body.toString("utf8"));
     }
