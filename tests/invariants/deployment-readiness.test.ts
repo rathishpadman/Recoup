@@ -79,6 +79,18 @@ function readRenderServiceBlock(): string {
   return serviceBlock;
 }
 
+function readRenderCronBlock(): string {
+  const renderYaml = readFileSync("render.yaml", "utf8");
+  const serviceMatches = renderYaml.match(/^\s*-\s+type:\s+cron\b[\s\S]*?(?=^\s*-\s+type:|(?![\s\S]))/gmu) ?? [];
+  expect(serviceMatches).toHaveLength(1);
+  const serviceBlock = serviceMatches[0];
+  if (serviceBlock === undefined) {
+    throw new Error("render.yaml must define exactly one Render source-health cron service.");
+  }
+
+  return serviceBlock;
+}
+
 function readRenderEnvVars(serviceBlock: string): Map<string, string> {
   const envVars = new Map<string, string>();
   let currentKey: string | undefined;
@@ -121,6 +133,7 @@ describe("deployment readiness scripts", () => {
       build: "npm run build:api && npm run build:cockpit",
       "build:api": "npm run typecheck",
       "build:cockpit": "next build cockpit",
+      "refresh:source-health": "tsx scripts/refreshSourceHealthSnapshots.ts",
       start: "npm run start:api",
       "start:api": "tsx src/services/cockpitApi.ts",
       "start:cockpit": "next start cockpit"
@@ -156,21 +169,38 @@ describe("deployment readiness manifests", () => {
   });
 
   it("declares required Render runtime env names without committed secret or instance values", () => {
-    const envVars = readRenderEnvVars(readRenderServiceBlock());
+    const renderBlocks = [readRenderServiceBlock(), readRenderCronBlock()];
 
-    for (const envKey of requiredRenderPromptedEnvKeys) {
-      const declaration = envVars.get(envKey);
-      expect(declaration, `${envKey} must be declared in Render envVars`).toBeDefined();
-      expect(declaration).toMatch(/^\s*sync:\s+false\s*$/mu);
-      expect(declaration).not.toMatch(/^\s*value:\s*\S+/mu);
-    }
+    for (const renderBlock of renderBlocks) {
+      const envVars = readRenderEnvVars(renderBlock);
 
-    for (const [envKey, expectedValue] of Object.entries(requiredRenderValueEnvKeys)) {
-      const declaration = envVars.get(envKey);
-      expect(declaration, `${envKey} must be declared in Render envVars`).toBeDefined();
-      expect(declaration).toMatch(new RegExp(`^\\s*value:\\s+${expectedValue}\\s*$`, "mu"));
-      expect(declaration).not.toMatch(/^\s*sync:\s+false\s*$/mu);
+      for (const envKey of requiredRenderPromptedEnvKeys) {
+        const declaration = envVars.get(envKey);
+        expect(declaration, `${envKey} must be declared in Render envVars`).toBeDefined();
+        expect(declaration).toMatch(/^\s*sync:\s+false\s*$/mu);
+        expect(declaration).not.toMatch(/^\s*value:\s*\S+/mu);
+      }
+
+      for (const [envKey, expectedValue] of Object.entries(requiredRenderValueEnvKeys)) {
+        const declaration = envVars.get(envKey);
+        expect(declaration, `${envKey} must be declared in Render envVars`).toBeDefined();
+        expect(declaration).toMatch(new RegExp(`^\\s*value:\\s+${expectedValue}\\s*$`, "mu"));
+        expect(declaration).not.toMatch(/^\s*sync:\s+false\s*$/mu);
+      }
     }
+  });
+
+  it("defines a Render cron job that refreshes source-health snapshots before they go stale", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
+    const cronBlock = readRenderCronBlock();
+
+    expect(packageJson.scripts?.["refresh:source-health"]).toBe("tsx scripts/refreshSourceHealthSnapshots.ts");
+    expect(cronBlock).toMatch(/^\s*name:\s+recoup-source-health-refresh\s*$/mu);
+    expect(cronBlock).toMatch(/^\s*runtime:\s+node\s*$/mu);
+    expect(cronBlock).toMatch(/^\s*schedule:\s+"(?:\*\/10|0\/10) \* \* \* \*"\s*$/mu);
+    expect(cronBlock).toMatch(/^\s*buildCommand:\s+npm ci --include=dev && npm run build:api\s*$/mu);
+    expect(cronBlock).toMatch(/^\s*startCommand:\s+npm run refresh:source-health\s*$/mu);
+    expect(cronBlock).not.toMatch(/\b(?:RECOUP_API_URL|NEXT_PUBLIC_RECOUP_API_URL)\b/u);
   });
 
   it("defines the root Vercel cockpit build contract without repo-committed env values", () => {

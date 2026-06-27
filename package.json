@@ -16,6 +16,7 @@
     "verify:release": "tsx evals/releaseReadinessCli.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run depcruise && npm run verify:release",
     "provision:openai-evidence-vector-store": "tsx scripts/provisionOpenAiEvidenceVectorStore.ts",
+    "refresh:source-health": "tsx scripts/refreshSourceHealthSnapshots.ts",
     "build": "npm run build:api && npm run build:cockpit",
     "build:api": "npm run typecheck",
     "build:cockpit": "next build cockpit",
