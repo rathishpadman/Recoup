@@ -1,9 +1,23 @@
-# SPEC-002 — Wire the Vector DB into `retrieval.docs` (RAG, ADR-002)
+# SPEC-002 — RAG for ADR-002 (complete): Vector DB data source, Maya + David, classic + agentic
 
 - **Status:** Ready to implement
-- **Date:** 2026-06-26
-- **Implements:** `ADR-002-rag-vector-data-source.md`
-- **Effort:** ~0.5–1 day · **Risk:** low (additive; structured sources stay authoritative; decision core untouched) · **No source changed yet — this is a plan.**
+- **Date:** 2026-06-26 (rev. 2 — now covers the entire ADR-002)
+- **Implements:** `ADR-002-rag-vector-data-source.md` in full
+- **No source changed yet — this is a plan.**
+
+### Scope map (this spec covers all of ADR-002, in three parts)
+
+| Part | Covers | ADR-002 ref | Effort | Risk | Depends on |
+|---|---|---|---|---|---|
+| **A** (§0–§6 below) | Maya classic RAG inside `retrieval.docs` | §2, §6.1, §6.5, §7 Option 1 | ~0.5–1d | Low | — |
+| **B** (PART B) | David credit classic RAG (`retrieval.creditDocs`) | §6.2, §6.7 | ~1–2d | Med | Part A patterns |
+| **C** (PART C) | Agentic RAG (agent-driven, multi-hop, verifier-gated) | §7 Option 2 | ~1–2d | Med | SPEC-001 (MCP), ROADMAP #1 (Reviewer) |
+
+**Invariant across all parts:** every retrieved hit passes the deterministic grounding gate (customer + scope record-IDs); dollars/verdicts/limits/holds stay code-computed and human-gated. RAG improves *evidence recall*, never *who decides*.
+
+---
+
+# PART A — Maya classic RAG (ADR-002 Option 1)
 
 ---
 
@@ -184,7 +198,142 @@ The dollar/verdict still comes only from `decisions.deductionVerdict` / `core.ev
 
 ---
 
-## 7. Out of scope (future work)
+# PART B — David credit classic RAG (`retrieval.creditDocs`)
+
+Implements ADR-002 §6.2 and §6.7. David's `/credit` path has **no `DeductionLine`** and never calls `retrieval.docs`, so this part adds a credit-shaped retrieval surface that reuses the same governed grounding pattern.
+
+## B0. Goal & acceptance criteria
+- A new read-only, MCP-visible `retrieval.creditDocs` tool returns semantically-recalled credit documents (credit agreement clauses, bureau narratives, risk memos), each deterministically grounded to `customer_id` + case `recordIds`.
+- Credit decisions (exposure, DSO, R-score, hold/terms) remain code-computed and human-gated; RAG output is advisory citation only.
+- Fail-safe: unset/unavailable vector store ⇒ credit path behaves exactly as today.
+- `npm run verify` green; new tests cover the credit reader, grounding, and fail-safe.
+
+## B1. Generalize the reader (`src/adapters/openAiVectorStore.ts`)
+Today: `searchEvidence(line: DeductionLine)` with an internal `buildEvidenceQuery(line)`. Add a customer/case-shaped entry point that keeps the same deterministic post-filter:
+
+```ts
+export interface VectorEvidenceQuery {
+  customerId: string;
+  recordIds: string[];        // case/risk-observation record IDs that anchor grounding
+  scenarioTag: string;        // credit scenario, e.g. "credit-covenant" | "risk-drift" | "precedent"
+  lineId?: string;            // optional; deduction path keeps passing the line id
+  freeTextQuery?: string;     // used by agentic RAG (Part C); defaults to a structured query string
+}
+
+// Refactor searchEvidence to accept either a DeductionLine (back-compat) or a VectorEvidenceQuery.
+export function buildVectorEvidenceQuery(q: VectorEvidenceQuery): string {
+  return q.freeTextQuery ?? [
+    `customer:${q.customerId}`, `scenario:${q.scenarioTag}`,
+    ...q.recordIds.map((r) => `record:${r}`)
+  ].join(" ");
+}
+```
+
+`mapSearchResults` stays the grounding authority — generalize its filter to compare `attributes.customer_id === q.customerId`, `attributes.scenario_type === q.scenarioTag`, and record-ID intersection with `q.recordIds` (and `q.lineId` when present). The deterministic gate is unchanged in spirit; only the key source widens from `DeductionLine` to `VectorEvidenceQuery`.
+
+## B2. New service tool `retrieval.creditDocs` (`src/services/serviceLayer.ts`)
+```ts
+const creditDocsToolSchema = z.object({
+  customerId: z.string().min(1),
+  caseId: z.string().min(1),
+  recordIds: z.array(z.string().min(1)).min(1),
+  scenarioTag: z.enum(["credit-covenant", "risk-drift", "precedent", "payment-promise"])
+}).strict();
+
+// serviceToolMetadata: read_only / none / visibility: "mcp"
+"retrieval.creditDocs": {
+  schema: creditDocsToolSchema,
+  handler: (input, context) => {
+    const q = creditDocsToolSchema.parse(input);
+    return context.creditVectorStoreEvidenceSource?.readEvidence(q) ?? []; // pre-fetched, sync read
+  }
+}
+```
+Add `creditVectorStoreEvidenceSource?: ServiceCreditEvidenceSource` to `ServiceInvocationContext`. Keep it **MCP-visible read-only** so David's agents reach it through the same gateway (ADR-001); internal decision tools stay hidden (mcp-visibility invariant unaffected).
+
+## B3. Credit evidence source builder (`src/services/serviceLayer.ts`)
+Mirror `buildOpenAiVectorStoreEvidenceSource` but keyed by customer/case and scenarioTag; pre-fetch the small fixed set of credit scenarioTags for the governed Harbor case, `catch`→`[]` per tag (fail-safe).
+
+## B4. Wire into the credit request context (`src/services/cockpitApi.ts`)
+The credit/risk surfaces (`/credit`, `/cfo`, `/trace`, `/query/realtime-tool`) load source via `loadRequiredSupabaseSource(..., { riskObservationRequired: true })`. There, when `OPENAI_API_KEY` + `OPENAI_EVIDENCE_VECTOR_STORE_ID` are set, build `creditVectorStoreEvidenceSource` keyed by `governedConfig.riskMeshCases.harbor.customerId` and the case's risk-observation `recordIds`, and add it to the service context passed to `invokeServiceTool`.
+
+## B5. Consumer surface (new, honest)
+David's cockpit has no Maya-style citation flow today, so define where credit RAG renders:
+- **Read model:** extend `buildCreditCockpitModel` (`src/services/cockpitModel.ts`) with a `creditEvidence` block (cited credit-doc passages + provenance `vector_store`), built only from `retrieval.creditDocs` results.
+- **UI:** a credit evidence panel (mirrors `evidence-dossier.tsx`) on the `/credit` surface, prop-driven, provenance-honest. No business values computed client-side (UI-hardcoded-values invariant holds).
+
+## B6. Ingestion (corpus expansion)
+Extend `scripts/provisionOpenAiEvidenceVectorStore.ts` (or a `provisionCreditEvidenceVectorStore` sibling) to upload credit documents with attributes:
+```ts
+{ documentType: "contract" | "credit-memo" | "correspondence" /* + bureau-narrative if added to the enum */,
+  recordIds, source_table, record_id, customer_id, scenario_type: <credit scenarioTag>, provenance: "synthetic" }
+```
+If bureau narratives need a distinct type, extend `OpenAiVectorStoreEvidenceType` + the Zod enum in lockstep.
+
+## B7. Governance proof (David)
+Identical to Part A §3: `mapSearchResults` (customer + scenarioTag + recordIds) → `mergeEvidenceDocuments` (or a credit-side relevance filter) → credit read-model only renders cited records. Exposure/DSO/R-score and any hold/term proposal remain deterministic (`runRiskMeshClosedLoop`, governed config) and human-gated (`actions.proposeHold` / `actions.proposeTerms` stay `draft_only`).
+
+## B8. Tests
+| Test | Asserts |
+|---|---|
+| `tests/unit/credit-vector-evidence.test.ts` | `retrieval.creditDocs` schema; grounding drops non-matching customer/scenarioTag; reader error ⇒ `[]` |
+| `tests/invariants/mcp-visibility.test.ts` (extend) | `retrieval.creditDocs` is `visibility:"mcp"` read-only; decision tools still hidden |
+| credit cockpit model test | `creditEvidence` only contains cited records; provenance `vector_store`, never `sap_odata` |
+
+---
+
+# PART C — Agentic RAG (ADR-002 Option 2)
+
+Implements ADR-002 §7 Option 2. Converts retrieval from a deterministic pre-fetch (Parts A/B) into **agent-driven, multi-hop, verifier-gated** recall. The agent controls the *query* (recall); the deterministic filter still owns *grounding*; the core still owns the *decision*.
+
+## C0. Goal & acceptance criteria
+- The live Forensics agent calls `retrieval.docs` (and `retrieval.creditDocs`) **itself**, over MCP, formulating its own query, across up to `maxTurns` hops.
+- A Reviewer/verifier step decides sufficiency; insufficient evidence triggers another bounded retrieval hop.
+- Every hit still passes the deterministic grounding gate; dollars/verdicts stay deterministic.
+- The loop is bounded (`maxTurns` + `retryCap`); no infinite retrieval.
+- `npm run verify` green; tests cover multi-hop, sufficiency gating, and bound enforcement.
+
+## C1. Expose retrieval to the agent over MCP (depends on SPEC-001)
+Attach the MCP gateway to the Forensics agent (`agentRuntime.ts`, per SPEC-001) so `retrieval.docs` / `retrieval.creditDocs` are agent-callable tools. The agent now issues `tool_called` events instead of relying solely on the pre-fetch.
+
+## C2. Agent-formulated query (governance-bounded)
+Allow the agent to pass `freeTextQuery` into the retrieval tool (B1). **The agent controls recall, not grounding:** `mapSearchResults` still enforces `customer_id` + scenario + record-ID intersection on results, so a creative query cannot pull cross-customer or out-of-scope evidence. Add a guard that the agent's query is scoped to the selected `customerId`/case (reject/annotate otherwise).
+
+## C3. Multi-hop loop + sufficiency verifier
+- In `src/services/forensicsQuerySession.ts`, drive evidence from the live agent's `tool_called(retrieval.*)` outputs across turns rather than a single pre-fetch.
+- Add the **Reviewer agent** (ROADMAP #1, `src/agents/agentRuntime.ts` + `src/prompts/reviewer.md`) as the sufficiency gate: it asserts the retrieved, grounded passages support the verdict/routing; if not, the loop performs another retrieval hop (bounded by `retryCap`/`maxTurns`).
+- Reuse `assertFinalAgentOutput` for the deterministic sufficiency check (cited records present, within scope, deterministic basis).
+
+## C4. Trace & observability
+Emit per-hop receipts: `retrieval_hop` (query + result count), `sufficiency_check` (pass/fail + reason), final `grounded_citation`. Surface hop count in `agent-trace-panel.tsx`. Pairs with ROADMAP #6 (trace export).
+
+## C5. Determinism guardrails (hard requirements)
+- Bound: `maxTurns` (`liveForensicsStream.ts:156-167`) + `retryCap`; on exhaustion, fall back to the Part A/B classic pre-fetch result (never fail open).
+- Grounding: unchanged triple gate (Part A §3) applies to every hop's hits.
+- Decision: dollar/verdict/limit/hold still only from deterministic tools; the agent loop produces *evidence + a challenge*, not a number.
+
+## C6. Tests
+| Test | Asserts |
+|---|---|
+| `tests/unit/agentic-rag-loop.test.ts` (stub MCP runner) | multi-hop: hop 1 insufficient ⇒ verifier requests hop 2 ⇒ sufficient ⇒ grounded citation |
+| sufficiency-gate test | if no grounded evidence after `maxTurns`, falls back to classic pre-fetch; never returns an ungrounded answer |
+| bound test | retrieval hops never exceed `maxTurns`/`retryCap` |
+| cross-scope guard | agent `freeTextQuery` cannot surface evidence outside the selected `customerId`/scope |
+
+---
+
+# Combined phasing & acceptance (all parts)
+
+1. **Part A** — Maya classic RAG (independent; ship first).
+2. **Part B** — David credit classic RAG (reuses A patterns; needs corpus + credit consumer surface).
+3. **Part C** — Agentic RAG (requires SPEC-001 MCP attach + ROADMAP #1 Reviewer; upgrades A and B from pre-fetch to agent-driven).
+
+**Global acceptance (every part):** no model-computed money/verdict/limit/hold (I-1); external actions human-gated (I-7/I-20/I-23); every step a trace receipt with record IDs + deterministic basis (I-17); unknown/insufficient fails closed (I-30); `npm run verify` + `test:e2e:maya-real` green; new behavior covered by unit tests and a gold-case eval (ROADMAP #4).
+
+---
+
+## Out of scope (future work, all parts)
 - Supabase `pgvector` backend as an alternative to the OpenAI vector store (single-datastore residency).
 - Re-ranking / chunk-level highlighting in the cockpit.
 - Embedding-refresh pipeline when source documents change.
+- Cross-persona shared retrieval cache.

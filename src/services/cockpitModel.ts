@@ -22,13 +22,21 @@ import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataPr
 import type { McpReadinessStatus } from "./mcpHealth.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
+export type ApprovalLifecycleStatus = "pending_human" | "human_decided";
 export type ForensicsSseEvent = ForensicsTraceEvent;
 
 export interface CockpitModelGovernanceOptions {
+  approvalRecordSource?: ApprovalRecordSourceMetadata | undefined;
+  approvalRecords?: readonly MemoryRecord[] | undefined;
   governedConfig: GovernedConfigValues;
   riskObservationSource?: SourcePort | undefined;
   serviceContext?: ServiceInvocationContext | undefined;
   settlementSource?: SourcePort | undefined;
+}
+
+export interface ApprovalRecordSourceMetadata {
+  sourceKind: "derived_backend" | "supabase";
+  sourceName: string;
 }
 
 interface SettlementDataset extends SyntheticDatasetCore {
@@ -205,15 +213,16 @@ export interface ForensicsWorkItemDetailCockpitModel {
   approvalState: {
     actions: ForensicsCockpitModel["selected"]["approvalActions"];
     provenance: MayaFieldProvenance;
-    status: "pending_human";
+    status: ApprovalLifecycleStatus;
     statusLabel: string;
   };
   auditState: {
     provenance: MayaFieldProvenance;
     recordIds: string[];
-    status: "pending_human";
+    status: ApprovalLifecycleStatus;
     statusLabel: string;
   };
+  approvalReceipt?: ApprovalAuditReceipt;
   actionInbox: ForensicsCockpitModel["actionInbox"];
   multimodalDock: ForensicsCockpitModel["multimodalDock"];
   mayaJourney: ForensicsCockpitModel["mayaJourney"];
@@ -250,6 +259,8 @@ export interface WorklistItem {
   evidenceScoreLabel: string;
   evidenceLabel: string;
   provenance: MayaFieldProvenance;
+  approvalStatus: ApprovalLifecycleStatus;
+  approvalStatusLabel: string;
   queueLabel: string;
 }
 
@@ -598,6 +609,7 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
   const governedConfig = readGovernedCockpitConfig(options);
   const settlementSource = readSettlementSource(options);
   const serviceContext = readForensicsServiceContext(options);
+  const approvalRecordSource = readApprovalRecordSource(options);
   const dataset = buildSettlementDataset(settlementSource);
   const run = runForensicsInvestigation({ governedConfig, serviceContext, source: settlementSource });
   const containmentCandidate = run.containmentCandidates[0];
@@ -692,8 +704,13 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
         })
       }
     ],
-    worklist: buildScenarioWorklist(dataset, run.decisions),
-    selected: buildSelectedForensicsCase(selectedDecision, selectedAction),
+    worklist: buildScenarioWorklist(dataset, run.decisions, run.actions, options?.approvalRecords),
+    selected: buildSelectedForensicsCase(
+      selectedDecision,
+      selectedAction,
+      findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId),
+      approvalRecordSource
+    ),
     actionInbox: buildForensicsActionInbox(run.actions),
     multimodalDock: {
       languageLabel: "Spanish ready",
@@ -807,6 +824,7 @@ export function buildForensicsWorkItemDetailCockpitModel(
   const governedConfig = readGovernedCockpitConfig(options);
   const settlementSource = readSettlementSource(options);
   const serviceContext = readForensicsServiceContext(options);
+  const approvalRecordSource = readApprovalRecordSource(options);
   const dataset = buildSettlementDataset(settlementSource);
   const line = dataset.deductionLines.find((candidate) => candidate.lineId === lineId);
   if (line === undefined) {
@@ -827,17 +845,22 @@ export function buildForensicsWorkItemDetailCockpitModel(
     throw new Error(`Missing action for requested line ${lineId}.`);
   }
 
-  const workItem = buildScenarioWorklist(dataset, run.decisions).find((item) => item.lineIds.includes(lineId));
+  const workItem = buildScenarioWorklist(dataset, run.decisions, run.actions, options?.approvalRecords).find((item) =>
+    item.lineIds.includes(lineId)
+  );
   if (workItem === undefined) {
     throw new Error(`Missing worklist item for requested line ${lineId}.`);
   }
 
-  const selected = buildSelectedForensicsCase(selectedDecision, selectedAction);
+  const approvalReceipt = findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId);
+  const selected = buildSelectedForensicsCase(selectedDecision, selectedAction, approvalReceipt, approvalRecordSource);
   const actionInbox = buildForensicsActionInbox(run.actions);
   const recommendedAction = actionInbox.find((action) => action.lineId === lineId);
   if (recommendedAction === undefined) {
     throw new Error(`Missing recommended action for requested line ${lineId}.`);
   }
+  const approvalStateRecordIds = approvalReceipt?.recordIds ?? selectedAction.recordIds;
+  const approvalStateStatus = approvalReceipt?.status ?? selectedAction.status;
 
   return {
     surface: "forensics-work-item-detail",
@@ -849,25 +872,32 @@ export function buildForensicsWorkItemDetailCockpitModel(
     approvalState: {
       actions: selected.approvalActions,
       provenance: businessProvenance("workItemDetail.approvalState", {
-        sourceKind: "derived_backend",
-        sourceName: "Forensics HITL approval state",
-        recordIds: selectedAction.recordIds,
-        deterministicBasis: `action ${selectedAction.actionId} status ${selectedAction.status}; requiresHumanApproval ${String(selectedAction.requiresHumanApproval)}`
+        sourceKind: approvalReceipt === undefined ? "derived_backend" : approvalRecordSource.sourceKind,
+        sourceName: approvalReceipt === undefined ? "Forensics HITL approval state" : approvalRecordSource.sourceName,
+        recordIds: approvalStateRecordIds,
+        deterministicBasis:
+          approvalReceipt === undefined
+            ? `action ${selectedAction.actionId} status ${selectedAction.status}; requiresHumanApproval ${String(selectedAction.requiresHumanApproval)}`
+            : `approval_records receipt ${approvalReceipt.actionId} status ${approvalReceipt.status}; decision ${approvalReceipt.decision}; auditEntryHash ${approvalReceipt.auditEntryHash}`
       }),
-      status: selectedAction.status,
-      statusLabel: selected.draft.statusLabel
+      status: approvalStateStatus,
+      statusLabel: approvalReceipt === undefined ? selected.draft.statusLabel : "Human decision recorded"
     },
     auditState: {
       provenance: businessProvenance("workItemDetail.auditState", {
-        sourceKind: "derived_backend",
-        sourceName: "Forensics draft audit state",
-        recordIds: selectedAction.recordIds,
-        deterministicBasis: `action ${selectedAction.actionId} dispatchedExternally ${String(selectedAction.dispatchedExternally)}; audit remains pending until human approval`
+        sourceKind: approvalReceipt === undefined ? "derived_backend" : approvalRecordSource.sourceKind,
+        sourceName: approvalReceipt === undefined ? "Forensics draft audit state" : approvalRecordSource.sourceName,
+        recordIds: approvalStateRecordIds,
+        deterministicBasis:
+          approvalReceipt === undefined
+            ? `action ${selectedAction.actionId} dispatchedExternally ${String(selectedAction.dispatchedExternally)}; audit remains pending until human approval`
+            : `approval_records receipt ${approvalReceipt.actionId} is committed with status ${approvalReceipt.status}; approval finality does not imply dispatch, ERP write-back, Billing routing, recovery execution, queue completion, or case closure`
       }),
-      recordIds: selectedAction.recordIds,
-      status: selectedAction.status,
-      statusLabel: "Awaiting human approval"
+      recordIds: approvalStateRecordIds,
+      status: approvalStateStatus,
+      statusLabel: approvalReceipt === undefined ? "Awaiting human approval" : "Audit receipt committed"
     },
+    ...(approvalReceipt === undefined ? {} : { approvalReceipt }),
     actionInbox,
     multimodalDock: buildSelectedMultimodalDock(selectedDecision, run.trace),
     mayaJourney: buildSelectedMayaJourney(dataset, selectedDecision),
@@ -1373,6 +1403,14 @@ function buildApprovalAuditReceipts(records: readonly MemoryRecord[]): ApprovalA
   });
 }
 
+function findApprovalReceipt(records: readonly MemoryRecord[], actionId: string): ApprovalAuditReceipt | undefined {
+  return buildApprovalAuditReceipts(records).find((receipt) => receipt.actionId === actionId);
+}
+
+function approvalReceiptRecordKey(actionId: string): string {
+  return `approval:${actionId}`;
+}
+
 function toApprovalAuditReceipt(record: MemoryRecord): ApprovalAuditReceipt | undefined {
   if (record.category !== "approval_records" || record.trustLevel !== "trusted") {
     return undefined;
@@ -1384,9 +1422,12 @@ function toApprovalAuditReceipt(record: MemoryRecord): ApprovalAuditReceipt | un
   const decision = readPayloadString(record, "decision");
   const reason = readPayloadString(record, "reason");
   const status = readPayloadString(record, "status");
+  const expectedApprovalRecordKey = actionId === undefined ? undefined : approvalReceiptRecordKey(actionId);
 
   if (
     actionId === undefined ||
+    record.id !== expectedApprovalRecordKey ||
+    record.scope !== expectedApprovalRecordKey ||
     approverId === undefined ||
     !approverId.startsWith("human:") ||
     auditEntryHash === undefined ||
@@ -1467,9 +1508,13 @@ export function buildConnectorReadinessModel(
 
 function buildScenarioWorklist(
   dataset: SettlementDataset,
-  decisions: DeductionDecision[]
+  decisions: DeductionDecision[],
+  actions: ReturnType<typeof runForensicsInvestigation>["actions"],
+  approvalRecords: readonly MemoryRecord[] = []
 ): WorklistItem[] {
   const decisionsByLineId = new Map(decisions.map((decision) => [decision.lineId, decision]));
+  const actionByLineId = new Map(actions.map((action) => [action.lineId, action]));
+  const receiptByActionId = new Map(buildApprovalAuditReceipts(approvalRecords).map((receipt) => [receipt.actionId, receipt]));
   const customerById = new Map(dataset.customers.map((customer) => [customer.customerId, customer]));
 
   return dataset.manifest.scenarioIds.map((scenarioId) => {
@@ -1488,6 +1533,15 @@ function buildScenarioWorklist(
     const total = lines.reduce((sum, line) => sum.plus(line.amount), dataset.zeroMoney);
     const recordIds = uniqueStrings(scenarioDecisions.flatMap((decision) => decision.recordIds));
     const customer = customerById.get(firstLine.customerId);
+  const scenarioActions = lines
+      .map((line) => actionByLineId.get(line.lineId))
+      .filter((action): action is ReturnType<typeof runForensicsInvestigation>["actions"][number] => action !== undefined);
+    const firstAction = scenarioActions[0];
+    const scenarioApprovalReceipts = scenarioActions
+      .map((action) => receiptByActionId.get(action.actionId))
+      .filter((receipt): receipt is ApprovalAuditReceipt => receipt !== undefined);
+    const allScenarioActionsDecided =
+      scenarioActions.length > 0 && scenarioApprovalReceipts.length === scenarioActions.length;
 
     return {
       lineId: firstLine.lineId,
@@ -1514,6 +1568,8 @@ function buildScenarioWorklist(
         recordIds,
         deterministicBasis: `scenario ${scenarioId} grouped from settlement source lines and runForensicsInvestigation decisions`
       }),
+      approvalStatus: allScenarioActionsDecided ? "human_decided" : firstAction?.status ?? "pending_human",
+      approvalStatusLabel: allScenarioActionsDecided ? "Human decision recorded" : "Awaiting reviewer",
       queueLabel: firstDecision.routing === "recovery" ? "Review" : "Billing"
     };
   });
@@ -1806,6 +1862,13 @@ function readForensicsServiceContext(options: CockpitModelGovernanceOptions | un
   return options.serviceContext;
 }
 
+function readApprovalRecordSource(options: CockpitModelGovernanceOptions | undefined): ApprovalRecordSourceMetadata {
+  return options?.approvalRecordSource ?? {
+    sourceKind: "derived_backend",
+    sourceName: "Runtime approval receipt memory projection"
+  };
+}
+
 function buildSettlementDataset(source: SourcePort): SettlementDataset {
   const settlementRun = source.loadSettlementRun();
   const zeroMoney = money("0.00");
@@ -1850,9 +1913,16 @@ function approvalControlProvenance(decision: ApprovalAction): MayaFieldProvenanc
 
 function buildSelectedForensicsCase(
   selectedDecision: DeductionDecision,
-  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number]
+  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number],
+  approvalReceipt: ApprovalAuditReceipt | undefined,
+  approvalRecordSource: ApprovalRecordSourceMetadata
 ): ForensicsCockpitModel["selected"] {
-  const approvalEligibility = approvalEligibilityUnavailable(selectedAction);
+  const approvalEligibility = buildApprovalEligibility(
+    selectedDecision,
+    selectedAction,
+    approvalReceipt,
+    approvalRecordSource
+  );
 
   return {
     lineId: selectedDecision.lineId,
@@ -1891,19 +1961,67 @@ function buildSelectedForensicsCase(
   };
 }
 
-function approvalEligibilityUnavailable(
-  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number]
+function buildApprovalEligibility(
+  selectedDecision: DeductionDecision,
+  selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number],
+  approvalReceipt: ApprovalAuditReceipt | undefined,
+  approvalRecordSource: ApprovalRecordSourceMetadata
 ): ApprovalEligibilityCockpitModel {
+  if (approvalReceipt !== undefined) {
+    return {
+      available: false,
+      provenance: businessProvenance("selected.approvalEligibility", {
+        sourceKind: approvalRecordSource.sourceKind,
+        sourceName: approvalRecordSource.sourceName,
+        recordIds: approvalReceipt.recordIds,
+        deterministicBasis: `approval_records receipt ${approvalReceipt.actionId} is already committed with status ${approvalReceipt.status}; duplicate human decisions are disabled; no dispatch, ERP write-back, Billing routing, recovery execution, queue completion, or case closure is inferred`
+      }),
+      statusLabel: "Human decision recorded"
+    };
+  }
+
+  const evidenceDocumentIds = new Set(selectedDecision.evidenceDocuments.map((document) => document.documentId));
+  const actionEvidenceComplete =
+    selectedAction.evidenceDocumentIds.length > 0 &&
+    selectedAction.evidenceDocumentIds.every((documentId) => evidenceDocumentIds.has(documentId));
+  const approvalGateOpen = isPendingHumanApprovalGate(selectedAction);
+  const readyForHumanApproval = approvalGateOpen && actionEvidenceComplete;
+
+  if (readyForHumanApproval) {
+    return {
+      available: true,
+      provenance: businessProvenance("selected.approvalEligibility", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics evidence review eligibility",
+        recordIds: uniqueStrings([
+          ...selectedAction.recordIds,
+          ...selectedAction.evidenceDocumentIds,
+          ...selectedDecision.evidenceDocuments.flatMap((document) => document.recordIds)
+        ]),
+        deterministicBasis: `action ${selectedAction.actionId} requiresHumanApproval ${String(selectedAction.requiresHumanApproval)}; status ${selectedAction.status}; dispatchedExternally ${String(selectedAction.dispatchedExternally)}; evidenceDocuments ${String(selectedDecision.evidenceDocuments.length)} cover action evidenceDocumentIds ${selectedAction.evidenceDocumentIds.join(", ")}`
+      }),
+      statusLabel: "Ready for human approval"
+    };
+  }
+
   return {
     available: false,
     provenance: businessProvenance("selected.approvalEligibility", {
       sourceKind: "derived_backend",
       sourceName: "Forensics approval eligibility contract",
       recordIds: selectedAction.recordIds,
-      deterministicBasis: `action ${selectedAction.actionId} approval eligibility is unavailable because the backend read model does not expose an evidence-reviewed eligibility field`
+      deterministicBasis: `action ${selectedAction.actionId} approval eligibility is blocked; requiresHumanApproval ${String(selectedAction.requiresHumanApproval)}; status ${selectedAction.status}; dispatchedExternally ${String(selectedAction.dispatchedExternally)}; actionEvidenceComplete ${String(actionEvidenceComplete)}`
     }),
     statusLabel: "Eligibility unavailable"
   };
+}
+
+function isPendingHumanApprovalGate(action: {
+  dispatchedExternally: boolean;
+  requiresHumanApproval: boolean;
+  status: string;
+}): boolean {
+  return action.requiresHumanApproval && action.status === "pending_human" && !action.dispatchedExternally;
 }
 
 function buildForensicsActionInbox(

@@ -2779,6 +2779,10 @@ describe("S5 cockpit API", () => {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
       }
 
+      if (init.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+
       if (init.method === "POST" && url.includes("/rest/v1/rpc/recoup_commit_approval_audit")) {
         commitAttempts += 1;
         return Promise.resolve(
@@ -3183,8 +3187,255 @@ describe("S5 cockpit API", () => {
         status: "human_decided"
       });
       expect(receipt?.recordIds).toEqual(expect.arrayContaining([actionId, "S1-L2"]));
+
+      const detailResponse = await fetch(`${baseUrl}/forensics/work-items/S1-L2`, { headers: cockpitAuthHeaders });
+      const detail = (await detailResponse.json()) as {
+        approvalReceipt?: {
+          actionId: string;
+          approverId: string;
+          auditEntryHash: string;
+          decision: string;
+          recordIds: string[];
+          status: string;
+        };
+        approvalState: { status: string; statusLabel: string };
+        auditState: { recordIds: string[]; status: string; statusLabel: string };
+      };
+      expect(detailResponse.status).toBe(200);
+      expect(detail.approvalState).toMatchObject({ status: "human_decided", statusLabel: "Human decision recorded" });
+      expect(detail.auditState).toMatchObject({ status: "human_decided", statusLabel: "Audit receipt committed" });
+      expect(detail.auditState.recordIds).toEqual(expect.arrayContaining([actionId, "S1-L2"]));
+      expect(detail.approvalReceipt).toMatchObject({
+        actionId,
+        approverId: "human:maya-lead",
+        auditEntryHash: approval.auditEntryHash,
+        decision: "approve",
+        status: "human_decided"
+      });
+      expect(detail.approvalReceipt?.recordIds).toEqual(expect.arrayContaining([actionId, "S1-L2"]));
+
+      const forensicsResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const forensics = (await forensicsResponse.json()) as {
+        worklist: Array<{ approvalStatus: string; approvalStatusLabel: string; lineId: string }>;
+      };
+      expect(forensicsResponse.status).toBe(200);
+      expect(forensics.worklist.find((item) => item.lineId === "S1-L1")).toMatchObject({
+        approvalStatus: "pending_human",
+        approvalStatusLabel: "Awaiting reviewer"
+      });
       expect(JSON.stringify({ approval, rpcPayloads })).not.toContain("supabase-secret-key");
       expect(JSON.stringify(memory)).not.toContain("supabase-secret-key");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed when approval record source cannot be read for Maya rehydration", async () => {
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (init.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
+        return Promise.resolve(new Response(JSON.stringify({ message: "temporary approval record read outage" }), { status: 503 }));
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records",
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key",
+        SUPABASE_URL: "https://recoup.supabase.co"
+      },
+      memoryFetcher
+    });
+
+    try {
+      const forensicsResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const forensicsBody = (await forensicsResponse.json()) as { error: string; missingSource: string };
+      expect(forensicsResponse.status).toBe(503);
+      expect(forensicsBody).toMatchObject({
+        error: "Maya approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+
+      const detailResponse = await fetch(`${baseUrl}/forensics/work-items/S1-L1`, { headers: cockpitAuthHeaders });
+      const detailBody = (await detailResponse.json()) as { error: string; missingSource: string };
+      expect(detailResponse.status).toBe(503);
+      expect(detailBody).toMatchObject({
+        error: "Maya approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("requires an admin principal for demo lifecycle reset", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead"
+      }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/admin/demo-reset`, {
+        body: JSON.stringify({ actionId: "route-billing:S1-L1", reason: "Prepare judge demo rerun" }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string };
+
+      expect(response.status).toBe(403);
+      expect(body.error).toBe("Admin reset principal required.");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("lets an admin reset only demo lifecycle approval records and records the reset receipt", async () => {
+    const actionId = "route-billing:S1-L1";
+    const resetScope = `approval:${actionId}`;
+    const sourceRecordScope = "evidence:S1-L1";
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: unknown[] = [
+      {
+        category: "approval_records",
+        created_at: new Date(0).toISOString(),
+        id: `approval:${actionId}`,
+        payload_json: {
+          actionId,
+          approverId: "human:maya-lead",
+          auditEntryHash: "a".repeat(64),
+          decision: "approve",
+          status: "human_decided"
+        },
+        record_ids_json: [actionId, "S1-L1"],
+        scope: resetScope,
+        trust_level: "trusted"
+      },
+      {
+        category: "evidence_refs",
+        created_at: new Date(0).toISOString(),
+        id: "evidence:S1-L1",
+        payload_json: { source: "source-backed" },
+        record_ids_json: ["S1-L1"],
+        scope: sourceRecordScope,
+        trust_level: "trusted"
+      },
+      {
+        category: "evidence_refs",
+        created_at: new Date(0).toISOString(),
+        id: "evidence:same-approval-scope",
+        payload_json: { source: "source-backed" },
+        record_ids_json: ["S1-L1"],
+        scope: resetScope,
+        trust_level: "trusted"
+      }
+    ];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+
+      if (url.includes("/rest/v1/rpc/recoup_reset_demo_approval_lifecycle")) {
+        const payload = JSON.parse(body ?? "{}") as {
+          p_approval_id?: string;
+          p_approval_scope?: string;
+          p_audit_category?: string;
+          p_audit_created_at?: string;
+          p_audit_id?: string;
+          p_audit_payload_json?: Record<string, unknown>;
+          p_audit_record_ids_json?: string[];
+          p_audit_scope?: string;
+          p_audit_trust_level?: string;
+        };
+        const deleted = memoryRows.filter(
+          (row) =>
+            isSupabaseMemoryTestRow(row) &&
+            row.category === "approval_records" &&
+            row.id === payload.p_approval_id &&
+            row.scope === payload.p_approval_scope
+        );
+        for (const row of deleted) {
+          const index = memoryRows.indexOf(row);
+          if (index !== -1) {
+            memoryRows.splice(index, 1);
+          }
+        }
+        memoryRows.push({
+          category: payload.p_audit_category,
+          created_at: payload.p_audit_created_at,
+          id: payload.p_audit_id,
+          payload_json: { ...payload.p_audit_payload_json, deletedRecordCount: deleted.length },
+          record_ids_json: payload.p_audit_record_ids_json,
+          scope: payload.p_audit_scope,
+          trust_level: payload.p_audit_trust_level
+        });
+        return Promise.resolve(new Response(JSON.stringify([{ deleted_record_count: deleted.length }]), { status: 200 }));
+      }
+
+      if (url.includes("/rest/v1/recoup_memory_records")) {
+        if (init.method === "DELETE") {
+          return Promise.resolve(new Response(JSON.stringify({ error: "raw delete not allowed" }), { status: 500 }));
+        }
+
+        if (init.method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify(memoryRows), { status: 200 }));
+        }
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const cfoHeaders = {
+      ...cockpitAuthHeaders,
+      "x-recoup-human-principal": "human:cfo-lead"
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:cfo-lead"
+      },
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/admin/demo-reset`, {
+        body: JSON.stringify({ actionId, reason: "Prepare judge demo rerun" }),
+        headers: cfoHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        actionId: string;
+        deletedRecordCount: number;
+        resetScope: string;
+        status: string;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        actionId,
+        deletedRecordCount: 1,
+        resetScope,
+        status: "reset_recorded"
+      });
+
+      const memoryResponse = await fetch(`${baseUrl}/memory`);
+      const memory = (await memoryResponse.json()) as {
+        approvalAuditReceipts: unknown[];
+        records: Array<{ category: string; id: string; scope: string }>;
+      };
+      expect(memoryResponse.status).toBe(200);
+      expect(memory.approvalAuditReceipts).toEqual([]);
+      expect(memory.records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ category: "evidence_refs", id: "evidence:S1-L1", scope: sourceRecordScope }),
+          expect.objectContaining({ category: "evidence_refs", id: "evidence:same-approval-scope", scope: resetScope }),
+          expect.objectContaining({ category: "audit_refs", scope: `admin-reset:${actionId}` })
+        ])
+      );
+      expect(memory.records.some((record) => record.id === `approval:${actionId}`)).toBe(false);
+      expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+      expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/rpc/recoup_reset_demo_approval_lifecycle"))).toBe(true);
     } finally {
       await close(server);
     }
@@ -5242,4 +5493,13 @@ function signedDemoProxyHeaders(input: {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSupabaseMemoryTestRow(value: unknown): value is { category: string; id: string; scope: string } {
+  return (
+    isJsonRecord(value) &&
+    typeof value["category"] === "string" &&
+    typeof value["id"] === "string" &&
+    typeof value["scope"] === "string"
+  );
 }

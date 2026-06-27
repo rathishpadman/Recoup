@@ -58,6 +58,7 @@ export function DeductionWorklistTable({
         item.verdictLabel,
         item.routingLabel,
         item.queueLabel,
+        item.approvalStatusLabel,
         item.recommendedActionLabel,
         ...item.lineIds
       ]
@@ -152,6 +153,7 @@ export function DeductionWorklistTable({
                           <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
                             {item.evidenceScoreLabel}
                           </Badge>
+                          <WorklistApprovalStatusBadge item={item} />
                         </span>
                       </span>
                     </Button>
@@ -267,6 +269,7 @@ export function DeductionWorklistTable({
                         <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
                           {item.evidenceScoreLabel}
                         </Badge>
+                        <WorklistApprovalStatusBadge item={item} />
                       </span>
                     </span>
                   </Button>
@@ -389,6 +392,7 @@ export function DeductionWorklistTable({
                           >
                             {item.routingLabel}
                           </span>
+                          <WorklistApprovalStatusBadge item={item} />
                         </div>
                         <Button
                           aria-label={`Open investigation for ${item.scenarioLabel}`}
@@ -426,5 +430,19 @@ export function DeductionWorklistTable({
         </CardFooter>
       ) : null}
     </Card>
+  );
+}
+
+function WorklistApprovalStatusBadge({ item }: { item: MayaWorklistItem }) {
+  return (
+    <Badge
+      className="h-5 max-w-full justify-start truncate px-1.5 text-[10px]"
+      data-approval-status={item.approvalStatus}
+      data-testid="maya-worklist-approval-status"
+      title={item.approvalStatusLabel}
+      variant={item.approvalStatus === "human_decided" ? "secondary" : "outline"}
+    >
+      <span className="min-w-0 truncate">{item.approvalStatusLabel}</span>
+    </Badge>
   );
 }

@@ -87,6 +87,7 @@ import {
   buildLoginModel,
   buildTraceModel,
   ForensicsWorkItemNotFoundError,
+  type ApprovalRecordSourceMetadata,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
 import { buildSourceHealthResultsFromSnapshots } from "./sourceHealth.js";
@@ -135,6 +136,28 @@ const approvalRequestSchema = z.object({
     }
   }
 });
+const demoLifecycleResetRequestSchema = z
+  .object({
+    actionId: z.string().min(1),
+    reason: z.preprocess(
+      (value) => (typeof value === "string" ? value.trim() || undefined : value),
+      z.string().min(8).max(500).optional()
+    )
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.reason !== undefined) {
+      try {
+        assertApprovalReasonSafe(value.reason);
+      } catch (error) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: error instanceof Error ? error.message : "Reset reason rejected.",
+          path: ["reason"]
+        });
+      }
+    }
+  });
 
 const realtimeClientSecretRequestSchema = z
   .object({
@@ -193,7 +216,12 @@ const forensicsSourceContextTableIdentity = [
   "recoup_src_tpm"
 ] as const;
 type RecoupDataMode = "fixture" | "real-backend";
-type CockpitRateLimitedRoute = "GET /run" | "POST /approval" | "POST /forensics/query" | "POST /run";
+type CockpitRateLimitedRoute =
+  | "GET /run"
+  | "POST /admin/demo-reset"
+  | "POST /approval"
+  | "POST /forensics/query"
+  | "POST /run";
 const cockpitApiRoutes = [
   "GET /",
   "GET /healthz",
@@ -209,6 +237,7 @@ const cockpitApiRoutes = [
   "GET /sources/r1/:need",
   "GET /run",
   "POST /run",
+  "POST /admin/demo-reset",
   "POST /approval",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
@@ -354,18 +383,30 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     });
   });
 
-  app.get("/forensics", async (_request, response) => {
-    if (!requireProtectedReadAuth(_request, response)) {
+  app.get("/forensics", async (request, response) => {
+    if (!requireProtectedReadAuth(request, response)) {
       return;
     }
 
-    const runContext = await loadRequiredForensicsRunContext(_request, response);
+    const runContext = await loadRequiredForensicsRunContext(request, response);
     if (runContext === undefined) {
       return;
     }
     const { governedConfig, serviceContext, source } = runContext;
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
 
-    response.json(buildForensicsCockpitModel({ governedConfig, serviceContext, settlementSource: source }));
+    response.json(
+      buildForensicsCockpitModel({
+        approvalRecordSource: approvalRecordsSnapshot.source,
+        approvalRecords: approvalRecordsSnapshot.records,
+        governedConfig,
+        serviceContext,
+        settlementSource: source
+      })
+    );
   });
 
   app.get("/forensics/work-items/:lineId", async (request, response) => {
@@ -379,10 +420,23 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
     const { governedConfig, serviceContext, source } = runContext;
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
 
     try {
       response.json(
-        buildForensicsWorkItemDetailCockpitModel({ governedConfig, serviceContext, settlementSource: source }, lineId)
+        buildForensicsWorkItemDetailCockpitModel(
+          {
+            approvalRecordSource: approvalRecordsSnapshot.source,
+            approvalRecords: approvalRecordsSnapshot.records,
+            governedConfig,
+            serviceContext,
+            settlementSource: source
+          },
+          lineId
+        )
       );
     } catch (error) {
       if (error instanceof ForensicsWorkItemNotFoundError) {
@@ -1035,6 +1089,42 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   });
 
+  app.post("/admin/demo-reset", rateLimitAuditEndpoint("POST /admin/demo-reset"), async (request, response) => {
+    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    if (!human.success) {
+      response.status(401).json({ error: human.error });
+      return;
+    }
+
+    if (!isAdminResetPrincipal(human.principal, runtimeEnv)) {
+      response.status(403).json({ error: "Admin reset principal required." });
+      return;
+    }
+
+    const parsed = demoLifecycleResetRequestSchema.safeParse(request.body as unknown);
+    if (!parsed.success) {
+      response.status(400).json({ error: "Invalid demo reset request." });
+      return;
+    }
+
+    try {
+      response.json(
+        await resetDemoLifecycleRecords({
+          actionId: parsed.data.actionId,
+          env: runtimeEnv,
+          memoryFetcher: options.memoryFetcher,
+          operatorPrincipal: human.principal,
+          ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason })
+        })
+      );
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "Demo lifecycle reset is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    }
+  });
+
   app.post("/forensics/query", rateLimitAuditEndpoint("POST /forensics/query"), async (request, response) => {
     response.setHeader("cache-control", "no-store");
     const human = verifyHumanCockpitAuth(request, runtimeEnv, {
@@ -1271,6 +1361,60 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
       })
     );
     return;
+  }
+}
+
+interface ApprovalRecordsSnapshot {
+  records: MemoryRecord[];
+  source: ApprovalRecordSourceMetadata;
+}
+
+async function loadApprovalRecords(
+  env: RuntimeEnv,
+  memoryFetcher: SupabaseMemoryFetch | undefined
+): Promise<ApprovalRecordsSnapshot> {
+  const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(env, memoryFetcher);
+  if (supabaseMemory !== undefined) {
+    return {
+      records: await supabaseMemory.listAll(),
+      source: {
+        sourceKind: "supabase",
+        sourceName: "Supabase approval receipt memory"
+      }
+    };
+  }
+
+  const memoryStore = createRuntimeMemoryStore(env);
+  try {
+    return {
+      records: memoryStore.listAll(),
+      source: {
+        sourceKind: "derived_backend",
+        sourceName:
+          memoryStore.mode === "sqlite"
+            ? "SQLite approval receipt memory projection"
+            : "In-memory approval receipt fallback projection"
+      }
+    };
+  } finally {
+    memoryStore.close();
+  }
+}
+
+async function loadApprovalRecordsOrFailClosed(
+  request: Request,
+  response: Response,
+  env: RuntimeEnv,
+  memoryFetcher: SupabaseMemoryFetch | undefined
+): Promise<ApprovalRecordsSnapshot | undefined> {
+  try {
+    return await loadApprovalRecords(env, memoryFetcher);
+  } catch {
+    sendFailClosedJson(request, response, 503, {
+      error: "Maya approval receipt state is unavailable from governed backend sources.",
+      missingSource: "approval_records"
+    });
+    return undefined;
   }
 }
 
@@ -1655,8 +1799,109 @@ interface ApprovalDecisionResponse {
   status: "human_decided";
 }
 
+interface DemoLifecycleResetResponse {
+  actionId: string;
+  adminAuditId: string;
+  deletedRecordCount: number;
+  preservedSourceData: true;
+  resetScope: string;
+  status: "reset_recorded";
+}
+
 function approvalMemoryScope(actionId: string): string {
   return `approval:${actionId}`;
+}
+
+function isAdminResetPrincipal(principal: string, env: RuntimeEnv): boolean {
+  const configured = env.RECOUP_COCKPIT_ADMIN_PRINCIPAL?.trim();
+  if (configured !== undefined && configured.length > 0) {
+    return principal === configured;
+  }
+
+  return principal === "human:cfo-lead";
+}
+
+async function resetDemoLifecycleRecords(input: {
+  actionId: string;
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  operatorPrincipal: string;
+  reason?: string;
+}): Promise<DemoLifecycleResetResponse> {
+  const resetScope = approvalMemoryScope(input.actionId);
+  const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+  const adminAuditId = `admin-reset:${input.actionId}:${randomUUID()}`;
+  const auditRecord = buildAdminDemoResetAuditRecord({
+    actionId: input.actionId,
+    adminAuditId,
+    operatorPrincipal: input.operatorPrincipal,
+    ...(input.reason === undefined ? {} : { reason: input.reason }),
+    resetScope
+  });
+  let deletedRecordCount: number;
+
+  if (supabaseMemory !== undefined) {
+    deletedRecordCount = await supabaseMemory.resetApprovalLifecycle({
+      approvalRecordId: resetScope,
+      approvalScope: resetScope,
+      auditRecord
+    });
+
+    return {
+      actionId: input.actionId,
+      adminAuditId,
+      deletedRecordCount,
+      preservedSourceData: true,
+      resetScope,
+      status: "reset_recorded"
+    };
+  }
+
+  const memoryStore = createRuntimeMemoryStore(input.env);
+  try {
+    deletedRecordCount = memoryStore.resetApprovalLifecycle({
+      approvalRecordId: resetScope,
+      approvalScope: resetScope,
+      auditRecord
+    });
+  } finally {
+    memoryStore.close();
+  }
+
+  return {
+    actionId: input.actionId,
+    adminAuditId,
+    deletedRecordCount,
+    preservedSourceData: true,
+    resetScope,
+    status: "reset_recorded"
+  };
+}
+
+function buildAdminDemoResetAuditRecord(input: {
+  actionId: string;
+  adminAuditId: string;
+  operatorPrincipal: string;
+  reason?: string;
+  resetScope: string;
+}): MemoryRecord {
+  return {
+    category: "audit_refs",
+    createdAt: new Date().toISOString(),
+    id: input.adminAuditId,
+    payload: {
+      actionId: input.actionId,
+      lifecycleCategories: ["approval_records"],
+      operation: "demo_lifecycle_reset",
+      operatorPrincipal: input.operatorPrincipal,
+      preservedSourceData: true,
+      ...(input.reason === undefined ? {} : { reason: input.reason }),
+      resetScope: input.resetScope
+    },
+    recordIds: [input.actionId],
+    scope: `admin-reset:${input.actionId}`,
+    trustLevel: "trusted"
+  };
 }
 
 async function commitSupabaseApprovalDecision(

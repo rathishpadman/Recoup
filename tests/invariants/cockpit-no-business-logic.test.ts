@@ -66,6 +66,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
+    const worklistTable = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
     const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
     const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
     const realtimeHelper = readFileSync("cockpit/app/realtime-browser-session.ts", "utf8");
@@ -240,7 +241,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("selected.draft.basis");
     expect(caseWorkspace).toContain("selected.draft.actionLabel");
     expect(caseWorkspace).toContain("setApprovalResponse");
-    expect(caseWorkspace).toContain("response={approvalResponse}");
+    expect(caseWorkspace).toContain("approvalReceipt");
+    expect(caseWorkspace).toContain("response={approvalResponse ?? approvalReceipt}");
     expect(caseWorkspace).toContain("selectedActionContext");
     expect(caseWorkspace).toContain("<QueryEvidenceDock");
     expect(caseWorkspace).toContain("queryDockOpen");
@@ -268,6 +270,9 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("onResponse={() => undefined}");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
+    expect(worklistTable).toContain("item.approvalStatusLabel");
+    expect(worklistTable).toContain('item.approvalStatus === "human_decided"');
+    expect(worklistTable).not.toMatch(/\b(?:closed|completed|case closure|routed to billing|sent to ERP)\b/iu);
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u");
     expect(auditPanel).toContain('response.status === "human_decided"');

@@ -116,6 +116,18 @@ export interface ApprovalEligibilityCockpitModel {
   statusLabel: string;
 }
 
+export type ApprovalLifecycleStatus = "pending_human" | "human_decided";
+
+export interface ApprovalAuditReceipt {
+  actionId: string;
+  approverId: string;
+  auditEntryHash: string;
+  decision: "approve" | "modify" | "reject";
+  reason?: string;
+  recordIds: string[];
+  status: "human_decided";
+}
+
 export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
   kpiStrip: Array<{
@@ -249,15 +261,16 @@ export interface ForensicsWorkItemDetailCockpitModel {
   approvalState: {
     actions: ForensicsCockpitModel["selected"]["approvalActions"];
     provenance: MayaFieldProvenance;
-    status: "pending_human";
+    status: ApprovalLifecycleStatus;
     statusLabel: string;
   };
   auditState: {
     provenance: MayaFieldProvenance;
     recordIds: string[];
-    status: "pending_human";
+    status: ApprovalLifecycleStatus;
     statusLabel: string;
   };
+  approvalReceipt?: ApprovalAuditReceipt;
   actionInbox: ForensicsCockpitModel["actionInbox"];
   multimodalDock: ForensicsCockpitModel["multimodalDock"];
   mayaJourney: ForensicsCockpitModel["mayaJourney"];
@@ -645,6 +658,8 @@ export interface WorklistItem {
   confidenceLabel: string;
   evidenceScoreLabel: string;
   evidenceLabel: string;
+  approvalStatus: ApprovalLifecycleStatus;
+  approvalStatusLabel: string;
   provenance: MayaFieldProvenance;
   queueLabel: string;
 }

@@ -380,11 +380,23 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("p_expected_prev_hash IS NOT DISTINCT FROM current_tail_hash");
     expect(sql).toContain("INSERT INTO recoup_audit_chain (entry_hash, prev_hash, payload)");
     expect(sql).toContain("INSERT INTO %I (id, category, trust_level, scope, payload_json, record_ids_json, created_at)");
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION recoup_reset_demo_approval_lifecycle(");
+    expect(sql).toContain("p_audit_category <> 'audit_refs'");
+    expect(sql).toContain("DELETE FROM %I");
+    expect(sql).toContain("id = $1");
+    expect(sql).toContain("scope = $2");
+    expect(sql).toContain("category = ''approval_records''");
+    expect(sql).toContain("jsonb_build_object(''deletedRecordCount'', (SELECT value FROM deleted_count))");
     expect(sql).toContain(
       "REVOKE ALL ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role"
     );
     expect(sql).toContain("GRANT EXECUTE ON FUNCTION recoup_commit_approval_audit");
+    expect(sql).toContain(
+      "REVOKE ALL ON FUNCTION recoup_reset_demo_approval_lifecycle(text, text, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role"
+    );
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION recoup_reset_demo_approval_lifecycle");
     expect(sql).not.toMatch(/GRANT\s+[^;]*(?:UPDATE|DELETE)[^;]*ON FUNCTION recoup_commit_approval_audit/iu);
+    expect(sql).not.toMatch(/GRANT\s+[^;]*DELETE[^;]*ON TABLE recoup_memory_records/iu);
   });
 
   it("seeds Round 2 source-owned R-score component values for all four Tools_data customers", () => {
@@ -948,6 +960,75 @@ describe("supabase memory repository", () => {
     });
 
     await expect(repository.listAll()).resolves.toEqual([{ ...record, createdAt: "2026-06-19T00:00:00.000Z" }]);
+  });
+
+  it("resets demo approval lifecycle through a locked RPC instead of raw table delete", async () => {
+    const auditRecord: MemoryRecord = {
+      category: "audit_refs",
+      createdAt: "2026-06-27T08:00:00.000Z",
+      id: "admin-reset:route-billing:S1-L1:reset-1",
+      payload: {
+        actionId: "route-billing:S1-L1",
+        deletedRecordCount: 1,
+        operation: "demo_lifecycle_reset",
+        operatorPrincipal: "human:cfo-lead",
+        preservedSourceData: true,
+        resetScope: "approval:route-billing:S1-L1"
+      },
+      recordIds: ["route-billing:S1-L1"],
+      scope: "admin-reset:route-billing:S1-L1",
+      trustLevel: "trusted"
+    };
+    const calls: Array<{ init: RequestInit; url: string }> = [];
+    const fetcher: SupabaseMemoryFetch = (url, init) => {
+      calls.push({ init, url });
+      return Promise.resolve(
+        new Response(JSON.stringify([{ deleted_record_count: 1 }]), {
+          headers: { "content-type": "application/json" },
+          status: 200
+        })
+      );
+    };
+    const repository = createSupabaseMemoryRepository({
+      fetcher,
+      serviceRoleKey: "supabase-secret-key",
+      tableName: "recoup_memory_records",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(
+      repository.resetApprovalLifecycle({
+        approvalRecordId: "approval:route-billing:S1-L1",
+        approvalScope: "approval:route-billing:S1-L1",
+        auditRecord
+      })
+    ).resolves.toBe(1);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://recoup.supabase.co/rest/v1/rpc/recoup_reset_demo_approval_lifecycle");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.headers).toMatchObject({
+      apikey: "supabase-secret-key",
+      authorization: "Bearer supabase-secret-key",
+      prefer: "resolution=merge-duplicates,return=representation"
+    });
+    const rpcBody = calls[0]?.init.body;
+    if (typeof rpcBody !== "string") {
+      throw new Error("Supabase reset RPC test did not receive a serialized request body.");
+    }
+    expect(JSON.parse(rpcBody)).toEqual({
+      p_approval_id: "approval:route-billing:S1-L1",
+      p_approval_scope: "approval:route-billing:S1-L1",
+      p_audit_category: "audit_refs",
+      p_audit_created_at: auditRecord.createdAt,
+      p_audit_id: auditRecord.id,
+      p_audit_payload_json: auditRecord.payload,
+      p_audit_record_ids_json: auditRecord.recordIds,
+      p_audit_scope: auditRecord.scope,
+      p_audit_trust_level: "trusted",
+      p_memory_table_name: "recoup_memory_records"
+    });
+    expect(calls.some((call) => call.init.method === "DELETE")).toBe(false);
   });
 
   it("creates a repository only when Supabase memory credentials are explicitly configured", () => {

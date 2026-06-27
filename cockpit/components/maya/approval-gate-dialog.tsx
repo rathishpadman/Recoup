@@ -36,6 +36,7 @@ interface ApprovalGateDialogProps {
 
 interface ApprovalGateRouteResult {
   actionId?: unknown;
+  approverId?: unknown;
   auditEntryHash?: unknown;
   decision?: unknown;
   status?: unknown;
@@ -127,6 +128,7 @@ export function ApprovalGateDialog({
 
       const approvalResponse: ApprovalGateResponse = {
         actionId: result.actionId,
+        ...(typeof result.approverId === "string" ? { approverId: result.approverId } : {}),
         auditEntryHash: result.auditEntryHash,
         decision: action.decision,
         ...(result.status === "human_decided" ? { status: result.status } : {})

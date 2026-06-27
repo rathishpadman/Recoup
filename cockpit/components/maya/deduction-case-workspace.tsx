@@ -41,6 +41,7 @@ import type {
 
 interface DeductionCaseWorkspaceProps {
   actionInbox: MayaActionInboxItem[];
+  approvalReceipt?: MayaWorkItemDetail["approvalReceipt"];
   auditState: MayaWorkItemDetail["auditState"];
   hasBackendDetail: boolean;
   journey: MayaJourneyItem[];
@@ -56,6 +57,7 @@ interface DeductionCaseWorkspaceProps {
 
 export function DeductionCaseWorkspace({
   actionInbox,
+  approvalReceipt,
   auditState,
   hasBackendDetail,
   journey,
@@ -407,7 +409,7 @@ export function DeductionCaseWorkspace({
           {canShowBackendDetail ? (
             <AuditConfirmationPanel
               onReturnToWorklist={onReturnToWorklist}
-              response={approvalResponse}
+              response={approvalResponse ?? approvalReceipt}
               selectedActionContext={selectedActionContext}
             />
           ) : (

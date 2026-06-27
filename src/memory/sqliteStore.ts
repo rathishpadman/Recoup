@@ -62,6 +62,10 @@ export function createSqliteMemoryStore(dbPath: string): SqliteMemoryStore {
     FROM memory_records
     ORDER BY sequence ASC
   `);
+  const deleteApprovalLifecycleRecord = database.prepare(`
+    DELETE FROM memory_records
+    WHERE id = ? AND scope = ? AND category = 'approval_records'
+  `);
 
   return {
     append(record) {
@@ -101,6 +105,29 @@ export function createSqliteMemoryStore(dbPath: string): SqliteMemoryStore {
     listAll() {
       return readRows(selectAll.all());
     },
+    resetApprovalLifecycle(input) {
+      const auditRecord = parseApprovalLifecycleResetAuditRecord(input.auditRecord);
+      database.exec("BEGIN IMMEDIATE;");
+      try {
+        const result = deleteApprovalLifecycleRecord.run(input.approvalRecordId, input.approvalScope) as { changes: number };
+        const auditRecordWithDeletedCount = withApprovalLifecycleResetCount(auditRecord, result.changes);
+        insert.run(
+          auditRecordWithDeletedCount.id,
+          auditRecordWithDeletedCount.category,
+          auditRecordWithDeletedCount.trustLevel,
+          auditRecordWithDeletedCount.scope,
+          JSON.stringify(auditRecordWithDeletedCount.payload),
+          JSON.stringify(auditRecordWithDeletedCount.recordIds),
+          auditRecordWithDeletedCount.createdAt
+        );
+        database.exec("COMMIT;");
+
+        return result.changes;
+      } catch (error) {
+        database.exec("ROLLBACK;");
+        throw error;
+      }
+    },
     close() {
       database.close();
     }
@@ -137,4 +164,23 @@ function parseMemoryRow(row: MemoryRow): MemoryRecord {
     recordIds: JSON.parse(row.record_ids_json) as string[],
     createdAt: row.created_at
   });
+}
+
+function parseApprovalLifecycleResetAuditRecord(record: MemoryRecord): MemoryRecord {
+  const parsed = MemoryRecordSchema.parse(record);
+  if (parsed.category !== "audit_refs") {
+    throw new Error("Approval lifecycle reset audit record must be an audit_refs memory record.");
+  }
+
+  return parsed;
+}
+
+function withApprovalLifecycleResetCount(record: MemoryRecord, deletedRecordCount: number): MemoryRecord {
+  return {
+    ...record,
+    payload: {
+      ...record.payload,
+      deletedRecordCount
+    }
+  };
 }

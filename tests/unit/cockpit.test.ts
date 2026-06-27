@@ -21,6 +21,7 @@ import {
   buildCfoSummaryCockpitModel,
   buildCreditCockpitModel,
   buildForensicsCockpitModel,
+  buildForensicsWorkItemDetailCockpitModel,
   buildForensicsSseEvents,
   buildLoginModel,
   buildMemorySummaryModel,
@@ -81,6 +82,24 @@ const fixtureServiceContext: ServiceInvocationContext = {
   syntheticEvidenceSource: fixtureSyntheticEvidenceSource
 };
 const sourceOptions = { riskObservationSource: source, serviceContext: fixtureServiceContext, settlementSource: source } as const;
+
+function approvalMemoryRecord(actionId: string, lineId: string, auditHashFill: string): MemoryRecord {
+  return {
+    category: "approval_records",
+    createdAt: new Date(0).toISOString(),
+    id: `approval:${actionId}`,
+    payload: {
+      actionId,
+      approverId: "human:maya-lead",
+      auditEntryHash: auditHashFill.repeat(64),
+      decision: "approve",
+      status: "human_decided"
+    },
+    recordIds: [actionId, lineId],
+    scope: `approval:${actionId}`,
+    trustLevel: "trusted"
+  };
+}
 
 describe("S5 Forensics cockpit model", () => {
   it("fails closed when governed runtime config is not injected into read-model builders", () => {
@@ -148,8 +167,8 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.selected.draft.actionLabel).toBe("Recovery draft staged");
     expect(model.selected).toMatchObject({
       approvalEligibility: {
-        available: false,
-        statusLabel: "Eligibility unavailable"
+        available: true,
+        statusLabel: "Ready for human approval"
       }
     });
     expect(model.selected.approvalActions.map((action) => action.decision)).toEqual(["approve", "modify", "reject"]);
@@ -824,6 +843,182 @@ describe("S5 Forensics cockpit model", () => {
     expect(buildMemorySummaryModel().categories).toContain("approval_records");
     expect(buildMemorySummaryModel().records).toEqual([]);
     expect(buildAgentGraphModel().edges.some((edge) => edge.mode === "agents-as-tools")).toBe(true);
+  });
+
+  it("rehydrates a trusted approval receipt into the matching Maya work-item detail", () => {
+    const approvalRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: new Date(0).toISOString(),
+      id: "approval:route-billing:S1-L1",
+      payload: {
+        actionId: "route-billing:S1-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "b".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      recordIds: ["route-billing:S1-L1", "S1-L1", "POD-SIGNED-1"],
+      scope: "approval:route-billing:S1-L1",
+      trustLevel: "trusted"
+    };
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      { governedConfig, ...sourceOptions, approvalRecords: [approvalRecord] },
+      "S1-L1"
+    ) as ReturnType<typeof buildForensicsWorkItemDetailCockpitModel> & {
+      approvalReceipt?: {
+        actionId: string;
+        approverId: string;
+        auditEntryHash: string;
+        decision: string;
+        recordIds: string[];
+        status: string;
+      };
+    };
+
+    expect(detail.approvalState.status).toBe("human_decided");
+    expect(detail.approvalState.statusLabel).toBe("Human decision recorded");
+    expect(detail.auditState.status).toBe("human_decided");
+    expect(detail.auditState.statusLabel).toBe("Audit receipt committed");
+    expect(detail.auditState.recordIds).toEqual(expect.arrayContaining(["route-billing:S1-L1", "S1-L1"]));
+    expect(detail.approvalReceipt).toEqual({
+      actionId: "route-billing:S1-L1",
+      approverId: "human:maya-lead",
+      auditEntryHash: "b".repeat(64),
+      decision: "approve",
+      recordIds: ["route-billing:S1-L1", "S1-L1", "POD-SIGNED-1"],
+      status: "human_decided"
+    });
+  });
+
+  it("marks Maya approval eligible when backend evidence and HITL action state are complete", () => {
+    const detail = buildForensicsWorkItemDetailCockpitModel({ governedConfig, ...sourceOptions }, "S1-L1");
+
+    expect(detail.selected.approvalEligibility).toMatchObject({
+      available: true,
+      statusLabel: "Ready for human approval"
+    });
+    expect(detail.recoveryDraft.approvalEligibility).toMatchObject({
+      available: true,
+      statusLabel: "Ready for human approval"
+    });
+    expect(detail.selected.approvalEligibility.provenance).toMatchObject({
+      sourceKind: "derived_backend",
+      sourceName: "Forensics evidence review eligibility"
+    });
+    expect(detail.selected.approvalEligibility.provenance.deterministicBasis).toContain(
+      "requiresHumanApproval true; status pending_human; dispatchedExternally false"
+    );
+    expect(detail.selected.approvalEligibility.provenance.deterministicBasis).toContain("evidenceDocuments");
+  });
+
+  it("keeps Maya approval ineligible after a trusted human decision receipt is already committed", () => {
+    const approvalRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: new Date(0).toISOString(),
+      id: "approval:route-billing:S1-L1",
+      payload: {
+        actionId: "route-billing:S1-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "f".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      recordIds: ["route-billing:S1-L1", "S1-L1"],
+      scope: "approval:route-billing:S1-L1",
+      trustLevel: "trusted"
+    };
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      { governedConfig, ...sourceOptions, approvalRecords: [approvalRecord] },
+      "S1-L1"
+    );
+
+    expect(detail.approvalState.status).toBe("human_decided");
+    expect(detail.selected.approvalEligibility).toMatchObject({
+      available: false,
+      statusLabel: "Human decision recorded"
+    });
+    expect(detail.selected.approvalEligibility.provenance.deterministicBasis).toContain(
+      "approval_records receipt route-billing:S1-L1 is already committed"
+    );
+  });
+
+  it("keeps Maya work-item detail pending when approval receipts are malformed or for another action", () => {
+    const baseRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: new Date(0).toISOString(),
+      id: "approval:route-billing:S1-L1",
+      payload: {
+        actionId: "route-billing:S1-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "c".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      recordIds: ["route-billing:S1-L1", "S1-L1"],
+      scope: "approval:route-billing:S1-L1",
+      trustLevel: "trusted"
+    };
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      {
+        governedConfig,
+        ...sourceOptions,
+        approvalRecords: [
+          { ...baseRecord, id: "approval:bad-hash", payload: { ...baseRecord.payload, auditEntryHash: "not-a-hash" } },
+          {
+            ...baseRecord,
+            id: "approval:other-action",
+            payload: { ...baseRecord.payload, actionId: "draft-rebill:S3-L1" },
+            recordIds: ["draft-rebill:S3-L1", "S3-L1"],
+            scope: "approval:draft-rebill:S3-L1"
+          },
+          {
+            ...baseRecord,
+            id: "approval:wrong-id",
+            payload: { ...baseRecord.payload },
+            scope: "approval:route-billing:S1-L1"
+          },
+          {
+            ...baseRecord,
+            id: "approval:route-billing:S1-L1",
+            payload: { ...baseRecord.payload },
+            scope: "approval:wrong-scope"
+          }
+        ]
+      },
+      "S1-L1"
+    ) as ReturnType<typeof buildForensicsWorkItemDetailCockpitModel> & { approvalReceipt?: unknown };
+
+    expect(detail.approvalState.status).toBe("pending_human");
+    expect(detail.auditState.statusLabel).toBe("Awaiting human approval");
+    expect(detail.approvalReceipt).toBeUndefined();
+  });
+
+  it("marks only fully decided grouped worklist rows with backend approval decision receipts", () => {
+    const approvalRecords = [
+      approvalMemoryRecord("route-billing:S1-L1", "S1-L1", "d"),
+      approvalMemoryRecord("route-billing:S1-L2", "S1-L2", "e"),
+      approvalMemoryRecord("route-billing:S1-L3", "S1-L3", "f")
+    ];
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions, approvalRecords });
+
+    expect(model.worklist.find((item) => item.lineId === "S1-L1")).toMatchObject({
+      approvalStatus: "human_decided",
+      approvalStatusLabel: "Human decision recorded"
+    });
+    expect(model.worklist.find((item) => item.lineId === "S2-L1")).toMatchObject({
+      approvalStatus: "pending_human",
+      approvalStatusLabel: "Awaiting reviewer"
+    });
+  });
+
+  it("keeps a grouped worklist row pending when only one sibling line has a backend approval decision receipt", () => {
+    const approvalRecord = approvalMemoryRecord("route-billing:S1-L2", "S1-L2", "e");
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions, approvalRecords: [approvalRecord] });
+
+    expect(model.worklist.find((item) => item.lineId === "S1-L1")).toMatchObject({
+      approvalStatus: "pending_human",
+      approvalStatusLabel: "Awaiting reviewer"
+    });
   });
 
   it("labels empty fallback and persisted memory provenance in the memory read model", () => {

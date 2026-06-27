@@ -20,6 +20,7 @@ const RuntimeEnvSchema = z.object({
   RECOUP_COCKPIT_ALLOWED_ORIGINS: z.string().min(1).optional(),
   RECOUP_COCKPIT_AUTH_TOKEN: z.string().min(1).optional(),
   RECOUP_DEMO_SESSION_SECRET: z.string().min(1).optional(),
+  RECOUP_COCKPIT_ADMIN_PRINCIPAL: z.string().startsWith("human:").optional(),
   RECOUP_COCKPIT_HUMAN_PRINCIPAL: z.string().startsWith("human:").optional(),
   RECOUP_MCP_AUTH_TOKEN: z.string().min(1).optional(),
   RECOUP_MCP_CLIENT_CAPABILITIES: z.string().min(1).optional(),

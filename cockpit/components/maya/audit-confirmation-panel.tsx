@@ -305,11 +305,14 @@ function confirmedRows(response: ApprovalGateResponse): ReceiptRow[] {
       value: decisionLabel(response.decision)
     },
     {
-      basis: "The current approval response type does not expose approverId or a display principal.",
+      basis:
+        response.approverId === undefined
+          ? "The current approval response type does not expose approverId or a display principal."
+          : "Rendered exactly from the persisted backend approval receipt approverId.",
       label: "Human approver",
-      state: "Backend contract gap",
-      tone: "gap",
-      value: "Backend contract gap"
+      state: response.approverId === undefined ? "Backend contract gap" : "Available",
+      tone: response.approverId === undefined ? "gap" : "available",
+      value: response.approverId ?? "Backend contract gap"
     },
     {
       basis: "The browser must not create a commit time; backend-owned committedAt is not exposed.",
@@ -319,11 +322,19 @@ function confirmedRows(response: ApprovalGateResponse): ReceiptRow[] {
       value: "Backend contract gap"
     },
     {
-      basis: "The current immediate approval response does not expose committed audit recordIds.",
+      basis:
+        response.recordIds === undefined
+          ? "The current immediate approval response does not expose committed audit recordIds."
+          : "Rendered exactly from persisted backend approval receipt recordIds.",
       label: "Cited record IDs",
-      state: "Backend contract gap",
-      tone: "gap",
-      value: "Committed audit receipt citations unavailable"
+      state: response.recordIds === undefined ? "Backend contract gap" : "Available",
+      tone: response.recordIds === undefined ? "gap" : "available",
+      value:
+        response.recordIds === undefined ? (
+          "Committed audit receipt citations unavailable"
+        ) : (
+          <SelectedActionSourceDetails recordIds={response.recordIds} />
+        )
     },
     {
       basis: "The response status confirms only the human decision, not external dispatch or case closure.",

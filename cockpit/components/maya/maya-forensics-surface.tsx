@@ -1007,6 +1007,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           ) : (
             <DeductionCaseWorkspace
               actionInbox={activeCaseDetail.actionInbox}
+              approvalReceipt={activeCaseDetail.approvalReceipt}
               auditState={activeCaseDetail.auditState}
               hasBackendDetail={true}
               journey={activeCaseDetail.mayaJourney}

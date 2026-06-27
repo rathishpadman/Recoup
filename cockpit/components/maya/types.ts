@@ -15,8 +15,11 @@ export type MayaSurfaceSection = "overview" | "worklist" | "cases" | "evidence" 
 
 export interface ApprovalGateResponse {
   actionId: string;
+  approverId?: string;
   auditEntryHash: string;
   decision: "approve" | "modify" | "reject";
+  reason?: string;
+  recordIds?: string[];
   status?: "human_decided";
 }
 

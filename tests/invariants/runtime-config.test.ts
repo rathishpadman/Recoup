@@ -32,6 +32,7 @@ describe("runtime credential and expert config gates", () => {
     expect(example).toContain("RECOUP_COCKPIT_ALLOWED_ORIGINS=");
     expect(example).toContain("RECOUP_COCKPIT_AUTH_TOKEN=");
     expect(example).toContain("RECOUP_COCKPIT_HUMAN_PRINCIPAL=");
+    expect(example).toContain("RECOUP_COCKPIT_ADMIN_PRINCIPAL=");
     expect(example).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_AUTH_TOKEN=");
     expect(example).not.toContain("NEXT_PUBLIC_RECOUP_COCKPIT_HUMAN_PRINCIPAL=");
     expect(example).toContain("RECOUP_MCP_AUTH_TOKEN=");

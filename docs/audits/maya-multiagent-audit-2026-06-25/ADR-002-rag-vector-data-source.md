@@ -223,7 +223,36 @@ The current reader is **deduction-shaped**: `searchEvidence(line: DeductionLine)
 
 ---
 
-## 7. References
+## 7. Classic vs Agentic RAG — and the Option-2 agentic path
+
+**What SPEC-002 specs is *classic* RAG, not agentic RAG.** This is intentional, but the difference is material for a "top-tier" claim, so it is recorded explicitly here.
+
+| Dimension | **Option 1 — Classic RAG (SPEC-002, recommended first)** | **Option 2 — Agentic RAG (upgrade)** |
+|---|---|---|
+| Who retrieves | Deterministic pipeline: pre-fetched per line in `buildOpenAiVectorStoreEvidenceSource`, before agent reasoning | The **agent** decides to retrieve and calls `retrieval.docs` itself (over MCP, ADR-001) |
+| Query formulation | Fixed string `buildEvidenceQuery` (`customer:… deduction:… scenario:… record:…`) | Agent **formulates and reformulates** the query from the question/case |
+| Iteration | One shot | **Multi-hop**: re-query / drill down until evidence is sufficient, bounded by `maxTurns` |
+| Sufficiency check | None (filter only) | A **verifier/critic agent** judges whether retrieved evidence supports the claim |
+| Determinism | Full | Bounded (needs `maxTurns` + grounding gate + verifier) |
+| Cost/latency | Low, fixed | Higher, variable |
+| "Top-tier" signal | Solid baseline | **This is the differentiator** |
+
+**Non-negotiable in both options:** every retrieved hit still passes the same three deterministic grounding gates (§6.4 / SPEC-002 §3), and the dollar/verdict stays code-computed. Agentic RAG improves *how evidence is found*, never *who computes the money*.
+
+### Option-2 (agentic) integration sketch
+Agentic RAG is the composition of three capabilities already in scope:
+
+1. **MCP-exposed retrieval tool** (ADR-001 / SPEC-001) — `retrieval.docs` is attached to the Forensics agent via `MCPServerStreamableHttp`, so the agent can call it mid-loop.
+2. **Bounded agent loop** — `maxTurns` is already enforced (`liveForensicsStream.ts:156-167`); the agent issues retrieval calls across turns instead of a single pre-fetch.
+3. **Verifier/critic step** — a Reviewer agent (see `ROADMAP-top-tier-multi-agent.md` item #1) asserts the cited passages support the verdict before the loop ends; if not, it triggers another retrieval hop.
+
+Integration touchpoints (beyond SPEC-002): `src/agents/agentRuntime.ts` (attach retrieval MCP server + add reviewer agent), `src/agents/liveForensicsStream.ts` / `src/services/forensicsQuerySession.ts` (let the live agent's `tool_called` events drive evidence, not just a pre-fetch), and a new sufficiency receipt in the trace. Full feature set and phasing live in `ROADMAP-top-tier-multi-agent.md`.
+
+**Recommendation:** ship **Option 1 (classic)** for the first demo (reproducible, loop-free), then layer **Option 2 (agentic)** as the headline upgrade once the Reviewer agent and MCP-attached retrieval are in place.
+
+---
+
+## 8. References
 - OpenAI — Retrieval & File Search / Vector Stores: https://platform.openai.com/docs/guides/retrieval
 - OpenAI Agents SDK — tools & retrieval: https://openai.github.io/openai-agents-js/
 - Supabase — pgvector / AI & vectors: https://supabase.com/docs/guides/ai

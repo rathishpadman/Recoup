@@ -18,11 +18,18 @@ import type { SourceHealthResult } from "../services/sourceHealth.js";
 
 export type SupabaseMemoryFetch = (url: string, init: RequestInit) => Promise<Response>;
 
+export interface SupabaseApprovalLifecycleResetInput {
+  approvalRecordId: string;
+  approvalScope: string;
+  auditRecord: MemoryRecord;
+}
+
 export interface SupabaseMemoryRepository {
   append(record: MemoryRecord): Promise<MemoryRecord>;
   appendIfAbsent(record: MemoryRecord): Promise<MemoryRecord | undefined>;
   list(scope: string): Promise<MemoryRecord[]>;
   listAll(): Promise<MemoryRecord[]>;
+  resetApprovalLifecycle(input: SupabaseApprovalLifecycleResetInput): Promise<number>;
 }
 
 export interface SupabaseGovernedConfigRepository {
@@ -153,6 +160,32 @@ export function createSupabaseMemoryRepository(options: SupabaseMemoryRepository
       return (await requestRows(fetcher, { method: "GET", serviceRoleKey: options.serviceRoleKey, url: url.href })).map(
         parseSupabaseMemoryRow
       );
+    },
+    async resetApprovalLifecycle(input) {
+      const auditRecord = parseApprovalLifecycleResetAuditRecord(input.auditRecord);
+      const rows = await requestRows<{ deleted_record_count: number }>(fetcher, {
+        body: JSON.stringify({
+          p_approval_id: input.approvalRecordId,
+          p_approval_scope: input.approvalScope,
+          p_audit_category: auditRecord.category,
+          p_audit_created_at: auditRecord.createdAt,
+          p_audit_id: auditRecord.id,
+          p_audit_payload_json: auditRecord.payload,
+          p_audit_record_ids_json: auditRecord.recordIds,
+          p_audit_scope: auditRecord.scope,
+          p_audit_trust_level: auditRecord.trustLevel,
+          p_memory_table_name: tableName
+        }),
+        method: "POST",
+        serviceRoleKey: options.serviceRoleKey,
+        url: `${baseUrl}/rest/v1/rpc/recoup_reset_demo_approval_lifecycle`
+      });
+      const row = rows[0];
+      if (row === undefined || !Number.isSafeInteger(row.deleted_record_count) || row.deleted_record_count < 0) {
+        throw new Error("Supabase demo reset RPC returned an invalid deletion count.");
+      }
+
+      return row.deleted_record_count;
     }
   };
 }
@@ -913,6 +946,72 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION recoup_reset_demo_approval_lifecycle(
+  p_memory_table_name text,
+  p_approval_id text,
+  p_approval_scope text,
+  p_audit_id text,
+  p_audit_category text,
+  p_audit_trust_level text,
+  p_audit_scope text,
+  p_audit_payload_json jsonb,
+  p_audit_record_ids_json jsonb,
+  p_audit_created_at timestamptz
+)
+RETURNS TABLE(deleted_record_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF p_memory_table_name <> '${safeTableName}' THEN
+    RAISE EXCEPTION 'unsafe_memory_table_name';
+  END IF;
+
+  IF p_approval_id !~ '^approval:.+' OR p_approval_scope <> p_approval_id THEN
+    RAISE EXCEPTION 'unsafe_approval_lifecycle_scope';
+  END IF;
+
+  IF p_audit_category <> 'audit_refs' THEN
+    RAISE EXCEPTION 'unsafe_reset_audit_category';
+  END IF;
+
+  RETURN QUERY EXECUTE format(
+    'WITH deleted AS (
+       DELETE FROM %I
+       WHERE id = $1 AND scope = $2 AND category = ''approval_records''
+       RETURNING id
+     ), deleted_count AS (
+       SELECT count(*)::integer AS value FROM deleted
+     ), inserted AS (
+       INSERT INTO %I (id, category, trust_level, scope, payload_json, record_ids_json, created_at)
+       VALUES ($3, $4, $5, $6, $7 || jsonb_build_object(''deletedRecordCount'', (SELECT value FROM deleted_count)), $8, $9)
+       ON CONFLICT(id) DO UPDATE SET
+         category = excluded.category,
+         trust_level = excluded.trust_level,
+         scope = excluded.scope,
+         payload_json = excluded.payload_json,
+         record_ids_json = excluded.record_ids_json,
+         created_at = excluded.created_at
+       RETURNING id
+     )
+     SELECT value FROM deleted_count',
+    p_memory_table_name,
+    p_memory_table_name
+  )
+  USING
+    p_approval_id,
+    p_approval_scope,
+    p_audit_id,
+    p_audit_category,
+    p_audit_trust_level,
+    p_audit_scope,
+    p_audit_payload_json,
+    p_audit_record_ids_json,
+    p_audit_created_at;
+END;
+$$;
+
 REVOKE ALL ON TABLE ${safeTableName} FROM anon, authenticated;
 REVOKE ALL ON TABLE recoup_app_principals FROM anon, authenticated;
 REVOKE ALL ON TABLE recoup_config FROM anon, authenticated, service_role;
@@ -941,11 +1040,13 @@ REVOKE ALL ON TABLE recovery_packages FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE credit_decisions FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE immutable_audit_log FROM anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION recoup_reset_demo_approval_lifecycle(text, text, text, text, text, text, text, jsonb, jsonb, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE ${safeTableName} TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_app_principals TO service_role;
 GRANT SELECT, INSERT ON TABLE recoup_config TO service_role;
 GRANT SELECT ON TABLE recoup_audit_chain TO service_role;
 GRANT EXECUTE ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, text, text, text, text, text, jsonb, jsonb, timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION recoup_reset_demo_approval_lifecycle(text, text, text, text, text, text, text, jsonb, jsonb, timestamptz) TO service_role;
 GRANT SELECT ON TABLE recoup_customers TO service_role;
 GRANT SELECT ON TABLE recoup_deduction_lines TO service_role;
 GRANT SELECT ON TABLE recoup_src_bureau TO service_role;
@@ -1098,17 +1199,17 @@ ALTER TABLE ${safeTableName} FORCE ROW LEVEL SECURITY;
 `.trim();
 }
 
-async function requestRows(
+async function requestRows<T = SupabaseMemoryRow>(
   fetcher: SupabaseMemoryFetch,
   input: {
     body?: string;
     conflictAsEmpty?: boolean;
-    method: "GET" | "POST";
+    method: "DELETE" | "GET" | "POST";
     prefer?: string;
     serviceRoleKey: string;
     url: string;
   }
-): Promise<SupabaseMemoryRow[]> {
+): Promise<T[]> {
   const response = await fetcher(input.url, {
     ...(input.body === undefined ? {} : { body: input.body }),
     headers: {
@@ -1127,7 +1228,7 @@ async function requestRows(
     throw new Error(`Supabase memory request failed with HTTP ${String(response.status)}.`);
   }
 
-  return (await response.json()) as SupabaseMemoryRow[];
+  return (await response.json()) as T[];
 }
 
 async function requestSourceHealthRows(
@@ -1274,6 +1375,15 @@ function toSupabaseRow(record: MemoryRecord): SupabaseMemoryRow {
     scope: record.scope,
     trust_level: record.trustLevel
   };
+}
+
+function parseApprovalLifecycleResetAuditRecord(record: MemoryRecord): MemoryRecord {
+  const parsed = MemoryRecordSchema.parse(record);
+  if (parsed.category !== "audit_refs") {
+    throw new Error("Approval lifecycle reset audit record must be an audit_refs memory record.");
+  }
+
+  return parsed;
 }
 
 function toSupabaseSourceHealthSnapshotRow(result: SourceHealthResult): SupabaseSourceHealthSnapshotRow {
