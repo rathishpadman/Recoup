@@ -2370,10 +2370,11 @@ describe("Maya shadcn human QA contract", () => {
       agentTraceTabHasStableHook: hasJsxDataTestId(workspace, "maya-case-agent-trace-tab"),
       traceTabPanelRendersTraceUi: traceTabPanelRendersTraceUi(workspace),
       missingTraceFragments: missingJsxTestIds(agentTrace, ["maya-agent-process-map", "maya-agent-process-node"]),
+      missingTraceTimelineHook: missingJsxTestIds(agentTrace, ["maya-agent-trace-timeline"]),
       tracePanelUsesDisclosurePrimitive: /@\/components\/ui\/(?:accordion|collapsible)/u.test(agentTrace),
       missingTraceDetailsHook: missingJsxTestIds(agentTrace, ["maya-agent-trace-details"]),
       processMapUsesTimelineList: /<(?:ol|ul)\b[\s\S]{0,900}data-testid="maya-agent-process-map"/u.test(processMapContext),
-      processMapAvoidsResponsiveCardGrid: !/\b(?:md:grid-cols|xl:grid-cols|grid-cols-\d)\b/u.test(processMapContext),
+      processMapUsesResponsiveTimelineGrid: /\bmd:grid-cols-2\b[\s\S]{0,220}\bxl:grid-cols-5\b/u.test(processMapContext),
       timelineHasStepOrdinal: /\bindex\s*\+\s*1\b/u.test(processMapContext),
       processMapBeforeRawTraceDetails:
         agentTrace.indexOf('data-testid="maya-agent-process-map"') > -1 &&
@@ -2474,10 +2475,11 @@ describe("Maya shadcn human QA contract", () => {
       agentTraceTabHasStableHook: true,
       traceTabPanelRendersTraceUi: true,
       missingTraceFragments: [],
+      missingTraceTimelineHook: [],
       tracePanelUsesDisclosurePrimitive: true,
       missingTraceDetailsHook: [],
       processMapUsesTimelineList: true,
-      processMapAvoidsResponsiveCardGrid: true,
+      processMapUsesResponsiveTimelineGrid: true,
       timelineHasStepOrdinal: true,
       processMapBeforeRawTraceDetails: true,
       rawTraceTableBehindDetails: true,
@@ -2611,6 +2613,7 @@ describe("Maya shadcn human QA contract", () => {
 
   it("requires the Maya Overview landing to expose backend-backed command hooks without local business fabrication", () => {
     const surface = readMayaComponent("maya-forensics-surface.tsx");
+    const kpiStrip = readMayaComponent("maya-run-kpi-strip.tsx");
     const overviewSource = extractMayaOverviewSource(surface);
     const overviewHooks = [
       "maya-overview-command-center",
@@ -2619,6 +2622,15 @@ describe("Maya shadcn human QA contract", () => {
       "maya-overview-positive-cases",
       "maya-overview-next-case"
     ] as const;
+    const overviewBandHooks = [
+      "maya-overview-kpi-band",
+      "maya-overview-concentration-band",
+      "maya-overview-action-band",
+      "maya-overview-system-band"
+    ] as const;
+    const overviewChartHooks = ["maya-overview-line-count-bars", "maya-overview-disposition-split"] as const;
+    const positiveCasesContext = jsxDataTestIdContext(surface, "maya-overview-positive-cases", 3_400);
+    const actionQueueContext = jsxDataTestIdContext(surface, "maya-overview-next-case", 3_400);
     const hardcodedBusinessMetricMatches = matchingLines(
       [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
       /\bHigh priority\b|["'`][^"'`]*\$\s?\d[\d,]*(?:\.\d{2})?[^"'`]*["'`]/u
@@ -2631,46 +2643,23 @@ describe("Maya shadcn human QA contract", () => {
       [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
       /\bNext case\b|\bNext recommended\b|\bRecommended Next\b/u
     );
-    const overviewButtonContexts = Array.from(
-      overviewSource.matchAll(/<Button\b[\s\S]{0,1400}\bOpen investigation\b[\s\S]{0,300}<\/Button>/gu),
-      (match) => match[0]
-    ).filter((context) => /\bopenInvestigationForItem\s*\(/u.test(context));
-    const loadingBooleanDefinitions = Array.from(
-      overviewSource.matchAll(
-        /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*workItemDetailLoadState\?\.state\s*===\s*"loading"\s*&&\s*workItemDetailLoadState\.lineId\s*===\s*([A-Za-z_$][\w$]*)\.lineId\b/gu
-      ),
-      (match) => ({ itemName: match[2] ?? "", loadingName: match[1] ?? "" })
-    );
-    const buttonHasInlineSameLineLoadingGuard = overviewButtonContexts.some((context) => {
-      const guardMatch =
-        /\bworkItemDetailLoadState\?\.state\s*===\s*"loading"[\s\S]{0,260}\bworkItemDetailLoadState\.lineId\s*===\s*([A-Za-z_$][\w$]*)\.lineId\b/u.exec(
-          context
-        );
-      const itemName = guardMatch?.[1];
-
-      return (
-        itemName !== undefined &&
-        new RegExp(String.raw`\bopenInvestigationForItem\s*\(\s*${escapeRegExp(itemName)}\s*\)`, "u").test(context) &&
-        /\bdisabled\s*=\s*\{[\s\S]{0,500}\bworkItemDetailLoadState\?\.state\s*===\s*"loading"[\s\S]{0,500}\}/u.test(context) &&
-        /\bLoading detail\b/u.test(context)
-      );
-    });
-    const buttonHasNamedSameLineLoadingGuard = overviewButtonContexts.some((context) =>
-      loadingBooleanDefinitions.some(
-        ({ itemName, loadingName }) =>
-          itemName.length > 0 &&
-          loadingName.length > 0 &&
-          new RegExp(String.raw`\bopenInvestigationForItem\s*\(\s*${escapeRegExp(itemName)}\s*\)`, "u").test(context) &&
-          new RegExp(`\\bdisabled\\s*=\\s*\\{\\s*${escapeRegExp(loadingName)}\\s*\\}`, "u").test(context) &&
-          new RegExp(`\\b${escapeRegExp(loadingName)}\\b[\\s\\S]{0,260}\\bLoading detail\\b`, "u").test(context)
-      )
-    );
 
     const contract = {
       missingOverviewHooks: missingJsxTestIds(surface, overviewHooks),
-      buttonHasSameLineLoadingGuard: buttonHasInlineSameLineLoadingGuard || buttonHasNamedSameLineLoadingGuard,
+      missingOverviewBandHooks: missingJsxTestIds(surface, overviewBandHooks),
+      missingOverviewChartHooks: missingJsxTestIds(surface, overviewChartHooks),
+      kpiStripShowsNoTrendFallback: hasJsxDataTestId(kpiStrip, "maya-kpi-trend-unavailable"),
+      kpiStripAvoidsFakeTrendOrDelta:
+        !/\b(?:sparkline|deltaValue|trendDelta|trendSeries|seriesData)\b/u.test(kpiStrip) &&
+        !/["'`][^"'`]*[+-]\d+(?:\.\d+)?%[^"'`]*["'`]/u.test(kpiStrip),
+      overviewRemovesPrimaryInvestigationLaunch: !/\bopenInvestigationForItem\s*\(/u.test(overviewSource),
+      positiveCasesUseCompactValidSignal:
+        /\bvalidDeductionItems\.map\b/u.test(positiveCasesContext) && !/<Table\b/u.test(positiveCasesContext),
+      nextCaseHookIsSourceOrderActionQueue:
+        /\bmodel\.actionInbox\b/u.test(actionQueueContext) &&
+        /\bsource-order preview\b/iu.test(actionQueueContext) &&
+        !/\b(?:top-ranked|exposure-ranked|highest exposure)\b/iu.test(actionQueueContext),
       forbiddenFallbackRankCopyMatches,
-      hasHonestFallbackCaseCopy: /\b(?:Selected case|No selected case)\b/u.test(overviewSource),
       overviewUsesActionInbox: /\bmodel\.actionInbox\b/u.test(overviewSource),
       overviewUsesConnectorReadiness:
         /\bconnectors\.sourceTiles\b/u.test(overviewSource) || /<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
@@ -2682,9 +2671,14 @@ describe("Maya shadcn human QA contract", () => {
 
     expect(contract).toEqual({
       missingOverviewHooks: [],
-      buttonHasSameLineLoadingGuard: true,
+      missingOverviewBandHooks: [],
+      missingOverviewChartHooks: [],
+      kpiStripShowsNoTrendFallback: true,
+      kpiStripAvoidsFakeTrendOrDelta: true,
+      overviewRemovesPrimaryInvestigationLaunch: true,
+      positiveCasesUseCompactValidSignal: true,
+      nextCaseHookIsSourceOrderActionQueue: true,
       forbiddenFallbackRankCopyMatches: [],
-      hasHonestFallbackCaseCopy: true,
       overviewUsesActionInbox: true,
       overviewUsesConnectorReadiness: true,
       overviewUsesKpiStrip: true,

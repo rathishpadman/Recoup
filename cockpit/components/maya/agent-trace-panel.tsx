@@ -139,58 +139,62 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
             ))}
           </section>
         ) : null}
-        <ol
-          aria-label="Evidence-backed agent process map"
-          className="relative flex min-w-0 flex-col gap-2 before:absolute before:bottom-3 before:left-4 before:top-3 before:w-px before:bg-border"
-          data-testid="maya-agent-process-map"
-        >
-          {processNodes.map((node, index) => {
-            const isBackendTrace = isBackendTraceProcessNode(node);
+        <section className="min-w-0" data-testid="maya-agent-trace-timeline">
+          <ol
+            aria-label="Evidence-backed agent process map"
+            className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-5"
+            data-testid="maya-agent-process-map"
+          >
+            {processNodes.map((node, index) => {
+              const isBackendTrace = isBackendTraceProcessNode(node);
 
-            return (
-              <li
-                className="relative grid min-w-0 gap-2 rounded-md border bg-background p-3 pl-10 shadow-none"
-                data-agent-node={isBackendTrace ? node.agentName : undefined}
-                data-citation-count={node.citations.length}
-                data-deterministic-basis={isBackendTrace ? node.deterministicBasis : undefined}
-                data-hook={isBackendTrace ? node.hook : undefined}
-                data-next-agent={isBackendTrace ? node.nextAgentName : undefined}
-                data-phase={isBackendTrace ? node.phase : undefined}
-                data-process-node-kind={isBackendTrace ? node.nodeKind : undefined}
-                data-record-ids={node.recordIds.join(" ")}
-                data-retrieval-source={isBackendTrace ? resolveTraceRetrievalSource(node) : undefined}
-                data-selected-line={node.nodeKind === "selected-evidence" ? node.label : undefined}
-                data-source-kind={isBackendTrace ? resolveTraceSourceKind(node) : undefined}
-                data-testid="maya-agent-process-node"
-                data-tool-name={isBackendTrace ? node.toolName : undefined}
-                data-trace-label={isBackendTrace ? node.label : undefined}
-                data-ui-process-kind={!isBackendTrace ? node.nodeKind : undefined}
-                data-ui-process-label={!isBackendTrace ? node.label : undefined}
-                key={node.key}
-              >
-                <span
-                  aria-hidden="true"
-                  className="absolute left-[0.55rem] top-3 flex size-6 items-center justify-center rounded-full border bg-background text-xs font-semibold text-muted-foreground"
+              return (
+                <li
+                  className="grid min-w-0 content-start gap-2 rounded-md border bg-background p-3 shadow-none"
+                  data-agent-node={isBackendTrace ? node.agentName : undefined}
+                  data-citation-count={node.citations.length}
+                  data-deterministic-basis={isBackendTrace ? node.deterministicBasis : undefined}
+                  data-hook={isBackendTrace ? node.hook : undefined}
+                  data-next-agent={isBackendTrace ? node.nextAgentName : undefined}
+                  data-phase={isBackendTrace ? node.phase : undefined}
+                  data-process-node-kind={isBackendTrace ? node.nodeKind : undefined}
+                  data-record-ids={node.recordIds.join(" ")}
+                  data-retrieval-source={isBackendTrace ? resolveTraceRetrievalSource(node) : undefined}
+                  data-selected-line={node.nodeKind === "selected-evidence" ? node.label : undefined}
+                  data-source-kind={isBackendTrace ? resolveTraceSourceKind(node) : undefined}
+                  data-testid="maya-agent-process-node"
+                  data-tool-name={isBackendTrace ? node.toolName : undefined}
+                  data-trace-label={isBackendTrace ? node.label : undefined}
+                  data-ui-process-kind={!isBackendTrace ? node.nodeKind : undefined}
+                  data-ui-process-label={!isBackendTrace ? node.label : undefined}
+                  key={node.key}
                 >
-                  {index + 1}
-                </span>
-                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full border bg-muted/20 text-xs font-semibold text-muted-foreground"
+                    >
+                      {index + 1}
+                    </span>
+                    <Badge className="shrink-0" variant="secondary">
+                      {formatPrimaryProcessNodePhaseLabel(node)}
+                    </Badge>
+                  </div>
                   <div className="grid min-w-0 gap-1">
                     <span className="truncate text-sm font-medium" title={formatPrimaryProcessNodeLabel(node)}>
                       {formatPrimaryProcessNodeLabel(node)}
                     </span>
                     <span className="text-xs text-muted-foreground">{formatPrimaryProcessNodeCaption(node)}</span>
                   </div>
-                  <Badge variant="secondary">{formatPrimaryProcessNodePhaseLabel(node)}</Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">{formatPrimaryProcessNodeMessage(node)}</p>
-                <div className="flex flex-wrap gap-1.5" aria-label={`${formatPrimaryProcessNodeLabel(node)} trace summary`}>
-                  <Badge variant="outline">{formatPrimaryEvidenceSummary(node)}</Badge>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+                  <p className="text-sm text-muted-foreground">{formatPrimaryProcessNodeMessage(node)}</p>
+                  <div className="flex flex-wrap gap-1.5" aria-label={`${formatPrimaryProcessNodeLabel(node)} trace summary`}>
+                    <Badge variant="outline">{formatPrimaryEvidenceSummary(node)}</Badge>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
         <Accordion collapsible type="single">
           <AccordionItem data-testid="maya-agent-trace-details" value="trace-details">
             <AccordionTrigger>Trace details</AccordionTrigger>

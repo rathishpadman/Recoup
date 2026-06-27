@@ -34,6 +34,10 @@ interface ForensicsE2EModel {
   kpiStrip: Array<{
     label: string;
   }>;
+  recoveryTracker: {
+    billingLines: number;
+    recoveryLines: number;
+  };
   worklist: Array<{
     amount: string;
     confidenceLabel: string;
@@ -324,11 +328,14 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
   await mayaPage.goto(`${appUrl}/credit`, { waitUntil: "domcontentloaded" });
   await mayaPage.waitForURL("**/forensics/shadcn", { timeout: 15_000 });
   assert(mayaPage.url().endsWith("/forensics/shadcn"), "Maya must be redirected away from /credit");
-  await expectText(mayaPage, "Deduction Forensics");
-  await expectText(mayaPage, "Forensics");
-  const mayaNavLabels = (await mayaPage.locator('[data-testid="maya-sidebar-nav-item"]').allTextContents()).map((label) =>
-    label.replace(/\s+/gu, " ").trim()
-  );
+  await mayaPage.locator('[data-testid="maya-sidebar"]').waitFor({ state: "visible", timeout: 15_000 });
+  await expectVisibleText(mayaPage, "Deduction Forensics");
+  await expectVisibleText(mayaPage, "Forensics");
+  const mayaNavItems = await mayaPage.locator('[data-testid="maya-sidebar-nav-item"]').all();
+  const mayaNavLabels: string[] = [];
+  for (const mayaNavItem of mayaNavItems) {
+    mayaNavLabels.push((await mayaNavItem.innerText()).replace(/\s+/gu, " ").trim());
+  }
   assert(
     JSON.stringify(mayaNavLabels) === JSON.stringify(["Overview", "Worklist 8", "Cases", "Evidence", "Approvals 20"]),
     `Maya shadcn sidebar must match the production sidebar, received ${JSON.stringify(mayaNavLabels)}`
@@ -485,6 +492,14 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
 
 async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
+  const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
+  const viewportSize = page.viewportSize();
+  assert(launcherRect !== null, "Recoup Agent launcher must expose a measurable viewport rect");
+  assert(viewportSize !== null, "Recoup Agent launcher viewport check requires a viewport");
+  assert(
+    launcherRect.y >= 0 && launcherRect.y + launcherRect.height <= viewportSize.height,
+    `Recoup Agent launcher must be visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
+  );
   await page.getByTestId("recoup-agent-launcher").click();
   await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "visible", timeout: 15_000 });
   await page.locator('[data-testid="maya-selected-evidence-context"]').waitFor({ state: "visible", timeout: 15_000 });
@@ -1065,9 +1080,6 @@ async function assertPremiumSurfaces(browser: Browser): Promise<void> {
 async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
   const model = await loadForensicsE2EModel();
   const kpi = firstItem(model.kpiStrip, "forensics KPI strip");
-  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
-  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
-  const approvalAction = firstItem(model.selected.approvalActions, "selected approval actions");
   const mayaContext = await newRoleContext(browser, "maya", 1440, 900);
   const page = await mayaContext.newPage();
 
@@ -1075,27 +1087,19 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await expectVisibleText(page, "Maya");
-    await expectVisibleText(page, "Recommended action");
-    await expectVisibleText(page, "Human approval");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-kpi-band"]', "Maya Overview KPI band");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-concentration-band"]', "Maya Overview concentration band");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-action-band"]', "Maya Overview action band");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-system-band"]', "Maya Overview system band");
+    await expectVisibleLocator(page, '[data-testid="maya-kpi-trend-unavailable"]', "Maya KPI trend unavailable fallback");
+    await expectVisibleText(page, "Action queue");
+    await expectVisibleText(page, "Valid deduction signal");
     await expectVisibleText(page, kpi.label);
-    await expectVisibleText(page, recordId);
 
-    await page.getByRole("tab", { name: /Evidence/u }).click();
-    await expectVisibleText(page, evidenceDocument.documentId);
-
-    await page.getByRole("button", { name: /Query evidence/u }).click();
-    await expectVisibleLocator(page, '[role="dialog"]', "Maya query sheet");
-    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
-    await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya query input");
-    await expectVisibleText(page, "Ready for cited query");
-    await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-
-    await page.getByRole("button", { name: /Human approval/u }).click();
-    await expectVisibleLocator(page, '[role="alertdialog"]', "Maya approval dialog");
-    await expectVisibleText(page, model.selected.draft.actionId);
-    await expectVisibleText(page, approvalAction.label);
-    await expectVisibleText(page, "Reason");
-    await closeVisibleOverlay(page, '[role="alertdialog"]');
+    await page.getByRole("button", { name: /^Evidence$/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-root-section-evidence"]', "Maya Evidence root section");
+    await expectVisibleText(page, model.selected.lineId);
+    await expectVisibleText(page, "Evidence attached");
   } finally {
     await mayaContext.close();
   }
@@ -1304,9 +1308,12 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard.png` });
 
+    await page.getByRole("button", { name: /^Worklist$/u }).click();
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-03-recommended-action.png` });
 
+    await page.getByTestId("maya-local-row-action-open").click();
+    await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 15_000 });
     await page.getByTestId("maya-case-workspace").scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
 
@@ -1316,14 +1323,15 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.getByRole("button", { name: /Query evidence/u }).click();
     await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-06-query-start.png` });
+    await page.getByTestId("maya-query-input").fill("What evidence supports the selected draft?");
+    await page.getByRole("button", { name: /^Run query$/u }).click();
+    await page.getByTestId("maya-cited-answer").scrollIntoViewIfNeeded();
+    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-08-cited-answer.png` });
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
 
     await page.getByRole("tab", { name: /Trace/u }).click();
     await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya agent trace");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-07-agent-trace.png` });
-
-    await page.getByTestId("maya-cited-answer").scrollIntoViewIfNeeded();
-    await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-08-cited-answer.png` });
 
     await page.getByRole("tab", { name: /Draft/u }).click();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-09-draft-review.png` });
@@ -1333,10 +1341,12 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-10-human-approval.png` });
     await closeVisibleOverlay(page, '[role="alertdialog"]');
 
-    await page.getByRole("tab", { name: /Audit/u }).click();
+    await page.getByRole("tab", { name: /^Audit$/u }).click();
     await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
 
+    await page.getByTestId("maya-case-return-to-worklist").click();
+    await page.getByRole("button", { name: /^Worklist$/u }).click();
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-12-return-worklist.png` });
   } finally {
@@ -1507,14 +1517,20 @@ async function expectText(page: Page, text: string): Promise<void> {
 
 async function expectVisibleLocator(page: Page, selector: string, label: string): Promise<void> {
   const locator = page.locator(selector);
-  const count = await locator.count();
-  assert(count > 0, `${label} was not rendered`);
+  const deadline = Date.now() + 15_000;
+  let count = 0;
 
-  for (let index = 0; index < count; index += 1) {
-    if (await locator.nth(index).isVisible()) {
-      return;
+  do {
+    count = await locator.count();
+    for (let index = 0; index < count; index += 1) {
+      if (await locator.nth(index).isVisible()) {
+        return;
+      }
     }
-  }
+    await delay(100);
+  } while (Date.now() < deadline);
+
+  assert(count > 0, `${label} was not rendered`);
 
   throw new Error(`E2E assertion failed: ${label} was not visible`);
 }
@@ -2010,10 +2026,40 @@ async function assertBeat2OverviewIsNotBlank(
     `${label} Overview command center must contain useful visible content: ${String(overview.commandCenterTextLength)} chars`
   );
 
+  const dispositionRows = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-disposition-row"]')].map((row) => {
+      const bar = row.querySelector<HTMLElement>('[data-testid="maya-overview-disposition-bar"]');
+
+      return {
+        key: row.dataset.dispositionKey ?? "",
+        lineCount: Number.parseInt(row.dataset.lineCount ?? "0", 10),
+        widthPercent: Number.parseFloat(bar?.style.width ?? "0")
+      };
+    })
+  );
+  const dispositionTotal = model.recoveryTracker.recoveryLines + model.recoveryTracker.billingLines;
+  assert(dispositionRows.length === 2, `${label} Overview disposition split must render recovery and billing rows`);
+  assert(dispositionTotal > 0, `${label} backend recovery tracker must expose line counts for split chart`);
+  for (const expected of [
+    { key: "recovery", lineCount: model.recoveryTracker.recoveryLines },
+    { key: "billing", lineCount: model.recoveryTracker.billingLines }
+  ]) {
+    const row = dispositionRows.find((item) => item.key === expected.key);
+    assert(row !== undefined, `${label} Overview disposition split must render ${expected.key}`);
+    assert(row.lineCount === expected.lineCount, `${label} ${expected.key} split row must keep backend line count`);
+    const expectedWidth = (expected.lineCount / dispositionTotal) * 100;
+    assert(
+      Math.abs(row.widthPercent - expectedWidth) <= 0.5,
+      `${label} ${expected.key} split bar must represent share of total lines: ${String(row.widthPercent)} !== ${String(
+        expectedWidth
+      )}`
+    );
+  }
+
   const visibleValidRows = validRows.filter(
     (item) =>
       overview.positiveCasesText.includes(item.verdictLabel) &&
-      (overview.positiveCasesText.includes(item.lineId) || item.lineIds.some((lineId) => overview.positiveCasesText.includes(lineId)))
+      (overview.positiveCasesText.includes(item.scenarioLabel) || overview.positiveCasesText.includes(item.customerLabel))
   );
   assert(
     visibleValidRows.length > 0,
@@ -2553,7 +2599,13 @@ async function assertBeat10HumanApprovalFidelity(
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya Beat 10 approval dialog");
   await expectVisibleText(page, "Human approval required");
-  await expectVisibleText(page, "Evidence reviewed state and approval eligibility are unavailable");
+  if (model.selected.draft.approvalEligibility.available) {
+    await expectVisibleText(page, "Ready for human approval");
+    await expectVisibleText(page, "Evidence eligibility is available");
+  } else {
+    await expectVisibleText(page, "Approval unavailable");
+    await expectVisibleText(page, "Decision buttons stay disabled");
+  }
   await expectVisibleText(page, "Verified human principal unavailable");
   await expectVisibleText(page, model.selected.draft.actionLabel);
   await expectVisibleText(page, model.selected.draft.statusLabel);
@@ -2594,10 +2646,23 @@ async function assertBeat10HumanApprovalFidelity(
   }
 
   assert(result.decisionButtons.length === expectedDecisionLabels.length, "Beat 10 must not render extra decision buttons");
-  assert(
-    result.decisionButtons.every((button) => button.disabled),
-    "Beat 10 decision buttons must be disabled while approval eligibility is unavailable"
-  );
+  if (model.selected.draft.approvalEligibility.available) {
+    assert(
+      result.decisionButtons.some((button) => button.label.includes("Approve") && !button.disabled),
+      "Beat 10 must enable approval when backend eligibility is available"
+    );
+    assert(
+      result.decisionButtons
+        .filter((button) => button.label.includes("Reject") || button.label.includes("Request changes"))
+        .every((button) => button.disabled),
+      "Beat 10 reason-required decisions must stay disabled until a human reason is entered"
+    );
+  } else {
+    assert(
+      result.decisionButtons.every((button) => button.disabled),
+      "Beat 10 decision buttons must be disabled while approval eligibility is unavailable"
+    );
+  }
   assert(result.buttonLabels.includes("Cancel"), "Beat 10 must expose footer cancel");
   assert(result.buttonLabels.includes("Close human approval dialog"), "Beat 10 must expose icon-only close");
   assert(result.text.includes("Reason required"), "Beat 10 must keep reason-required state visible");
@@ -3558,7 +3623,9 @@ async function assertBeat2SourceReadinessFidelity(page: Page, connectors: Connec
 
   const readyClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "ready")?.className ?? "";
   const syntheticClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "synthetic")?.className ?? "";
-  assert(readyClass !== syntheticClass, `${label} ready and synthetic source tiles must have distinct visual classes`);
+  if (sourceStrip.hasReady && sourceStrip.hasSynthetic) {
+    assert(readyClass !== syntheticClass, `${label} ready and synthetic source tiles must have distinct visual classes`);
+  }
   if (sourceStrip.hasBlocked) {
     const blockedClass = sourceStrip.toneClassNames.find((tile) => tile.tone === "blocked")?.className ?? "";
     assert(blockedClass !== readyClass, `${label} blocked source tiles must be visually distinct from ready`);

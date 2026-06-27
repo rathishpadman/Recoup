@@ -115,6 +115,12 @@ export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
                 {item.value}
               </CardTitle>
               <p className="truncate text-xs text-muted-foreground">{item.support}</p>
+              <div
+                className="flex min-h-8 items-center rounded-md border border-dashed bg-muted/20 px-2 text-[11px] text-muted-foreground"
+                data-testid="maya-kpi-trend-unavailable"
+              >
+                Trend unavailable
+              </div>
             </CardContent>
           </Card>
         );

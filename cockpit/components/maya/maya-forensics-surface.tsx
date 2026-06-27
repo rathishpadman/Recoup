@@ -366,34 +366,164 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         const validDeductionItems = model.worklist.filter((item) => item.verdict === "valid");
         const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
         const readySourceCount = connectors.sourceTiles.filter((source) => source.statusTone === "ready").length;
-        const overviewFocusItem = visibleSelectedWorklistItem;
-        const overviewFocusLabel = visibleSelectedWorklistItem === undefined ? "No selected case" : "Selected case";
+        const worklistLineCountMax = Math.max(1, ...model.worklist.map((item) => item.lineCount));
+        const dispositionLineCountTotal = Math.max(
+          1,
+          model.recoveryTracker.recoveryLines + model.recoveryTracker.billingLines
+        );
 
         return (
           <section className="flex min-w-0 flex-col gap-3" data-testid="maya-root-section-overview">
-            <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
-            <SourceReadinessStrip connectors={connectors} />
-            <section
-              className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
-              data-testid="maya-overview-command-center"
-            >
-              <div className="grid min-w-0 gap-3">
-                <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
-                  <DetailStateFact label="Cases in queue" value={model.worklist.length.toString()} />
-                  <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
-                  <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
-                  <DetailStateFact
-                    label="Ready sources"
-                    value={`${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`}
-                  />
-                </div>
+            <section className="grid min-w-0 gap-3" data-testid="maya-overview-command-center">
+              <section className="min-w-0" data-testid="maya-overview-kpi-band">
+                <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
+              </section>
+
+              <section
+                className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]"
+                data-testid="maya-overview-concentration-band"
+              >
+                <Card className="rounded-lg shadow-none" data-testid="maya-overview-line-count-bars" size="sm">
+                  <CardHeader className="gap-1.5">
+                    <CardTitle className="text-base">Case concentration</CardTitle>
+                    <CardDescription>Scenario line count with source amount labels.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    {model.worklist.length === 0 ? (
+                      <MayaEmptyState description="No worklist rows are available for concentration." kind="worklist" title="No cases" />
+                    ) : (
+                      model.worklist.map((item) => {
+                        const lineSharePercent = (item.lineCount / worklistLineCountMax) * 100;
+
+                        return (
+                          <div className="grid min-w-0 gap-1.5" data-line-id={item.lineId} key={`overview-line-count-${item.lineId}`}>
+                            <div className="flex min-w-0 items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{item.scenarioLabel}</p>
+                                <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-sm tabular-nums">{item.lineCount.toString()} lines</p>
+                                <p className="text-xs tabular-nums text-muted-foreground">{item.amount}</p>
+                              </div>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                              <div
+                                className="h-full rounded-full bg-[color:var(--aging-1-30)]"
+                                style={{ width: `${lineSharePercent.toString()}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-lg shadow-none" data-testid="maya-overview-disposition-split" size="sm">
+                  <CardHeader className="gap-1.5">
+                    <CardTitle className="text-base">Recovery and Billing split</CardTitle>
+                    <CardDescription>Draft disposition from the recovery tracker.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    {[
+                      {
+                        key: "recovery",
+                        label: "Recovery drafts",
+                        lineCount: model.recoveryTracker.recoveryLines,
+                        value: model.recoveryTracker.projectedRecovery,
+                        toneClassName: "bg-[color:var(--aging-61-90)]"
+                      },
+                      {
+                        key: "billing",
+                        label: "Billing drafts",
+                        lineCount: model.recoveryTracker.billingLines,
+                        value: model.recoveryTracker.projectedBilling,
+                        toneClassName: "bg-[color:var(--status-success-text)]"
+                      }
+                    ].map((item) => {
+                      const lineSharePercent = (item.lineCount / dispositionLineCountTotal) * 100;
+
+                      return (
+                        <div
+                          className="grid gap-1.5 rounded-md border bg-muted/20 p-3"
+                          data-disposition-key={item.key}
+                          data-line-count={item.lineCount.toString()}
+                          data-testid="maya-overview-disposition-row"
+                          key={`overview-disposition-${item.key}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium">{item.label}</span>
+                            <span className="text-sm tabular-nums">{item.lineCount.toString()} lines</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                            <div
+                              className={`h-full rounded-full ${item.toneClassName}`}
+                              data-testid="maya-overview-disposition-bar"
+                              style={{ width: `${lineSharePercent.toString()}%` }}
+                            />
+                          </div>
+                          <span className="text-xs tabular-nums text-muted-foreground">{item.value}</span>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              </section>
+
+              <section
+                className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
+                data-testid="maya-overview-action-band"
+              >
+                <Card className="rounded-lg shadow-none" data-testid="maya-overview-next-case" size="sm">
+                  <CardHeader className="gap-1.5">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="grid min-w-0 gap-1">
+                        <CardTitle className="text-base">Action queue</CardTitle>
+                        <CardDescription>Source-order preview of pending human actions.</CardDescription>
+                      </div>
+                      <Badge variant="outline">{model.actionInbox.length.toString()} pending</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid gap-2">
+                    {model.actionInbox.length === 0 ? (
+                      <MayaEmptyState
+                        description="The current action queue has no pending human actions."
+                        kind="approval"
+                        title="No pending HITL actions"
+                      />
+                    ) : (
+                      <>
+                        {model.actionInbox.slice(0, 5).map((item) => (
+                          <div className="grid gap-1 rounded-md border bg-muted/20 p-3" key={`overview-action-${item.actionId}`}>
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{item.actionLabel}</p>
+                                <p className="truncate text-xs text-muted-foreground">{item.lineId}</p>
+                              </div>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              <Badge variant="secondary">{item.statusLabel ?? "Status unavailable"}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                        {model.actionInbox.length > 5 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Showing 5 of {model.actionInbox.length.toString()} pending actions in source order.
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
 
                 <Card className="rounded-lg shadow-none" data-testid="maya-overview-positive-cases" size="sm">
                   <CardHeader className="gap-1.5">
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="grid min-w-0 gap-1">
-                        <CardTitle className="text-base">Positive deduction cases</CardTitle>
-                        <CardDescription>Cases marked valid for review.</CardDescription>
+                        <CardTitle className="text-base">Valid deduction signal</CardTitle>
+                        <CardDescription>Compact list of cases marked valid.</CardDescription>
                       </div>
                       <Badge
                         className="h-7 shrink-0 px-2 text-xs"
@@ -405,154 +535,50 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-0">
+                  <CardContent className="grid gap-2">
                     {validDeductionItems.length === 0 ? (
-                      <div className="px-4 pb-4">
-                        <MayaEmptyState
-                          description="The current worklist has no valid deduction rows."
-                          kind="worklist"
-                          title="No valid rows"
-                        />
-                      </div>
+                      <MayaEmptyState
+                        description="The current worklist has no valid deduction rows."
+                        kind="worklist"
+                        title="No valid rows"
+                      />
                     ) : (
-                      <>
-                        <div className="grid gap-2 p-3 md:hidden" data-testid="maya-overview-positive-mobile-list">
-                          {validDeductionItems.map((item) => (
-                            <div className="grid gap-2 rounded-md border bg-background p-3" data-verdict={item.verdict} key={`overview-valid-mobile-${item.lineId}`}>
-                              <div className="flex min-w-0 items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="line-clamp-2 text-sm font-medium">{item.scenarioLabel}</p>
-                                  <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
-                                </div>
-                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5">
-                                <Badge className="gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
-                                  <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-                                  {item.verdictLabel}
-                                </Badge>
-                                <Badge variant="outline">{item.lineId}</Badge>
-                                <Badge variant="outline">{item.evidenceLabel}</Badge>
-                              </div>
-                              <div className="grid gap-0.5 text-xs text-muted-foreground">
-                                <span>{item.routingLabel}</span>
-                                <span>{item.recommendedActionLabel}</span>
-                              </div>
+                      validDeductionItems.map((item) => (
+                        <div className="grid gap-1 rounded-md border bg-muted/20 p-3" data-verdict={item.verdict} key={`overview-valid-${item.lineId}`}>
+                          <div className="flex min-w-0 items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{item.scenarioLabel}</p>
+                              <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
                             </div>
-                          ))}
+                            <Badge className="shrink-0 gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
+                              <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+                              {item.verdictLabel}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                            <span className="tabular-nums">{item.amount}</span>
+                            <span>{item.routingLabel}</span>
+                            <span>{item.evidenceLabel}</span>
+                          </div>
                         </div>
-                        <div className="hidden md:block">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Case</TableHead>
-                                <TableHead>Counterparty</TableHead>
-                                <TableHead>Verdict</TableHead>
-                                <TableHead>Evidence</TableHead>
-                                <TableHead>Routing</TableHead>
-                                <TableHead>Amount</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {validDeductionItems.map((item) => (
-                                <TableRow data-verdict={item.verdict} key={`overview-valid-${item.lineId}`}>
-                                  <TableCell>
-                                    <div className="grid min-w-0 gap-0.5">
-                                      <span className="truncate font-medium">{item.scenarioLabel}</span>
-                                      <span className="truncate text-xs text-muted-foreground">{item.lineId}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>{item.customerLabel}</TableCell>
-                                  <TableCell>
-                                    <Badge className="gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
-                                      <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-                                      {item.verdictLabel}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>{item.evidenceLabel}</TableCell>
-                                  <TableCell>
-                                    <div className="grid min-w-0 gap-0.5">
-                                      <span className="truncate">{item.routingLabel}</span>
-                                      <span className="truncate text-xs text-muted-foreground">{item.recommendedActionLabel}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="tabular-nums">{item.amount}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </>
+                      ))
                     )}
                   </CardContent>
                 </Card>
-              </div>
+              </section>
 
-              <Card className="rounded-lg shadow-none" data-testid="maya-overview-next-case" size="sm">
-                <CardHeader className="gap-1.5">
-                  <div className="flex min-w-0 items-start justify-between gap-3">
-                    <div className="grid min-w-0 gap-1">
-                      <CardTitle className="text-base">{overviewFocusLabel}</CardTitle>
-                      <CardDescription>Selected case for review.</CardDescription>
-                    </div>
-                    <Badge variant="outline">Evidence-backed</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  {overviewFocusItem === undefined ? (
-                    <MayaEmptyState
-                      description="Select a work item to inspect the case without inferring a next-best case."
-                      kind="worklist"
-                      title="No selected case"
-                    />
-                  ) : (() => {
-                    const overviewFocusIsLoading =
-                      workItemDetailLoadState?.state === "loading" &&
-                      workItemDetailLoadState.lineId === overviewFocusItem.lineId;
-
-                    return (
-                      <>
-                        <div className="grid min-w-0 gap-2">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <Badge className="gap-1.5" data-verdict={overviewFocusItem.verdict} variant={verdictBadgeVariant(overviewFocusItem.verdict)}>
-                              {overviewFocusItem.verdict === "valid" ? (
-                                <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-                              ) : null}
-                              {overviewFocusItem.verdictLabel}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">{overviewFocusItem.lineId}</span>
-                          </div>
-                          <div className="grid min-w-0 gap-1">
-                            <h2 className="truncate text-lg font-semibold leading-tight">{overviewFocusItem.scenarioLabel}</h2>
-                            <p className="truncate text-sm text-muted-foreground">{overviewFocusItem.customerLabel}</p>
-                          </div>
-                        </div>
-                        <div className="grid gap-2">
-                          <DetailStateFact label="Potential exposure" value={overviewFocusItem.amount} />
-                          <DetailStateFact label="Evidence" value={overviewFocusItem.evidenceLabel} />
-                          <DetailStateFact label="Recommended action" value={overviewFocusItem.recommendedActionLabel} />
-                        </div>
-                        <Button
-                          className="w-fit"
-                          disabled={overviewFocusIsLoading}
-                          onClick={() => {
-                            void openInvestigationForItem(overviewFocusItem);
-                          }}
-                          size="sm"
-                          type="button"
-                        >
-                          {overviewFocusIsLoading ? (
-                            <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
-                          ) : (
-                            <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
-                          )}
-                          {overviewFocusIsLoading ? "Loading detail" : "Open investigation"}
-                        </Button>
-                      </>
-                    );
-                  })()}
-                </CardContent>
-              </Card>
+              <section className="grid min-w-0 gap-3" data-testid="maya-overview-system-band">
+                <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
+                  <DetailStateFact label="Cases in queue" value={model.worklist.length.toString()} />
+                  <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
+                  <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
+                  <DetailStateFact
+                    label="Ready sources"
+                    value={`${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`}
+                  />
+                </div>
+                <SourceReadinessStrip connectors={connectors} />
+              </section>
             </section>
           </section>
         );
@@ -1010,6 +1036,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         support={`${caseWorklistItem.customerLabel} / ${activeCaseDetail?.lineId ?? caseWorklistItem.lineId}`}
         worklistCount={model.worklist.length}
       >
+        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
         <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
           <aside className="min-w-0" data-testid="maya-case-worklist-rail">
             <DeductionWorklistTable
@@ -1049,7 +1076,6 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
             />
           )}
         </section>
-        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       </MayaWorkspaceShell>
     );
   }
@@ -1066,6 +1092,7 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         support={`${model.worklist.length.toString()} work items / ${model.actionInbox.length.toString()} human actions pending`}
         worklistCount={model.worklist.length}
       >
+        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
         <BeatTwelveReturnedWorklist
           connectors={connectors}
           items={model.worklist}
@@ -1075,7 +1102,6 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
           }}
           selectedItem={returnedWorklistItem}
         />
-        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       </MayaWorkspaceShell>
     );
   }
@@ -1089,27 +1115,29 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       session={session}
       worklistCount={model.worklist.length}
     >
+      <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       <section className="flex min-w-0 flex-1 flex-col gap-3" aria-label="Maya morning run summary">
         {renderMayaRootSection()}
       </section>
-      <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
     </MayaWorkspaceShell>
   );
 }
 
 function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
-    <Button
-      aria-label="Open Recoup Agent"
-      className="fixed bottom-5 right-5 z-40 h-11 rounded-full px-4 shadow-lg"
-      data-testid="recoup-agent-launcher"
-      disabled={disabled}
-      onClick={onClick}
-      type="button"
-    >
-      <MessageCircleIcon aria-hidden="true" data-icon="inline-start" />
-      <span className="hidden sm:inline">Recoup Agent</span>
-    </Button>
+    <div className="flex justify-end">
+      <Button
+        aria-label="Open Recoup Agent"
+        className="h-10 rounded-full px-4 shadow-sm"
+        data-testid="recoup-agent-launcher"
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+      >
+        <MessageCircleIcon aria-hidden="true" data-icon="inline-start" />
+        <span className="hidden sm:inline">Recoup Agent</span>
+      </Button>
+    </div>
   );
 }
 
