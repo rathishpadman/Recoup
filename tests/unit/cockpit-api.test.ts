@@ -3334,6 +3334,109 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("accepts a signed CFO server-proxy demo lifecycle reset while the direct API principal remains Maya", async () => {
+    const actionId = "route-billing:S1-L1";
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: unknown[] = [
+      {
+        category: "approval_records",
+        created_at: new Date(0).toISOString(),
+        id: `approval:${actionId}`,
+        payload_json: {
+          actionId,
+          approverId: "human:maya-lead",
+          auditEntryHash: "a".repeat(64),
+          decision: "approve",
+          status: "human_decided"
+        },
+        record_ids_json: [actionId, "S1-L1"],
+        scope: `approval:${actionId}`,
+        trust_level: "trusted"
+      }
+    ];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const requestBody = stringifyRequestBody(init.body);
+      calls.push({
+        ...(requestBody === undefined ? {} : { body: requestBody }),
+        ...(init.method === undefined ? {} : { method: init.method }),
+        url
+      });
+
+      if (url.includes("/rest/v1/rpc/recoup_reset_demo_approval_lifecycle")) {
+        const payload = JSON.parse(requestBody ?? "{}") as {
+          p_approval_id?: string;
+          p_approval_scope?: string;
+          p_audit_category?: string;
+          p_audit_created_at?: string;
+          p_audit_id?: string;
+          p_audit_payload_json?: Record<string, unknown>;
+          p_audit_record_ids_json?: string[];
+          p_audit_scope?: string;
+          p_audit_trust_level?: string;
+        };
+        const deleted = memoryRows.filter(
+          (row) =>
+            isSupabaseMemoryTestRow(row) &&
+            row.category === "approval_records" &&
+            row.id === payload.p_approval_id &&
+            row.scope === payload.p_approval_scope
+        );
+        for (const row of deleted) {
+          const index = memoryRows.indexOf(row);
+          if (index !== -1) {
+            memoryRows.splice(index, 1);
+          }
+        }
+        memoryRows.push({
+          category: payload.p_audit_category,
+          created_at: payload.p_audit_created_at,
+          id: payload.p_audit_id,
+          payload_json: payload.p_audit_payload_json,
+          record_ids_json: payload.p_audit_record_ids_json,
+          scope: payload.p_audit_scope,
+          trust_level: payload.p_audit_trust_level
+        });
+        return Promise.resolve(new Response(JSON.stringify([{ deleted_record_count: deleted.length }]), { status: 200 }));
+      }
+
+      if (url.includes("/rest/v1/recoup_memory_records") && init.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify(memoryRows), { status: 200 }));
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+      },
+      memoryFetcher
+    });
+
+    try {
+      const body = JSON.stringify({ actionId, reason: "Prepare judge demo rerun" });
+      const response = await fetch(`${baseUrl}/admin/demo-reset`, {
+        body,
+        headers: signedDemoProxyHeaders({
+          body,
+          path: "/admin/demo-reset",
+          principal: "human:cfo-lead",
+          purpose: "admin-reset",
+          role: "cfo",
+          secret: demoProxySecret
+        }),
+        method: "POST"
+      });
+      const reset = (await response.json()) as { actionId: string; deletedRecordCount: number; status: string };
+
+      expect(response.status).toBe(200);
+      expect(reset).toMatchObject({ actionId, deletedRecordCount: 1, status: "reset_recorded" });
+      expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/rpc/recoup_reset_demo_approval_lifecycle"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("lets an admin reset only demo lifecycle approval records and records the reset receipt", async () => {
     const actionId = "route-billing:S1-L1";
     const resetScope = `approval:${actionId}`;

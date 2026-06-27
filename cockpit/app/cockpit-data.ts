@@ -563,6 +563,14 @@ export interface MemorySummaryCockpitModel {
   backend: "in_memory_fallback" | "sqlite" | "supabase";
   categories: string[];
   provenance: "deterministic_demo_memory" | "persisted_runtime_memory";
+  approvalAuditReceipts: Array<{
+    actionId: string;
+    approverId: string;
+    auditEntryHash: string;
+    decision: string;
+    recordIds: string[];
+    status: "human_decided";
+  }>;
   records: Array<{
     id: string;
     category: string;

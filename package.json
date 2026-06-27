@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --pool=threads",
     "test:e2e": "tsx tests/e2e/cockpit-premium-e2e.ts",
+    "test:e2e:maya-approval-lifecycle": "tsx tests/e2e/maya-approval-lifecycle-e2e.ts",
     "test:e2e:maya-real": "tsx tests/e2e/maya-real-backend-e2e.ts",
     "depcruise": "depcruise src --config dependency-cruiser.config.cjs",
     "verify:release": "tsx evals/releaseReadinessCli.ts",

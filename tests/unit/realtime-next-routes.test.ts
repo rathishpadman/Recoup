@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { POST as postDemoReset } from "../../cockpit/app/api/admin/demo-reset/route.js";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
 import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
 import { POST as postForensicsQuery } from "../../cockpit/app/api/forensics/query/route.js";
@@ -695,6 +696,79 @@ describe("Realtime Next proxy routes", () => {
         headers: {
           "content-type": "application/json",
           cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards admin demo reset requests only from a valid CFO demo-session cookie", async () => {
+    stubRouteEnv(cfoEnvPatch);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      void input;
+      void init;
+      return Promise.resolve(
+        Response.json({
+          actionId: "route-billing:S1-L1",
+          deletedRecordCount: 1,
+          resetScope: "approval:route-billing:S1-L1",
+          status: "reset_recorded"
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const signedSession = createSignedDemoSessionValue(
+      {
+        allowedRoutes: roleAllowedRoutes("cfo"),
+        defaultRoute: roleHomeRoute("cfo"),
+        displayName: "CFO",
+        loginId: "CFO",
+        role: "cfo"
+      },
+      cfoEnvPatch.RECOUP_DEMO_SESSION_SECRET
+    );
+    const body = JSON.stringify({ actionId: "route-billing:S1-L1", reason: "Prepare judge demo rerun" });
+
+    const response = await postDemoReset(
+      new Request("http://localhost/api/admin/demo-reset", {
+        body,
+        headers: {
+          "content-type": "application/json",
+          cookie: `${demoSessionCookieName}=${signedSession}`
+        },
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const forwardedCall = fetchMock.mock.calls[0];
+    expect(forwardedCall?.[0]).toBe("http://recoup-api.test/admin/demo-reset");
+    expect(forwardedCall?.[1]?.headers).toMatchObject({
+      "x-recoup-demo-role": "cfo",
+      "x-recoup-human-principal": "human:cfo-lead",
+      "x-recoup-human-token": cfoEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+    });
+    expect(headerValue(forwardedCall?.[1]?.headers, "x-recoup-demo-proof")).toMatch(/^[A-Za-z0-9_-]{32,}$/);
+    expect(headerValue(forwardedCall?.[1]?.headers, "x-recoup-demo-issued-at")).toBeDefined();
+    expect(headerValue(forwardedCall?.[1]?.headers, "x-recoup-demo-nonce")).toBeDefined();
+    expect(headerValue(forwardedCall?.[1]?.headers, "x-recoup-demo-body-sha256")).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("rejects admin demo reset proxy requests from a Maya demo-session cookie", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await postDemoReset(
+      new Request("http://localhost/api/admin/demo-reset", {
+        body: JSON.stringify({ actionId: "route-billing:S1-L1", reason: "Prepare judge demo rerun" }),
+        headers: {
+          "content-type": "application/json",
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
         },
         method: "POST"
       })

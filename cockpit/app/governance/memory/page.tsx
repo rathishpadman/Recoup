@@ -5,6 +5,7 @@ import { CockpitShell, RecordStrip } from "../../cockpit-shell.tsx";
 import { fetchMemoryModel } from "../../cockpit-data.ts";
 import { requireRouteAccess } from "../../demo-auth.ts";
 import { GovernanceNav } from "../governance-nav.tsx";
+import { DemoLifecycleResetControls } from "./demo-lifecycle-reset-controls.tsx";
 
 export default async function MemoryGovernancePage() {
   const session = await requireRouteAccess("/governance/memory");
@@ -119,6 +120,7 @@ export default async function MemoryGovernancePage() {
               <strong>Trust contract</strong>
               <span>Semi-trusted or untrusted memory cannot be promoted to decision evidence without explicit state.</span>
             </div>
+            <DemoLifecycleResetControls approvalAuditReceipts={model.approvalAuditReceipts} />
           </aside>
         </div>
       </section>

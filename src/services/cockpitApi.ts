@@ -1090,7 +1090,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   });
 
   app.post("/admin/demo-reset", rateLimitAuditEndpoint("POST /admin/demo-reset"), async (request, response) => {
-    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["cfo"],
+      proxyPurpose: "admin-reset"
+    });
     if (!human.success) {
       response.status(401).json({ error: human.error });
       return;

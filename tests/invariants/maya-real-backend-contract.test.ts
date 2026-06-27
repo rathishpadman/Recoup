@@ -53,6 +53,12 @@ describe("Maya real-backend contract", () => {
     expect(e2e).not.toContain('fill("Why is this deduction recoverable?")');
   });
 
+  it("exposes the Maya approval lifecycle browser proof as a repeatable npm script", () => {
+    const manifest = JSON.parse(readFileSync("package.json", "utf8")) as { scripts?: Record<string, string> };
+
+    expect(manifest.scripts?.["test:e2e:maya-approval-lifecycle"]).toBe("tsx tests/e2e/maya-approval-lifecycle-e2e.ts");
+  });
+
   it("requires field-level provenance on Maya-visible backend business fields", () => {
     const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions });
     const connectorEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];

@@ -82,4 +82,20 @@ describe("cockpit role-based demo auth", () => {
       maya: "human:maya-lead"
     });
   });
+
+  it("exposes demo lifecycle reset only from the CFO governance memory surface", () => {
+    const memoryPage = readFileSync("cockpit/app/governance/memory/page.tsx", "utf8");
+    const resetControl = readFileSync("cockpit/app/governance/memory/demo-lifecycle-reset-controls.tsx", "utf8");
+    const mayaSurface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+
+    expect(memoryPage).toContain("DemoLifecycleResetControls");
+    expect(memoryPage).toContain("model.approvalAuditReceipts");
+    expect(resetControl).toContain('"use client"');
+    expect(resetControl).toContain('fetch("/api/admin/demo-reset"');
+    expect(resetControl).toContain("approvalAuditReceipts.map");
+    expect(resetControl).toContain("router.refresh()");
+    expect(resetControl).toContain("No resettable approval decisions");
+    expect(mayaSurface).not.toContain("/api/admin/demo-reset");
+    expect(mayaSurface).not.toContain("DemoLifecycleResetControls");
+  });
 });
