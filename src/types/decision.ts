@@ -19,12 +19,23 @@ export const DecisionEvidenceDocumentTypeSchema = z.enum([
   "edi-remittance"
 ]);
 
+export const DecisionEvidenceDocumentRetrievalMetadataSchema = z
+  .object({
+    fileName: z.string().min(1),
+    mode: z.literal("semantic-vector"),
+    provenance: z.literal("openai-vector-store"),
+    score: z.number().min(0).max(1),
+    vectorStoreId: z.string().min(1)
+  })
+  .strict();
+
 export const DecisionEvidenceDocumentSchema = z.object({
   documentId: z.string().min(1),
   source: DecisionEvidenceDocumentSourceSchema,
   documentType: DecisionEvidenceDocumentTypeSchema,
   summary: z.string().min(1),
-  recordIds: z.array(z.string().min(1)).min(1)
+  recordIds: z.array(z.string().min(1)).min(1),
+  retrieval: DecisionEvidenceDocumentRetrievalMetadataSchema.optional()
 });
 
 export const DecisionRuleFindingSchema = z.object({

@@ -52,6 +52,10 @@ import {
   sourcePortFromSupabaseSnapshots,
   type SupabaseRiskObservationSourceConfig
 } from "../adapters/supabaseSyntheticSource.js";
+import {
+  createOpenAiVectorStoreEvidenceReader,
+  type OpenAiVectorStoreFetch
+} from "../adapters/openAiVectorStore.js";
 import { SyntheticSource } from "../adapters/synthetic.js";
 import { buildRunBudgetMiddlewareStatus } from "../middleware/budgets.js";
 import { createRunBudgetController, type RunControlConfig, type RunControlStatus } from "./conductor.js";
@@ -67,6 +71,7 @@ import {
 } from "./forensicsQuerySession.js";
 import {
   assertR1SourceReadInput,
+  buildOpenAiVectorStoreEvidenceSource,
   buildPreparedApprovalAuditEntry,
   buildSupabaseServiceSapEvidenceSource,
   buildSupabaseServiceSyntheticEvidenceSource,
@@ -249,6 +254,7 @@ export interface CockpitApiOptions {
   forensicsStreamRunner?: LiveForensicsStreamRunner;
   memoryFetcher?: SupabaseMemoryFetch;
   mcpHealthFetcher?: typeof fetch;
+  openAiVectorStoreFetcher?: OpenAiVectorStoreFetch;
   realtimeFetcher?: typeof fetch;
   sapFetcher?: typeof fetch;
 }
@@ -282,6 +288,7 @@ interface ForensicsSourceContextCacheKey {
   dataMode: RecoupDataMode;
   governedConfigHash: string;
   governedSeed: 42;
+  openAiEvidenceVectorStoreIdentity: string;
   riskObservationRequired: boolean;
   sourceTableIdentity: typeof forensicsSourceContextTableIdentity;
   supabaseSourceIdentity: string;
@@ -784,6 +791,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       dataMode,
       governedConfigHash: sha256CanonicalJson(governedConfig),
       governedSeed: governedConfig.seed,
+      openAiEvidenceVectorStoreIdentity: readOpenAiEvidenceVectorStoreIdentity(runtimeEnv),
       riskObservationRequired,
       sourceTableIdentity: forensicsSourceContextTableIdentity,
       supabaseSourceIdentity: readSupabaseSourceIdentity(runtimeEnv)
@@ -896,6 +904,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         reader: syntheticEvidenceReader,
         settlementRun
       });
+      const vectorStoreEvidenceSource = await buildOptionalOpenAiVectorStoreEvidenceSource(settlementRun);
 
       const runContext = {
         serviceContext: {
@@ -904,7 +913,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           requireSupabaseSyntheticEvidence: true,
           sapEvidenceSource,
           source,
-          syntheticEvidenceSource
+          syntheticEvidenceSource,
+          ...(vectorStoreEvidenceSource === undefined ? {} : { vectorStoreEvidenceSource })
         },
         source
       };
@@ -925,6 +935,26 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       });
       return undefined;
     }
+  }
+
+  async function buildOptionalOpenAiVectorStoreEvidenceSource(
+    settlementRun: ReturnType<SourcePort["loadSettlementRun"]>
+  ): Promise<Awaited<ReturnType<typeof buildOpenAiVectorStoreEvidenceSource>> | undefined> {
+    const apiKey = runtimeEnv.OPENAI_API_KEY?.trim();
+    const vectorStoreId = runtimeEnv.OPENAI_EVIDENCE_VECTOR_STORE_ID?.trim();
+    if (apiKey === undefined || apiKey.length === 0 || vectorStoreId === undefined || vectorStoreId.length === 0) {
+      return undefined;
+    }
+
+    return buildOpenAiVectorStoreEvidenceSource({
+      reader: createOpenAiVectorStoreEvidenceReader({
+        apiKey,
+        ...(options.openAiVectorStoreFetcher === undefined ? {} : { fetcher: options.openAiVectorStoreFetcher }),
+        vectorStoreId
+      }),
+      settlementRun,
+      vectorStoreId
+    });
   }
 
   function validateCacheableForensicsRunContext(
@@ -1612,6 +1642,19 @@ function readSupabaseSourceIdentity(env: RuntimeEnv): string {
   }
 }
 
+function readOpenAiEvidenceVectorStoreIdentity(env: RuntimeEnv): string {
+  const apiKey = env.OPENAI_API_KEY?.trim();
+  const vectorStoreId = env.OPENAI_EVIDENCE_VECTOR_STORE_ID?.trim();
+  if (apiKey === undefined || apiKey.length === 0) {
+    return "missing-openai-api-key";
+  }
+  if (vectorStoreId === undefined || vectorStoreId.length === 0) {
+    return "missing-openai-evidence-vector-store-id";
+  }
+
+  return `openai-vector-store:${vectorStoreId}`;
+}
+
 function readAllowedOrigins(env: RuntimeEnv): Set<string> {
   const configured = env.RECOUP_COCKPIT_ALLOWED_ORIGINS;
   const origins =
@@ -2196,6 +2239,7 @@ export async function startCockpitApiRuntime(options: CockpitApiRuntimeOptions =
     ...(options.forensicsStreamRunner === undefined ? {} : { forensicsStreamRunner: options.forensicsStreamRunner }),
     ...(options.memoryFetcher === undefined ? {} : { memoryFetcher: options.memoryFetcher }),
     ...(options.mcpHealthFetcher === undefined ? {} : { mcpHealthFetcher: options.mcpHealthFetcher }),
+    ...(options.openAiVectorStoreFetcher === undefined ? {} : { openAiVectorStoreFetcher: options.openAiVectorStoreFetcher }),
     ...(options.realtimeFetcher === undefined ? {} : { realtimeFetcher: options.realtimeFetcher }),
     ...(options.sapFetcher === undefined ? {} : { sapFetcher: options.sapFetcher })
   };

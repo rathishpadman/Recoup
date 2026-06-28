@@ -1429,6 +1429,113 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("hydrates optional OpenAI vector evidence only when the RAG env gate is complete", async () => {
+    const missingGateCalls: string[] = [];
+    const blockedVectorFetcher = vi.fn(() =>
+      Promise.reject(new Error("OpenAI vector store fetcher should not be called without a vector store id."))
+    );
+    const missingGate = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0"
+      },
+      memoryFetcher: successfulRealBackendSourceFetcher(missingGateCalls),
+      openAiVectorStoreFetcher: blockedVectorFetcher
+    });
+    try {
+      const response = await fetch(`${missingGate.baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as { surface?: string };
+
+      expect(response.status).toBe(200);
+      expect(body.surface).toBe("forensics-analyst");
+      expect(blockedVectorFetcher).not.toHaveBeenCalled();
+    } finally {
+      await close(missingGate.server);
+    }
+
+    const vectorSearchCalls: Array<{ init: RequestInit; url: string }> = [];
+    const enabledGate = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        OPENAI_EVIDENCE_VECTOR_STORE_ID: "vs_evidence_test",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0"
+      },
+      memoryFetcher: successfulRealBackendSourceFetcher([]),
+      openAiVectorStoreFetcher: (url, init) => {
+        vectorSearchCalls.push({ init, url });
+        return Promise.resolve(vectorStoreSearchResponseForS6());
+      }
+    });
+    try {
+      const response = await fetch(`${enabledGate.baseUrl}/forensics/work-items/S6-L1`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as {
+        selected?: {
+          evidencePack?: {
+            documents: Array<{
+              documentId: string;
+              provenance: { deterministicBasis: string; sourceKind: string; sourceName: string };
+              retrieval?: {
+                fileName: string;
+                mode: string;
+                provenance: string;
+                score: number;
+                vectorStoreId: string;
+              };
+              sourceLabel: string;
+            }>;
+          };
+        };
+        surface?: string;
+      };
+      const firstVectorSearch = vectorSearchCalls[0];
+      const firstRequestBody = firstVectorSearch?.init.body;
+      const vectorDocument = body.selected?.evidencePack?.documents.find(
+        (document) => document.documentId === "file-vector-runtime-contract"
+      );
+
+      expect(response.status).toBe(200);
+      expect(body.surface).toBe("forensics-work-item-detail");
+      expect(vectorSearchCalls).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+      expect(firstVectorSearch?.url).toBe("https://api.openai.com/v1/vector_stores/vs_evidence_test/search");
+      expect(firstVectorSearch?.init).toMatchObject({
+        headers: {
+          authorization: "Bearer sk-test-live-query",
+          "content-type": "application/json"
+        },
+        method: "POST"
+      });
+      expect(typeof firstRequestBody).toBe("string");
+      const firstBody = JSON.parse(firstRequestBody as string) as { max_num_results?: number; query?: string };
+      expect(firstBody.max_num_results).toBe(5);
+      expect(firstBody.query).toContain("customer:");
+      expect(firstBody.query).toContain("deduction:");
+      expect(firstBody.query).toContain("scenario:");
+      expect(vectorDocument).toMatchObject({
+        documentId: "file-vector-runtime-contract",
+        provenance: {
+          sourceKind: "derived_backend",
+          sourceName: "OpenAI vector store semantic retrieval"
+        },
+        retrieval: {
+          fileName: "pricing-clause.pdf",
+          mode: "semantic-vector",
+          provenance: "openai-vector-store",
+          score: 0.91,
+          vectorStoreId: "vs_evidence_test"
+        },
+        sourceLabel: "OpenAI vector store"
+      });
+      expect(vectorDocument?.provenance.deterministicBasis).toContain("OpenAI vector store semantic retrieval");
+      expect(vectorDocument?.provenance.deterministicBasis).toContain("vs_evidence_test");
+    } finally {
+      await close(enabledGate.server);
+    }
+  });
+
   it("does not reuse a validated forensic query source context after the technical TTL expires", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
@@ -4549,6 +4656,62 @@ describe("S5 cockpit API", () => {
     expect(stopPoller).toHaveBeenCalledTimes(1);
   });
 
+  it("forwards optional OpenAI vector evidence fetcher through the started cockpit runtime", async () => {
+    const vectorSearchCalls: Array<{ init: RequestInit; url: string }> = [];
+    const sourceHealthPollerFactory = vi.fn<CockpitSourceHealthPollerFactory>(() => ({
+      pollOnce: vi.fn(() => Promise.resolve([])),
+      stop: vi.fn()
+    }));
+    const runtime = await startCockpitApiRuntime({
+      env: {
+        ...cockpitAuthEnv,
+        ...governedConfigEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        OPENAI_EVIDENCE_VECTOR_STORE_ID: "vs_runtime_test",
+        PORT: "0",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0",
+        RECOUP_MCP_URL: "https://mcp.example.test/mcp"
+      },
+      memoryFetcher: successfulRealBackendSourceFetcher([]),
+      openAiVectorStoreFetcher: (url, init) => {
+        vectorSearchCalls.push({ init, url });
+        return Promise.resolve(vectorStoreSearchResponseForS6());
+      },
+      sourceHealthPollerFactory
+    });
+    try {
+      const response = await fetch(`${runtime.baseUrl}/forensics/work-items/S6-L1`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as {
+        selected?: {
+          evidencePack?: {
+            documents: Array<{
+              documentId: string;
+              retrieval?: { provenance: string; vectorStoreId: string };
+              sourceLabel: string;
+            }>;
+          };
+        };
+      };
+      const vectorDocument = body.selected?.evidencePack?.documents.find(
+        (document) => document.documentId === "file-vector-runtime-contract"
+      );
+
+      expect(response.status).toBe(200);
+      expect(vectorSearchCalls).toHaveLength(buildSyntheticDataset({ seed: 42 }).deductionLines.length);
+      expect(vectorSearchCalls[0]?.url).toBe("https://api.openai.com/v1/vector_stores/vs_runtime_test/search");
+      expect(vectorDocument).toMatchObject({
+        retrieval: {
+          provenance: "openai-vector-store",
+          vectorStoreId: "vs_runtime_test"
+        },
+        sourceLabel: "OpenAI vector store"
+      });
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("generates private MCP auth for the booted loopback server when deployment auth is absent", async () => {
     const closeMcp = vi.fn(() => Promise.resolve());
     const startMcpServer = vi.fn<CockpitMcpServerStarter>(() =>
@@ -5264,6 +5427,36 @@ function missingEvidenceAfterRiskObservationFetcher(calls: string[]): SupabaseMe
 
 function successfulRealBackendSourceFetcher(calls: string[]): SupabaseMemoryFetch {
   return sourceFetcherWithSapAvailability(calls, () => true);
+}
+
+function vectorStoreSearchResponseForS6(): Response {
+  return new Response(
+    JSON.stringify({
+      data: [
+        {
+          attributes: {
+            customer_id: "CUST-CRESTLINE",
+            documentType: "contract",
+            provenance: "synthetic",
+            record_id: "PRICE-CLAUSE-1",
+            recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
+            scenario_type: "Pricing chargeback below contracted price",
+            source_table: "recoup_src_docs"
+          },
+          content: [
+            {
+              text: "Vector recall found the pricing clause passage for the contracted-price dispute.",
+              type: "text"
+            }
+          ],
+          file_id: "file-vector-runtime-contract",
+          filename: "pricing-clause.pdf",
+          score: 0.91
+        }
+      ]
+    }),
+    { status: 200 }
+  );
 }
 
 function recoverableSapEvidenceSourceFetcher(calls: string[], sapRowsAvailable: () => boolean): SupabaseMemoryFetch {

@@ -102,6 +102,13 @@ export interface ForensicsCockpitModel {
         documentType: string;
         provenance: MayaFieldProvenance;
         relevance: string;
+        retrieval?: {
+          fileName: string;
+          mode: "semantic-vector";
+          provenance: "openai-vector-store";
+          score: number;
+          vectorStoreId: string;
+        };
         sourceLabel: string;
         summary: string;
         verifiedLabel: string;
@@ -2148,7 +2155,7 @@ function buildRetrievalStatusRows(
   const documentsBySourceLabel = new Map<string, DeductionDecision["evidenceDocuments"]>();
 
   for (const document of evidenceDocuments) {
-    const sourceLabel = evidenceSourceLabels[document.source];
+    const sourceLabel = evidenceDocumentSourceLabel(document);
     documentsBySourceLabel.set(sourceLabel, [...(documentsBySourceLabel.get(sourceLabel) ?? []), document]);
   }
 
@@ -2217,17 +2224,42 @@ function containmentProvenance(
   });
 }
 
-function evidenceDocumentSourceKind(
-  source: DeductionDecision["evidenceDocuments"][number]["source"]
-): MayaFieldProvenance["sourceKind"] {
-  if (source === "sap") {
+function evidenceDocumentSourceKind(document: DeductionDecision["evidenceDocuments"][number]): MayaFieldProvenance["sourceKind"] {
+  if (document.retrieval?.provenance === "openai-vector-store") {
+    return "derived_backend";
+  }
+  if (document.source === "sap") {
     return "sap_odata";
   }
-  if (source === "supabase") {
+  if (document.source === "supabase") {
     return "supabase";
   }
 
   return "supabase";
+}
+
+function evidenceDocumentSourceLabel(document: DeductionDecision["evidenceDocuments"][number]): string {
+  if (document.retrieval?.provenance === "openai-vector-store") {
+    return "OpenAI vector store";
+  }
+
+  return evidenceSourceLabels[document.source];
+}
+
+function evidenceDocumentSourceName(document: DeductionDecision["evidenceDocuments"][number]): string {
+  if (document.retrieval?.provenance === "openai-vector-store") {
+    return "OpenAI vector store semantic retrieval";
+  }
+
+  return evidenceSourceLabels[document.source];
+}
+
+function evidenceDocumentDeterministicBasis(document: DeductionDecision["evidenceDocuments"][number]): string {
+  if (document.retrieval?.provenance === "openai-vector-store") {
+    return `evidence document ${document.documentId} returned by OpenAI vector store semantic retrieval; vectorStoreId ${document.retrieval.vectorStoreId}; file ${document.retrieval.fileName}; score ${document.retrieval.score.toFixed(3)}`;
+  }
+
+  return `evidence document ${document.documentId} returned by ${document.source} retrieval source`;
 }
 
 function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[] {
@@ -2242,19 +2274,21 @@ function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[]
 }
 
 function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][number], index: number) {
+  const sourceLabel = evidenceDocumentSourceLabel(document);
   return {
-    citationId: citationId(document.source, index),
+    citationId: document.retrieval?.provenance === "openai-vector-store" ? `V${String(index + 1)}` : citationId(document.source, index),
     description: document.summary,
     documentId: document.documentId,
     documentType: document.documentType,
     provenance: businessProvenance(`selected.evidencePack.documents.${document.documentId}`, {
-      sourceKind: evidenceDocumentSourceKind(document.source),
-      sourceName: evidenceSourceLabels[document.source],
+      sourceKind: evidenceDocumentSourceKind(document),
+      sourceName: evidenceDocumentSourceName(document),
       recordIds: document.recordIds,
-      deterministicBasis: `evidence document ${document.documentId} returned by ${document.source} retrieval source`
+      deterministicBasis: evidenceDocumentDeterministicBasis(document)
     }),
     relevance: index === 0 ? "Primary" : "Supporting",
-    sourceLabel: evidenceSourceLabels[document.source],
+    ...(document.retrieval === undefined ? {} : { retrieval: document.retrieval }),
+    sourceLabel,
     summary: document.summary,
     verifiedLabel: "Verified"
   };
@@ -2309,7 +2343,7 @@ function buildQueryPromptSuggestions(
 ): ForensicsCockpitModel["multimodalDock"]["promptSuggestions"] {
   const traceRows = buildTraceContextRows(selectedDecision, trace);
   const sourcePrompts = selectedDecision.evidenceDocuments.slice(0, 2).map((document) => {
-    const sourceLabel = evidenceSourceLabels[document.source];
+    const sourceLabel = evidenceDocumentSourceLabel(document);
     const recordIds = uniqueStrings(document.recordIds.length > 0 ? document.recordIds : selectedDecision.recordIds);
 
     return {

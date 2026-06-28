@@ -12,12 +12,21 @@ export type EvidenceDocumentType =
   | "remittance-advice"
   | "edi-remittance";
 
+export interface EvidenceDocumentRetrievalMetadata {
+  fileName: string;
+  mode: "semantic-vector";
+  provenance: "openai-vector-store";
+  score: number;
+  vectorStoreId: string;
+}
+
 export interface EvidenceDocument {
   documentId: string;
   source: EvidenceDocumentSource;
   documentType: EvidenceDocumentType;
   summary: string;
   recordIds: string[];
+  retrieval?: EvidenceDocumentRetrievalMetadata;
 }
 
 export function retrieveDocs(line: DeductionLine): EvidenceDocument[] {

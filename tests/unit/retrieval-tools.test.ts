@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { day1GovernedConfigSeed } from "../../config/governed.js";
 import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import {
+  buildOpenAiVectorStoreEvidenceSource,
   invokeServiceTool,
   type ServiceSapEvidenceSource,
   type ServiceSyntheticEvidenceSource
@@ -124,6 +125,120 @@ describe("retrieval tools", () => {
       }
     ]);
     expect(calls).toEqual(["docs-repo:S6-L1", "tpm:S6-L1", "bureau:S6-L1"]);
+  });
+
+  it("merges optional vector evidence behind retrieval.docs without changing disabled structured retrieval", async () => {
+    const line = buildLine();
+    const structuredDocs = [
+      {
+        documentId: "DOC-S6-L1",
+        documentType: "contract" as const,
+        recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
+        source: "docs" as const,
+        summary: "Supabase document repository contract support."
+      }
+    ];
+    const syntheticEvidenceSource: ServiceSyntheticEvidenceSource = {
+      readEvidence(connectorName) {
+        return connectorName === "docs-repo" ? structuredDocs : [];
+      }
+    };
+    const vectorStoreEvidenceSource = await buildOpenAiVectorStoreEvidenceSource({
+      reader: {
+        searchEvidence(searchLine) {
+          expect(searchLine.lineId).toBe(line.lineId);
+          return Promise.resolve([
+            {
+              documentId: "file-vector-contract",
+              documentType: "contract",
+              fileName: "pricing-clause.pdf",
+              provenance: "openai-vector-store",
+              recordIds: [line.lineId, "PRICE-CLAUSE-1"],
+              score: 0.92,
+              source: "docs",
+              summary: "Vector recall found the pricing clause passage."
+            },
+            {
+              documentId: "file-vector-correspondence",
+              documentType: "correspondence",
+              fileName: "buyer-email.eml",
+              provenance: "openai-vector-store",
+              recordIds: [line.lineId, "PRICE-CLAUSE-1"],
+              score: 0.74,
+              source: "docs",
+              summary: "Vector recall found a generic correspondence passage."
+            }
+          ]);
+        }
+      },
+      settlementRun: { customers: [], deductionLines: [line], seed: 42 },
+      vectorStoreId: "vs_unit_test"
+    });
+
+    expect(
+      invokeServiceTool("retrieval.docs", line, {
+        requireSupabaseSyntheticEvidence: true,
+        syntheticEvidenceSource
+      })
+    ).toEqual(structuredDocs);
+    expect(
+      invokeServiceTool("retrieval.docs", line, {
+        requireSupabaseSyntheticEvidence: true,
+        syntheticEvidenceSource,
+        vectorStoreEvidenceSource
+      })
+    ).toEqual([
+      ...structuredDocs,
+      {
+        documentId: "file-vector-contract",
+        documentType: "contract",
+        recordIds: ["S6-L1", "file-vector-contract", "PRICE-CLAUSE-1"],
+        retrieval: {
+          fileName: "pricing-clause.pdf",
+          mode: "semantic-vector",
+          provenance: "openai-vector-store",
+          score: 0.92,
+          vectorStoreId: "vs_unit_test"
+        },
+        source: "docs",
+        summary: "Vector recall found the pricing clause passage."
+      }
+    ]);
+  });
+
+  it("degrades retrieval.docs to structured evidence when optional vector prefetch fails", async () => {
+    const line = buildLine();
+    const structuredDocs = [
+      {
+        documentId: "DOC-S6-L1",
+        documentType: "contract" as const,
+        recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
+        source: "docs" as const,
+        summary: "Supabase document repository contract support."
+      }
+    ];
+    const syntheticEvidenceSource: ServiceSyntheticEvidenceSource = {
+      readEvidence(connectorName) {
+        return connectorName === "docs-repo" ? structuredDocs : [];
+      }
+    };
+    const vectorStoreEvidenceSource = await buildOpenAiVectorStoreEvidenceSource({
+      reader: {
+        searchEvidence() {
+          return Promise.reject(new Error("Vector store unavailable."));
+        }
+      },
+      settlementRun: { customers: [], deductionLines: [line], seed: 42 },
+      vectorStoreId: "vs_unit_test"
+    });
+
+    expect(
+      invokeServiceTool("retrieval.docs", line, {
+        requireSupabaseSyntheticEvidence: true,
+        syntheticEvidenceSource,
+        vectorStoreEvidenceSource
+      })
+    ).toEqual(structuredDocs);
   });
 
   it("uses injected Supabase SAP evidence at the service boundary", () => {

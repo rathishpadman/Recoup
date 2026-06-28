@@ -6,7 +6,7 @@ import { draftRebill } from "../tools/actions/draftRebill.js";
 import { proposeHold } from "../tools/actions/proposeHold.js";
 import { proposeTerms } from "../tools/actions/proposeTerms.js";
 import { routeBilling } from "../tools/actions/routeBilling.js";
-import type { EvidenceDocument } from "../tools/retrieval/docs.js";
+import { mergeEvidenceDocuments, type EvidenceDocument } from "../tools/retrieval/docs.js";
 import { answerOfflineQuery } from "../agents/query.js";
 import { assessHarborContainment } from "../agents/containment.js";
 import {
@@ -44,6 +44,7 @@ import type {
   SapR1SourceNeed,
   SapR1SourceNeedName
 } from "../adapters/sapOData.js";
+import type { OpenAiVectorStoreEvidence, OpenAiVectorStoreEvidenceReader } from "../adapters/openAiVectorStore.js";
 
 interface ServiceTool {
   schema: z.ZodTypeAny;
@@ -64,6 +65,7 @@ export interface ServiceInvocationContext {
   sapEvidenceSource?: ServiceSapEvidenceSource;
   source?: SourcePort;
   syntheticEvidenceSource?: ServiceSyntheticEvidenceSource;
+  vectorStoreEvidenceSource?: ServiceVectorStoreEvidenceSource;
   verifiedHumanPrincipal?: string;
 }
 
@@ -75,6 +77,10 @@ export type ServiceSyntheticEvidenceConnectorName = Extract<EnterpriseConnectorN
 
 export interface ServiceSyntheticEvidenceSource {
   readEvidence(connectorName: ServiceSyntheticEvidenceConnectorName, line: DeductionLine): readonly EvidenceDocument[];
+}
+
+export interface ServiceVectorStoreEvidenceSource {
+  readEvidence(line: DeductionLine): readonly EvidenceDocument[];
 }
 
 const defaultServiceSyntheticEvidenceConnectorNames = ["docs-repo", "tpm", "bureau"] as const;
@@ -330,7 +336,7 @@ export const serviceTools = {
     schema: DeductionLineSchema,
     handler: (input, context) => {
       const line = DeductionLineSchema.parse(input);
-      return retrieveSyntheticEvidenceOrThrow(context, "retrieval.docs", "docs-repo", line);
+      return retrieveDocsEvidence(context, line);
     }
   },
   "retrieval.bureau": {
@@ -428,6 +434,29 @@ export async function buildSupabaseServiceSapEvidenceSource(input: {
   for (const line of input.settlementRun.deductionLines) {
     const evidence = await input.reader.readEvidence(line);
     documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
+  }
+
+  return {
+    readEvidence(line) {
+      return [...(documentsByLineId.get(line.lineId) ?? [])];
+    }
+  };
+}
+
+export async function buildOpenAiVectorStoreEvidenceSource(input: {
+  reader: OpenAiVectorStoreEvidenceReader;
+  settlementRun: SyntheticDatasetCore;
+  vectorStoreId: string;
+}): Promise<ServiceVectorStoreEvidenceSource> {
+  const documentsByLineId = new Map<string, EvidenceDocument[]>();
+
+  for (const line of input.settlementRun.deductionLines) {
+    try {
+      const evidence = await input.reader.searchEvidence(line);
+      documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.flatMap((document) => toVectorStoreEvidenceDocument(input.vectorStoreId, document))));
+    } catch {
+      documentsByLineId.set(line.lineId, []);
+    }
   }
 
   return {
@@ -596,6 +625,29 @@ function retrieveSapEvidenceOrThrow(
   }
 
   throw new Error("Supabase SAP evidence source required for retrieval.sap.");
+}
+
+function retrieveVectorStoreEvidence(context: ServiceInvocationContext, line: DeductionLine): EvidenceDocument[] {
+  if (context.vectorStoreEvidenceSource === undefined) {
+    return [];
+  }
+
+  return [...context.vectorStoreEvidenceSource.readEvidence(line)];
+}
+
+function retrieveDocsEvidence(context: ServiceInvocationContext, line: DeductionLine): EvidenceDocument[] {
+  const structuredEvidence = retrieveSyntheticEvidenceOrThrow(context, "retrieval.docs", "docs-repo", line);
+  const vectorEvidence = retrieveVectorStoreEvidence(context, line);
+  if (vectorEvidence.length === 0) {
+    return structuredEvidence;
+  }
+
+  const structuredDocumentIds = new Set(structuredEvidence.map((document) => document.documentId));
+  const groundedVectorEvidence = mergeEvidenceDocuments(line, vectorEvidence).filter(
+    (document) => !structuredDocumentIds.has(document.documentId)
+  );
+
+  return [...structuredEvidence, ...groundedVectorEvidence];
 }
 
 function retrieveQueryAnswerSapEvidenceOrThrow(
@@ -773,6 +825,29 @@ function toSapEvidenceDocument(evidence: SapSourceEvidence): EvidenceDocument {
     source: evidence.source,
     summary: evidence.summary
   };
+}
+
+function toVectorStoreEvidenceDocument(vectorStoreId: string, evidence: OpenAiVectorStoreEvidence): EvidenceDocument[] {
+  if (evidence.documentType === "correspondence") {
+    return [];
+  }
+
+  return [
+    {
+      documentId: evidence.documentId,
+      documentType: evidence.documentType,
+      recordIds: [...evidence.recordIds],
+      retrieval: {
+        fileName: evidence.fileName,
+        mode: "semantic-vector",
+        provenance: evidence.provenance,
+        score: evidence.score,
+        vectorStoreId
+      },
+      source: evidence.source,
+      summary: evidence.summary
+    }
+  ];
 }
 
 function dedupeEvidenceDocuments(documents: readonly EvidenceDocument[]): EvidenceDocument[] {

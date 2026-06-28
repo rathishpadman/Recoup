@@ -156,6 +156,13 @@ export interface ForensicsCockpitModel {
         documentType: string;
         provenance: MayaFieldProvenance;
         relevance: string;
+        retrieval?: {
+          fileName: string;
+          mode: "semantic-vector";
+          provenance: "openai-vector-store";
+          score: number;
+          vectorStoreId: string;
+        };
         sourceLabel: string;
         summary: string;
         verifiedLabel: string;
