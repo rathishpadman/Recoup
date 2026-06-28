@@ -476,14 +476,19 @@ export async function buildOpenAiVectorStoreEvidenceSource(input: {
 }): Promise<ServiceVectorStoreEvidenceSource> {
   const documentsByLineId = new Map<string, EvidenceDocument[]>();
 
-  for (const line of input.settlementRun.deductionLines) {
-    try {
-      const evidence = await input.reader.searchEvidence(line);
-      documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.flatMap((document) => toVectorStoreEvidenceDocument(input.vectorStoreId, document))));
-    } catch {
-      documentsByLineId.set(line.lineId, []);
-    }
-  }
+  await Promise.all(
+    input.settlementRun.deductionLines.map(async (line) => {
+      try {
+        const evidence = await input.reader.searchEvidence(line);
+        documentsByLineId.set(
+          line.lineId,
+          dedupeEvidenceDocuments(evidence.flatMap((document) => toVectorStoreEvidenceDocument(input.vectorStoreId, document)))
+        );
+      } catch {
+        documentsByLineId.set(line.lineId, []);
+      }
+    })
+  );
 
   return {
     readEvidence(line) {

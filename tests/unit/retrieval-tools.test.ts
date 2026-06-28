@@ -206,6 +206,62 @@ describe("retrieval tools", () => {
     ]);
   });
 
+  it("hydrates OpenAI vector evidence concurrently across source-backed deduction lines", async () => {
+    const lines = ["S6-L1", "S6-L2", "S6-L3"].map((lineId) => ({
+      ...buildLine(),
+      lineId,
+      recordIds: [lineId, `PRICE-CLAUSE-${lineId}`]
+    }));
+    let activeSearches = 0;
+    let maxActiveSearches = 0;
+
+    const vectorStoreEvidenceSource = await buildOpenAiVectorStoreEvidenceSource({
+      reader: {
+        async searchEvidence(line) {
+          activeSearches += 1;
+          maxActiveSearches = Math.max(maxActiveSearches, activeSearches);
+          await Promise.resolve();
+          activeSearches -= 1;
+
+          return [
+            {
+              documentId: `file-vector-${line.lineId}`,
+              documentType: "contract",
+              fileName: `${line.lineId}.pdf`,
+              provenance: "openai-vector-store",
+              recordIds: [line.lineId, line.recordIds[1] ?? line.lineId],
+              score: 0.91,
+              source: "docs",
+              summary: `Vector recall for ${line.lineId}.`
+            }
+          ];
+        }
+      },
+      settlementRun: { customers: [], deductionLines: lines, seed: 42 },
+      vectorStoreId: "vs_parallel_test"
+    });
+
+    expect(maxActiveSearches).toBe(lines.length);
+    for (const line of lines) {
+      expect(vectorStoreEvidenceSource.readEvidence(line)).toEqual([
+        {
+          documentId: `file-vector-${line.lineId}`,
+          documentType: "contract",
+          recordIds: [line.lineId, line.recordIds[1]],
+          retrieval: {
+            fileName: `${line.lineId}.pdf`,
+            mode: "semantic-vector",
+            provenance: "openai-vector-store",
+            score: 0.91,
+            vectorStoreId: "vs_parallel_test"
+          },
+          source: "docs",
+          summary: `Vector recall for ${line.lineId}.`
+        }
+      ]);
+    }
+  });
+
   it("degrades retrieval.docs to structured evidence when optional vector prefetch fails", async () => {
     const line = buildLine();
     const structuredDocs = [
