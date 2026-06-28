@@ -2614,23 +2614,26 @@ describe("Maya shadcn human QA contract", () => {
   it("requires the Maya Overview landing to expose backend-backed command hooks without local business fabrication", () => {
     const surface = readMayaComponent("maya-forensics-surface.tsx");
     const kpiStrip = readMayaComponent("maya-run-kpi-strip.tsx");
+    const cockpitE2e = read("tests/e2e/cockpit-premium-e2e.ts");
+    const realBackendE2e = read("tests/e2e/maya-real-backend-e2e.ts");
     const overviewSource = extractMayaOverviewSource(surface);
     const overviewHooks = [
       "maya-overview-command-center",
       "maya-overview-intelligence-grid",
-      "maya-valid-deduction-signal",
-      "maya-overview-positive-cases",
-      "maya-overview-next-case"
+      "maya-overview-source-readiness-toggle",
+      "maya-overview-case-concentration-table",
+      "maya-overview-case-concentration-row",
+      "maya-overview-case-concentration-filter",
+      "maya-overview-case-concentration-sort-id",
+      "maya-overview-case-concentration-sort-customer",
+      "maya-overview-case-concentration-sort-lines",
+      "maya-overview-case-concentration-sort-exposure"
     ] as const;
     const overviewBandHooks = [
       "maya-overview-kpi-band",
       "maya-overview-concentration-band",
-      "maya-overview-action-band",
       "maya-overview-system-band"
     ] as const;
-    const overviewChartHooks = ["maya-overview-line-count-bars", "maya-overview-disposition-split"] as const;
-    const positiveCasesContext = jsxDataTestIdContext(surface, "maya-overview-positive-cases", 3_400);
-    const actionQueueContext = jsxDataTestIdContext(surface, "maya-overview-next-case", 3_400);
     const hardcodedBusinessMetricMatches = matchingLines(
       [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
       /\bHigh priority\b|["'`][^"'`]*\$\s?\d[\d,]*(?:\.\d{2})?[^"'`]*["'`]/u
@@ -2647,22 +2650,41 @@ describe("Maya shadcn human QA contract", () => {
     const contract = {
       missingOverviewHooks: missingJsxTestIds(surface, overviewHooks),
       missingOverviewBandHooks: missingJsxTestIds(surface, overviewBandHooks),
-      missingOverviewChartHooks: missingJsxTestIds(surface, overviewChartHooks),
       kpiStripShowsNoTrendFallback: hasJsxDataTestId(kpiStrip, "maya-kpi-trend-unavailable"),
       kpiStripAvoidsFakeTrendOrDelta:
         !/\b(?:sparkline|deltaValue|trendDelta|trendSeries|seriesData)\b/u.test(kpiStrip) &&
         !/["'`][^"'`]*[+-]\d+(?:\.\d+)?%[^"'`]*["'`]/u.test(kpiStrip),
       overviewRemovesPrimaryInvestigationLaunch: !/\bopenInvestigationForItem\s*\(/u.test(overviewSource),
-      positiveCasesUseCompactValidSignal:
-        /\bvalidDeductionItems\.map\b/u.test(positiveCasesContext) && !/<Table\b/u.test(positiveCasesContext),
-      nextCaseHookIsSourceOrderActionQueue:
-        /\bmodel\.actionInbox\b/u.test(actionQueueContext) &&
-        /\bsource-order preview\b/iu.test(actionQueueContext) &&
-        !/\b(?:top-ranked|exposure-ranked|highest exposure)\b/iu.test(actionQueueContext),
+      caseConcentrationUsesBackendWorklist:
+        /\bfilterOverviewCaseConcentrationItems\(model\.worklist,\s*overviewCaseFilter\)/u.test(overviewSource) &&
+        /\bsortOverviewCaseConcentrationItems\(\s*filterOverviewCaseConcentrationItems/u.test(overviewSource),
+      caseConcentrationRendersBackendRows:
+        /\boverviewConcentrationItems\.map\b/u.test(overviewSource) &&
+        ["lineId", "customerLabel", "scenarioLabel", "lineCount", "amount"].every((field) =>
+          new RegExp(`\\bitem\\.${field}\\b`, "u").test(overviewSource)
+        ),
+      caseConcentrationControlsStayLocal:
+        /\bsetOverviewCaseFilter\(event\.target\.value\)/u.test(overviewSource) &&
+        /\bhandleOverviewCaseSort\("id"\)/u.test(overviewSource) &&
+        /\bhandleOverviewCaseSort\("customer"\)/u.test(overviewSource) &&
+        /\bhandleOverviewCaseSort\("lines"\)/u.test(overviewSource) &&
+        /\bhandleOverviewCaseSort\("exposure"\)/u.test(overviewSource),
+      sourceReadinessStartsBehindToggle:
+        /data-testid="maya-overview-source-readiness-toggle"/u.test(overviewSource) &&
+        /\baria-expanded=\{overviewSourceReadinessOpen\}/u.test(overviewSource) &&
+        /\boverviewSourceReadinessOpen\s*\?\s*<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
+      cockpitE2eExercisesOverviewDisclosureAndTable:
+        /expectNoVisibleLocator\([\s\S]{0,240}maya-source-readiness-strip/u.test(cockpitE2e) &&
+        /\bmaya-overview-source-readiness-toggle\b[\s\S]{0,800}\bclick\(\)/u.test(cockpitE2e) &&
+        /\bmaya-overview-case-concentration-sort-customer\b[\s\S]{0,800}\bclick\(\)/u.test(cockpitE2e) &&
+        /\bmaya-overview-case-concentration-filter\b[\s\S]{0,800}\bfill\(/u.test(cockpitE2e),
+      realBackendE2eExercisesOverviewDisclosure:
+        /maya-overview-source-readiness-toggle[\s\S]{0,900}\bclick\(\)/u.test(realBackendE2e) &&
+        /Maya source readiness strip must start behind Ready sources toggle/u.test(realBackendE2e),
       forbiddenFallbackRankCopyMatches,
       overviewUsesActionInbox: /\bmodel\.actionInbox\b/u.test(overviewSource),
       overviewUsesConnectorReadiness:
-        /\bconnectors\.sourceTiles\b/u.test(overviewSource) || /<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
+        /\bconnectors\.sourceTiles\b/u.test(overviewSource) && /<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
       overviewUsesKpiStrip: /\bmodel\.kpiStrip\b/u.test(overviewSource),
       overviewUsesWorklist: /\bmodel\.worklist\b/u.test(overviewSource),
       hardcodedBusinessMetricMatches,
@@ -2672,12 +2694,15 @@ describe("Maya shadcn human QA contract", () => {
     expect(contract).toEqual({
       missingOverviewHooks: [],
       missingOverviewBandHooks: [],
-      missingOverviewChartHooks: [],
       kpiStripShowsNoTrendFallback: true,
       kpiStripAvoidsFakeTrendOrDelta: true,
       overviewRemovesPrimaryInvestigationLaunch: true,
-      positiveCasesUseCompactValidSignal: true,
-      nextCaseHookIsSourceOrderActionQueue: true,
+      caseConcentrationUsesBackendWorklist: true,
+      caseConcentrationRendersBackendRows: true,
+      caseConcentrationControlsStayLocal: true,
+      sourceReadinessStartsBehindToggle: true,
+      cockpitE2eExercisesOverviewDisclosureAndTable: true,
+      realBackendE2eExercisesOverviewDisclosure: true,
       forbiddenFallbackRankCopyMatches: [],
       overviewUsesActionInbox: true,
       overviewUsesConnectorReadiness: true,
@@ -3171,10 +3196,10 @@ describe("Maya shadcn human QA contract", () => {
       worklistVerdictBadgesUseHelper:
         /\bdata-verdict=\{item\.verdict\}[\s\S]{0,220}\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(worklist),
       surfaceImportsHelper: /import\s+\{\s*verdictBadgeVariant\s*\}\s+from\s+["']\.\/verdict-badge-variant(?:\.tsx?)?["']/u.test(surface),
-      validDeductionSignalIsBadgeWithVerdict:
-        /<Badge\b(?=[^>]*\bdata-testid="maya-valid-deduction-signal")(?=[^>]*\bdata-verdict="valid")[^>]*>/u.test(surface),
-      positiveCasesUseHelper:
-        /\bdata-verdict=\{item\.verdict\}[\s\S]{0,220}\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(surface),
+      casesRowsUseHelper:
+        /data-testid="maya-case-row"[\s\S]{0,900}<Badge\b[^>]*\bdata-verdict=\{item\.verdict\}[^>]*\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(
+          surface
+        ),
       selectedCaseUsesHelper:
         /\bdata-verdict=\{visibleSelectedWorklistItem\.verdict\}[\s\S]{0,220}\bvariant=\{verdictBadgeVariant\(visibleSelectedWorklistItem\.verdict\)\}/u.test(
           surface
@@ -3196,8 +3221,7 @@ describe("Maya shadcn human QA contract", () => {
       worklistImportsHelper: true,
       worklistVerdictBadgesUseHelper: true,
       surfaceImportsHelper: true,
-      validDeductionSignalIsBadgeWithVerdict: true,
-      positiveCasesUseHelper: true,
+      casesRowsUseHelper: true,
       selectedCaseUsesHelper: true,
       caseWorkspaceImportsHelper: true,
       caseHeaderPreservesDataVerdict: true,

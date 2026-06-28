@@ -817,6 +817,10 @@ function retrievalSourceForKind(sourceKind: TraceSourceKind): TraceRetrievalSour
 }
 
 function sourceTrustLabelForKind(sourceKind: TraceSourceKind): string | undefined {
+  if (sourceKind === "derived_backend") {
+    return "Deterministic backend";
+  }
+
   const retrievalSource = retrievalSourceForKind(sourceKind);
   if (retrievalSource === "source_backed") {
     return "Source-backed";

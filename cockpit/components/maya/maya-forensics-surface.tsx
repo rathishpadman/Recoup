@@ -2,21 +2,28 @@
 
 import * as React from "react";
 import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   CircleHelpIcon,
   FileSearchIcon,
   FlaskConicalIcon,
   MessageCircleIcon,
   RotateCwIcon,
+  SearchIcon,
   ShieldAlertIcon,
-  UserRoundCheckIcon
+  UserRoundCheckIcon,
+  XIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
@@ -58,6 +65,14 @@ interface BeatTwelveMetricCard {
   label: string;
   support: string;
   value: string;
+}
+
+type OverviewCaseConcentrationSortKey = "customer" | "exposure" | "id" | "lines";
+type OverviewCaseConcentrationSortDirection = "ascending" | "descending";
+
+interface OverviewCaseConcentrationSortState {
+  direction?: OverviewCaseConcentrationSortDirection | undefined;
+  key?: OverviewCaseConcentrationSortKey | undefined;
 }
 
 type WorkItemDetailLoadState =
@@ -160,6 +175,133 @@ function beatTwelveMetricCards(
   ];
 }
 
+function filterOverviewCaseConcentrationItems(items: MayaWorklistItem[], query: string): MayaWorklistItem[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (normalizedQuery.length === 0) {
+    return items;
+  }
+
+  return items.filter((item) =>
+    [
+      item.lineId,
+      item.customerLabel,
+      item.scenarioLabel,
+      item.scenarioType,
+      item.routingLabel,
+      item.queueLabel,
+      item.recommendedActionLabel,
+      ...item.lineIds
+    ]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(normalizedQuery)
+  );
+}
+
+function sortOverviewCaseConcentrationItems(
+  items: MayaWorklistItem[],
+  sortState: OverviewCaseConcentrationSortState
+): MayaWorklistItem[] {
+  const sortKey = sortState.key;
+  const sortDirection = sortState.direction;
+  if (sortKey === undefined || sortDirection === undefined) {
+    return items;
+  }
+
+  const directionMultiplier = sortDirection === "ascending" ? 1 : -1;
+
+  return items
+    .map((item, index) => ({ index, item }))
+    .sort((left, right) => {
+      const comparison = compareOverviewCaseConcentrationItems(left.item, right.item, sortKey);
+      if (comparison !== 0) {
+        return comparison * directionMultiplier;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+function compareOverviewCaseConcentrationItems(
+  left: MayaWorklistItem,
+  right: MayaWorklistItem,
+  key: OverviewCaseConcentrationSortKey
+): number {
+  if (key === "id") {
+    return left.lineId.localeCompare(right.lineId);
+  }
+
+  if (key === "customer") {
+    return left.customerLabel.localeCompare(right.customerLabel);
+  }
+
+  if (key === "lines") {
+    return left.lineCount - right.lineCount;
+  }
+
+  return parseFormattedExposureForPresentationSort(left.amount) - parseFormattedExposureForPresentationSort(right.amount);
+}
+
+function parseFormattedExposureForPresentationSort(value: string): number {
+  const normalized = value.replace(/[^0-9.-]/gu, "");
+  if (normalized.length === 0) {
+    return 0;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nextOverviewCaseSortState(
+  current: OverviewCaseConcentrationSortState,
+  key: OverviewCaseConcentrationSortKey
+): OverviewCaseConcentrationSortState {
+  if (current.key !== key) {
+    return { direction: "ascending", key };
+  }
+
+  if (current.direction === "ascending") {
+    return { direction: "descending", key };
+  }
+
+  return {};
+}
+
+function overviewCaseAriaSort(
+  sortState: OverviewCaseConcentrationSortState,
+  key: OverviewCaseConcentrationSortKey
+): "ascending" | "descending" | "none" {
+  if (sortState.key !== key || sortState.direction === undefined) {
+    return "none";
+  }
+
+  return sortState.direction;
+}
+
+function overviewCaseSortDirectionLabel(
+  sortState: OverviewCaseConcentrationSortState,
+  key: OverviewCaseConcentrationSortKey
+): string {
+  if (sortState.key !== key || sortState.direction === undefined) {
+    return "Sort";
+  }
+
+  return sortState.direction === "ascending" ? "Asc" : "Desc";
+}
+
+function overviewCaseSortIcon(sortState: OverviewCaseConcentrationSortState, key: OverviewCaseConcentrationSortKey) {
+  if (sortState.key !== key || sortState.direction === undefined) {
+    return <ArrowUpDownIcon aria-hidden="true" data-icon="inline-start" />;
+  }
+
+  return sortState.direction === "ascending" ? (
+    <ArrowUpIcon aria-hidden="true" data-icon="inline-start" />
+  ) : (
+    <ArrowDownIcon aria-hidden="true" data-icon="inline-start" />
+  );
+}
+
 function beatTwelveSourceReadinessTone(sourceTiles: MayaForensicsSurfaceProps["connectors"]["sourceTiles"]): MayaSourceTile["statusTone"] {
   if (sourceTiles.length === 0 || sourceTiles.some((source) => source.statusTone === "blocked")) {
     return "blocked";
@@ -204,6 +346,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   const [workItemDetailLoadState, setWorkItemDetailLoadState] = React.useState<WorkItemDetailLoadState | undefined>();
   const [returnContextLineId, setReturnContextLineId] = React.useState<string | undefined>();
   const [agentDockOpenLineId, setAgentDockOpenLineId] = React.useState<string | undefined>();
+  const [overviewSourceReadinessOpen, setOverviewSourceReadinessOpen] = React.useState(false);
+  const [overviewCaseFilter, setOverviewCaseFilter] = React.useState("");
+  const [overviewCaseSort, setOverviewCaseSort] = React.useState<OverviewCaseConcentrationSortState>({});
   const detailRequestSequence = React.useRef(0);
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
@@ -338,6 +483,14 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     setAgentDockOpenLineId(undefined);
   }, []);
 
+  const handleOverviewCaseSort = React.useCallback((key: OverviewCaseConcentrationSortKey) => {
+    setOverviewCaseSort((current) => nextOverviewCaseSortState(current, key));
+  }, []);
+
+  const handleClearOverviewCaseFilter = React.useCallback(() => {
+    setOverviewCaseFilter("");
+  }, []);
+
   const handleSurfaceSectionChange = React.useCallback((section: MayaSurfaceSection) => {
     setActiveSection(section);
     cancelWorkItemDetailRequest(detailRequestSequence);
@@ -363,13 +516,12 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
   function renderMayaRootSection(): React.ReactNode {
     switch (activeSection) {
       case "overview": {
-        const validDeductionItems = model.worklist.filter((item) => item.verdict === "valid");
         const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
         const readySourceCount = connectors.sourceTiles.filter((source) => source.statusTone === "ready").length;
-        const worklistLineCountMax = Math.max(1, ...model.worklist.map((item) => item.lineCount));
-        const dispositionLineCountTotal = Math.max(
-          1,
-          model.recoveryTracker.recoveryLines + model.recoveryTracker.billingLines
+        const readySourceValue = `${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`;
+        const overviewConcentrationItems = sortOverviewCaseConcentrationItems(
+          filterOverviewCaseConcentrationItems(model.worklist, overviewCaseFilter),
+          overviewCaseSort
         );
 
         return (
@@ -379,205 +531,234 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                 <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
               </section>
 
-              <section
-                className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]"
-                data-testid="maya-overview-concentration-band"
-              >
-                <Card className="rounded-lg shadow-none" data-testid="maya-overview-line-count-bars" size="sm">
-                  <CardHeader className="gap-1.5">
-                    <CardTitle className="text-base">Case concentration</CardTitle>
-                    <CardDescription>Scenario line count with source amount labels.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-3">
-                    {model.worklist.length === 0 ? (
-                      <MayaEmptyState description="No worklist rows are available for concentration." kind="worklist" title="No cases" />
-                    ) : (
-                      model.worklist.map((item) => {
-                        const lineSharePercent = (item.lineCount / worklistLineCountMax) * 100;
-
-                        return (
-                          <div className="grid min-w-0 gap-1.5" data-line-id={item.lineId} key={`overview-line-count-${item.lineId}`}>
-                            <div className="flex min-w-0 items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{item.scenarioLabel}</p>
-                                <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
-                              </div>
-                              <div className="shrink-0 text-right">
-                                <p className="text-sm tabular-nums">{item.lineCount.toString()} lines</p>
-                                <p className="text-xs tabular-nums text-muted-foreground">{item.amount}</p>
-                              </div>
-                            </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                              <div
-                                className="h-full rounded-full bg-[color:var(--aging-1-30)]"
-                                style={{ width: `${lineSharePercent.toString()}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-lg shadow-none" data-testid="maya-overview-disposition-split" size="sm">
-                  <CardHeader className="gap-1.5">
-                    <CardTitle className="text-base">Recovery and Billing split</CardTitle>
-                    <CardDescription>Draft disposition from the recovery tracker.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-3">
-                    {[
-                      {
-                        key: "recovery",
-                        label: "Recovery drafts",
-                        lineCount: model.recoveryTracker.recoveryLines,
-                        value: model.recoveryTracker.projectedRecovery,
-                        toneClassName: "bg-[color:var(--aging-61-90)]"
-                      },
-                      {
-                        key: "billing",
-                        label: "Billing drafts",
-                        lineCount: model.recoveryTracker.billingLines,
-                        value: model.recoveryTracker.projectedBilling,
-                        toneClassName: "bg-[color:var(--status-success-text)]"
-                      }
-                    ].map((item) => {
-                      const lineSharePercent = (item.lineCount / dispositionLineCountTotal) * 100;
-
-                      return (
-                        <div
-                          className="grid gap-1.5 rounded-md border bg-muted/20 p-3"
-                          data-disposition-key={item.key}
-                          data-line-count={item.lineCount.toString()}
-                          data-testid="maya-overview-disposition-row"
-                          key={`overview-disposition-${item.key}`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm font-medium">{item.label}</span>
-                            <span className="text-sm tabular-nums">{item.lineCount.toString()} lines</span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                            <div
-                              className={`h-full rounded-full ${item.toneClassName}`}
-                              data-testid="maya-overview-disposition-bar"
-                              style={{ width: `${lineSharePercent.toString()}%` }}
-                            />
-                          </div>
-                          <span className="text-xs tabular-nums text-muted-foreground">{item.value}</span>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </section>
-
-              <section
-                className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
-                data-testid="maya-overview-action-band"
-              >
-                <Card className="rounded-lg shadow-none" data-testid="maya-overview-next-case" size="sm">
-                  <CardHeader className="gap-1.5">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="grid min-w-0 gap-1">
-                        <CardTitle className="text-base">Action queue</CardTitle>
-                        <CardDescription>Source-order preview of pending human actions.</CardDescription>
-                      </div>
-                      <Badge variant="outline">{model.actionInbox.length.toString()} pending</Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid gap-2">
-                    {model.actionInbox.length === 0 ? (
-                      <MayaEmptyState
-                        description="The current action queue has no pending human actions."
-                        kind="approval"
-                        title="No pending HITL actions"
-                      />
-                    ) : (
-                      <>
-                        {model.actionInbox.slice(0, 5).map((item) => (
-                          <div className="grid gap-1 rounded-md border bg-muted/20 p-3" key={`overview-action-${item.actionId}`}>
-                            <div className="flex min-w-0 items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{item.actionLabel}</p>
-                                <p className="truncate text-xs text-muted-foreground">{item.lineId}</p>
-                              </div>
-                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              <Badge variant="secondary">{item.statusLabel ?? "Status unavailable"}</Badge>
-                            </div>
-                          </div>
-                        ))}
-                        {model.actionInbox.length > 5 ? (
-                          <p className="text-xs text-muted-foreground">
-                            Showing 5 of {model.actionInbox.length.toString()} pending actions in source order.
-                          </p>
-                        ) : null}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-lg shadow-none" data-testid="maya-overview-positive-cases" size="sm">
-                  <CardHeader className="gap-1.5">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="grid min-w-0 gap-1">
-                        <CardTitle className="text-base">Valid deduction signal</CardTitle>
-                        <CardDescription>Compact list of cases marked valid.</CardDescription>
-                      </div>
-                      <Badge
-                        className="h-7 shrink-0 px-2 text-xs"
-                        data-testid="maya-valid-deduction-signal"
-                        data-verdict="valid"
-                        variant={verdictBadgeVariant("valid")}
-                      >
-                        {validDeductionCount.toString()} valid
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid gap-2">
-                    {validDeductionItems.length === 0 ? (
-                      <MayaEmptyState
-                        description="The current worklist has no valid deduction rows."
-                        kind="worklist"
-                        title="No valid rows"
-                      />
-                    ) : (
-                      validDeductionItems.map((item) => (
-                        <div className="grid gap-1 rounded-md border bg-muted/20 p-3" data-verdict={item.verdict} key={`overview-valid-${item.lineId}`}>
-                          <div className="flex min-w-0 items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium">{item.scenarioLabel}</p>
-                              <p className="truncate text-xs text-muted-foreground">{item.customerLabel}</p>
-                            </div>
-                            <Badge className="shrink-0 gap-1.5" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
-                              <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-                              {item.verdictLabel}
-                            </Badge>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                            <span className="tabular-nums">{item.amount}</span>
-                            <span>{item.routingLabel}</span>
-                            <span>{item.evidenceLabel}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-              </section>
-
               <section className="grid min-w-0 gap-3" data-testid="maya-overview-system-band">
                 <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
                   <DetailStateFact label="Cases in queue" value={model.worklist.length.toString()} />
                   <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
                   <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
-                  <DetailStateFact
-                    label="Ready sources"
-                    value={`${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`}
-                  />
+                  <Button
+                    aria-expanded={overviewSourceReadinessOpen}
+                    className="h-auto min-h-[68px] justify-between rounded-md border bg-muted/20 p-3 text-left font-normal shadow-none hover:bg-muted/35"
+                    data-state={overviewSourceReadinessOpen ? "open" : "closed"}
+                    data-testid="maya-overview-source-readiness-toggle"
+                    onClick={() => {
+                      setOverviewSourceReadinessOpen((current) => !current);
+                    }}
+                    type="button"
+                    variant="outline"
+                  >
+                    <span className="grid min-w-0 gap-1">
+                      <span className="text-xs text-muted-foreground">Ready sources</span>
+                      <span className="truncate text-sm font-medium tabular-nums" title={readySourceValue}>
+                        {readySourceValue}
+                      </span>
+                    </span>
+                    <ChevronDownIcon
+                      aria-hidden="true"
+                      className={overviewSourceReadinessOpen ? "rotate-180" : undefined}
+                      data-icon="inline-end"
+                    />
+                  </Button>
                 </div>
-                <SourceReadinessStrip connectors={connectors} />
+                {overviewSourceReadinessOpen ? <SourceReadinessStrip connectors={connectors} /> : null}
+              </section>
+
+              <section className="grid min-w-0 gap-3" data-testid="maya-overview-concentration-band">
+                <Card className="rounded-lg shadow-none" size="sm">
+                  <CardHeader className="gap-3">
+                    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="grid min-w-0 gap-1.5">
+                        <CardTitle className="text-base">Case Concentration Analysis</CardTitle>
+                        <CardDescription>
+                          Filter and sort the backend worklist by case ID, customer, scenario text, line count, and displayed exposure.
+                        </CardDescription>
+                      </div>
+                      <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 px-3 py-2 lg:min-w-48">
+                        <span className="text-xs text-muted-foreground">Total exposure</span>
+                        <span className="truncate text-sm font-medium tabular-nums" title={model.recoveryTracker.totalExposure}>
+                          {model.recoveryTracker.totalExposure}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <InputGroup className="h-9 md:max-w-md">
+                        <InputGroupAddon>
+                          <SearchIcon aria-hidden="true" data-icon="input-addon" />
+                        </InputGroupAddon>
+                        <InputGroupInput
+                          aria-label="Filter case concentration rows"
+                          data-testid="maya-overview-case-concentration-filter"
+                          onChange={(event) => {
+                            setOverviewCaseFilter(event.target.value);
+                          }}
+                          placeholder="Filter ID, customer, or scenario"
+                          title="Filter by case ID, customer, or scenario text"
+                          value={overviewCaseFilter}
+                        />
+                        {overviewCaseFilter.trim().length > 0 ? (
+                          <InputGroupAddon align="inline-end">
+                            <InputGroupButton
+                              aria-label="Clear case concentration filter"
+                              onClick={handleClearOverviewCaseFilter}
+                              size="icon-xs"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <XIcon aria-hidden="true" data-icon="button-icon" />
+                            </InputGroupButton>
+                          </InputGroupAddon>
+                        ) : null}
+                      </InputGroup>
+                      <span className="text-xs text-muted-foreground">
+                        Showing {overviewConcentrationItems.length.toString()} of {model.worklist.length.toString()} worklist scenarios
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {model.worklist.length === 0 ? (
+                      <div className="p-4">
+                        <MayaEmptyState description="No worklist rows are available for concentration." kind="worklist" title="No cases" />
+                      </div>
+                    ) : overviewConcentrationItems.length === 0 ? (
+                      <div className="p-4">
+                        <MayaEmptyState description="No worklist rows match the current local filter." kind="search" title="No matching cases" />
+                      </div>
+                    ) : (
+                      <ScrollArea className="max-h-[440px]">
+                        <Table data-testid="maya-overview-case-concentration-table">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "id")} className="min-w-48">
+                                <Button
+                                  className="h-8 px-2"
+                                  data-testid="maya-overview-case-concentration-sort-id"
+                                  onClick={() => {
+                                    handleOverviewCaseSort("id");
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {overviewCaseSortIcon(overviewCaseSort, "id")}
+                                  <span>ID</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "id")}
+                                  </span>
+                                </Button>
+                              </TableHead>
+                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "customer")} className="min-w-56">
+                                <Button
+                                  className="h-8 px-2"
+                                  data-testid="maya-overview-case-concentration-sort-customer"
+                                  onClick={() => {
+                                    handleOverviewCaseSort("customer");
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {overviewCaseSortIcon(overviewCaseSort, "customer")}
+                                  <span>Customer</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "customer")}
+                                  </span>
+                                </Button>
+                              </TableHead>
+                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "lines")} className="w-32">
+                                <Button
+                                  className="h-8 px-2"
+                                  data-testid="maya-overview-case-concentration-sort-lines"
+                                  onClick={() => {
+                                    handleOverviewCaseSort("lines");
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {overviewCaseSortIcon(overviewCaseSort, "lines")}
+                                  <span>Lines</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "lines")}
+                                  </span>
+                                </Button>
+                              </TableHead>
+                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "exposure")} className="w-40 text-right">
+                                <Button
+                                  className="ml-auto h-8 px-2"
+                                  data-testid="maya-overview-case-concentration-sort-exposure"
+                                  onClick={() => {
+                                    handleOverviewCaseSort("exposure");
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {overviewCaseSortIcon(overviewCaseSort, "exposure")}
+                                  <span>Exposure</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "exposure")}
+                                  </span>
+                                </Button>
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {overviewConcentrationItems.map((item) => {
+                              const isSelected = item.lineId === visibleSelectedWorklistItem?.lineId;
+
+                              return (
+                                <TableRow
+                                  aria-selected={isSelected}
+                                  className="cursor-pointer outline-none data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                                  data-line-id={item.lineId}
+                                  data-selected={isSelected ? "true" : undefined}
+                                  data-testid="maya-overview-case-concentration-row"
+                                  key={`overview-concentration-${item.lineId}`}
+                                  onClick={() => {
+                                    handleSelectWorklistItem(item);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      handleSelectWorklistItem(item);
+                                    }
+                                  }}
+                                  tabIndex={0}
+                                >
+                                  <TableCell>
+                                    <div className="grid min-w-0 gap-0.5">
+                                      <span className="font-medium">{item.lineId}</span>
+                                      <span className="truncate text-xs text-muted-foreground" title={item.scenarioLabel}>
+                                        {item.scenarioLabel}
+                                      </span>
+                                      {isSelected ? (
+                                        <Badge className="mt-1 w-fit" variant="outline">
+                                          Local focus
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="grid min-w-0 gap-0.5">
+                                      <span className="truncate" title={item.customerLabel}>
+                                        {item.customerLabel}
+                                      </span>
+                                      <span className="truncate text-xs text-muted-foreground" title={item.routingLabel}>
+                                        {item.routingLabel}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="tabular-nums">{item.lineCount.toString()}</TableCell>
+                                  <TableCell className="text-right tabular-nums">{item.amount}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
+                    )}
+                  </CardContent>
+                </Card>
               </section>
             </section>
           </section>

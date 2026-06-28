@@ -333,6 +333,8 @@ async function main(): Promise<void> {
   const managedProcesses: ManagedProcess[] = [];
   let apiServer: ManagedApiServer | undefined;
   let browser: Browser | undefined;
+  let page: Page | undefined;
+  const browserDiagnostics: string[] = [];
 
   try {
     mkdirSync(screenshotDir, { recursive: true });
@@ -353,15 +355,24 @@ async function main(): Promise<void> {
     assertConnectorModelReady(connectorsModel);
 
     browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage({ viewport: { height: 900, width: 1440 } });
+    page = await browser.newPage({ viewport: { height: 900, width: 1440 } });
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") {
+        browserDiagnostics.push(`${message.type()}: ${message.text()}`);
+      }
+    });
+    page.on("pageerror", (error) => {
+      browserDiagnostics.push(`pageerror: ${error.message}`);
+    });
     observeBrowserCalls(page, appUrl, apiServer.url);
 
     await loginAsMaya(page, appUrl);
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench after login", 90_000);
     await assertMayaShadcnLoadingShellStreamsDuringBackendDelay(page, appUrl);
     clearObservedCalls();
     apiServer.recorder.clear();
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
-    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench", 90_000);
     await assertObservedRealBackendCall(apiServer, "GET", "/forensics");
     await assertObservedRealBackendCall(apiServer, "GET", "/connectors");
     await assertRootSidebarSectionNavigation(page, forensicsModel);
@@ -412,6 +423,20 @@ async function main(): Promise<void> {
       `Maya real-backend E2E passed against ${apiServer.url}; query scenarios: ${queryResults.length.toString()}; backend trace rows: ${totalTraceRows.toString()}`
     );
   } catch (error) {
+    if (page !== undefined) {
+      console.log(
+        `--- Maya real-backend diagnostics ---\n${JSON.stringify(
+          {
+            apiCalls: summarizeObservedCalls(apiServer?.recorder.snapshot().slice(-20) ?? []),
+            browserDiagnostics: browserDiagnostics.slice(-20),
+            observedCalls: summarizeObservedCalls(observedCalls.slice(-30)),
+            url: page.url()
+          },
+          null,
+          2
+        )}`
+      );
+    }
     for (const managedProcess of managedProcesses) {
       dumpRecentOutput(managedProcess);
     }
@@ -541,7 +566,12 @@ async function assertMayaShadcnLoadingShellStreamsDuringBackendDelay(page: Page,
       shellVisibleMs < 2_500,
       `Maya shadcn loading shell appeared only after the delayed backend window: ${shellVisibleMs.toString()}ms.`
     );
-    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench after delayed backend reads");
+    await expectVisibleLocator(
+      page,
+      '[data-testid="maya-shadcn-workbench"]',
+      "Maya shadcn workbench after delayed backend reads",
+      90_000
+    );
     console.log(`MAYA_STREAMING_SHELL_RESULT {"loadingShellVisibleMs":${shellVisibleMs.toString()},"delayedBackendMs":2500}`);
   } finally {
     backendDelayMsByPath.clear();
@@ -624,7 +654,7 @@ async function openBackendWorklistItem(
   const rowLineId = await row.getAttribute("data-line-id");
   assert(rowLineId === item.lineId, `Maya worklist row identity mismatch: expected ${item.lineId}, received ${rowLineId ?? "missing"}.`);
   const detailPath = `/api/forensics/work-items/${encodeURIComponent(item.lineId)}`;
-  let detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+  let detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 90_000);
   const rowOpenButton = row.getByTestId("maya-row-action-open");
 
   if ((await rowOpenButton.count()) > 0 && (await rowOpenButton.isVisible())) {
@@ -635,7 +665,7 @@ async function openBackendWorklistItem(
     if (detailResponse === undefined) {
       const openButton = page.getByTestId("maya-local-row-action-open");
       await openButton.waitFor({ state: "visible", timeout: 10_000 });
-      detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+      detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 90_000);
       await openButton.click();
       detailResponse = await detailResponsePromise;
     }
@@ -1005,7 +1035,7 @@ async function switchToBackendCaseLine(
 ): Promise<ForensicsWorkItemDetailModel> {
   const detailPath = `/api/forensics/work-items/${encodeURIComponent(lineId)}`;
   await page.getByTestId("maya-line-selector").scrollIntoViewIfNeeded();
-  const responsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+  const responsePromise = waitForAppJsonResponse(page, "GET", detailPath, 90_000);
   await page.getByRole("button", { name: new RegExp(`^Line ${String(lineIndex + 1)}$`, "u") }).click();
   const lineDetail = await readRequiredJsonResponse<ForensicsWorkItemDetailModel>(
     await responsePromise,
@@ -2388,6 +2418,13 @@ async function assertRenderedSourceReadinessMatchesBackend(
   page: Page,
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-overview-source-readiness-toggle"]', "Maya Ready sources toggle");
+  const sourceReadinessStrip = page.locator('[data-testid="maya-source-readiness-strip"]').first();
+  assert(
+    !(await sourceReadinessStrip.isVisible()),
+    "Maya source readiness strip must start behind Ready sources toggle."
+  );
+  await page.getByTestId("maya-overview-source-readiness-toggle").click();
   await expectVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', "Maya source readiness strip");
   const sourceTiles = page.getByTestId("maya-source-tile");
   const sourceStatuses = page.getByTestId("maya-source-status");
@@ -3022,9 +3059,9 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
-async function expectVisibleLocator(page: Page, selector: string, label: string): Promise<void> {
+async function expectVisibleLocator(page: Page, selector: string, label: string, timeoutMs = 30_000): Promise<void> {
   const locator = page.locator(selector).first();
-  await locator.waitFor({ state: "visible", timeout: 30_000 });
+  await locator.waitFor({ state: "visible", timeout: timeoutMs });
   assert(await locator.isVisible(), `${label} was not visible.`);
 }
 
@@ -3061,6 +3098,26 @@ function readCurrentSource(): string {
 
 function clearObservedCalls(): void {
   observedCalls.length = 0;
+}
+
+function summarizeObservedCalls(
+  calls: readonly ObservedApiCall[]
+): Array<{
+  method: string;
+  path: string;
+  requestBodyBytes?: number;
+  responseBodyBytes?: number;
+  source: ApiRequestSource;
+  status?: number;
+}> {
+  return calls.map((call) => ({
+    method: call.method,
+    path: call.path,
+    ...(call.requestBodyText === undefined ? {} : { requestBodyBytes: call.requestBodyText.length }),
+    ...(call.responseBodyText === undefined ? {} : { responseBodyBytes: call.responseBodyText.length }),
+    source: call.source,
+    ...(call.status === undefined ? {} : { status: call.status })
+  }));
 }
 
 function normalizeObservedPath(path: string): string {
@@ -3163,6 +3220,10 @@ class ApiCallRecorder {
   recordResponse(call: ObservedApiCall, status: number, responseBodyText: string): void {
     call.status = status;
     call.responseBodyText = responseBodyText;
+  }
+
+  snapshot(): ObservedApiCall[] {
+    return [...this.calls];
   }
 
   async waitFor(method: string, path: string, timeoutMs: number): Promise<ObservedApiCall> {

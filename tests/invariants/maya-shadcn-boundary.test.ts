@@ -681,7 +681,9 @@ describe("Maya shadcn cockpit boundary", () => {
 
     expect(surface).toContain('model.worklist.filter((item) => item.verdict === "valid").length');
     expect(surface).toContain("validDeductionCount");
-    expect(surface).toContain('data-testid="maya-valid-deduction-signal"');
+    expect(surface).toContain('label="Valid deductions"');
+    expect(surface).toContain("validDeductionCount.toString()");
+    expect(surface).not.toContain('data-testid="maya-valid-deduction-signal"');
     expect(table).toContain('item.verdict === "valid"');
     expect(table).toContain("CheckCircle2Icon");
     expect(table).toContain("data-verdict={item.verdict}");

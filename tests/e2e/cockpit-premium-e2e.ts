@@ -392,18 +392,22 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
       await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview landing section");
       await expectVisibleLocator(page, '[data-testid="maya-run-kpi-strip"]', "Maya Overview KPI strip");
-      await expectVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', "Maya Overview source readiness strip");
+      await openMayaOverviewSourceReadiness(page, `Maya Beat 2 ${String(target.width)}px`, { expectInitiallyHidden: true });
       await expectVisibleLocator(page, '[data-testid="maya-overview-command-center"]', "Maya Overview command center");
       await expectVisibleLocator(page, '[data-testid="maya-overview-intelligence-grid"]', "Maya Overview intelligence grid");
-      await expectVisibleLocator(page, '[data-testid="maya-valid-deduction-signal"]', "Maya Overview valid deductions");
-      await expectVisibleLocator(page, '[data-testid="maya-overview-positive-cases"]', "Maya Overview positive cases");
-      await expectVisibleLocator(page, '[data-testid="maya-overview-next-case"]', "Maya Overview next case");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-table"]', "Maya Overview concentration table");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-row"]', "Maya Overview concentration row");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-filter"]', "Maya Overview concentration filter");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-id"]', "Maya Overview concentration ID sort");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', "Maya Overview concentration customer sort");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-lines"]', "Maya Overview concentration lines sort");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-exposure"]', "Maya Overview concentration exposure sort");
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertBeat2SourceReadinessFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2HeaderFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2OverviewIsNotBlank(page, model, `Maya Beat 2 ${String(target.width)}px`);
-      await assertBeat2SourceReadinessFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
       if (target.label === "") {
         await assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(browser, backendSelectedRow, beat2RowOpenTarget);
@@ -719,7 +723,7 @@ async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<v
   try {
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
-    await expectVisibleText(page, "Source Readiness");
+    await openMayaOverviewSourceReadiness(page, "Maya Beat 6", { expectInitiallyHidden: true });
     await openMayaWorklistSection(page);
     await expectVisibleText(page, "Deduction Worklist");
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1089,11 +1093,12 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
     await expectVisibleText(page, "Maya");
     await expectVisibleLocator(page, '[data-testid="maya-overview-kpi-band"]', "Maya Overview KPI band");
     await expectVisibleLocator(page, '[data-testid="maya-overview-concentration-band"]', "Maya Overview concentration band");
-    await expectVisibleLocator(page, '[data-testid="maya-overview-action-band"]', "Maya Overview action band");
     await expectVisibleLocator(page, '[data-testid="maya-overview-system-band"]', "Maya Overview system band");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-table"]', "Maya Overview concentration table");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-filter"]', "Maya Overview concentration filter");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', "Maya Overview concentration customer sort");
     await expectVisibleLocator(page, '[data-testid="maya-kpi-trend-unavailable"]', "Maya KPI trend unavailable fallback");
-    await expectVisibleText(page, "Action queue");
-    await expectVisibleText(page, "Valid deduction signal");
+    await expectVisibleText(page, "Case Concentration Analysis");
     await expectVisibleText(page, kpi.label);
 
     await page.getByRole("button", { name: /^Evidence$/u }).click();
@@ -1119,6 +1124,7 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
       await page.goto(`${appUrl}${target.path}`, { waitUntil: "networkidle" });
       if (target.name === "maya-shadcn-forensics") {
         await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn screenshot workbench");
+        await openMayaOverviewSourceReadiness(page, "Maya shadcn screenshot");
         await expectVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', "Maya shadcn screenshot source readiness");
       }
       await page.screenshot({
@@ -1542,6 +1548,38 @@ async function expectVisibleLocator(page: Page, selector: string, label: string)
   assert(count > 0, `${label} was not rendered`);
 
   throw new Error(`E2E assertion failed: ${label} was not visible`);
+}
+
+async function hasVisibleLocator(page: Page, selector: string): Promise<boolean> {
+  const locator = page.locator(selector);
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    if (await locator.nth(index).isVisible()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function expectNoVisibleLocator(page: Page, selector: string, label: string): Promise<void> {
+  assert(!(await hasVisibleLocator(page, selector)), `${label} must not be visible`);
+}
+
+async function openMayaOverviewSourceReadiness(
+  page: Page,
+  label: string,
+  options: { expectInitiallyHidden?: boolean } = {}
+): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-overview-source-readiness-toggle"]', `${label} Ready sources toggle`);
+  if (options.expectInitiallyHidden === true) {
+    await expectNoVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', `${label} source readiness strip before toggle`);
+  }
+
+  if (!(await hasVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]'))) {
+    await page.getByTestId("maya-overview-source-readiness-toggle").click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-source-readiness-strip"]', `${label} source readiness strip`);
 }
 
 async function openMayaWorklistSection(page: Page): Promise<void> {
@@ -1993,12 +2031,14 @@ async function assertBeat2OverviewIsNotBlank(
   model: ForensicsE2EModel,
   label: string
 ): Promise<void> {
-  const validRows = model.worklist.filter((item) => item.verdict === "valid");
-  assert(validRows.length > 0, `${label} backend worklist must include valid-deduction rows for Overview positive cases`);
+  const expectedFilterTarget = firstItem(model.worklist, "Overview concentration rows").lineId;
 
   const overview = await page.evaluate(() => {
     const commandCenter = document.querySelector<HTMLElement>('[data-testid="maya-overview-command-center"]');
-    const positiveCases = document.querySelector<HTMLElement>('[data-testid="maya-overview-positive-cases"]');
+    const concentrationTable = document.querySelector<HTMLElement>('[data-testid="maya-overview-case-concentration-table"]');
+    const concentrationRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]')].filter(
+      (row) => row.offsetParent !== null
+    );
     const visibleChildren =
       commandCenter === null
         ? []
@@ -2013,7 +2053,8 @@ async function assertBeat2OverviewIsNotBlank(
       commandCenterHeight: commandCenterRect?.height ?? 0,
       commandCenterTextLength: commandCenter?.innerText.trim().length ?? 0,
       commandCenterVisibleArea: (commandCenterRect?.width ?? 0) * (commandCenterRect?.height ?? 0),
-      positiveCasesText: positiveCases?.innerText ?? "",
+      concentrationRowCount: concentrationRows.length,
+      concentrationTableText: concentrationTable?.innerText ?? "",
       visibleChildCount: visibleChildren.length
     };
   });
@@ -2034,45 +2075,57 @@ async function assertBeat2OverviewIsNotBlank(
     overview.commandCenterTextLength >= 120,
     `${label} Overview command center must contain useful visible content: ${String(overview.commandCenterTextLength)} chars`
   );
-
-  const dispositionRows = await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-disposition-row"]')].map((row) => {
-      const bar = row.querySelector<HTMLElement>('[data-testid="maya-overview-disposition-bar"]');
-
-      return {
-        key: row.dataset.dispositionKey ?? "",
-        lineCount: Number.parseInt(row.dataset.lineCount ?? "0", 10),
-        widthPercent: Number.parseFloat(bar?.style.width ?? "0")
-      };
-    })
-  );
-  const dispositionTotal = model.recoveryTracker.recoveryLines + model.recoveryTracker.billingLines;
-  assert(dispositionRows.length === 2, `${label} Overview disposition split must render recovery and billing rows`);
-  assert(dispositionTotal > 0, `${label} backend recovery tracker must expose line counts for split chart`);
-  for (const expected of [
-    { key: "recovery", lineCount: model.recoveryTracker.recoveryLines },
-    { key: "billing", lineCount: model.recoveryTracker.billingLines }
-  ]) {
-    const row = dispositionRows.find((item) => item.key === expected.key);
-    assert(row !== undefined, `${label} Overview disposition split must render ${expected.key}`);
-    assert(row.lineCount === expected.lineCount, `${label} ${expected.key} split row must keep backend line count`);
-    const expectedWidth = (expected.lineCount / dispositionTotal) * 100;
-    assert(
-      Math.abs(row.widthPercent - expectedWidth) <= 0.5,
-      `${label} ${expected.key} split bar must represent share of total lines: ${String(row.widthPercent)} !== ${String(
-        expectedWidth
-      )}`
-    );
-  }
-
-  const visibleValidRows = validRows.filter(
-    (item) =>
-      overview.positiveCasesText.includes(item.verdictLabel) &&
-      (overview.positiveCasesText.includes(item.scenarioLabel) || overview.positiveCasesText.includes(item.customerLabel))
+  assert(
+    overview.concentrationRowCount === model.worklist.length,
+    `${label} Overview concentration table rendered ${String(overview.concentrationRowCount)} rows for ${String(
+      model.worklist.length
+    )} backend worklist rows`
   );
   assert(
-    visibleValidRows.length > 0,
-    `${label} Overview positive cases must render valid-deduction rows from the backend read model`
+    overview.concentrationTableText.length >= 120,
+    `${label} Overview concentration table must contain useful visible backend-backed content`
+  );
+
+  await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', `${label} customer sort`);
+  await page.getByTestId("maya-overview-case-concentration-sort-customer").click();
+  const customerSortState = await page.getByTestId("maya-overview-case-concentration-sort-customer").evaluate((button) => {
+    return button.closest("th")?.getAttribute("aria-sort") ?? "";
+  });
+  assert(
+    customerSortState === "ascending" || customerSortState === "descending",
+    `${label} customer sort must update aria-sort after click: ${customerSortState}`
+  );
+
+  const filter = page.getByTestId("maya-overview-case-concentration-filter");
+  await filter.fill(expectedFilterTarget);
+  await page.waitForFunction((target) => {
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]')].filter(
+      (row) => row.offsetParent !== null
+    );
+
+    return rows.length > 0 && rows.every((row) => row.textContent.includes(target));
+  }, expectedFilterTarget);
+  const filteredRows = await page.getByTestId("maya-overview-case-concentration-row").evaluateAll((rows) =>
+    rows
+      .filter((row) => row instanceof HTMLElement && row.offsetParent !== null)
+      .map((row) => row.textContent)
+  );
+  assert(
+    filteredRows.length > 0 && filteredRows.every((text) => text.includes(expectedFilterTarget)),
+    `${label} Overview concentration filter must narrow rows using backend case ID ${expectedFilterTarget}`
+  );
+  await filter.fill("");
+  await page.waitForFunction((expectedCount) => {
+    return (
+      [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]')].filter(
+        (row) => row.offsetParent !== null
+      ).length === expectedCount
+    );
+  }, model.worklist.length);
+  const restoredRowCount = await page.getByTestId("maya-overview-case-concentration-row").count();
+  assert(
+    restoredRowCount === model.worklist.length,
+    `${label} Overview concentration filter clear must restore backend row count`
   );
 }
 
@@ -3534,6 +3587,7 @@ function approvalDecisionButtonLabel(decision: ForensicsE2EModel["selected"]["ap
 }
 
 async function assertBeat2SourceReadinessFidelity(page: Page, connectors: ConnectorE2EModel, label: string): Promise<void> {
+  await openMayaOverviewSourceReadiness(page, label);
   const expectedTones = connectors.sourceTiles.map((sourceTile) => sourceTile.statusTone);
   const expectedHasReady = expectedTones.includes("ready");
   const expectedHasSynthetic = expectedTones.includes("synthetic");
