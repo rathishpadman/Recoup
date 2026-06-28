@@ -15,6 +15,7 @@ import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/localRun
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 
 type ApiRequestSource = "api-server" | "browser" | "direct-api";
+type MayaGovernanceStatus = "human_decided" | "pending_human";
 
 interface ManagedProcess {
   child: ChildProcessWithoutNullStreams;
@@ -41,12 +42,23 @@ interface ObservedApiCall {
 
 interface KpiModelItem {
   label: string;
+  provenance: MayaFieldProvenance;
   support: string;
   value: string;
 }
 
+interface MayaFieldProvenance {
+  deterministicBasis: string;
+  recordIds: string[];
+  sourceKind: "agent_trace" | "derived_backend" | "operator_session" | "sap_odata" | "supabase";
+  sourceName: string;
+}
+
 interface WorklistModelItem {
   amount: string;
+  approvalStatus: MayaGovernanceStatus;
+  approvalStatusLabel: string;
+  confidence: string;
   confidenceLabel: string;
   customerId?: string;
   customerLabel: string;
@@ -55,11 +67,15 @@ interface WorklistModelItem {
   lineCount: number;
   lineId: string;
   lineIds: string[];
+  provenance: MayaFieldProvenance;
   queueLabel: string;
   recommendedActionLabel: string;
+  routing: string;
   routingLabel: string;
+  scenarioId: string;
   scenarioLabel: string;
   scenarioType: string;
+  verdict: string;
   verdictLabel: string;
 }
 
@@ -68,6 +84,7 @@ interface EvidenceDocumentModel {
   description: string;
   documentId: string;
   documentType: string;
+  provenance: MayaFieldProvenance;
   relevance: string;
   sourceLabel: string;
   summary: string;
@@ -76,7 +93,14 @@ interface EvidenceDocumentModel {
 
 interface EvidencePackModel {
   documents: EvidenceDocumentModel[];
+  provenance: MayaFieldProvenance;
   recordIds: string[];
+}
+
+interface ApprovalEligibilityModel {
+  available: boolean;
+  provenance: MayaFieldProvenance;
+  statusLabel: string;
 }
 
 interface RecoveryDraftModel {
@@ -84,14 +108,17 @@ interface RecoveryDraftModel {
   actionLabel: string;
   actionType: string;
   amount: string;
+  approvalEligibility: ApprovalEligibilityModel;
   basis: string;
-  status: "pending_human";
+  provenance: MayaFieldProvenance;
+  status: MayaGovernanceStatus;
   statusLabel: string;
 }
 
 interface ApprovalActionModel {
   decision: "approve" | "modify" | "reject";
   label: string;
+  provenance: MayaFieldProvenance;
   requiresReason: boolean;
 }
 
@@ -102,7 +129,8 @@ interface ActionInboxModelItem {
   amount: string;
   basis?: string;
   lineId: string;
-  status?: "pending_human";
+  provenance: MayaFieldProvenance;
+  status?: MayaGovernanceStatus;
   statusLabel?: string;
 }
 
@@ -111,10 +139,7 @@ interface ForensicsRealBackendModel {
   kpiStrip: KpiModelItem[];
   selected: {
     approvalActions: ApprovalActionModel[];
-    approvalEligibility: {
-      available: boolean;
-      statusLabel: string;
-    };
+    approvalEligibility: ApprovalEligibilityModel;
     draft: RecoveryDraftModel;
     evidencePack: EvidencePackModel;
     lineId: string;
@@ -143,18 +168,21 @@ interface ForensicsWorkItemDetailModel {
   actionInbox: ActionInboxModelItem[];
   approvalState: {
     actions: ApprovalActionModel[];
-    status: "pending_human";
+    provenance: MayaFieldProvenance;
+    status: MayaGovernanceStatus;
     statusLabel: string;
   };
   auditState: {
+    provenance: MayaFieldProvenance;
     recordIds: string[];
-    status: "pending_human";
+    status: MayaGovernanceStatus;
     statusLabel: string;
   };
   lineId: string;
   multimodalDock: {
     promptSuggestions: Array<{
       label: string;
+      provenance: MayaFieldProvenance;
       question: string;
       recordIds: string[];
     }>;
@@ -163,10 +191,7 @@ interface ForensicsWorkItemDetailModel {
   recoveryDraft: RecoveryDraftModel;
   selected: {
     approvalActions: ApprovalActionModel[];
-    approvalEligibility: {
-      available: boolean;
-      statusLabel: string;
-    };
+    approvalEligibility: ApprovalEligibilityModel;
     draft: RecoveryDraftModel;
     evidencePack: EvidencePackModel;
     lineId: string;
@@ -253,6 +278,20 @@ const observedCalls: ObservedApiCall[] = [];
 const backendDelayMsByPath = new Map<string, number>();
 const fixtureProcessStarted = false;
 const screenshotDir = join("output", "playwright", "e2e", "real-backend");
+const canonicalMayaScenarioLineCounts = [
+  { lineCount: 3, scenarioId: "S1" },
+  { lineCount: 2, scenarioId: "S2" },
+  { lineCount: 4, scenarioId: "S3" },
+  { lineCount: 2, scenarioId: "S4" },
+  { lineCount: 3, scenarioId: "S5" },
+  { lineCount: 2, scenarioId: "S6" },
+  { lineCount: 2, scenarioId: "S7" },
+  { lineCount: 2, scenarioId: "S8" }
+] as const;
+const canonicalMayaScenarioIds = canonicalMayaScenarioLineCounts.map((scenario) => scenario.scenarioId);
+const canonicalMayaLineIds = canonicalMayaScenarioLineCounts.flatMap((scenario) =>
+  Array.from({ length: scenario.lineCount }, (_, index) => `${scenario.scenarioId}-L${String(index + 1)}`)
+);
 const realMayaQueryScenarios = [
   {
     id: "customer-dispute-response",
@@ -334,7 +373,7 @@ async function main(): Promise<void> {
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await captureMayaBeat(page, "03-recommended-action");
 
-    const detail = await openOneRealBackendWorkItem(page, apiServer, forensicsModel);
+    const detail = await sweepCanonicalMayaWorklist(page, apiServer, forensicsModel, connectorsModel);
     await assertCaseLineSelectorControls(page, apiServer, detail, connectorsModel);
     await captureMayaBeat(page, "04-case-overview");
     await assertAgentProcessMapBeforeQuery(page, detail, connectorsModel);
@@ -509,41 +548,381 @@ async function assertMayaShadcnLoadingShellStreamsDuringBackendDelay(page: Page,
   }
 }
 
-async function openOneRealBackendWorkItem(
+async function sweepCanonicalMayaWorklist(
   page: Page,
   apiServer: ManagedApiServer,
-  model: ForensicsRealBackendModel
+  model: ForensicsRealBackendModel,
+  connectorsModel: ConnectorRealBackendModel
 ): Promise<ForensicsWorkItemDetailModel> {
-  const preferredLineId =
-    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId))?.lineId ?? model.worklist[0]?.lineId;
-  assert(preferredLineId !== undefined, "Forensics read model returned no Maya worklist rows.");
+  assertCanonicalForensicsModelCoverage(model);
+  const visitedLineIds: string[] = [];
 
-  const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${escapeAttributeValue(preferredLineId)}"]`).first();
-  await row.waitFor({ state: "visible", timeout: 20_000 });
-  const rowLineId = await row.getAttribute("data-line-id");
-  assert(rowLineId !== null && rowLineId.length > 0, "Maya worklist row is missing data-line-id.");
-  const detailPath = `/api/forensics/work-items/${encodeURIComponent(rowLineId)}`;
+  for (const scenarioId of canonicalMayaScenarioIds) {
+    const item = model.worklist.find((candidate) => candidate.scenarioId === scenarioId);
+    assert(item !== undefined, `Maya canonical worklist omitted scenario ${scenarioId}.`);
+    const firstDetail = await openBackendWorklistItem(page, apiServer, item);
 
-  let detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
-  await row.click();
-  let detailResponse = await settleOptionalResponse(detailResponsePromise);
-  if (detailResponse === undefined) {
-    const openButton = page.getByTestId("maya-local-row-action-open");
-    await openButton.waitFor({ state: "visible", timeout: 10_000 });
-    detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
-    await openButton.click();
-    detailResponse = await detailResponsePromise;
+    for (const [lineIndex, lineId] of item.lineIds.entries()) {
+      const detail =
+        lineId === firstDetail.lineId
+          ? firstDetail
+          : await switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex);
+      assertCanonicalWorkItemDetailBackendModel(detail, item, lineId);
+      await assertCanonicalVisibleDetailState(page, detail, connectorsModel, lineIndex);
+      visitedLineIds.push(lineId);
+    }
+
+    await returnToCanonicalWorklist(page, model, item);
   }
 
-  const detail = await readRequiredJsonResponse<ForensicsWorkItemDetailModel>(detailResponse, "Maya work item detail");
+  assertCanonicalBrowseCoverage(visitedLineIds);
+  console.log(
+    `MAYA_CANONICAL_BROWSE_RESULT ${JSON.stringify({
+      lineIds: visitedLineIds,
+      lines: visitedLineIds.length,
+      scenarios: canonicalMayaScenarioIds.length
+    })}`
+  );
+
+  const selectedDetail = await openCanonicalWorklistLine(page, apiServer, model, model.selected.lineId);
+  await page.getByRole("tab", { name: /^Overview$/u }).click();
+  const selectedLineIndex = selectedDetail.workItem.lineIds.indexOf(selectedDetail.lineId);
+  assert(selectedLineIndex >= 0, `Maya selected line ${selectedDetail.lineId} was not present in its work item group.`);
+  await assertSelectedCaseLineOverviewMatchesBackend(page, selectedDetail.workItem.lineIds, selectedDetail, selectedLineIndex);
+
+  return selectedDetail;
+}
+
+async function openCanonicalWorklistLine(
+  page: Page,
+  apiServer: ManagedApiServer,
+  model: ForensicsRealBackendModel,
+  lineId: string
+): Promise<ForensicsWorkItemDetailModel> {
+  const item = model.worklist.find((candidate) => candidate.lineIds.includes(lineId));
+  assert(item !== undefined, `Maya canonical worklist cannot open missing line ${lineId}.`);
+  const detail = await openBackendWorklistItem(page, apiServer, item);
+  if (detail.lineId === lineId) {
+    return detail;
+  }
+
+  const lineIndex = item.lineIds.indexOf(lineId);
+  assert(lineIndex >= 0, `Maya canonical worklist item ${item.scenarioId} does not include ${lineId}.`);
+
+  return switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex);
+}
+
+async function openBackendWorklistItem(
+  page: Page,
+  apiServer: ManagedApiServer,
+  item: WorklistModelItem
+): Promise<ForensicsWorkItemDetailModel> {
+  await showRootWorklist(page);
+  const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${escapeAttributeValue(item.lineId)}"]`).first();
+  await row.waitFor({ state: "visible", timeout: 20_000 });
+  await row.scrollIntoViewIfNeeded();
+  const rowLineId = await row.getAttribute("data-line-id");
+  assert(rowLineId === item.lineId, `Maya worklist row identity mismatch: expected ${item.lineId}, received ${rowLineId ?? "missing"}.`);
+  const detailPath = `/api/forensics/work-items/${encodeURIComponent(item.lineId)}`;
+  let detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+  const rowOpenButton = row.getByTestId("maya-row-action-open");
+
+  if ((await rowOpenButton.count()) > 0 && (await rowOpenButton.isVisible())) {
+    await rowOpenButton.click();
+  } else {
+    await row.click();
+    let detailResponse = await settleOptionalResponse(detailResponsePromise);
+    if (detailResponse === undefined) {
+      const openButton = page.getByTestId("maya-local-row-action-open");
+      await openButton.waitFor({ state: "visible", timeout: 10_000 });
+      detailResponsePromise = waitForAppJsonResponse(page, "GET", detailPath, 30_000);
+      await openButton.click();
+      detailResponse = await detailResponsePromise;
+    }
+
+    return readAndAssertWorkItemDetail(page, detailResponse, apiServer, item, item.lineId);
+  }
+
+  return readAndAssertWorkItemDetail(page, await detailResponsePromise, apiServer, item, item.lineId);
+}
+
+async function readAndAssertWorkItemDetail(
+  page: Page,
+  detailResponse: PlaywrightResponse,
+  apiServer: ManagedApiServer,
+  item: WorklistModelItem,
+  lineId: string
+): Promise<ForensicsWorkItemDetailModel> {
+  const detail = await readRequiredJsonResponse<ForensicsWorkItemDetailModel>(detailResponse, `Maya ${lineId} work item detail`);
   assert(detail.surface === "forensics-work-item-detail", "Maya detail endpoint returned the wrong surface.");
-  assert(detail.lineId === rowLineId, `Maya detail lineId mismatch: expected ${rowLineId}, received ${detail.lineId}.`);
-  assert(detail.workItem.lineId === rowLineId, `Maya detail work item mismatch: expected ${rowLineId}.`);
-  assert(detail.selected.evidencePack.recordIds.length > 0, "Maya detail returned no evidence record IDs.");
+  assert(detail.lineId === lineId, `Maya detail lineId mismatch: expected ${lineId}, received ${detail.lineId}.`);
+  assert(detail.selected.lineId === lineId, `Maya selected detail mismatch: expected ${lineId}, received ${detail.selected.lineId}.`);
+  assert(detail.workItem.lineId === item.lineId, `Maya detail work item mismatch: expected ${item.lineId}.`);
+  assert(detail.workItem.scenarioId === item.scenarioId, `Maya detail scenario mismatch: expected ${item.scenarioId}.`);
+  assert(detail.selected.evidencePack.recordIds.length > 0, `Maya ${lineId} detail returned no evidence record IDs.`);
   await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace");
-  await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(rowLineId)}`);
+  await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(lineId)}`);
 
   return detail;
+}
+
+async function showRootWorklist(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /^Worklist$/u }).click();
+  await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist root section");
+  await expectVisibleLocator(page, '[data-testid="maya-worklist-table"]', "Maya worklist table");
+}
+
+async function returnToCanonicalWorklist(
+  page: Page,
+  model: ForensicsRealBackendModel,
+  item: WorklistModelItem
+): Promise<void> {
+  const returnControl = page.getByTestId("maya-case-return-to-worklist");
+  assert((await returnControl.count()) > 0, `Maya ${item.scenarioId} case detail is missing the return-to-worklist control.`);
+  await returnControl.click();
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-worklist-page"]', "Maya returned canonical worklist");
+  await expectVisibleLocator(page, '[data-testid="maya-beat-12-return-table"]', "Maya returned canonical table");
+  const renderedRowCount = await page.getByTestId("maya-worklist-row").count();
+  assert(
+    renderedRowCount === model.worklist.length,
+    `Maya returned ${renderedRowCount.toString()} worklist rows for ${model.worklist.length.toString()} backend rows.`
+  );
+  const returnedScenarioRow = page.locator(
+    `[data-testid="maya-worklist-row"][data-line-id="${escapeAttributeValue(item.lineId)}"]`
+  );
+  await returnedScenarioRow.waitFor({ state: "visible", timeout: 20_000 });
+}
+
+async function assertCanonicalVisibleDetailState(
+  page: Page,
+  detail: ForensicsWorkItemDetailModel,
+  connectorsModel: ConnectorRealBackendModel,
+  lineIndex: number
+): Promise<void> {
+  await page.getByRole("tab", { name: /^Overview$/u }).click();
+  await assertSelectedCaseLineOverviewMatchesBackend(page, detail.workItem.lineIds, detail, lineIndex);
+  const basisSourceDetailsText = await openDisclosureAndReadText(
+    page,
+    "maya-case-basis-source-details",
+    /^Basis source details$/u,
+    "Maya basis source details"
+  );
+  for (const recordId of detail.selected.evidencePack.recordIds) {
+    assert(
+      basisSourceDetailsText.includes(normalizeUiText(recordId)),
+      `Maya overview basis source details omitted backend recordId ${recordId} for ${detail.lineId}.`
+    );
+  }
+
+  await assertCanonicalAgentProcessMapBeforeQuery(page, detail, connectorsModel);
+  await openEvidenceTab(page);
+  await assertRenderedEvidenceDossierMatchesBackend(page, detail, connectorsModel);
+  await openEvidenceQuery(page);
+  await assertRenderedQueryDockMatchesBackend(page, detail);
+  await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+  await page.getByRole("tab", { name: /^Draft$/u }).click();
+  await assertRenderedRecoveryDraftMatchesBackend(page, detail);
+  await page.getByRole("button", { name: /^Open approval$/u }).click();
+  await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya approval gate");
+  await assertRenderedApprovalGateMatchesBackend(page, detail);
+  await closeVisibleOverlay(page, '[data-testid="maya-approval-gate-dialog"]');
+  await page.getByRole("tab", { name: /^Audit$/u }).click();
+  await assertRenderedAuditConfirmationMatchesBackend(page, detail);
+}
+
+async function assertCanonicalAgentProcessMapBeforeQuery(
+  page: Page,
+  detail: ForensicsWorkItemDetailModel,
+  connectorsModel: ConnectorRealBackendModel
+): Promise<void> {
+  await page.getByTestId("maya-case-agent-trace-tab").click();
+  await expectVisibleLocator(page, '[data-testid="maya-agent-process-map"]', "Maya canonical agent process map before query");
+  await expectVisibleLocator(page, '[data-testid="maya-agent-process-node"]', "Maya canonical agent process node before query");
+  const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
+  const renderedProcessText = normalizeUiText(renderedProcessNodes.map((node) => node.text).join(" "));
+  const recordIdsInProcessNodeData = new Set(renderedProcessNodes.flatMap((node) => splitRecordIdsAttribute(node.recordIds)));
+  const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
+  assert(
+    renderedProcessNodes.length > 0 && connectorsModel.sourceTiles.length > 0,
+    `Canonical pre-query process map rendered ${renderedProcessNodes.length.toString()} nodes for ${connectorsModel.sourceTiles.length.toString()} backend source tiles.`
+  );
+  assert(
+    !renderedProcessText.includes(normalizeUiText(detail.selected.lineId)),
+    `Canonical pre-query compact process map leaked selected backend line ${detail.selected.lineId}; raw IDs belong in Trace details or data-record-ids.`
+  );
+  for (const recordId of detail.selected.evidencePack.recordIds) {
+    assert(
+      !renderedProcessText.includes(normalizeUiText(recordId)),
+      `Canonical pre-query compact process map leaked selected backend evidence recordId ${recordId}; raw IDs belong in Trace details or data-record-ids.`
+    );
+    assert(
+      recordIdsInProcessNodeData.has(recordId),
+      `Canonical pre-query process map omitted selected backend evidence recordId ${recordId} from data-record-ids.`
+    );
+    assert(
+      traceDetailsText.includes(normalizeUiText(recordId)),
+      `Canonical pre-query Trace details omitted selected backend evidence recordId ${recordId}.`
+    );
+  }
+
+  const expectedSourceKinds = new Set(detail.selected.evidencePack.documents.map((document) => document.provenance.sourceKind));
+  for (const sourceKind of expectedSourceKinds) {
+    const sourceLabel = sourceKindDetailLabel(sourceKind);
+    const sourceDocumentLabels = [
+      ...new Set(
+        detail.selected.evidencePack.documents
+          .filter((document) => document.provenance.sourceKind === sourceKind)
+          .map((document) => document.sourceLabel)
+      )
+    ];
+    const hasSupabaseSourceBackedSummary =
+      sourceKind === "supabase" &&
+      (traceDetailsText.includes("Source-backed") ||
+        traceDetailsText.includes("source-backed") ||
+        traceDetailsText.includes("backend") ||
+        sourceDocumentLabels.some((label) => traceDetailsText.includes(normalizeUiText(label))));
+    assert(
+      renderedProcessNodes.some(
+        (node) =>
+          node.sourceKind === sourceKind ||
+          node.retrievalSource === sourceKind ||
+          traceDetailsText.includes(sourceLabel)
+      ) || hasSupabaseSourceBackedSummary,
+      `Canonical pre-query Agent Trace omitted ${sourceLabel} provenance for ${detail.lineId}.`
+    );
+  }
+}
+
+function assertCanonicalForensicsModelCoverage(model: ForensicsRealBackendModel): void {
+  const scenarioIds = model.worklist.map((item) => item.scenarioId);
+  const lineIds = model.worklist.flatMap((item) => item.lineIds);
+  assert(
+    model.worklist.length === canonicalMayaScenarioIds.length,
+    `Maya worklist exposed ${model.worklist.length.toString()} scenarios instead of ${canonicalMayaScenarioIds.length.toString()}.`
+  );
+  assertNoDuplicateStrings(scenarioIds, "Maya canonical worklist scenarios");
+  assertNoDuplicateStrings(lineIds, "Maya canonical worklist lines");
+  assertSameRecordIds(
+    [...scenarioIds].sort(),
+    [...canonicalMayaScenarioIds].sort(),
+    "Maya canonical S1-S8 worklist scenarios"
+  );
+  assertSameRecordIds(
+    [...lineIds].sort(),
+    [...canonicalMayaLineIds].sort(),
+    "Maya canonical S1-S8 worklist line IDs"
+  );
+
+  for (const item of model.worklist) {
+    assert(item.lineCount === item.lineIds.length, `Maya worklist ${item.scenarioId} lineCount did not match lineIds.`);
+    assert(item.lineIds.includes(item.lineId), `Maya worklist ${item.scenarioId} row lineId ${item.lineId} was not in lineIds.`);
+    assert(
+      canonicalScenarioIdForLineId(item.lineId) === item.scenarioId,
+      `Maya worklist ${item.lineId} scenarioId ${item.scenarioId} did not match its canonical line prefix.`
+    );
+    for (const lineId of item.lineIds) {
+      assert(
+        canonicalScenarioIdForLineId(lineId) === item.scenarioId,
+        `Maya worklist scenario ${item.scenarioId} included foreign line ${lineId}.`
+      );
+    }
+    assertMayaFieldProvenance(item.provenance, `Maya worklist ${item.scenarioId}`, item.lineIds);
+  }
+}
+
+function assertCanonicalWorkItemDetailBackendModel(
+  detail: ForensicsWorkItemDetailModel,
+  item: WorklistModelItem,
+  lineId: string
+): void {
+  assert((canonicalMayaLineIds as readonly string[]).includes(lineId), `Maya detail opened non-canonical line ${lineId}.`);
+  assert(detail.lineId === lineId, `Maya detail returned ${detail.lineId} instead of ${lineId}.`);
+  assert(detail.selected.lineId === lineId, `Maya selected detail returned ${detail.selected.lineId} instead of ${lineId}.`);
+  assert(detail.workItem.lineId === item.lineId, `Maya detail ${lineId} changed scenario row identity.`);
+  assert(detail.workItem.scenarioId === item.scenarioId, `Maya detail ${lineId} changed scenario ID.`);
+  assertSameRecordIds(detail.workItem.lineIds, item.lineIds, `Maya detail ${lineId} scenario line IDs`);
+  assert(detail.recommendedAction.lineId === lineId, `Maya detail ${lineId} recommended action is scoped to ${detail.recommendedAction.lineId}.`);
+  assert(
+    detail.selected.draft.actionId === detail.recoveryDraft.actionId &&
+      detail.recoveryDraft.actionId === detail.recommendedAction.actionId,
+    `Maya detail ${lineId} returned mismatched draft/action identity.`
+  );
+  assert(detail.selected.evidencePack.recordIds.includes(lineId), `Maya detail ${lineId} evidence pack omitted its selected line ID.`);
+  assert(detail.selected.evidencePack.documents.length > 0, `Maya detail ${lineId} returned no cited evidence documents.`);
+  assert(detail.selected.draft.status === "pending_human", `Maya selected draft ${lineId} was not pending human approval.`);
+  assert(detail.recoveryDraft.status === "pending_human", `Maya recovery draft ${lineId} was not pending human approval.`);
+  assert(detail.approvalState.status === "pending_human", `Maya approval state ${lineId} was not pending human approval.`);
+  assert(detail.auditState.status === "pending_human", `Maya audit state ${lineId} was not pending human approval.`);
+  assert(detail.recommendedAction.status === "pending_human", `Maya recommended action ${lineId} was not pending human approval.`);
+  assert(
+    detail.auditState.recordIds.length > 0,
+    `Maya audit state ${lineId} did not cite backend record IDs for the pending HITL state.`
+  );
+  assert(
+    detail.selected.approvalActions.length === detail.approvalState.actions.length && detail.approvalState.actions.length > 0,
+    `Maya approval state ${lineId} did not expose backend HITL decisions.`
+  );
+
+  assertMayaFieldProvenance(detail.workItem.provenance, `Maya detail ${lineId} work item`, item.lineIds);
+  assertMayaFieldProvenance(detail.selected.evidencePack.provenance, `Maya detail ${lineId} evidence pack`, [lineId]);
+  assertMayaFieldProvenance(detail.selected.draft.provenance, `Maya detail ${lineId} selected draft`, [lineId]);
+  assertMayaFieldProvenance(detail.selected.approvalEligibility.provenance, `Maya detail ${lineId} approval eligibility`);
+  assertMayaFieldProvenance(detail.recoveryDraft.provenance, `Maya detail ${lineId} recovery draft`, [lineId]);
+  assertMayaFieldProvenance(detail.recommendedAction.provenance, `Maya detail ${lineId} recommended action`, [lineId]);
+  assertMayaFieldProvenance(detail.approvalState.provenance, `Maya detail ${lineId} approval state`);
+  assertMayaFieldProvenance(detail.auditState.provenance, `Maya detail ${lineId} audit state`);
+  for (const document of detail.selected.evidencePack.documents) {
+    assert(document.documentId.trim().length > 0, `Maya detail ${lineId} cited document with blank documentId.`);
+    assert(document.citationId.trim().length > 0, `Maya detail ${lineId} cited document ${document.documentId} with blank citationId.`);
+    assertMayaFieldProvenance(document.provenance, `Maya detail ${lineId} evidence document ${document.documentId}`);
+  }
+  for (const prompt of detail.multimodalDock.promptSuggestions) {
+    assert(prompt.recordIds.length > 0, `Maya detail ${lineId} prompt ${prompt.label} omitted cited record IDs.`);
+    assertMayaFieldProvenance(prompt.provenance, `Maya detail ${lineId} prompt ${prompt.label}`, prompt.recordIds);
+  }
+}
+
+function assertMayaFieldProvenance(
+  provenance: MayaFieldProvenance | undefined,
+  context: string,
+  expectedRecordIds: readonly string[] = []
+): void {
+  assert(provenance !== undefined, `${context} is missing backend provenance.`);
+  assert(provenance.sourceName.trim().length > 0, `${context} provenance has blank sourceName.`);
+  assert(provenance.deterministicBasis.trim().length > 0, `${context} provenance has blank deterministicBasis.`);
+  assert(
+    ["agent_trace", "derived_backend", "operator_session", "sap_odata", "supabase"].includes(provenance.sourceKind),
+    `${context} provenance sourceKind ${provenance.sourceKind} is not allowed.`
+  );
+  if (provenance.sourceKind !== "operator_session") {
+    assert(provenance.recordIds.length > 0, `${context} provenance has no cited record IDs.`);
+  }
+  for (const recordId of expectedRecordIds) {
+    assert(
+      provenance.recordIds.includes(recordId),
+      `${context} provenance omitted expected recordId ${recordId}.`
+    );
+  }
+}
+
+function canonicalScenarioIdForLineId(lineId: string): string {
+  const match = /^(S[1-8])-L\d+$/u.exec(lineId);
+  assert(match !== null, `Maya line ID ${lineId} is not a canonical S1-S8 line ID.`);
+  const scenarioId = match[1];
+  assert(
+    scenarioId !== undefined && (canonicalMayaScenarioIds as readonly string[]).includes(scenarioId),
+    `Maya line ID ${lineId} has non-canonical scenario ${scenarioId ?? "missing"}.`
+  );
+
+  return scenarioId;
+}
+
+function assertNoDuplicateStrings(values: readonly string[], context: string): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    assert(!seen.has(value), `${context} contains duplicate value ${value}.`);
+    seen.add(value);
+  }
 }
 
 async function openEvidenceTab(page: Page): Promise<void> {
@@ -1595,6 +1974,9 @@ function sourceKindDetailLabel(sourceKind: string): string {
   if (sourceKind === "agent_trace") {
     return "OpenAI Agents SDK trace";
   }
+  if (sourceKind === "supabase") {
+    return "Supabase";
+  }
   if (sourceKind === "operator_session") {
     return "Operator session";
   }
@@ -1938,6 +2320,14 @@ function assertConnectorModelReady(model: ConnectorRealBackendModel): void {
       );
     }
   }
+}
+
+function assertCanonicalBrowseCoverage(visitedLineIds: readonly string[]): void {
+  assertSameRecordIds(
+    visitedLineIds,
+    canonicalMayaLineIds,
+    "Maya canonical S1-S8 browse/detail coverage"
+  );
 }
 
 async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: ForensicsRealBackendModel): Promise<void> {
