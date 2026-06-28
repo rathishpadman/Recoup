@@ -36,6 +36,10 @@ export interface SyntheticSourceEvidence {
 
 export interface SupabaseSyntheticSourceReader {
   readEvidence(connectorName: EnterpriseConnectorName, line: DeductionLine): Promise<SyntheticSourceEvidence[]>;
+  readEvidenceBatch?(
+    connectorName: EnterpriseConnectorName,
+    lines: readonly DeductionLine[]
+  ): Promise<Map<string, SyntheticSourceEvidence[]>>;
 }
 
 export interface SapSourceEvidence {
@@ -49,6 +53,7 @@ export interface SapSourceEvidence {
 
 export interface SupabaseSapEvidenceReader {
   readEvidence(line: DeductionLine): Promise<SapSourceEvidence[]>;
+  readEvidenceBatch?(lines: readonly DeductionLine[]): Promise<Map<string, SapSourceEvidence[]>>;
 }
 
 export interface SupabaseSyntheticSourceReaderOptions {
@@ -231,6 +236,7 @@ export function createSupabaseSyntheticSourceReader(options: SupabaseSyntheticSo
   const baseUrl = normalizeSupabaseUrl(options.url);
   const fetcher = options.fetcher ?? fetch;
   const sourceRowsByTableAndCustomer = new Map<string, Promise<unknown[]>>();
+  const sourceRowsByTableAndCustomerSet = new Map<string, Promise<unknown[]>>();
 
   return {
     async readEvidence(connectorName, line) {
@@ -243,6 +249,17 @@ export function createSupabaseSyntheticSourceReader(options: SupabaseSyntheticSo
       });
 
       return rows.flatMap((row) => mapSyntheticRow(connectorName, line, row));
+    },
+    async readEvidenceBatch(connectorName, lines) {
+      const tableName = SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR[connectorName];
+      const rows = await requestCachedSyntheticRowsForCustomers(sourceRowsByTableAndCustomerSet, fetcher, {
+        baseUrl,
+        lines,
+        serviceRoleKey: options.serviceRoleKey,
+        tableName
+      });
+
+      return mapRowsByLine(lines, rows, (line, row) => mapSyntheticRow(connectorName, line, row));
     }
   };
 }
@@ -251,6 +268,7 @@ export function createSupabaseSapEvidenceReader(options: SupabaseSapEvidenceRead
   const baseUrl = normalizeSupabaseUrl(options.url);
   const fetcher = options.fetcher ?? fetch;
   const sourceRowsByTableAndCustomer = new Map<string, Promise<unknown[]>>();
+  const sourceRowsByTableAndCustomerSet = new Map<string, Promise<unknown[]>>();
 
   return {
     async readEvidence(line) {
@@ -262,6 +280,16 @@ export function createSupabaseSapEvidenceReader(options: SupabaseSapEvidenceRead
       });
 
       return rows.flatMap((row) => mapSapSourceRow(line, row));
+    },
+    async readEvidenceBatch(lines) {
+      const rows = await requestCachedSyntheticRowsForCustomers(sourceRowsByTableAndCustomerSet, fetcher, {
+        baseUrl,
+        lines,
+        serviceRoleKey: options.serviceRoleKey,
+        tableName: "recoup_src_sap"
+      });
+
+      return mapRowsByLine(lines, rows, mapSapSourceRow);
     }
   };
 }
@@ -579,6 +607,38 @@ async function requestSyntheticRows(
   return rows.map((row: unknown) => row);
 }
 
+async function requestSyntheticRowsForCustomers(
+  fetcher: SupabaseSyntheticSourceFetch,
+  input: {
+    baseUrl: string;
+    customerIds: readonly string[];
+    serviceRoleKey: string;
+    tableName: string;
+  }
+): Promise<unknown[]> {
+  const tableName = normalizeTableName(input.tableName);
+  const url = new URL(`${input.baseUrl}/rest/v1/${tableName}`);
+  url.searchParams.set("select", "*");
+  url.searchParams.set("customer_id", postgrestInFilter(input.customerIds));
+  url.searchParams.set("limit", "1000");
+
+  const response = await fetcher(url.href, {
+    headers: serviceRoleReadHeaders(input.serviceRoleKey),
+    method: "GET"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase synthetic source read failed with HTTP ${String(response.status)}.`);
+  }
+
+  const rows = (await response.json()) as unknown;
+  if (!Array.isArray(rows)) {
+    throw new Error("Supabase synthetic source response must be an array of rows.");
+  }
+
+  return rows.map((row: unknown) => row);
+}
+
 async function requestCachedSyntheticRows(
   cache: Map<string, Promise<unknown[]>>,
   fetcher: SupabaseSyntheticSourceFetch,
@@ -596,6 +656,41 @@ async function requestCachedSyntheticRows(
   }
 
   const rowsPromise = requestSyntheticRows(fetcher, input).catch((error: unknown) => {
+    cache.delete(cacheKey);
+    throw error;
+  });
+  cache.set(cacheKey, rowsPromise);
+
+  return rowsPromise;
+}
+
+async function requestCachedSyntheticRowsForCustomers(
+  cache: Map<string, Promise<unknown[]>>,
+  fetcher: SupabaseSyntheticSourceFetch,
+  input: {
+    baseUrl: string;
+    lines: readonly DeductionLine[];
+    serviceRoleKey: string;
+    tableName: string;
+  }
+): Promise<unknown[]> {
+  const customerIds = dedupeSorted(input.lines.map((line) => line.customerId));
+  if (customerIds.length === 0) {
+    return [];
+  }
+
+  const cacheKey = sourceRowsCacheKey(input.tableName, customerIds.join("|"));
+  const cachedRows = cache.get(cacheKey);
+  if (cachedRows !== undefined) {
+    return cachedRows;
+  }
+
+  const rowsPromise = requestSyntheticRowsForCustomers(fetcher, {
+    baseUrl: input.baseUrl,
+    customerIds,
+    serviceRoleKey: input.serviceRoleKey,
+    tableName: input.tableName
+  }).catch((error: unknown) => {
     cache.delete(cacheKey);
     throw error;
   });
@@ -736,6 +831,29 @@ function mapSapSourceRow(line: DeductionLine, row: unknown): SapSourceEvidence[]
   ];
 }
 
+function mapRowsByLine<TEvidence>(
+  lines: readonly DeductionLine[],
+  rows: readonly unknown[],
+  mapRow: (line: DeductionLine, row: unknown) => TEvidence[]
+): Map<string, TEvidence[]> {
+  return new Map(
+    lines.map((line) => [
+      line.lineId,
+      rows
+        .filter((row) => sourceRowCustomerId(row) === line.customerId)
+        .flatMap((row) => mapRow(line, row))
+    ])
+  );
+}
+
+function sourceRowCustomerId(row: unknown): string | undefined {
+  if (!isJsonRecord(row)) {
+    return undefined;
+  }
+
+  return typeof row.customer_id === "string" ? row.customer_id : undefined;
+}
+
 function documentTypeForDocRepo(
   docType: z.infer<typeof docsRowSchema>["doc_type"],
   linkedRecordIds: readonly string[]
@@ -781,6 +899,14 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {
   return [...new Set(recordIds.filter((recordId) => recordId.trim().length > 0))];
+}
+
+function dedupeSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function postgrestInFilter(values: readonly string[]): string {
+  return `in.(${values.map((value) => `"${value.replaceAll('"', '\\"')}"`).join(",")})`;
 }
 
 function serviceRoleReadHeaders(serviceRoleKey: string): HeadersInit {

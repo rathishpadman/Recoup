@@ -29,6 +29,7 @@ import {
   SidebarSeparator,
   SidebarTrigger
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "../../app/logout-button.tsx";
@@ -40,7 +41,10 @@ interface MayaWorkspaceShellProps {
   children: ReactNode;
   heading?: string;
   onSectionChange?: (section: MayaSurfaceSection) => void;
+  onRefreshSources?: () => void;
   pendingActionCount: number;
+  refreshError?: string;
+  refreshStatus?: "error" | "idle" | "refreshing";
   refreshedLabel: string;
   session: DemoSession;
   support?: string;
@@ -82,7 +86,10 @@ export function MayaWorkspaceShell({
   children,
   heading,
   onSectionChange,
+  onRefreshSources,
   pendingActionCount,
+  refreshError,
+  refreshStatus = "idle",
   refreshedLabel,
   session,
   support,
@@ -90,6 +97,13 @@ export function MayaWorkspaceShell({
 }: MayaWorkspaceShellProps) {
   const displayHeading = heading ?? "Deduction forensics queue";
   const displaySupport = support ?? `${worklistCount.toString()} work items / ${pendingActionCount.toString()} human actions pending`;
+  const isRefreshing = refreshStatus === "refreshing";
+  const refreshStatusLabel =
+    refreshStatus === "refreshing"
+      ? "Refreshing source-backed work items"
+      : refreshStatus === "error"
+        ? refreshError ?? "Source refresh failed"
+        : "Source refresh ready";
 
   return (
     <SidebarProvider
@@ -220,6 +234,46 @@ export function MayaWorkspaceShell({
             >
               <RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
               {refreshedLabel}
+            </span>
+            {onRefreshSources === undefined ? null : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    aria-busy={isRefreshing}
+                    aria-label={isRefreshing ? "Source update in progress" : "Update source-backed work items"}
+                    className="size-8"
+                    data-testid="maya-source-force-refresh"
+                    disabled={isRefreshing}
+                    onClick={() => {
+                      if (!isRefreshing) {
+                        onRefreshSources();
+                      }
+                    }}
+                    size="icon-sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <RefreshCwIcon
+                      aria-hidden="true"
+                      className={cn(isRefreshing && "animate-spin")}
+                      data-icon="button-icon"
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span>Update source-backed work items</span>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <span
+              aria-live="polite"
+              className={cn(
+                refreshStatus === "idle" ? "sr-only" : "hidden h-8 items-center px-1 text-xs lg:inline-flex",
+                refreshStatus === "error" ? "text-destructive" : "text-muted-foreground"
+              )}
+              data-testid="maya-source-force-refresh-status"
+            >
+              {refreshStatusLabel}
             </span>
             <span
               aria-label={`${pendingActionCount.toString()} pending human actions`}

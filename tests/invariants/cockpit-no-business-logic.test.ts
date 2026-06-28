@@ -426,6 +426,31 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(connectorRoute).not.toContain("SAP_ODATA_CLIENT_SECRET");
   });
 
+  it("force-refreshes Maya work items through the backend refresh proxy without client-side fallback data", () => {
+    const loader = readFileSync("cockpit/components/maya/maya-forensics-surface-loader.tsx", "utf8");
+    const shell = readFileSync("cockpit/components/maya/maya-workspace-shell.tsx", "utf8");
+    const refreshRoute = readFileSync("cockpit/app/api/forensics/refresh/route.ts", "utf8");
+
+    expect(loader).toContain('fetchJson<ForensicsCockpitModel>("/api/forensics/refresh"');
+    expect(loader).toContain('method: "POST"');
+    expect(loader).toContain("isForensicsCockpitModel");
+    expect(loader).toContain("isConnectorReadinessModel");
+    expect(loader).toContain("setRefreshState");
+    expect(loader).toContain("useRef");
+    expect(loader).toContain("refreshInFlightRef");
+    expect(loader).toContain("refreshRequestIdRef");
+    expect(loader).toMatch(/\bconst\s+refreshRequestId\s*=\s*refreshRequestIdRef\.current\s*\+\s*1/u);
+    expect(loader).toMatch(/\bif\s*\(\s*refreshRequestIdRef\.current\s*!==\s*refreshRequestId\s*\)/u);
+    expect(shell).toContain("onRefreshSources");
+    expect(shell).toContain("refreshStatus");
+    expect(shell).toContain('data-testid="maya-source-force-refresh"');
+    expect(refreshRoute).toContain("loadLocalRuntimeEnvFiles");
+    expect(refreshRoute).toContain('`${apiBaseUrl}/forensics/refresh`');
+    expect(refreshRoute).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(refreshRoute).not.toContain("SAP_ODATA_CLIENT_SECRET");
+    expect(loader).not.toMatch(/\b(?:fallbackWorklist|dummy|mockWorklist|staticWorklist)\b/u);
+  });
+
   it("keeps Maya Beat 12 return navigation local and read-model honest", () => {
     const cockpitData = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");

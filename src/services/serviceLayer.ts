@@ -406,16 +406,34 @@ export async function buildSupabaseServiceSyntheticEvidenceSource(input: {
   const connectorNames = input.connectorNames ?? defaultServiceSyntheticEvidenceConnectorNames;
   const documentsByConnectorAndLine = new Map<string, EvidenceDocument[]>();
 
-  for (const line of input.settlementRun.deductionLines) {
+  if (input.reader.readEvidenceBatch !== undefined) {
     await Promise.all(
       connectorNames.map(async (connectorName) => {
-        const evidence = await input.reader.readEvidence(connectorName, line);
-        documentsByConnectorAndLine.set(
-          syntheticEvidenceKey(connectorName, line.lineId),
-          dedupeEvidenceDocuments(evidence.map(toEvidenceDocument))
-        );
+        const evidenceByLineId = await input.reader.readEvidenceBatch?.(connectorName, input.settlementRun.deductionLines);
+        if (evidenceByLineId === undefined) {
+          throw new Error("Supabase synthetic batch reader is unavailable.");
+        }
+        for (const line of input.settlementRun.deductionLines) {
+          const evidence = evidenceByLineId.get(line.lineId) ?? [];
+          documentsByConnectorAndLine.set(
+            syntheticEvidenceKey(connectorName, line.lineId),
+            dedupeEvidenceDocuments(evidence.map(toEvidenceDocument))
+          );
+        }
       })
     );
+  } else {
+    for (const line of input.settlementRun.deductionLines) {
+      await Promise.all(
+        connectorNames.map(async (connectorName) => {
+          const evidence = await input.reader.readEvidence(connectorName, line);
+          documentsByConnectorAndLine.set(
+            syntheticEvidenceKey(connectorName, line.lineId),
+            dedupeEvidenceDocuments(evidence.map(toEvidenceDocument))
+          );
+        })
+      );
+    }
   }
 
   return {
@@ -431,9 +449,17 @@ export async function buildSupabaseServiceSapEvidenceSource(input: {
 }): Promise<ServiceSapEvidenceSource> {
   const documentsByLineId = new Map<string, EvidenceDocument[]>();
 
-  for (const line of input.settlementRun.deductionLines) {
-    const evidence = await input.reader.readEvidence(line);
-    documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
+  if (input.reader.readEvidenceBatch !== undefined) {
+    const evidenceByLineId = await input.reader.readEvidenceBatch(input.settlementRun.deductionLines);
+    for (const line of input.settlementRun.deductionLines) {
+      const evidence = evidenceByLineId.get(line.lineId) ?? [];
+      documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
+    }
+  } else {
+    for (const line of input.settlementRun.deductionLines) {
+      const evidence = await input.reader.readEvidence(line);
+      documentsByLineId.set(line.lineId, dedupeEvidenceDocuments(evidence.map(toSapEvidenceDocument)));
+    }
   }
 
   return {

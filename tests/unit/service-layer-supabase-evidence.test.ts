@@ -39,6 +39,41 @@ describe("service-layer Supabase evidence source builders", () => {
     }
   });
 
+  it("uses a source-derived synthetic batch reader when available", async () => {
+    const settlementRun = buildSettlementRun(3);
+    const connectorNames = ["docs-repo", "tpm", "bureau"] as const;
+    const batchCalls: string[] = [];
+
+    const source = await buildSupabaseServiceSyntheticEvidenceSource({
+      connectorNames,
+      reader: {
+        readEvidence() {
+          return Promise.reject(new Error("Per-line synthetic reads should not run when a batch reader is available."));
+        },
+        readEvidenceBatch(connectorName, lines) {
+          const serviceConnectorName = readServiceSyntheticConnectorName(connectorName);
+          batchCalls.push(`${serviceConnectorName}:${lines.map((line) => line.lineId).join(",")}`);
+
+          return Promise.resolve(new Map(
+            lines.map((line) => [line.lineId, buildSyntheticEvidence(serviceConnectorName, line)])
+          ));
+        }
+      },
+      settlementRun
+    });
+
+    expect(batchCalls).toEqual([
+      "docs-repo:S1-L1,S2-L1,S3-L1",
+      "tpm:S1-L1,S2-L1,S3-L1",
+      "bureau:S1-L1,S2-L1,S3-L1"
+    ]);
+    for (const line of settlementRun.deductionLines) {
+      for (const connectorName of connectorNames) {
+        expect(source.readEvidence(connectorName, line)).toEqual([expectedSyntheticDocument(connectorName, line)]);
+      }
+    }
+  });
+
   it("bounds SAP evidence reads to one active deduction line", async () => {
     const settlementRun = buildSettlementRun(3);
     let activeReads = 0;
@@ -59,6 +94,30 @@ describe("service-layer Supabase evidence source builders", () => {
     });
 
     expect(maxActiveReads).toBe(1);
+    for (const line of settlementRun.deductionLines) {
+      expect(source.readEvidence(line)).toEqual([expectedSapDocument(line)]);
+    }
+  });
+
+  it("uses a source-derived SAP batch reader when available", async () => {
+    const settlementRun = buildSettlementRun(3);
+    const batchCalls: string[] = [];
+
+    const source = await buildSupabaseServiceSapEvidenceSource({
+      reader: {
+        readEvidence() {
+          return Promise.reject(new Error("Per-line SAP reads should not run when a batch reader is available."));
+        },
+        readEvidenceBatch(lines) {
+          batchCalls.push(lines.map((line) => line.lineId).join(","));
+
+          return Promise.resolve(new Map(lines.map((line) => [line.lineId, buildSapEvidence(line)])));
+        }
+      },
+      settlementRun
+    });
+
+    expect(batchCalls).toEqual(["S1-L1,S2-L1,S3-L1"]);
     for (const line of settlementRun.deductionLines) {
       expect(source.readEvidence(line)).toEqual([expectedSapDocument(line)]);
     }

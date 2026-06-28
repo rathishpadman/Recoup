@@ -353,6 +353,7 @@ async function main(): Promise<void> {
     ]);
     assertForensicsModelReady(forensicsModel);
     assertConnectorModelReady(connectorsModel);
+    let activeForensicsModel = forensicsModel;
 
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { height: 900, width: 1440 } });
@@ -376,15 +377,16 @@ async function main(): Promise<void> {
     await assertObservedRealBackendCall(apiServer, "GET", "/forensics");
     await assertObservedRealBackendCall(apiServer, "GET", "/connectors");
     await assertRootSidebarSectionNavigation(page, forensicsModel);
-    await assertRenderedKpiStripMatchesBackend(page, forensicsModel);
+    await assertRenderedKpiStripMatchesBackend(page, activeForensicsModel);
     await assertRenderedSourceReadinessMatchesBackend(page, connectorsModel);
-    await assertRenderedWorklistTableMatchesBackend(page, forensicsModel);
+    await assertRenderedWorklistTableMatchesBackend(page, activeForensicsModel);
+    activeForensicsModel = await assertForceRefreshReloadsSourceBackedWorklist(page, apiServer);
     await captureMayaBeat(page, "02-dashboard");
-    await assertRenderedRecommendedActionCellMatchesBackend(page, forensicsModel);
+    await assertRenderedRecommendedActionCellMatchesBackend(page, activeForensicsModel);
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await captureMayaBeat(page, "03-recommended-action");
 
-    const detail = await sweepCanonicalMayaWorklist(page, apiServer, forensicsModel, connectorsModel);
+    const detail = await sweepCanonicalMayaWorklist(page, apiServer, activeForensicsModel, connectorsModel);
     await assertCaseLineSelectorControls(page, apiServer, detail, connectorsModel);
     await captureMayaBeat(page, "04-case-overview");
     await assertAgentProcessMapBeforeQuery(page, detail, connectorsModel);
@@ -413,7 +415,7 @@ async function main(): Promise<void> {
     await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
     await assertRenderedAuditConfirmationMatchesBackend(page, detail);
     await captureMayaBeat(page, "11-audit-confirmation");
-    await assertReturnToWorklistRestoresWorklist(page, forensicsModel, detail);
+    await assertReturnToWorklistRestoresWorklist(page, activeForensicsModel, detail);
     await captureMayaBeat(page, "12-return-worklist");
 
     assertNoFixtureProcessStarted(managedProcesses);
@@ -2505,6 +2507,45 @@ async function assertRenderedWorklistTableMatchesBackend(page: Page, forensicsMo
       );
     }
   }
+}
+
+async function assertForceRefreshReloadsSourceBackedWorklist(
+  page: Page,
+  apiServer: ManagedApiServer
+): Promise<ForensicsRealBackendModel> {
+  apiServer.recorder.clear();
+  const refreshButton = page.getByTestId("maya-source-force-refresh");
+  await refreshButton.waitFor({ state: "visible", timeout: 20_000 });
+  const refreshResponsePromise = waitForAppJsonResponse(page, "POST", "/api/forensics/refresh", 120_000);
+  await refreshButton.click();
+  const appRefreshResponse = await refreshResponsePromise;
+  const refreshedModel = await readRequiredJsonResponse<ForensicsRealBackendModel>(
+    appRefreshResponse,
+    "Maya force source refresh"
+  );
+  assertForensicsModelReady(refreshedModel);
+  await assertObservedRealBackendCall(apiServer, "POST", "/forensics/refresh");
+  const backendRefreshModel = await apiServer.recorder.waitForJsonResponse<ForensicsRealBackendModel>(
+    "POST",
+    "/forensics/refresh",
+    120_000
+  );
+  assertForensicsModelReady(backendRefreshModel);
+  assert(
+    JSON.stringify(refreshedModel.worklist.map((item) => item.lineId)) ===
+      JSON.stringify(backendRefreshModel.worklist.map((item) => item.lineId)),
+    "Maya source refresh app response did not match backend worklist line IDs."
+  );
+  await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya workbench after source refresh");
+  await assertRenderedWorklistTableMatchesBackend(page, refreshedModel);
+  console.log(
+    `MAYA_SOURCE_FORCE_REFRESH_RESULT ${JSON.stringify({
+      lineIds: refreshedModel.worklist.map((item) => item.lineId),
+      refreshedRows: refreshedModel.worklist.length
+    })}`
+  );
+
+  return refreshedModel;
 }
 
 async function assertRenderedRecommendedActionCellMatchesBackend(

@@ -338,7 +338,15 @@ function beatTwelveSourceReadinessIcon(statusTone: MayaSourceTile["statusTone"])
   return <FlaskConicalIcon aria-hidden="true" data-icon="inline-start" />;
 }
 
-export function MayaForensicsSurface({ connectors, model, session }: MayaForensicsSurfaceProps) {
+export function MayaForensicsSurface({
+  connectors,
+  model,
+  modelVersion,
+  onRefreshSources,
+  refreshError,
+  refreshStatus,
+  session
+}: MayaForensicsSurfaceProps) {
   const [activeSection, setActiveSection] = React.useState<MayaSurfaceSection>("overview");
   const [selectedWorklistItem, setSelectedWorklistItem] = React.useState<MayaWorklistItem | undefined>();
   const [openedCaseWorklistItem, setOpenedCaseWorklistItem] = React.useState<MayaWorklistItem | undefined>();
@@ -506,6 +514,18 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
       cancelWorkItemDetailRequest(detailRequestSequence);
     };
   }, []);
+
+  React.useEffect(() => {
+    cancelWorkItemDetailRequest(detailRequestSequence);
+    setSelectedWorklistItem((current) =>
+      current === undefined ? undefined : model.worklist.find((item) => item.lineId === current.lineId)
+    );
+    setOpenedCaseWorklistItem(undefined);
+    setOpenedCaseDetail(undefined);
+    setWorkItemDetailLoadState(undefined);
+    setReturnContextLineId(undefined);
+    setAgentDockOpenLineId(undefined);
+  }, [model.worklist, modelVersion]);
 
   React.useEffect(() => {
     if (openedCaseWorklistItem === undefined && returnContextLineId !== undefined) {
@@ -1213,7 +1233,10 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         activeSection={activeSection}
         heading={caseWorklistItem.scenarioLabel}
         onSectionChange={handleSurfaceSectionChange}
+        onRefreshSources={onRefreshSources}
         pendingActionCount={model.actionInbox.length}
+        {...(refreshError === undefined ? {} : { refreshError })}
+        refreshStatus={refreshStatus}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
         support={`${caseWorklistItem.customerLabel} / ${activeCaseDetail?.lineId ?? caseWorklistItem.lineId}`}
@@ -1269,7 +1292,10 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
         activeSection="worklist"
         heading="Deduction Cases"
         onSectionChange={handleSurfaceSectionChange}
+        onRefreshSources={onRefreshSources}
         pendingActionCount={model.actionInbox.length}
+        {...(refreshError === undefined ? {} : { refreshError })}
+        refreshStatus={refreshStatus}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
         support={`${model.worklist.length.toString()} work items / ${model.actionInbox.length.toString()} human actions pending`}
@@ -1293,7 +1319,10 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
     <MayaWorkspaceShell
       activeSection={activeSection}
       onSectionChange={setActiveSection}
+      onRefreshSources={onRefreshSources}
       pendingActionCount={model.actionInbox.length}
+      {...(refreshError === undefined ? {} : { refreshError })}
+      refreshStatus={refreshStatus}
       refreshedLabel={connectors.lastRefreshedLabel}
       session={session}
       worklistCount={model.worklist.length}

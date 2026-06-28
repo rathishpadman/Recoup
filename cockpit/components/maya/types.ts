@@ -8,6 +8,10 @@ import type { DemoSession } from "../../app/demo-auth.ts";
 export interface MayaForensicsSurfaceProps {
   connectors: ConnectorReadinessCockpitModel;
   model: ForensicsCockpitModel;
+  modelVersion: number;
+  onRefreshSources: () => void;
+  refreshError?: string;
+  refreshStatus: "error" | "idle" | "refreshing";
   session: DemoSession;
 }
 

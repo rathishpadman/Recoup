@@ -641,6 +641,133 @@ describe("enterprise read-only connector adapters", () => {
     expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"))).toHaveLength(1);
   });
 
+  it("batch reads Supabase source rows once per table while preserving customer and line-specific evidence filtering", async () => {
+    const firstLine = {
+      ...line,
+      customerId: "CUST-GREENLEAF",
+      lineId: "S1-L1",
+      recordIds: ["S1-L1", "DOC-POD-1", "INV-S1-1", "BUREAU-GREENLEAF"]
+    };
+    const secondLine = {
+      ...line,
+      customerId: "CUST-CRESTLINE",
+      lineId: "S2-L1",
+      recordIds: ["S2-L1", "DOC-POD-2", "INV-S2-1", "BUREAU-CRESTLINE"]
+    };
+    const calls: string[] = [];
+    const fetcher: SupabaseSyntheticSourceFetch = (url) => {
+      calls.push(url);
+      const parsedUrl = new URL(url);
+      const tableName = parsedUrl.pathname.split("/").at(-1);
+
+      expect(parsedUrl.searchParams.get("customer_id")).toBe('in.("CUST-CRESTLINE","CUST-GREENLEAF")');
+
+      if (tableName === "recoup_src_bureau") {
+        return Promise.resolve(jsonResponse([
+          {
+            as_of_date: "2026-06-01",
+            bureau_id: "BUREAU-GREENLEAF",
+            customer_id: "CUST-GREENLEAF",
+            delinquency_flag: true,
+            limit_recommendation: "100000.00",
+            provenance: "synthetic",
+            public_records: {},
+            risk_score: 72
+          },
+          {
+            as_of_date: "2026-06-01",
+            bureau_id: "BUREAU-CRESTLINE",
+            customer_id: "CUST-CRESTLINE",
+            delinquency_flag: false,
+            limit_recommendation: "125000.00",
+            provenance: "synthetic",
+            public_records: {},
+            risk_score: 61
+          }
+        ]));
+      }
+      if (tableName === "recoup_src_docs") {
+        return Promise.resolve(jsonResponse([
+          {
+            customer_id: "CUST-GREENLEAF",
+            doc_id: "DOC-POD-1",
+            doc_type: "POD",
+            linked_record_ids: ["S1-L1", "DOC-POD-1"],
+            provenance: "synthetic",
+            signed_date: "2026-06-20",
+            uri: "supabase://recoup_src_docs/DOC-POD-1"
+          },
+          {
+            customer_id: "CUST-CRESTLINE",
+            doc_id: "DOC-POD-2",
+            doc_type: "POD",
+            linked_record_ids: ["S2-L1", "DOC-POD-2"],
+            provenance: "synthetic",
+            signed_date: "2026-06-20",
+            uri: "supabase://recoup_src_docs/DOC-POD-2"
+          }
+        ]));
+      }
+      if (tableName === "recoup_src_sap") {
+        return Promise.resolve(jsonResponse([
+          {
+            customer_id: "CUST-GREENLEAF",
+            document_type: "invoice",
+            entity_set: "C_BillingDocumentFs",
+            linked_record_ids: ["S1-L1", "INV-S1-1"],
+            payload_json: { BillingDocument: "S1-1" },
+            provenance: "sap-odata",
+            retrieved_at: "2026-06-20T00:00:00.000Z",
+            sap_document_id: "SAP-INV-S1-1",
+            service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+            summary: "Supabase SAP source row for INV-S1-1."
+          },
+          {
+            customer_id: "CUST-CRESTLINE",
+            document_type: "invoice",
+            entity_set: "C_BillingDocumentFs",
+            linked_record_ids: ["S2-L1", "INV-S2-1"],
+            payload_json: { BillingDocument: "S2-1" },
+            provenance: "sap-odata",
+            retrieved_at: "2026-06-20T00:00:00.000Z",
+            sap_document_id: "SAP-INV-S2-1",
+            service_name: "ZUI_BILLINGDOCUMENTFS_0001",
+            summary: "Supabase SAP source row for INV-S2-1."
+          }
+        ]));
+      }
+
+      throw new Error(`Unexpected source table ${String(tableName)}.`);
+    };
+    const syntheticReader = createSupabaseSyntheticSourceReader({
+      fetcher,
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+    const sapReader = createSupabaseSapEvidenceReader({
+      fetcher,
+      serviceRoleKey: "service-role-redacted",
+      url: "https://recoup.supabase.test/"
+    });
+    if (syntheticReader.readEvidenceBatch === undefined || sapReader.readEvidenceBatch === undefined) {
+      throw new Error("Supabase evidence readers must expose source-derived batch reads.");
+    }
+
+    const docs = await syntheticReader.readEvidenceBatch("docs-repo", [firstLine, secondLine]);
+    const bureau = await syntheticReader.readEvidenceBatch("bureau", [firstLine, secondLine]);
+    const sap = await sapReader.readEvidenceBatch([firstLine, secondLine]);
+
+    expect(docs.get("S1-L1")).toMatchObject([{ documentId: "DOC-POD-1" }]);
+    expect(docs.get("S2-L1")).toMatchObject([{ documentId: "DOC-POD-2" }]);
+    expect(bureau.get("S1-L1")).toMatchObject([{ documentId: "BUREAU-GREENLEAF" }]);
+    expect(bureau.get("S2-L1")).toMatchObject([{ documentId: "BUREAU-CRESTLINE" }]);
+    expect(sap.get("S1-L1")).toMatchObject([{ documentId: "SAP-INV-S1-1" }]);
+    expect(sap.get("S2-L1")).toMatchObject([{ documentId: "SAP-INV-S2-1" }]);
+    expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_docs"))).toHaveLength(1);
+    expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_bureau"))).toHaveLength(1);
+    expect(calls.filter((url) => url.includes("/rest/v1/recoup_src_sap"))).toHaveLength(1);
+  });
+
   it("fails closed when a SAP source row is not tagged with SAP OData provenance", async () => {
     const reader = createSupabaseSapEvidenceReader({
       fetcher: () =>

@@ -235,6 +235,7 @@ type CockpitRateLimitedRoute =
   | "GET /run"
   | "POST /admin/demo-reset"
   | "POST /approval"
+  | "POST /forensics/refresh"
   | "POST /forensics/query"
   | "POST /run";
 const cockpitApiRoutes = [
@@ -254,6 +255,7 @@ const cockpitApiRoutes = [
   "POST /run",
   "POST /admin/demo-reset",
   "POST /approval",
+  "POST /forensics/refresh",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
   "POST /query/realtime-tool"
@@ -304,11 +306,14 @@ interface ForensicsSourceContextCacheKey {
   supabaseSourceIdentity: string;
 }
 
-interface CachedForensicsRunContext {
-  cachedAtMs: number;
-  key: ForensicsSourceContextCacheKey;
+interface ForensicsRunContext {
   serviceContext: ServiceInvocationContext;
   source: SourcePort;
+}
+
+interface CachedForensicsRunContext extends ForensicsRunContext {
+  cachedAtMs: number;
+  key: ForensicsSourceContextCacheKey;
 }
 
 type CockpitRateLimitConfig =
@@ -332,6 +337,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   const rateLimitAuditEndpoint = (route: CockpitRateLimitedRoute) =>
     createCockpitRateLimitMiddleware(route, rateLimitConfig, rateLimitBuckets, runtimeEnv);
   let cachedForensicsRunContext: CachedForensicsRunContext | undefined;
+  let cachedForensicsRunContextGeneration = 0;
+  let latestForensicsRefreshRequestId = 0;
   app.use(createCorrelationIdMiddleware());
   app.use((request, response, next) => {
     const requestOrigin = request.headers.origin;
@@ -469,6 +476,33 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         missingSource: "supabase-forensics-work-item-detail"
       });
     }
+  });
+
+  app.post("/forensics/refresh", rateLimitAuditEndpoint("POST /forensics/refresh"), async (request, response) => {
+    response.setHeader("cache-control", "no-store");
+    if (!requireProtectedReadAuth(request, response)) {
+      return;
+    }
+
+    const runContext = await loadRequiredForensicsRunContext(request, response, { bypassCache: true });
+    if (runContext === undefined) {
+      return;
+    }
+    const { governedConfig, serviceContext, source } = runContext;
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
+
+    response.json(
+      buildForensicsCockpitModel({
+        approvalRecordSource: approvalRecordsSnapshot.source,
+        approvalRecords: approvalRecordsSnapshot.records,
+        governedConfig,
+        serviceContext,
+        settlementSource: source
+      })
+    );
   });
 
   app.get("/login", (_request, response) => {
@@ -750,7 +784,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   async function loadRequiredForensicsRunContext(
     request: Request,
     response: Response,
-    sourceOptions: { riskObservationRequired?: boolean } = {}
+    sourceOptions: { bypassCache?: boolean; riskObservationRequired?: boolean } = {}
   ): Promise<{ governedConfig: GovernedConfigValues; serviceContext: ServiceInvocationContext; source: SourcePort } | undefined> {
     if (dataMode === "fixture") {
       return buildFixtureForensicsRunContext();
@@ -821,16 +855,52 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     );
   }
 
+  function publishCacheableForensicsRunContext(
+    governedConfig: GovernedConfigValues,
+    runContext: ForensicsRunContext,
+    cacheKey: ForensicsSourceContextCacheKey,
+    cacheGenerationAtLoadStart: number,
+    refreshRequestId: number | undefined
+  ): void {
+    validateCacheableForensicsRunContext(governedConfig, runContext);
+    const nextCachedContext: CachedForensicsRunContext = {
+      cachedAtMs: Date.now(),
+      key: cacheKey,
+      ...runContext
+    };
+    if (refreshRequestId !== undefined) {
+      if (latestForensicsRefreshRequestId === refreshRequestId) {
+        cachedForensicsRunContext = nextCachedContext;
+        cachedForensicsRunContextGeneration += 1;
+      }
+      return;
+    }
+    if (cacheGenerationAtLoadStart === cachedForensicsRunContextGeneration) {
+      cachedForensicsRunContext = nextCachedContext;
+      cachedForensicsRunContextGeneration += 1;
+    }
+  }
+
   async function loadRequiredSupabaseRunContext(
     request: Request,
     response: Response,
     governedConfig: GovernedConfigValues,
-    sourceOptions: { riskObservationRequired?: boolean } = {}
+    sourceOptions: { bypassCache?: boolean; riskObservationRequired?: boolean } = {}
   ): Promise<{ serviceContext: ServiceInvocationContext; source: SourcePort } | undefined> {
     const cacheKey = buildForensicsSourceContextCacheKey(governedConfig, sourceOptions.riskObservationRequired === true);
     const cacheableForensicsContext = !cacheKey.riskObservationRequired;
+    const refreshRequestId =
+      sourceOptions.bypassCache === true && cacheableForensicsContext ? latestForensicsRefreshRequestId + 1 : undefined;
+    if (refreshRequestId !== undefined) {
+      latestForensicsRefreshRequestId = refreshRequestId;
+    }
+    const cacheGenerationAtLoadStart = cachedForensicsRunContextGeneration;
     const nowMs = Date.now();
-    if (cacheableForensicsContext && isReusableForensicsRunContext(cachedForensicsRunContext, cacheKey, nowMs)) {
+    if (
+      sourceOptions.bypassCache !== true &&
+      cacheableForensicsContext &&
+      isReusableForensicsRunContext(cachedForensicsRunContext, cacheKey, nowMs)
+    ) {
       return {
         serviceContext: cachedForensicsRunContext.serviceContext,
         source: cachedForensicsRunContext.source
@@ -929,12 +999,13 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         source
       };
       if (cacheableForensicsContext) {
-        validateCacheableForensicsRunContext(governedConfig, runContext);
-        cachedForensicsRunContext = {
-          cachedAtMs: nowMs,
-          key: cacheKey,
-          ...runContext
-        };
+        publishCacheableForensicsRunContext(
+          governedConfig,
+          runContext,
+          cacheKey,
+          cacheGenerationAtLoadStart,
+          refreshRequestId
+        );
       }
 
       return runContext;

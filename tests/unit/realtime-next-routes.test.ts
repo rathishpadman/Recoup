@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as postDemoReset } from "../../cockpit/app/api/admin/demo-reset/route.js";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
 import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
+import { POST as postForensicsRefresh } from "../../cockpit/app/api/forensics/refresh/route.js";
 import { POST as postForensicsQuery } from "../../cockpit/app/api/forensics/query/route.js";
 import { GET as getForensicsWorkItem } from "../../cockpit/app/api/forensics/work-items/[lineId]/route.js";
 import { POST as postRealtimeClientSecret } from "../../cockpit/app/api/query/realtime-client-secret/route.js";
@@ -134,6 +135,59 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects Forensics force-refresh proxy requests without request-bound human auth", async () => {
+    stubRouteEnv();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await postForensicsRefresh(
+      new Request("http://localhost/api/forensics/refresh", {
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards Maya force-refresh requests through the same-origin backend proxy", async () => {
+    stubRouteEnv(mayaEnvPatch);
+    const refreshModel = {
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(Response.json(refreshModel));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await postForensicsRefresh(
+      new Request("http://localhost/api/forensics/refresh", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "POST"
+      })
+    );
+    const body = (await response.json()) as typeof refreshModel;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual(refreshModel);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe("http://recoup-api.test/forensics/refresh");
+    expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+    expect(init?.headers).toMatchObject({
+      "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+      "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+    });
   });
 
   it("forwards Forensics work-item detail requests from a valid Maya demo-session cookie", async () => {

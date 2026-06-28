@@ -1529,7 +1529,7 @@ describe("S5 cockpit API", () => {
   it("reuses a validated real-backend source context across consecutive forensic query sessions", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1583,7 +1583,7 @@ describe("S5 cockpit API", () => {
 
   it("hydrates Maya forensics source evidence without duplicate per-line Supabase reads", async () => {
     const calls: string[] = [];
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1723,10 +1723,105 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("force-refreshes Maya forensics by invalidating the cached source context", async () => {
+    const calls: string[] = [];
+    const expectedSourceReads = expectedForensicsSourceTableReads();
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const refreshed = await fetch(`${baseUrl}/forensics/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const firstBody = (await first.json()) as { surface?: string };
+      const refreshedBody = (await refreshed.json()) as { surface?: string };
+
+      expect(first.status).toBe(200);
+      expect(firstBody.surface).toBe("forensics-analyst");
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.headers.get("cache-control")).toBe("no-store");
+      expect(refreshedBody.surface).toBe("forensics-analyst");
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedSourceReads * 2);
+      expect(sourceTableReadCount(calls, "recoup_src_docs")).toBe(expectedSourceReads * 2);
+      expect(sourceTableReadCount(calls, "recoup_src_tpm")).toBe(expectedSourceReads * 2);
+      expect(sourceTableReadCount(calls, "recoup_src_bureau")).toBe(expectedSourceReads * 2);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed on force refresh instead of serving a stale cached model when source rows fail", async () => {
+    const calls: string[] = [];
+    let sapRowsAvailable = true;
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        memoryFetcher: sourceFetcherWithSapAvailability(calls, () => sapRowsAvailable)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const firstBody = (await first.json()) as { surface?: string };
+      sapRowsAvailable = false;
+      const refreshed = await fetch(`${baseUrl}/forensics/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const refreshedBody = (await refreshed.json()) as { missingSource?: string; sourceTableName?: string; surface?: string };
+
+      expect(first.status).toBe(200);
+      expect(firstBody.surface).toBe("forensics-analyst");
+      expect(refreshed.status).toBe(503);
+      expect(refreshedBody).toMatchObject({
+        missingSource: "supabase-sap-source-evidence-rows",
+        sourceTableName: "recoup_src_sap"
+      });
+      expect(refreshedBody.surface).toBeUndefined();
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads() + 1);
+
+      const cachedAfterFailedRefresh = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const cachedAfterFailedRefreshBody = (await cachedAfterFailedRefresh.json()) as { missingSource?: string; surface?: string };
+
+      expect(cachedAfterFailedRefresh.status).toBe(200);
+      expect(cachedAfterFailedRefreshBody.surface).toBe("forensics-analyst");
+      expect(cachedAfterFailedRefreshBody.missingSource).toBeUndefined();
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads() + 1);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("does not reuse a validated forensic query source context after the technical TTL expires", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1780,7 +1875,7 @@ describe("S5 cockpit API", () => {
   it("expires forensic query source context after the capped technical TTL elapses", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const nowSpy = vi.spyOn(Date, "now");
     let nowMs = 1_000_000;
     nowSpy.mockImplementation(() => nowMs);
@@ -1839,7 +1934,7 @@ describe("S5 cockpit API", () => {
   it("invalidates forensic query source context when the Supabase source identity changes", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const mutableEnv = {
       ...governedConfigEnv,
       ...cockpitAuthEnv,
@@ -1897,7 +1992,7 @@ describe("S5 cockpit API", () => {
     const calls: string[] = [];
     let sapRowsAvailable = false;
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const server = createServer(
       createCockpitApi({
         env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
@@ -1951,7 +2046,7 @@ describe("S5 cockpit API", () => {
     const calls: string[] = [];
     let docsRowsAvailable = false;
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
-    const expectedSourceReads = expectedForensicsSourceCustomerReads();
+    const expectedSourceReads = expectedForensicsSourceTableReads();
     const server = createServer(
       createCockpitApi({
         env: { ...governedConfigEnv, ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
@@ -5478,9 +5573,9 @@ function withGovernedConfigFetcher(fetcher?: SupabaseMemoryFetch): SupabaseMemor
     if (isSyntheticEvidenceSourceUrl(url)) {
       const parsedUrl = new URL(url);
       const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
-      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      const customerIds = readCustomerIdFilter(parsedUrl.searchParams.get("customer_id"));
       return Promise.resolve(
-        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 })
       );
     }
 
@@ -5594,9 +5689,9 @@ function missingSyntheticEvidenceSourceFetcher(calls: string[]): SupabaseMemoryF
     if (url.includes("/rest/v1/recoup_src_sap")) {
       const parsedUrl = new URL(url);
       const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
-      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      const customerIds = readCustomerIdFilter(parsedUrl.searchParams.get("customer_id"));
       return Promise.resolve(
-        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 })
       );
     }
 
@@ -5628,9 +5723,9 @@ function missingSapEvidenceSourceFetcher(calls: string[]): SupabaseMemoryFetch {
     if (isSyntheticEvidenceSourceUrl(url)) {
       const parsedUrl = new URL(url);
       const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
-      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      const customerIds = readCustomerIdFilter(parsedUrl.searchParams.get("customer_id"));
       return Promise.resolve(
-        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 })
       );
     }
 
@@ -5674,9 +5769,9 @@ function missingEvidenceAfterRiskObservationFetcher(calls: string[]): SupabaseMe
     if (url.includes("/rest/v1/recoup_src_sap")) {
       const parsedUrl = new URL(url);
       const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
-      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      const customerIds = readCustomerIdFilter(parsedUrl.searchParams.get("customer_id"));
       return Promise.resolve(
-        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 })
       );
     }
 
@@ -5782,12 +5877,12 @@ function sourceFetcherWithSapAvailability(
     if (isSyntheticEvidenceSourceUrl(url)) {
       const parsedUrl = new URL(url);
       const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
-      const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
+      const customerIds = readCustomerIdFilter(parsedUrl.searchParams.get("customer_id"));
       if (tableName === "recoup_src_docs" && options.docsRowsAvailable?.() === false) {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
       }
       return Promise.resolve(
-        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 })
+        new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 })
       );
     }
 
@@ -5816,8 +5911,8 @@ function isSyntheticEvidenceSourceUrl(url: string): boolean {
   );
 }
 
-function expectedForensicsSourceCustomerReads(): number {
-  return new Set(buildSyntheticDataset({ seed: 42 }).deductionLines.map((line) => line.customerId)).size;
+function expectedForensicsSourceTableReads(): number {
+  return 1;
 }
 
 function sourceTableReadCount(calls: readonly string[], tableName: string): number {
@@ -5853,9 +5948,9 @@ function toPostgrestSettlementRows(tableName: string): unknown[] {
   return [];
 }
 
-function toPostgrestSyntheticEvidenceRows(tableName: string, customerId: string | undefined): unknown[] {
+function toPostgrestSyntheticEvidenceRows(tableName: string, customerIds: readonly string[] | undefined): unknown[] {
   const dataset = buildSyntheticDataset({ seed: 42 });
-  const lines = dataset.deductionLines.filter((line) => customerId === undefined || line.customerId === customerId);
+  const lines = dataset.deductionLines.filter((line) => customerIds === undefined || customerIds.includes(line.customerId));
 
   if (tableName === "recoup_src_docs") {
     return lines
@@ -5897,7 +5992,7 @@ function toPostgrestSyntheticEvidenceRows(tableName: string, customerId: string 
         window_end: "2026-06-30",
         window_start: "2026-06-01"
       }
-    ].filter((row) => customerId === undefined || row.customer_id === customerId);
+    ].filter((row) => customerIds === undefined || customerIds.includes(row.customer_id));
   }
 
   if (tableName === "recoup_src_bureau") {
@@ -5934,6 +6029,24 @@ function toPostgrestSyntheticEvidenceRows(tableName: string, customerId: string 
   }
 
   return [];
+}
+
+function readCustomerIdFilter(value: string | null): string[] | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  if (value.startsWith("eq.")) {
+    return [value.slice("eq.".length)];
+  }
+  if (value.startsWith("in.(") && value.endsWith(")")) {
+    return value
+      .slice("in.(".length, -1)
+      .split(",")
+      .map((customerId) => customerId.replace(/^"|"$/gu, ""))
+      .filter((customerId) => customerId.length > 0);
+  }
+
+  throw new Error(`Unexpected customer_id filter ${value}.`);
 }
 
 function docTypeForSyntheticEvidenceLine(ruleId: string): "POD" | "TPM" | "contract" | "correspondence" {
