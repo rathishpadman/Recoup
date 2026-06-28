@@ -500,6 +500,25 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<v
     launcherRect.y >= 0 && launcherRect.y + launcherRect.height <= viewportSize.height,
     `Recoup Agent launcher must be visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
   );
+  assert(
+    launcherRect.x <= viewportSize.width * 0.38 &&
+      launcherRect.y + launcherRect.height >= viewportSize.height - 104,
+    `Recoup Agent launcher must sit in the bottom-left workspace; rect=${JSON.stringify(launcherRect)} viewport=${JSON.stringify(viewportSize)}`
+  );
+  const launcherStyle = await page.getByTestId("recoup-agent-launcher").evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color
+    };
+  });
+  assert(
+    launcherStyle.backgroundColor !== "" &&
+      launcherStyle.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+      launcherStyle.backgroundColor !== "transparent",
+    `Recoup Agent launcher must use the distinct floating chat treatment; background=${launcherStyle.backgroundColor}`
+  );
+  assert(launcherStyle.color !== "", "Recoup Agent launcher must expose readable foreground color");
   await page.getByTestId("recoup-agent-launcher").click();
   await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "visible", timeout: 15_000 });
   await page.locator('[data-testid="maya-selected-evidence-context"]').waitFor({ state: "visible", timeout: 15_000 });

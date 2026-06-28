@@ -2098,7 +2098,10 @@ describe("Maya shadcn human QA contract", () => {
       failedDetailLoadClearsLauncherIntent:
         /\bcatch \(error\)[\s\S]{0,500}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface),
       launcherDoesNotCreateSeparateQueryDock: !/<QueryEvidenceDock\b/u.test(surface) && /<QueryEvidenceDock\b/u.test(workspace),
+      launcherUsesFloatingShell:
+        surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
+      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit in the bottom-left workspace"),
       e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
       e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Agent launcher")
     }).toEqual({
@@ -2109,7 +2112,9 @@ describe("Maya shadcn human QA contract", () => {
       normalOpenClearsLauncherIntent: true,
       failedDetailLoadClearsLauncherIntent: true,
       launcherDoesNotCreateSeparateQueryDock: true,
+      launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
+      e2eChecksFloatingPosition: true,
       e2eCoversNoReplayAfterNormalOpen: true,
       e2eVerifiesGroundedDock: true
     });
@@ -2188,6 +2193,7 @@ describe("Maya shadcn human QA contract", () => {
     const cockpitData = read("cockpit/app/cockpit-data.ts");
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
     const premiumE2e = read("tests/e2e/cockpit-premium-e2e.ts");
+    const styles = read("cockpit/app/styles.css");
     const types = readMayaComponent("types.ts");
     const chatSource = `${queryDock}\n${citedAnswer}`;
     const promptArrayAssignmentPattern = new RegExp(`\\b${promptCollectionPattern}\\s*(?::|=)\\s*\\[`, "u");
@@ -2269,6 +2275,12 @@ describe("Maya shadcn human QA contract", () => {
       noSpanishReadyPrimaryCopy: !/Spanish ready/u.test(queryDock),
       noRunningTracePanelInPrimaryLayer: !/isRunning\s*\?\s*\([\s\S]{0,900}<AgentTracePanel/u.test(stripComments(queryDock)),
       runningBubbleUsesEvidenceCheckingCopy: /Maya is checking evidence/u.test(queryDock),
+      modernChatStyles:
+        styles.includes('[data-testid="maya-query-conversation"]') &&
+        styles.includes('[data-testid="maya-submitted-query"]') &&
+        styles.includes('[data-testid="maya-query-assistant-message"]') &&
+        styles.includes(".maya-recoup-agent-button") &&
+        styles.includes("box-shadow"),
       missingConversationE2eHelperContracts: missingE2eHelperContracts(e2e, [
         backendTiedHelper("assertVisibleSelectedEvidenceScope", [
           "maya-query-selected-line",
@@ -2348,6 +2360,7 @@ describe("Maya shadcn human QA contract", () => {
       noSpanishReadyPrimaryCopy: true,
       noRunningTracePanelInPrimaryLayer: true,
       runningBubbleUsesEvidenceCheckingCopy: true,
+      modernChatStyles: true,
       missingConversationE2eHelperContracts: [],
       e2eCoversStopQueryParentTraceReset: true,
       reportStyleDrawerCopyLines: []
@@ -2648,6 +2661,9 @@ describe("Maya shadcn human QA contract", () => {
       missingOverviewHooks: missingJsxTestIds(surface, overviewHooks),
       missingOverviewBandHooks: missingJsxTestIds(surface, overviewBandHooks),
       missingOverviewChartHooks: missingJsxTestIds(surface, overviewChartHooks),
+      concentrationTitleHierarchy:
+        /data-testid="maya-overview-concentration-title"/u.test(overviewSource) &&
+        /className="text-lg font-semibold text-foreground"/u.test(overviewSource),
       kpiStripShowsNoTrendFallback: hasJsxDataTestId(kpiStrip, "maya-kpi-trend-unavailable"),
       kpiStripAvoidsFakeTrendOrDelta:
         !/\b(?:sparkline|deltaValue|trendDelta|trendSeries|seriesData)\b/u.test(kpiStrip) &&
@@ -2673,6 +2689,7 @@ describe("Maya shadcn human QA contract", () => {
       missingOverviewHooks: [],
       missingOverviewBandHooks: [],
       missingOverviewChartHooks: [],
+      concentrationTitleHierarchy: true,
       kpiStripShowsNoTrendFallback: true,
       kpiStripAvoidsFakeTrendOrDelta: true,
       overviewRemovesPrimaryInvestigationLaunch: true,

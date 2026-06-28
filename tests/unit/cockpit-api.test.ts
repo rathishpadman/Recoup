@@ -16,7 +16,11 @@ import { cockpitHumanProxyIssuedAtFreshnessWindowMs } from "../../config/cockpit
 import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
 import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
 import { createRuntimeMemoryStore } from "../../src/memory/runtime.js";
-import { readAgentHandoffPacket, readSessionState, readTransactionState } from "../../src/memory/session.js";
+import {
+  readAgentHandoffPacket,
+  readSessionState,
+  readTransactionState
+} from "../../src/memory/session.js";
 import type { SupabaseMemoryFetch } from "../../src/memory/supabaseStore.js";
 import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
@@ -830,9 +834,26 @@ describe("S5 cockpit API", () => {
         mode: "live_openai_agents",
         tokenUsage: 1842
       });
-      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(1);
-      expect(memoryRows).toHaveLength(1);
-      const receipt = memoryRows[0];
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(2);
+      expect(memoryRows).toHaveLength(2);
+      const queryScope = memoryRows.find((row) => row["category"] === "session_state");
+      const receipt = memoryRows.find((row) => row["category"] === "audit_refs");
+      const queryScopePayload = queryScope?.["payload_json"];
+      if (queryScope === undefined || !isJsonRecord(queryScopePayload)) {
+        throw new Error("Expected Supabase Maya query scope memory receipt.");
+      }
+      expect(queryScope["id"]).toBe("session:cockpit-run:maya-query-scope");
+      expect(queryScope["scope"]).toBe("session:cockpit-run");
+      expect(queryScope["trust_level"]).toBe("trusted");
+      expect(queryScopePayload).toEqual({
+        deterministicBasis: "POST /forensics/query selected evidence scope",
+        key: "maya-query-scope",
+        memoryType: "maya_short_term_query_scope",
+        selectedLineId: "S6-L1",
+        selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        status: "answered"
+      });
+      expect(JSON.stringify(queryScope)).not.toMatch(/question|amount|dollar|verdict|routing|approval/iu);
       const receiptPayload = receipt?.["payload_json"];
       if (receipt === undefined || !isJsonRecord(receiptPayload)) {
         throw new Error("Expected Supabase token usage memory receipt.");
@@ -928,9 +949,15 @@ describe("S5 cockpit API", () => {
 
   it("does not persist success token receipts for blocked forensic query responses", async () => {
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: Array<Record<string, unknown>> = [];
     const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
       const body = stringifyRequestBody(init.body);
       calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+        memoryRows.push(row);
+        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+      }
       return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
     };
     const { baseUrl, server } = await listen({
@@ -968,7 +995,77 @@ describe("S5 cockpit API", () => {
         mode: "blocked_missing_credentials",
         reason: "OPENAI_API_KEY is not configured"
       });
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(1);
+      expect(memoryRows).toHaveLength(1);
+      expect(memoryRows[0]).toMatchObject({
+        category: "session_state",
+        id: "session:cockpit-run:maya-query-scope",
+        scope: "session:cockpit-run",
+        trust_level: "trusted"
+      });
+      expect(memoryRows[0]?.["payload_json"]).toMatchObject({
+        deterministicBasis: "POST /forensics/query selected evidence scope",
+        memoryType: "maya_short_term_query_scope",
+        selectedLineId: "S6-L1",
+        selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        status: "blocked"
+      });
+      expect(memoryRows.some((row) => row["category"] === "audit_refs")).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("skips Maya query scope memory for unsafe submitted record IDs without failing the query", async () => {
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: Array<Record<string, unknown>> = [];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+        memoryRows.push(row);
+        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "sk-submitted-record-secret", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toMatchObject({
+        mode: "blocked_live_agent_trace",
+        reason: "Deterministic query answer guard blocked the selected evidence response."
+      });
       expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+      expect(memoryRows).toEqual([]);
     } finally {
       await close(server);
     }
@@ -1033,7 +1130,7 @@ describe("S5 cockpit API", () => {
         mode: "live_openai_agents",
         tokenUsage: 913
       });
-      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(1);
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(2);
       expect(warningSpy).toHaveBeenCalledTimes(1);
       const warning = JSON.parse(String(warningSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
       expect(warning).toEqual({

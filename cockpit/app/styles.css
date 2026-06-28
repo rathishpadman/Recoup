@@ -6724,6 +6724,61 @@ code {
   border-color: var(--color-primary-hover);
 }
 
+.maya-recoup-agent-float {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  left: max(1rem, env(safe-area-inset-left));
+  pointer-events: none;
+  position: fixed;
+  z-index: 50;
+}
+
+.maya-recoup-agent-button {
+  background: color-mix(in srgb, var(--status-success-text) 74%, var(--color-primary));
+  border: 1px solid color-mix(in srgb, var(--status-success-text) 32%, var(--white));
+  box-shadow: 0 16px 38px color-mix(in srgb, var(--status-success-text) 28%, transparent);
+  color: var(--white);
+  font-weight: 700;
+  pointer-events: auto;
+}
+
+.maya-recoup-agent-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-success-text) 62%, var(--aging-31-60));
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--status-success-text) 34%, transparent);
+}
+
+.maya-recoup-agent-button:disabled {
+  filter: grayscale(0.35);
+  opacity: 0.58;
+}
+
+[data-testid="maya-query-conversation"] {
+  background: color-mix(in srgb, var(--bg-subtle) 42%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+}
+
+[data-testid="maya-submitted-query"] {
+  background: color-mix(in srgb, var(--color-primary-tint) 74%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--border-default));
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+[data-testid="maya-query-assistant-message"] {
+  background: color-mix(in srgb, var(--status-info-bg) 36%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--status-info-text) 18%, var(--border-default));
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--neutral-900) 8%, transparent);
+}
+
+@media (min-width: 768px) {
+  .maya-recoup-agent-float {
+    left: calc(var(--sidebar-width) + 1rem);
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

@@ -385,7 +385,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
               >
                 <Card className="rounded-lg shadow-none" data-testid="maya-overview-line-count-bars" size="sm">
                   <CardHeader className="gap-1.5">
-                    <CardTitle className="text-base">Case concentration</CardTitle>
+                    <CardTitle className="text-lg font-semibold text-foreground" data-testid="maya-overview-concentration-title">
+                      Case Concentration Analysis
+                    </CardTitle>
                     <CardDescription>Scenario line count with source amount labels.</CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-3">
@@ -1125,10 +1127,10 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
 function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
-    <div className="flex justify-end">
+    <div className="maya-recoup-agent-float">
       <Button
         aria-label="Open Recoup Agent"
-        className="h-10 rounded-full px-4 shadow-sm"
+        className="maya-recoup-agent-button h-12 rounded-full px-4"
         data-testid="recoup-agent-launcher"
         disabled={disabled}
         onClick={onClick}
