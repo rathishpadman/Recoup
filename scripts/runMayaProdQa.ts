@@ -69,7 +69,7 @@ const renderUrl = trimTrailingSlash(process.env.RECOUP_PROD_API_URL ?? "https://
 const demoPassword = process.env.RECOUP_E2E_DEMO_PASSWORD ?? "Welcome#123";
 const commit = process.env.RECOUP_QA_COMMIT ?? "9446ebb8f6801437b4c1408df727af305e762f67";
 const outputDir = join("output", "playwright", "prod-qa");
-const queryTimeoutMs = Number(process.env.RECOUP_PROD_QA_QUERY_TIMEOUT_MS ?? "180000");
+const queryTimeoutMs = Number(process.env.RECOUP_PROD_QA_QUERY_TIMEOUT_MS ?? "90000");
 const launchHeaded = process.env.RECOUP_QA_HEADED === "1";
 
 const mayaQueries = [
@@ -118,6 +118,7 @@ async function main(): Promise<void> {
   const apiLogs: ApiLogEntry[] = [];
   const consoleErrors: string[] = [];
   const renderHealth = await checkRenderHealth();
+  logQa(`Render health status=${renderHealth.status.toString()} ok=${String(renderHealth.ok)}`);
 
   const browser = await chromium.launch({ headless: !launchHeaded });
   const page = await browser.newPage({ viewport: { height: 950, width: 1440 } });
@@ -143,14 +144,20 @@ async function main(): Promise<void> {
 
   try {
     const login = await loginAsMaya(page);
+    logQa(`Login status=${String(login.loginApiStatus ?? "missing")} workspaceReadyMs=${login.workspaceReadyMs.toString()}`);
     await page.screenshot({ fullPage: true, path: join(outputDir, "01-workspace.png") });
     const connectorReadiness = await readConnectorTiles(page);
+    logQa(`Connectors status=${connectorReadiness.status.toString()} fetchMs=${connectorReadiness.fetchMs.toString()}`);
     const connectorTiles = connectorReadiness.tiles;
     const sections = await exerciseSidebarSections(page);
+    logQa(`Sections passed=${sections.filter((section) => section.visible).length.toString()}/${sections.length.toString()}`);
     await openInvestigation(page);
+    logQa("Investigation workspace opened");
     await page.screenshot({ fullPage: true, path: join(outputDir, "02-investigation.png") });
     await openQueryDock(page);
+    logQa("Query dock opened");
     const queries = await runQueries(page);
+    logQa(`Queries passed=${queries.filter((query) => query.status === "passed").length.toString()}/${queries.length.toString()}`);
     await page.screenshot({ fullPage: true, path: join(outputDir, "03-query-results.png") });
     const hitl = await exerciseHitl(page).catch((error: unknown) => ({
       approvalDialogVisible: false,
@@ -273,8 +280,10 @@ async function exerciseSidebarSections(page: Page): Promise<ProdQaResult["sectio
 }
 
 async function openInvestigation(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /^Overview$/u }).click();
-  await page.getByRole("button", { name: /Open investigation/u }).click();
+  await page.getByRole("button", { name: /^Worklist$/u }).click();
+  await page.getByTestId("maya-root-section-worklist").waitFor({ state: "visible", timeout: 30_000 });
+  await page.getByTestId("maya-worklist-row").first().click();
+  await page.getByTestId("maya-local-row-action-open").click();
   await page.getByTestId("maya-case-workspace").waitFor({ state: "visible", timeout: 60_000 });
 }
 
@@ -290,6 +299,7 @@ async function runQueries(page: Page): Promise<QueryExecutionResult[]> {
 
   for (const query of mayaQueries) {
     const startedAt = Date.now();
+    logQa(`Query start ${query.id}`);
     const responsePromise = page.waitForResponse(
       (response) => {
         if (new URL(response.url()).pathname !== "/api/forensics/query" || response.request().method() !== "POST") {
@@ -349,6 +359,7 @@ async function runQueries(page: Page): Promise<QueryExecutionResult[]> {
         ...(body.answer === undefined ? {} : { answerPreview: body.answer.slice(0, 180) }),
         ...(body.deterministicBasis === undefined ? {} : { deterministicBasis: body.deterministicBasis })
       });
+      logQa(`Query ${query.id} ${status} status=${response.status().toString()} durationMs=${(Date.now() - startedAt).toString()}`);
     } catch (error) {
       results.push({
         durationMs: Date.now() - startedAt,
@@ -363,6 +374,12 @@ async function runQueries(page: Page): Promise<QueryExecutionResult[]> {
         toolNames: [],
         traceLabels: []
       });
+      await stopActiveQueryIfPresent(page);
+      logQa(
+        `Query ${query.id} failed durationMs=${(Date.now() - startedAt).toString()} error=${
+          error instanceof Error ? error.message : "Unknown query failure."
+        }`
+      );
     }
   }
 
@@ -420,6 +437,16 @@ async function closeQueryDockIfOpen(page: Page): Promise<void> {
   });
 }
 
+async function stopActiveQueryIfPresent(page: Page): Promise<void> {
+  const stopButton = page.getByRole("button", { name: /^Stop query$/u });
+  if (!(await stopButton.isVisible().catch(() => false))) {
+    return;
+  }
+
+  await stopButton.click().catch(() => undefined);
+  await page.waitForTimeout(250);
+}
+
 async function checkRenderHealth(): Promise<ProdQaResult["renderHealth"]> {
   const response = await fetch(`${renderUrl}/healthz`, { cache: "no-store" });
   return {
@@ -438,6 +465,10 @@ function isString(value: unknown): value is string {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function logQa(message: string): void {
+  console.error(`[prod-qa] ${message}`);
 }
 
 await main();

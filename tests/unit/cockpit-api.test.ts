@@ -947,6 +947,74 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("keeps successful forensic query responses available when optional memory persistence hangs", async () => {
+    const correlationId = "maya-query-memory-hang";
+    const warningSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      return (async function* stream() {
+        await Promise.resolve();
+        yield* sdkSelectedEvidenceToolEvents(selectedLiveQueryRecordIds(request));
+        yield {
+          data: {
+            delta: "Live query answer candidate suppressed.",
+            type: "output_text_delta",
+            usage: { total_tokens: 611 }
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        return new Promise<Response>(() => undefined);
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+
+    try {
+      const startedAt = Date.now();
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: { ...cockpitAuthHeaders, [recoupCorrelationIdHeader]: correlationId },
+        method: "POST"
+      });
+      const durationMs = Date.now() - startedAt;
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string; tokenUsage?: number } };
+
+      expect(response.status).toBe(200);
+      expect(durationMs).toBeLessThan(10_000);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        tokenUsage: 611
+      });
+      const warnings = warningSpy.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(warnings).toContain("maya_forensics_query_optional_persistence_timeout");
+      expect(warnings).toContain("maya_query_scope_memory");
+      expect(warnings).toContain("maya_query_token_usage_receipt");
+    } finally {
+      warningSpy.mockRestore();
+      await close(server);
+    }
+  }, 15_000);
+
   it("does not persist success token receipts for blocked forensic query responses", async () => {
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
     const memoryRows: Array<Record<string, unknown>> = [];

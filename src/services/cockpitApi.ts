@@ -1225,20 +1225,33 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         serviceContext: runContext.serviceContext,
         source: runContext.source
       });
-      await persistMayaForensicsQueryScopeMemory({
-        env: runtimeEnv,
-        memoryFetcher: options.memoryFetcher,
-        queryResponse,
-        request: parsedRequest.data,
-        sessionId: readCockpitRunSessionId(request)
-      });
-      await persistForensicsQueryTokenUsageReceipt({
-        correlationId: readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? ""),
-        env: runtimeEnv,
-        memoryFetcher: options.memoryFetcher,
-        queryResponse,
-        request: parsedRequest.data
-      });
+      const queryCorrelationId = readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? "");
+      await Promise.all([
+        awaitBoundedForensicsQueryOptionalPersistence({
+          correlationId: queryCorrelationId,
+          selectedLineId: parsedRequest.data.selectedLineId,
+          task: persistMayaForensicsQueryScopeMemory({
+            env: runtimeEnv,
+            memoryFetcher: options.memoryFetcher,
+            queryResponse,
+            request: parsedRequest.data,
+            sessionId: readCockpitRunSessionId(request)
+          }),
+          taskName: "maya_query_scope_memory"
+        }),
+        awaitBoundedForensicsQueryOptionalPersistence({
+          correlationId: queryCorrelationId,
+          selectedLineId: parsedRequest.data.selectedLineId,
+          task: persistForensicsQueryTokenUsageReceipt({
+            correlationId: queryCorrelationId,
+            env: runtimeEnv,
+            memoryFetcher: options.memoryFetcher,
+            queryResponse,
+            request: parsedRequest.data
+          }),
+          taskName: "maya_query_token_usage_receipt"
+        })
+      ]);
       response.json(queryResponse);
     } catch (error) {
       if (error instanceof ForensicsQueryLineNotFoundError) {
@@ -1405,6 +1418,53 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
       })
     );
     return;
+  }
+}
+
+const forensicsQueryOptionalPersistenceTimeoutMs = 2_000;
+
+async function awaitBoundedForensicsQueryOptionalPersistence(input: {
+  correlationId: string;
+  selectedLineId: string;
+  task: Promise<void>;
+  taskName: "maya_query_scope_memory" | "maya_query_token_usage_receipt";
+}): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    input.task
+      .then(() => "completed" as const)
+      .catch((error: unknown) => {
+        console.warn(
+          JSON.stringify({
+            correlationId: input.correlationId,
+            event: "maya_forensics_query_optional_persistence_failed",
+            persistenceTask: input.taskName,
+            reason: error instanceof Error ? error.message : "Unknown persistence failure.",
+            selectedLineId: input.selectedLineId
+          })
+        );
+        return "failed" as const;
+      }),
+    new Promise<"timed_out">((resolve) => {
+      timeout = setTimeout(() => {
+        resolve("timed_out");
+      }, forensicsQueryOptionalPersistenceTimeoutMs);
+    })
+  ]);
+
+  if (timeout !== undefined) {
+    clearTimeout(timeout);
+  }
+  if (result === "timed_out") {
+    console.warn(
+      JSON.stringify({
+        correlationId: input.correlationId,
+        event: "maya_forensics_query_optional_persistence_timeout",
+        persistenceTask: input.taskName,
+        selectedLineId: input.selectedLineId,
+        timeoutMs: forensicsQueryOptionalPersistenceTimeoutMs
+      })
+    );
   }
 }
 
