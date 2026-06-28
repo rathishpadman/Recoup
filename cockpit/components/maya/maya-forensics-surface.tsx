@@ -568,7 +568,9 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
                   <CardHeader className="gap-3">
                     <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="grid min-w-0 gap-1.5">
-                        <CardTitle className="text-base">Case Concentration Analysis</CardTitle>
+                        <CardTitle className="text-lg font-semibold text-foreground" data-testid="maya-overview-concentration-title">
+                          Case Concentration Analysis
+                        </CardTitle>
                         <CardDescription>
                           Filter and sort the backend worklist by case ID, customer, scenario text, line count, and displayed exposure.
                         </CardDescription>
@@ -1306,10 +1308,10 @@ export function MayaForensicsSurface({ connectors, model, session }: MayaForensi
 
 function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
-    <div className="flex justify-end">
+    <div className="maya-recoup-agent-float">
       <Button
         aria-label="Open Recoup Agent"
-        className="h-10 rounded-full px-4 shadow-sm"
+        className="maya-recoup-agent-button h-12 rounded-full px-4"
         data-testid="recoup-agent-launcher"
         disabled={disabled}
         onClick={onClick}

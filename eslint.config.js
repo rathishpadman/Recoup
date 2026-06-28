@@ -8,6 +8,7 @@ export default [
       ".next/**",
       "**/.next/**",
       "design-system/**",
+      "output/**",
       "*.config.js",
       "*.config.cjs",
       "*.config.mjs",

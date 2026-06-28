@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryRecordSchema, memoryCategories } from "../../src/memory/schema.js";
+import { writeMayaQueryScopeMemory } from "../../src/memory/session.js";
+import { createInMemoryStore } from "../../src/memory/store.js";
 
 describe("memory contract", () => {
   it("defines scoped memory categories for agents and transactions", () => {
@@ -61,5 +63,51 @@ describe("memory contract", () => {
         createdAt: "2026-06-19T00:00:00.000Z"
       })
     ).toThrow("Memory payload must not contain direct PII or secrets.");
+  });
+
+  it("keeps Maya query scope memory cited, scoped, and free of decision fields", () => {
+    const store = createInMemoryStore();
+    const record = writeMayaQueryScopeMemory(store, {
+      deterministicBasis: "POST /forensics/query selected evidence scope",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1",
+      sessionId: "maya-session-42",
+      status: "answered"
+    });
+
+    expect(record).toMatchObject({
+      category: "session_state",
+      id: "session:maya-session-42:maya-query-scope",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      scope: "session:maya-session-42",
+      trustLevel: "trusted"
+    });
+    expect(record.payload).toEqual({
+      deterministicBasis: "POST /forensics/query selected evidence scope",
+      key: "maya-query-scope",
+      memoryType: "maya_short_term_query_scope",
+      selectedLineId: "S6-L1",
+      selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      status: "answered"
+    });
+    expect(
+      Object.keys(record.payload).filter((key) => /question|answer|amount|dollar|verdict|routing|approval/iu.test(key))
+    ).toEqual([]);
+    expect(JSON.stringify(record.payload)).not.toMatch(/\$|external action|writeback|approved_by/iu);
+  });
+
+  it("rejects unsafe Maya query scope identifiers before persistence", () => {
+    const store = createInMemoryStore();
+
+    expect(() =>
+      writeMayaQueryScopeMemory(store, {
+        deterministicBasis: "POST /forensics/query selected evidence scope",
+        recordIds: ["S6-L1", "maya@example.com"],
+        selectedLineId: "S6-L1",
+        sessionId: "maya-session-42",
+        status: "blocked"
+      })
+    ).toThrow("Maya query scope memory record IDs must be safe identifiers.");
+    expect(store.list("session:maya-session-42")).toEqual([]);
   });
 });

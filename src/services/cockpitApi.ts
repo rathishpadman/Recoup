@@ -24,6 +24,7 @@ import {
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
 import type { MemoryRecord } from "../memory/schema.js";
+import { writeMayaQueryScopeMemory } from "../memory/session.js";
 import {
   createSupabaseGovernedConfigRepositoryFromEnv,
   createSupabaseMemoryRepositoryFromEnv,
@@ -208,6 +209,9 @@ const cockpitRunSessionIdHeader = "x-recoup-session-id";
 const defaultCockpitRunSessionId = "cockpit-run";
 const safeCockpitRunSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const secretLikeCockpitRunSessionIdPattern = /(?:bearer|secret|token|api[-_]?key|sk-)/iu;
+const safeMayaQueryMemoryRecordIdPattern = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$/;
+const unsafeMayaQueryMemoryRecordIdPattern =
+  /(?:@|bearer|secret|token|api[-_]?key|password|client[_-]?secret|sk-|\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b)/iu;
 // Runtime freshness only; this is not a business threshold or policy constant.
 const defaultForensicsSourceContextCacheTtlMs = 30_000;
 const cockpitRateLimitMaxRequestsEnv = "RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS";
@@ -1221,6 +1225,13 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         serviceContext: runContext.serviceContext,
         source: runContext.source
       });
+      await persistMayaForensicsQueryScopeMemory({
+        env: runtimeEnv,
+        memoryFetcher: options.memoryFetcher,
+        queryResponse,
+        request: parsedRequest.data,
+        sessionId: readCockpitRunSessionId(request)
+      });
       await persistForensicsQueryTokenUsageReceipt({
         correlationId: readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? ""),
         env: runtimeEnv,
@@ -1397,6 +1408,58 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
   }
 }
 
+async function persistMayaForensicsQueryScopeMemory(input: {
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  queryResponse: ForensicsQuerySessionResponse;
+  request: z.infer<typeof forensicsQueryRequestSchema>;
+  sessionId: string;
+}): Promise<void> {
+  try {
+    const requestedScopeRecordIds = uniqueRecordIds([input.request.selectedLineId, ...input.request.recordIds]);
+    if (!requestedScopeRecordIds.every(isSafeMayaQueryMemoryRecordId)) {
+      return;
+    }
+
+    const scopeRecordIds = uniqueRecordIds([
+      ...requestedScopeRecordIds,
+      ...input.queryResponse.citations.map((citation) => citation.recordId),
+      ...input.queryResponse.trace.flatMap((event) => event.recordIds)
+    ]);
+    if (!scopeRecordIds.every(isSafeMayaQueryMemoryRecordId)) {
+      return;
+    }
+
+    const memoryRecord = writeMayaQueryScopeMemory(createInMemoryStore(), {
+      deterministicBasis: "POST /forensics/query selected evidence scope",
+      recordIds: scopeRecordIds,
+      selectedLineId: input.request.selectedLineId,
+      sessionId: input.sessionId,
+      status: input.queryResponse.answer === undefined ? "blocked" : "answered"
+    });
+
+    const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+    if (supabaseMemory !== undefined) {
+      await supabaseMemory.append(memoryRecord);
+      return;
+    }
+
+    const dbPath = input.env.RECOUP_MEMORY_DB_PATH?.trim();
+    if (dbPath === undefined || dbPath.length === 0) {
+      return;
+    }
+
+    const memoryStore = createRuntimeMemoryStore(input.env);
+    try {
+      memoryStore.append(memoryRecord);
+    } finally {
+      memoryStore.close();
+    }
+  } catch {
+    return;
+  }
+}
+
 interface ApprovalRecordsSnapshot {
   records: MemoryRecord[];
   source: ApprovalRecordSourceMetadata;
@@ -1457,6 +1520,10 @@ function sanitizeForensicsQueryTokenReceiptError(error: unknown): string {
   }
 
   return "Supabase memory token-usage receipt write failed.";
+}
+
+function isSafeMayaQueryMemoryRecordId(recordId: string): boolean {
+  return safeMayaQueryMemoryRecordIdPattern.test(recordId) && !unsafeMayaQueryMemoryRecordIdPattern.test(recordId);
 }
 
 function buildFixtureForensicsRunContext(): {
