@@ -402,6 +402,8 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', "Maya Overview concentration customer sort");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-lines"]', "Maya Overview concentration lines sort");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-exposure"]', "Maya Overview concentration exposure sort");
+      await assertRecoupAgentLauncherPlacement(page, `Maya Beat 2 ${String(target.width)}px`);
+      await assertRecoupAgentLauncherAvoidsOverviewData(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SourceReadinessFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
@@ -468,6 +470,8 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await context.close();
     }
   }
+
+  await assertRecoupAgentLauncherMobilePlacement(browser);
 }
 
 async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Promise<void> {
@@ -495,20 +499,7 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
 }
 
 async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
-  const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
-  const viewportSize = page.viewportSize();
-  assert(launcherRect !== null, "Recoup Agent launcher must expose a measurable viewport rect");
-  assert(viewportSize !== null, "Recoup Agent launcher viewport check requires a viewport");
-  assert(
-    launcherRect.y >= 0 && launcherRect.y + launcherRect.height <= viewportSize.height,
-    `Recoup Agent launcher must be visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
-  );
-  assert(
-    launcherRect.x <= viewportSize.width * 0.38 &&
-      launcherRect.y + launcherRect.height >= viewportSize.height - 104,
-    `Recoup Agent launcher must sit in the bottom-left workspace; rect=${JSON.stringify(launcherRect)} viewport=${JSON.stringify(viewportSize)}`
-  );
+  const launcherRect = await assertRecoupAgentLauncherPlacement(page, "Maya Recoup Agent query dock");
   const launcherStyle = await page.getByTestId("recoup-agent-launcher").evaluate((element) => {
     const style = window.getComputedStyle(element);
     return {
@@ -526,10 +517,118 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<v
   await page.getByTestId("recoup-agent-launcher").click();
   await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "visible", timeout: 15_000 });
   await page.locator('[data-testid="maya-selected-evidence-context"]').waitFor({ state: "visible", timeout: 15_000 });
+  await assertRecoupAgentLauncherDoesNotObstructQueryDock(page, launcherRect);
   const dockText = await page.getByTestId("maya-query-dock").innerText();
   assert(dockText.includes("Selected evidence packet"), "Recoup Agent launcher must open the selected evidence packet context");
   assert(dockText.includes("Client-selected case context"), "Recoup Agent launcher must keep honest selected-case query context");
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+}
+
+async function assertRecoupAgentLauncherMobilePlacement(browser: Browser): Promise<void> {
+  const context = await newRoleContext(browser, "maya", 390, 844);
+  const page = await context.newPage();
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya mobile shadcn workbench");
+    await assertRecoupAgentLauncherPlacement(page, "Maya mobile Recoup Agent launcher");
+  } finally {
+    await context.close();
+  }
+}
+
+interface RectLike {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Promise<RectLike> {
+  await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
+  const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
+  const viewportSize = page.viewportSize();
+  assert(launcherRect !== null, `${label} Recoup Agent launcher must expose a measurable viewport rect`);
+  assert(viewportSize !== null, `${label} Recoup Agent launcher viewport check requires a viewport`);
+  const rightInset = viewportSize.width - (launcherRect.x + launcherRect.width);
+  const bottomInset = viewportSize.height - (launcherRect.y + launcherRect.height);
+  assert(
+    launcherRect.x >= 0 &&
+      launcherRect.x + launcherRect.width <= viewportSize.width &&
+      launcherRect.y >= 0 &&
+      launcherRect.y + launcherRect.height <= viewportSize.height,
+    `${label} Recoup Agent launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
+  );
+  assert(
+    launcherRect.x >= viewportSize.width * 0.62 && rightInset <= 32 && bottomInset >= 160,
+    `${label} Recoup Agent launcher must sit on the right-side rail above bottom controls; rect=${JSON.stringify(
+      launcherRect
+    )} viewport=${JSON.stringify(viewportSize)}`
+  );
+
+  return launcherRect;
+}
+
+async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: string): Promise<void> {
+  const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
+  assert(launcherRect !== null, `${label} Recoup Agent launcher overlap check requires a launcher rect`);
+  const checkedSelectors = [
+    '[data-testid="maya-overview-case-concentration-table"]',
+    '[data-testid="maya-overview-case-concentration-row"]',
+    '[data-testid="maya-overview-case-concentration-sort-exposure"]'
+  ];
+
+  for (const selector of checkedSelectors) {
+    const boxes = await page.locator(selector).evaluateAll((elements) =>
+      elements
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { height: rect.height, width: rect.width, x: rect.x, y: rect.y };
+        })
+        .filter((rect) => rect.height > 0 && rect.width > 0)
+    );
+    for (const box of boxes) {
+      assert(
+        !rectsIntersect(launcherRect, box),
+        `${label} Recoup Agent launcher must not overlap visible business data (${selector}); launcher=${JSON.stringify(
+          launcherRect
+        )} data=${JSON.stringify(box)}`
+      );
+    }
+  }
+}
+
+async function assertRecoupAgentLauncherDoesNotObstructQueryDock(page: Page, launcherRect: RectLike): Promise<void> {
+  const dockRect = await page.getByTestId("maya-query-dock").boundingBox();
+  assert(dockRect !== null, "Recoup Agent launcher query-dock overlap check requires a dock rect");
+  if (!rectsIntersect(launcherRect, dockRect)) {
+    return;
+  }
+
+  const topTestId = await page.evaluate(({ x, y }) => {
+    const element = document.elementFromPoint(x, y);
+    return element?.closest("[data-testid]")?.getAttribute("data-testid") ?? "";
+  }, centerOfRect(launcherRect));
+  assert(
+    topTestId !== "recoup-agent-launcher",
+    `Recoup Agent launcher must not sit above the right-side query dock when the dock is open; topTestId=${topTestId}`
+  );
+}
+
+function rectsIntersect(left: RectLike, right: RectLike): boolean {
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
+}
+
+function centerOfRect(rect: RectLike): { x: number; y: number } {
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2
+  };
 }
 
 async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MemoryRecordSchema, memoryCategories } from "../../src/memory/schema.js";
-import { writeMayaQueryScopeMemory } from "../../src/memory/session.js";
+import {
+  buildMayaQueryMemoryRecallContext,
+  readMayaCaseRecallMemories,
+  writeMayaCaseRecallMemory,
+  writeMayaQueryScopeMemory
+} from "../../src/memory/session.js";
 import { createInMemoryStore } from "../../src/memory/store.js";
 
 describe("memory contract", () => {
@@ -109,5 +114,47 @@ describe("memory contract", () => {
       })
     ).toThrow("Maya query scope memory record IDs must be safe identifiers.");
     expect(store.list("session:maya-session-42")).toEqual([]);
+  });
+
+  it("keeps Maya long-term case recall cited, trusted, and advisory-only", () => {
+    const store = createInMemoryStore();
+    const record = writeMayaCaseRecallMemory(store, {
+      caseId: "S6-L1",
+      deterministicBasis: "POST /forensics/query cited records + deterministic query basis",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1",
+      sessionId: "maya-session-42",
+      status: "answered"
+    });
+    const recallContext = buildMayaQueryMemoryRecallContext(readMayaCaseRecallMemories(store, "S6-L1"), "S6-L1");
+
+    expect(record).toMatchObject({
+      category: "case_state",
+      scope: "case:S6-L1",
+      trustLevel: "trusted"
+    });
+    expect(record.payload).toEqual({
+      caseId: "S6-L1",
+      deterministicBasis: "POST /forensics/query cited records + deterministic query basis",
+      key: "maya-case-recall",
+      memoryType: "maya_long_term_case_recall",
+      selectedLineId: "S6-L1",
+      selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      sessionId: "maya-session-42",
+      status: "answered"
+    });
+    expect(recallContext).toEqual({
+      deterministicBasis: "trusted governed Maya case recall memory records",
+      memoryRecordIds: ["case:S6-L1:maya-recall:maya-session-42:S6-L1"],
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      scopes: ["case:S6-L1"],
+      selectedLineId: "S6-L1"
+    });
+    expect(Object.keys(record.payload).filter((key) => /question|answer|amount|dollar|verdict|routing|approval/iu.test(key))).toEqual(
+      []
+    );
+    expect(JSON.stringify({ payload: record.payload, recallContext })).not.toMatch(
+      /\$|external action|writeback|approved_by/iu
+    );
   });
 });

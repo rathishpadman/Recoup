@@ -2082,6 +2082,7 @@ describe("Maya shadcn human QA contract", () => {
     const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
     const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
+    const styles = read("cockpit/app/styles.css");
 
     expect({
       launcherHook: hasJsxDataTestId(surface, "recoup-agent-launcher"),
@@ -2101,7 +2102,13 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell:
         surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
-      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit in the bottom-left workspace"),
+      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the right-side rail above bottom controls"),
+      cssPinsLauncherRight:
+        styles.includes("right: max(1rem, env(safe-area-inset-right));") &&
+        styles.includes("top: 50vh;") &&
+        styles.includes("transform: translateY(-50%);") &&
+        !styles.includes("left: max(1rem, env(safe-area-inset-left));") &&
+        !styles.includes("left: calc(var(--sidebar-width) + 1rem);"),
       e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
       e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Agent launcher")
     }).toEqual({
@@ -2115,6 +2122,7 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
       e2eChecksFloatingPosition: true,
+      cssPinsLauncherRight: true,
       e2eCoversNoReplayAfterNormalOpen: true,
       e2eVerifiesGroundedDock: true
     });

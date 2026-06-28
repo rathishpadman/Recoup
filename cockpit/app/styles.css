@@ -6725,12 +6725,13 @@ code {
 }
 
 .maya-recoup-agent-float {
-  bottom: max(1rem, env(safe-area-inset-bottom));
   display: flex;
-  left: max(1rem, env(safe-area-inset-left));
   pointer-events: none;
   position: fixed;
-  z-index: 50;
+  right: max(1rem, env(safe-area-inset-right));
+  top: 50vh;
+  transform: translateY(-50%);
+  z-index: 30;
 }
 
 .maya-recoup-agent-button {
@@ -6771,12 +6772,6 @@ code {
   border-color: color-mix(in srgb, var(--status-info-text) 18%, var(--border-default));
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--neutral-900) 8%, transparent);
-}
-
-@media (min-width: 768px) {
-  .maya-recoup-agent-float {
-    left: calc(var(--sidebar-width) + 1rem);
-  }
 }
 
 @keyframes spin {

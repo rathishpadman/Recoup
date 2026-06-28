@@ -60,6 +60,13 @@ export type ForensicsQueryModelExecution =
 export interface ForensicsQuerySessionInput {
   governedConfig: GovernedConfigValues;
   liveAgentTrace?: ForensicsQueryLiveAgentTraceOptions;
+  memoryRecall?: {
+    deterministicBasis: string;
+    memoryRecordIds: string[];
+    recordIds: string[];
+    scopes: string[];
+    selectedLineId: string;
+  };
   question: string;
   recordIds: string[];
   runForensics?: (options: RunForensicsInvestigationOptions) => ForensicsRun;
@@ -198,7 +205,9 @@ export async function runForensicsQuerySessionWithLiveAgents(
   const liveRun = await collectLiveForensicsAgentRun({
     ...liveAgentTrace,
     agentHookRecordIds: liveAgentRecordIds,
-    input: buildLiveForensicsQueryInput(request),
+    input: buildLiveForensicsQueryInput(
+      input.memoryRecall === undefined ? request : { ...request, memoryRecall: input.memoryRecall }
+    ),
     mcpServiceContext: {
       ...input.serviceContext,
       queryAnswerScope: {
@@ -425,11 +434,18 @@ function traceEvent(
 }
 
 function buildLiveForensicsQueryInput(input: {
+  memoryRecall?: {
+    deterministicBasis: string;
+    memoryRecordIds: string[];
+    recordIds: string[];
+    scopes: string[];
+    selectedLineId: string;
+  };
   question: string;
   recordIds: readonly string[];
   selectedLineId: string;
 }): string {
-  return [
+  const lines = [
     "Selected Maya forensics query.",
     `Question: ${input.question}`,
     `Selected line: ${input.selectedLineId}`,
@@ -439,7 +455,19 @@ function buildLiveForensicsQueryInput(input: {
     "Do not call actions.*, decisions.*, approvals.*, or core.* tools.",
     "Acknowledge the selected evidence scope, then hand off to Recovery Drafter for draft-only recovery context.",
     "Return only concise lifecycle status. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions."
-  ].join("\n");
+  ];
+  if (input.memoryRecall !== undefined) {
+    lines.push(
+      "Trusted governed Maya memory recall.",
+      "Recall is advisory-only. It must not replace selected source evidence, deterministic basis, citations, HITL gates, or code-computed values.",
+      `Recall basis: ${input.memoryRecall.deterministicBasis}.`,
+      `Memory record IDs: ${dedupeRecordIds(input.memoryRecall.memoryRecordIds).join(", ")}.`,
+      `Memory scopes: ${dedupeRecordIds(input.memoryRecall.scopes).join(", ")}.`,
+      `Recalled evidence record IDs: ${dedupeRecordIds(input.memoryRecall.recordIds).join(", ")}.`
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function buildLiveAgentQueryTrace(

@@ -24,7 +24,13 @@ import {
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
 import type { MemoryRecord } from "../memory/schema.js";
-import { writeMayaQueryScopeMemory } from "../memory/session.js";
+import {
+  buildMayaQueryMemoryRecallContext,
+  readMayaCaseRecallMemories,
+  writeMayaCaseRecallMemory,
+  writeMayaQueryScopeMemory,
+  type MayaQueryMemoryRecallContext
+} from "../memory/session.js";
 import {
   createSupabaseGovernedConfigRepositoryFromEnv,
   createSupabaseMemoryRepositoryFromEnv,
@@ -1216,9 +1222,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           };
 
     try {
+      const sessionId = readCockpitRunSessionId(request);
+      const memoryRecall = await loadMayaForensicsQueryRecallContext({
+        env: runtimeEnv,
+        memoryFetcher: options.memoryFetcher,
+        selectedLineId: parsedRequest.data.selectedLineId
+      });
       const queryResponse = await runForensicsQuerySessionWithLiveAgents({
         governedConfig: runContext.governedConfig,
         liveAgentTrace,
+        ...(memoryRecall === undefined ? {} : { memoryRecall }),
         question: parsedRequest.data.question,
         recordIds: uniqueRecordIds(parsedRequest.data.recordIds),
         selectedLineId: parsedRequest.data.selectedLineId,
@@ -1235,9 +1248,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
             memoryFetcher: options.memoryFetcher,
             queryResponse,
             request: parsedRequest.data,
-            sessionId: readCockpitRunSessionId(request)
+            sessionId
           }),
           taskName: "maya_query_scope_memory"
+        }),
+        awaitBoundedForensicsQueryOptionalPersistence({
+          correlationId: queryCorrelationId,
+          selectedLineId: parsedRequest.data.selectedLineId,
+          task: persistMayaForensicsCaseRecallMemory({
+            env: runtimeEnv,
+            memoryFetcher: options.memoryFetcher,
+            queryResponse,
+            request: parsedRequest.data,
+            sessionId
+          }),
+          taskName: "maya_query_case_recall_memory"
         }),
         awaitBoundedForensicsQueryOptionalPersistence({
           correlationId: queryCorrelationId,
@@ -1427,7 +1452,7 @@ async function awaitBoundedForensicsQueryOptionalPersistence(input: {
   correlationId: string;
   selectedLineId: string;
   task: Promise<void>;
-  taskName: "maya_query_scope_memory" | "maya_query_token_usage_receipt";
+  taskName: "maya_query_case_recall_memory" | "maya_query_scope_memory" | "maya_query_token_usage_receipt";
 }): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
@@ -1468,6 +1493,37 @@ async function awaitBoundedForensicsQueryOptionalPersistence(input: {
   }
 }
 
+async function loadMayaForensicsQueryRecallContext(input: {
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  selectedLineId: string;
+}): Promise<MayaQueryMemoryRecallContext | undefined> {
+  if (input.env.RECOUP_MAYA_QUERY_MEMORY_RECALL !== "enabled" || !isSafeMayaQueryMemoryRecordId(input.selectedLineId)) {
+    return undefined;
+  }
+
+  try {
+    const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+    if (supabaseMemory !== undefined) {
+      return buildMayaQueryMemoryRecallContext(await supabaseMemory.list(`case:${input.selectedLineId}`), input.selectedLineId);
+    }
+
+    const dbPath = input.env.RECOUP_MEMORY_DB_PATH?.trim();
+    if (dbPath === undefined || dbPath.length === 0) {
+      return undefined;
+    }
+
+    const memoryStore = createRuntimeMemoryStore(input.env);
+    try {
+      return buildMayaQueryMemoryRecallContext(readMayaCaseRecallMemories(memoryStore, input.selectedLineId), input.selectedLineId);
+    } finally {
+      memoryStore.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 async function persistMayaForensicsQueryScopeMemory(input: {
   env: RuntimeEnv;
   memoryFetcher: SupabaseMemoryFetch | undefined;
@@ -1496,6 +1552,63 @@ async function persistMayaForensicsQueryScopeMemory(input: {
       selectedLineId: input.request.selectedLineId,
       sessionId: input.sessionId,
       status: input.queryResponse.answer === undefined ? "blocked" : "answered"
+    });
+
+    const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+    if (supabaseMemory !== undefined) {
+      await supabaseMemory.append(memoryRecord);
+      return;
+    }
+
+    const dbPath = input.env.RECOUP_MEMORY_DB_PATH?.trim();
+    if (dbPath === undefined || dbPath.length === 0) {
+      return;
+    }
+
+    const memoryStore = createRuntimeMemoryStore(input.env);
+    try {
+      memoryStore.append(memoryRecord);
+    } finally {
+      memoryStore.close();
+    }
+  } catch {
+    return;
+  }
+}
+
+async function persistMayaForensicsCaseRecallMemory(input: {
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  queryResponse: ForensicsQuerySessionResponse;
+  request: z.infer<typeof forensicsQueryRequestSchema>;
+  sessionId: string;
+}): Promise<void> {
+  try {
+    if (input.queryResponse.answer === undefined) {
+      return;
+    }
+
+    const requestedScopeRecordIds = uniqueRecordIds([input.request.selectedLineId, ...input.request.recordIds]);
+    if (!requestedScopeRecordIds.every(isSafeMayaQueryMemoryRecordId)) {
+      return;
+    }
+
+    const scopeRecordIds = uniqueRecordIds([
+      ...requestedScopeRecordIds,
+      ...input.queryResponse.citations.map((citation) => citation.recordId),
+      ...input.queryResponse.trace.flatMap((event) => event.recordIds)
+    ]);
+    if (!scopeRecordIds.every(isSafeMayaQueryMemoryRecordId)) {
+      return;
+    }
+
+    const memoryRecord = writeMayaCaseRecallMemory(createInMemoryStore(), {
+      caseId: input.request.selectedLineId,
+      deterministicBasis: "POST /forensics/query cited records + deterministic query basis",
+      recordIds: scopeRecordIds,
+      selectedLineId: input.request.selectedLineId,
+      sessionId: input.sessionId,
+      status: "answered"
     });
 
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);

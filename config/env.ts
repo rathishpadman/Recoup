@@ -17,6 +17,7 @@ const RuntimeEnvSchema = z.object({
   RECOUP_MEMORY_BACKEND: z.enum(["in_memory", "sqlite", "supabase"]).optional(),
   RECOUP_MEMORY_DB_PATH: z.string().min(1).optional(),
   RECOUP_SUPABASE_MEMORY_TABLE: z.string().min(1).optional(),
+  RECOUP_MAYA_QUERY_MEMORY_RECALL: z.enum(["enabled", "disabled"]).optional(),
   RECOUP_COCKPIT_ALLOWED_ORIGINS: z.string().min(1).optional(),
   RECOUP_COCKPIT_AUTH_TOKEN: z.string().min(1).optional(),
   RECOUP_DEMO_SESSION_SECRET: z.string().min(1).optional(),

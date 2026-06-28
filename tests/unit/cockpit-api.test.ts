@@ -834,9 +834,10 @@ describe("S5 cockpit API", () => {
         mode: "live_openai_agents",
         tokenUsage: 1842
       });
-      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(2);
-      expect(memoryRows).toHaveLength(2);
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(3);
+      expect(memoryRows).toHaveLength(3);
       const queryScope = memoryRows.find((row) => row["category"] === "session_state");
+      const caseRecall = memoryRows.find((row) => row["category"] === "case_state");
       const receipt = memoryRows.find((row) => row["category"] === "audit_refs");
       const queryScopePayload = queryScope?.["payload_json"];
       if (queryScope === undefined || !isJsonRecord(queryScopePayload)) {
@@ -854,6 +855,27 @@ describe("S5 cockpit API", () => {
         status: "answered"
       });
       expect(JSON.stringify(queryScope)).not.toMatch(/question|amount|dollar|verdict|routing|approval/iu);
+      const caseRecallPayload = caseRecall?.["payload_json"];
+      if (caseRecall === undefined || !isJsonRecord(caseRecallPayload)) {
+        throw new Error("Expected Supabase Maya case recall memory receipt.");
+      }
+      expect(caseRecall["id"]).toBe("case:S6-L1:maya-recall:cockpit-run:S6-L1");
+      expect(caseRecall["scope"]).toBe("case:S6-L1");
+      expect(caseRecall["trust_level"]).toBe("trusted");
+      expect(caseRecallPayload).toEqual({
+        caseId: "S6-L1",
+        deterministicBasis: "POST /forensics/query cited records + deterministic query basis",
+        key: "maya-case-recall",
+        memoryType: "maya_long_term_case_recall",
+        selectedLineId: "S6-L1",
+        selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        sessionId: "cockpit-run",
+        status: "answered"
+      });
+      expect(Object.keys(caseRecallPayload).filter((key) => /question|answer|amount|dollar|verdict|routing|approval/iu.test(key))).toEqual(
+        []
+      );
+      expect(JSON.stringify(caseRecall)).not.toMatch(/\$|external action|writeback|approved_by/iu);
       const receiptPayload = receipt?.["payload_json"];
       if (receipt === undefined || !isJsonRecord(receiptPayload)) {
         throw new Error("Expected Supabase token usage memory receipt.");
@@ -1198,7 +1220,7 @@ describe("S5 cockpit API", () => {
         mode: "live_openai_agents",
         tokenUsage: 913
       });
-      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(2);
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(3);
       expect(warningSpy).toHaveBeenCalledTimes(1);
       const warning = JSON.parse(String(warningSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
       expect(warning).toEqual({
@@ -2099,6 +2121,82 @@ describe("S5 cockpit API", () => {
       expect(liveRunner).toHaveBeenCalledTimes(2);
       expect(body.answer).toContain("S6-L1");
       expect(body.modelExecution?.mode).toBe("live_openai_agents");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("includes trusted Maya case recall in live forensic query input only when explicitly enabled", async () => {
+    const calls: string[] = [];
+    const sourceFetcher = successfulRealBackendSourceFetcher(calls);
+    const memoryRows = [
+      {
+        category: "case_state",
+        created_at: "2026-06-28T00:00:00.000Z",
+        id: "case:S6-L1:maya-recall:maya-session-42:S6-L1",
+        payload_json: {
+          caseId: "S6-L1",
+          deterministicBasis: "POST /forensics/query cited records + deterministic query basis",
+          key: "maya-case-recall",
+          memoryType: "maya_long_term_case_recall",
+          selectedLineId: "S6-L1",
+          selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          sessionId: "maya-session-42",
+          status: "answered"
+        },
+        record_ids_json: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        scope: "case:S6-L1",
+        trust_level: "trusted"
+      }
+    ];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      calls.push(`${init.method ?? "GET"} ${url}`);
+      if (url.includes("/rest/v1/recoup_memory_records") && init.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify(memoryRows), { status: 200 }));
+      }
+      if (url.includes("/rest/v1/recoup_memory_records") && init.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 201 }));
+      }
+
+      return sourceFetcher(url, init);
+    };
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      expect(request.input).toContain("Trusted governed Maya memory recall.");
+      expect(request.input).toContain("Recall is advisory-only");
+      expect(request.input).toContain("Memory record IDs: case:S6-L1:maya-recall:maya-session-42:S6-L1.");
+      expect(request.input).toContain("Recalled evidence record IDs: S6-L1, INV-S6-1, SAP-INV-S6-1, PRICE-CLAUSE-1.");
+      expect(request.input).not.toContain("$");
+      emitForensicsHandoffReceipts(request);
+      return liveQueryDeltaStream("Recall-aware live query answer candidate suppressed.", selectedLiveQueryRecordIds(request));
+    });
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MAYA_QUERY_MEMORY_RECALL: "enabled",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: { ...cockpitAuthHeaders, "x-recoup-session-id": "maya-session-42" },
+        method: "POST"
+      });
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string } };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(calls.some((call) => call.includes("scope=eq.case%3AS6-L1"))).toBe(true);
     } finally {
       await close(server);
     }
