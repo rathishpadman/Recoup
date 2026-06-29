@@ -1,11 +1,10 @@
 "use client";
 
 import { type CSSProperties, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, EyeOff, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardCheck, FileSearch, RotateCcw, ShieldCheck, ZoomIn, ZoomOut } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const mayaLoginHref = "/login?loginId=Maya";
@@ -16,8 +15,14 @@ const editorialDisplayStyle = {
 } satisfies CSSProperties;
 const heroHeadlineStyle = {
   ...editorialDisplayStyle,
-  fontSize: "40px",
-  lineHeight: "1.12"
+  fontSize: "clamp(30px, 3.2vw, 42px)",
+  lineHeight: "1.1"
+} satisfies CSSProperties;
+const heroLeadStyle = {
+  marginTop: "clamp(14px, 2vw, 24px)"
+} satisfies CSSProperties;
+const heroProofStyle = {
+  marginTop: "clamp(8px, 1.2vw, 12px)"
 } satisfies CSSProperties;
 
 type LandingTab = "problem" | "solution" | "demo" | "tech" | "how-we-built-it" | "about";
@@ -33,62 +38,40 @@ const landingTabs = [
 
 export default function LandingPage() {
   const [activeTab, setActiveTab] = useState<LandingTab>("problem");
+  const [architectureZoom, setArchitectureZoom] = useState(1);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#fbfbfa] font-sans text-[#172032]" data-testid="recoup-landing-page">
       <main className="mx-auto flex h-dvh min-h-0 w-full max-w-[1424px] flex-col">
-        <section className="flex min-h-[358px] shrink-0 flex-col items-center px-4 pb-10 pt-10 text-center" data-testid="recoup-landing-hero">
+        <section className="flex min-h-[246px] shrink-0 flex-col items-center justify-center px-4 pb-4 pt-4 text-center md:min-h-[358px] md:pb-8 md:pt-10" data-testid="recoup-landing-hero">
           <h1
-            className="max-w-[1424px] font-serif text-[40px] font-semibold leading-[1.12] text-[#172032]"
+            className="max-w-[1424px] font-serif font-semibold text-[#172032]"
             style={heroHeadlineStyle}
           >
             CPG manufacturers lose 2–5% of gross revenue to retailer deductions. Most never get it back.
           </h1>
-          <p className="mt-8 max-w-[900px] text-[22px] font-semibold leading-9 text-[#5f6878]">
+          <p className="max-w-[900px] text-[18px] font-semibold leading-7 text-[#5f6878] md:text-[22px] md:leading-9" style={heroLeadStyle}>
             Recoup is an agentic Order-to-Cash recovery cockpit, evidence-backed, governed, and auditable by design.
           </p>
-          <p className="mt-4 text-[17px] font-semibold text-[#71809c]">
+          <p className="text-[13px] font-semibold text-[#71809c] md:text-[17px]" style={heroProofStyle}>
             Agents investigate. Code computes. Humans approve. Every decision cites evidence.
           </p>
 
-          <div className="mt-auto flex items-center gap-3 pt-10">
-            <Button
-              asChild
-              className="h-[44px] min-w-[176px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
-              data-testid="recoup-landing-enter-cta"
-              size="sm"
-            >
-              <a href={mayaLoginHref}>
-                Enter as Maya
-                <ArrowRight data-icon="inline-end" />
-              </a>
-            </Button>
-            <Button
-              asChild
-              className="h-[44px] min-w-[178px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
-              size="sm"
-            >
-              <a href={davidLoginHref}>
-                Enter as David
-                <ArrowRight data-icon="inline-end" />
-              </a>
-            </Button>
-          </div>
         </section>
 
-        <section className="flex min-h-0 w-full flex-1 flex-col pb-7" data-testid="recoup-landing-shell">
+        <section className="flex min-h-0 w-full flex-1 flex-col pb-3" data-testid="recoup-landing-shell">
           <Tabs
-            className="flex w-full flex-1 flex-col"
+            className="flex min-h-0 w-full flex-1 flex-col !gap-0"
             data-testid="recoup-landing-tabs"
             onValueChange={(value) => {
               setActiveTab(value as LandingTab);
             }}
             value={activeTab}
           >
-            <TabsList className="mb-7 grid h-[48px] w-full shrink-0 grid-cols-3 rounded-none border border-[#e6ebf1] bg-[#f8fafc] p-0 shadow-none md:grid-cols-6">
+            <TabsList className="mb-3 grid !h-[56px] w-full shrink-0 grid-cols-3 rounded-none border border-[#e6ebf1] bg-[#f8fafc] p-0 shadow-none md:mb-5 md:!h-[48px] md:grid-cols-6">
               {landingTabs.map(([value, label]) => (
                 <TabsTrigger
-                  className="h-full rounded-none border-r border-[#e9eef4] bg-transparent py-0 text-[16px] font-semibold text-[#71809c] shadow-none last:border-r-0 data-active:bg-white data-active:text-[#2d8793] data-active:shadow-none data-[state=active]:bg-white data-[state=active]:text-[#2d8793] data-[state=active]:shadow-none"
+                  className="!h-full rounded-none border-r border-[#e9eef4] bg-transparent py-0 text-[13px] font-semibold text-[#71809c] shadow-none last:border-r-0 data-active:bg-white data-active:text-[#2d8793] data-active:shadow-none data-[state=active]:bg-white data-[state=active]:text-[#2d8793] data-[state=active]:shadow-none md:text-[16px]"
                   key={value}
                   value={value}
                 >
@@ -97,8 +80,8 @@ export default function LandingPage() {
               ))}
             </TabsList>
 
-            <div className="min-h-0 flex-1 overflow-hidden rounded-[4px] border border-[#dbe3ec] bg-white p-7 shadow-xs">
-              <TabsContent className="m-0 flex h-full flex-col gap-7" data-testid="recoup-landing-tab-problem" value="problem">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-[4px] border border-[#dbe3ec] bg-white p-2 shadow-xs md:p-5">
+              <TabsContent className="m-0 flex h-full flex-col gap-5" data-testid="recoup-landing-tab-problem" value="problem">
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                   {[
                     { val: "2–5%", label: "of gross revenue lost to deductions annually", src: "McKinsey 2026" },
@@ -123,7 +106,7 @@ export default function LandingPage() {
                   ))}
                 </div>
 
-                <div className="border-l-[4px] border-[#2d8793] bg-[#f2f8fa] px-7 py-7">
+                <div className="border-l-[4px] border-[#2d8793] bg-[#f2f8fa] px-6 py-5">
                   <p className="text-[18px] italic leading-relaxed text-[#3f4b5d]" style={{ fontFamily: "var(--font-editorial)" }}>
                     "O2C leakages amount to 3–5% of EBITDA. AI-backed tools can help recapture invalid credit memo value."
                   </p>
@@ -132,11 +115,23 @@ export default function LandingPage() {
 
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
                   {[
-                    { icon: Zap, title: "Blunt instruments", desc: "Credit holds are binary — no partial release based on dispute strength" },
-                    { icon: EyeOff, title: "Black-box decisions", desc: "Finance cannot verify uncited AI reasoning in audit" },
-                    { icon: AlertTriangle, title: "Manual economics", desc: "Teams drown in deduction volume before they can dispute" }
+                    {
+                      icon: FileSearch,
+                      title: "Deduction proof is scattered",
+                      desc: "Contracts, PODs, pricing, returns, remittances, and claims sit in separate systems before teams can prove recoverability."
+                    },
+                    {
+                      icon: ShieldCheck,
+                      title: "Credit decisions lack dispute context",
+                      desc: "Credit holds rarely account for open deductions, customer behavior, recovery odds, or partial-release economics."
+                    },
+                    {
+                      icon: ClipboardCheck,
+                      title: "Recovery actions need control",
+                      desc: "Every dispute, rebill, outreach, hold, or terms change needs cited evidence, deterministic basis, and human approval."
+                    }
                   ].map((fail) => (
-                    <div className="flex min-h-[104px] gap-4 border border-[#e2e8f0] bg-white px-5 py-5" key={fail.title}>
+                    <div className="flex min-h-[132px] gap-3 border border-[#e2e8f0] bg-white px-4 py-4" key={fail.title}>
                       <div className="mt-0.5 shrink-0">
                         <fail.icon className="size-5 text-[#71809c]" />
                       </div>
@@ -150,49 +145,74 @@ export default function LandingPage() {
               </TabsContent>
 
               <TabsContent
-                className="m-0 flex h-full flex-col justify-center gap-12"
+                className="m-0 flex h-full flex-col justify-start gap-2 overflow-hidden md:justify-center md:gap-4"
                 data-testid="recoup-landing-tab-solution"
                 value="solution"
               >
-                <div className="flex flex-col items-center justify-between gap-4 md:flex-row md:gap-2">
+                <div className="flex min-h-0 flex-col gap-2 md:gap-4">
                   {[
-                    { step: "1", title: "Evidence Ingestion", sub: "SAP / TPM / 3PL / Bureau" },
-                    { step: "2", title: "Agent Forensics", sub: "GPT-5.5 · Zod-validated tools" },
-                    { step: "3", title: "Human Approval Gate", sub: "HITL sign-off · Proposer ≠ Approver" },
-                    { step: "4", title: "Immutable Audit Ledger", sub: "SHA-256 hash chain · Supabase" }
-                  ].map((node, index, arr) => (
-                    <div className="flex w-full flex-1 items-center md:w-auto" key={node.step}>
-                      <div className="relative flex-1 rounded-md border border-border bg-background p-4 text-center shadow-xs">
-                        <div className="absolute -top-2.5 left-1/2 flex size-5 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-xs font-bold text-muted-foreground">
-                          {node.step}
+                    {
+                      title: "Deduction Forensics & Recovery",
+                      icon: FileSearch,
+                      steps: [
+                        ["Evidence packet", "SAP, TPM, 3PL, contracts, remittance"],
+                        ["Agent forensics", "Investigates missing proof and claim validity"],
+                        ["Deterministic recovery basis", "Code computes disputed/recoverable basis"],
+                        ["Human-approved recovery", "Draft-only action with audit chain"]
+                      ]
+                    },
+                    {
+                      title: "Credit Risk Sentinel",
+                      icon: ShieldCheck,
+                      steps: [
+                        ["Exposure signals", "AR, DSO, disputes, open deductions, behavior"],
+                        ["Deterministic risk scoring", "Code computes risk basis"],
+                        ["Governed credit proposal", "Partial hold, release, terms, or escalation"],
+                        ["Human-approved action", "No external credit action without approval"]
+                      ]
+                    }
+                  ].map((lane) => (
+                    <div className="grid grid-cols-1 gap-2 border border-[#dbe3ec] bg-[#fbfbfa] p-2 md:grid-cols-[220px_1fr] md:gap-3 md:p-4" key={lane.title}>
+                      <div className="flex items-center gap-3 md:flex-col md:items-start md:justify-center">
+                        <div className="flex size-7 shrink-0 items-center justify-center border border-[#cfd9e5] bg-white md:size-9">
+                          <lane.icon className="size-4 text-[#2d8793] md:size-5" />
                         </div>
-                        <h3 className="mt-1 text-sm font-semibold text-foreground">{node.title}</h3>
-                        <p className="mt-1 font-mono text-xs text-muted-foreground">{node.sub}</p>
+                        <h3 className="text-[13px] font-bold leading-tight text-[#172032] md:text-[17px]">{lane.title}</h3>
                       </div>
-                      {index < arr.length - 1 ? (
-                        <div className="hidden w-8 shrink-0 justify-center text-muted-foreground md:flex">
-                          <ArrowRight className="size-4" />
-                        </div>
-                      ) : null}
+                      <div className="grid grid-cols-2 gap-1.5 md:grid-cols-[1fr_20px_1fr_20px_1fr_20px_1fr] md:items-stretch md:gap-2">
+                        {lane.steps.map(([label, detail], index) => (
+                          <div className="contents" key={label}>
+                            <div className="min-h-[52px] border border-[#e2e8f0] bg-white px-2 py-2 md:min-h-[74px] md:px-3 md:py-3">
+                              <div className="text-[11px] font-bold leading-tight text-[#172032] md:text-[13px]">{label}</div>
+                              <div className="mt-0.5 text-[10px] leading-[1.15] text-[#71809c] md:mt-1 md:text-[12px] md:leading-4">{detail}</div>
+                            </div>
+                            {index < lane.steps.length - 1 ? (
+                              <div className="hidden items-center justify-center text-[#71809c] md:flex">
+                                <ArrowRight className="size-4" />
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
 
-                <div className="flex flex-wrap justify-center gap-2">
+                <div className="hidden md:flex md:flex-wrap md:justify-center md:gap-2">
                   {[
-                    "Deterministic math",
-                    "Every decision cites a record ID",
-                    "Proposer ≠ Approver",
+                    "Code computes dollars and risk math",
+                    "Every decision cites records",
                     "Read-only source connectors",
                     "No ERP write-back",
-                    "Immutable audit trail"
+                    "Human approval before action",
+                    "Tamper-evident audit trail"
                   ].map((chip) => (
                     <Badge
-                      className="flex items-center gap-1.5 rounded-sm border-border/50 bg-muted/50 px-2.5 py-1 text-xs font-medium text-foreground/80"
+                      className="flex h-auto min-h-5 w-full items-center justify-center gap-1 whitespace-normal rounded-sm border-border/50 bg-muted/50 px-1 py-0.5 text-center text-[9px] font-medium leading-tight text-foreground/80 md:min-h-0 md:w-fit md:justify-start md:gap-1.5 md:px-2.5 md:py-1 md:text-left md:text-xs"
                       key={chip}
                       variant="secondary"
                     >
-                      <CheckCircle2 className="size-3 text-primary/70" />
+                      <CheckCircle2 className="size-2.5 text-primary/70 md:size-3" />
                       {chip}
                     </Badge>
                   ))}
@@ -212,7 +232,7 @@ export default function LandingPage() {
                       <CardDescription className="text-sm font-medium">Senior Deductions Analyst</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <ul className="mb-6 space-y-3">
+                      <ul className="mb-6 flex flex-col gap-3">
                         {[
                           "Reviews pre-triaged deduction lines",
                           "Opens multimodal evidence dock",
@@ -245,7 +265,7 @@ export default function LandingPage() {
                       <CardDescription className="text-sm font-medium">Director of Credit & Collections</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <ul className="mb-6 space-y-3">
+                      <ul className="mb-6 flex flex-col gap-3">
                         {[
                           "Reviews account exposure and DSO drift",
                           "Uses partial-hold scoring",
@@ -274,29 +294,64 @@ export default function LandingPage() {
                 </div>
               </TabsContent>
 
-              <TabsContent className="m-0 flex h-full items-center justify-center" data-testid="recoup-landing-tab-tech" value="tech">
-                <div className="w-full max-w-3xl overflow-hidden rounded-md border border-border bg-background/50">
-                  <Table>
-                    <TableBody>
-                      {[
-                        ["Frontend", "Next.js, React, TypeScript"],
-                        ["Styling", "Tailwind CSS, shadcn/ui, Carbon-inspired patterns"],
-                        ["Fonts", "IBM Plex Sans, Newsreader"],
-                        ["Agent SDK", "OpenAI Agents SDK (TypeScript)"],
-                        ["Models", "GPT-5.5, GPT-4.1, GPT Realtime"],
-                        ["Money math", "decimal.js — no LLM arithmetic"],
-                        ["Validation", "Zod"],
-                        ["Database", "Supabase / PostgreSQL"],
-                        ["Audit ledger", "SHA-256 hash chain"],
-                        ["Testing", "Vitest, Playwright"]
-                      ].map(([layer, tech]) => (
-                        <TableRow className="border-border even:bg-muted/20 hover:bg-transparent" key={layer}>
-                          <TableCell className="w-1/3 px-4 py-2.5 text-xs font-semibold text-foreground/70">{layer}</TableCell>
-                          <TableCell className="px-4 py-2.5 font-mono text-xs text-foreground/90">{tech}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+              <TabsContent className="m-0 flex h-full flex-col gap-2" data-testid="recoup-landing-tab-tech" value="tech">
+                <div className="flex shrink-0 items-center justify-end gap-2">
+                  <span aria-live="polite" className="sr-only">
+                    Architecture diagram zoom {Math.round(architectureZoom * 100)} percent
+                  </span>
+                  <Button
+                    aria-label="Zoom architecture diagram out"
+                    disabled={architectureZoom <= 1}
+                    onClick={() => {
+                      setArchitectureZoom((zoom) => Math.max(1, Number((zoom - 0.25).toFixed(2))));
+                    }}
+                    size="icon"
+                    type="button"
+                    variant="outline"
+                  >
+                    <ZoomOut data-icon="inline-start" />
+                  </Button>
+                  <Button
+                    aria-label="Reset architecture diagram zoom"
+                    disabled={architectureZoom === 1}
+                    onClick={() => {
+                      setArchitectureZoom(1);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <RotateCcw data-icon="inline-start" />
+                    {Math.round(architectureZoom * 100)}%
+                  </Button>
+                  <Button
+                    aria-label="Zoom architecture diagram in"
+                    disabled={architectureZoom >= 2}
+                    onClick={() => {
+                      setArchitectureZoom((zoom) => Math.min(2, Number((zoom + 0.25).toFixed(2))));
+                    }}
+                    size="icon"
+                    type="button"
+                    variant="outline"
+                  >
+                    <ZoomIn data-icon="inline-start" />
+                  </Button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto bg-white">
+                  <p className="sr-only" id="architecture-diagram-summary">
+                    Recoup connects read-only source evidence to deterministic services, agent investigation and drafting, HITL
+                    approval, and a tamper-evident audit ledger. The architecture keeps ERP writes disabled and requires cited
+                    records plus deterministic basis before any human-approved external action.
+                  </p>
+                  <div className="flex min-h-full min-w-full items-start justify-start p-2">
+                    <img
+                      alt="Recoup architecture diagram showing source evidence, deterministic services, agent investigation, approval, and audit ledger"
+                      aria-describedby="architecture-diagram-summary"
+                      className="block max-w-none"
+                      src="/architecture-diagram.png"
+                      style={{ height: "auto", width: `${String(architectureZoom * 100)}%` }}
+                    />
+                  </div>
                 </div>
               </TabsContent>
 
@@ -307,16 +362,15 @@ export default function LandingPage() {
               >
                 <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-8 md:grid-cols-2 md:gap-12">
                   <div>
-                    <h3 className="mb-4 text-sm font-bold text-foreground">Build toolchain</h3>
-                    <ul className="space-y-3">
+                    <h3 className="mb-4 text-sm font-bold text-foreground">Product and engineering proof</h3>
+                    <ul className="flex flex-col gap-3">
                       {[
-                        "Claude Code + Codex — agentic coding",
-                        "Superpowers Skills — TDD, debugging, code review, planning, worktrees",
-                        "shadcn/ui — component system",
-                        "Carbon-inspired design patterns",
-                        "Typed tool registry",
-                        "Zod validation",
-                        "E2E testing + verification gates"
+                        "OpenAI Agents SDK orchestration",
+                        "Typed TypeScript services",
+                        "Zod-validated tools",
+                        "Deterministic money and risk modules",
+                        "Read-only source ports",
+                        "Vitest, Playwright, invariant gates"
                       ].map((item) => (
                         <li className="flex items-center gap-2 text-sm text-foreground/80" key={item}>
                           <div className="size-1.5 shrink-0 rounded-full bg-primary/60" />
@@ -330,9 +384,10 @@ export default function LandingPage() {
                     <h3 className="mb-4 text-sm font-bold text-foreground">Architecture flow</h3>
                     <div className="relative flex flex-col gap-2 before:absolute before:inset-y-3 before:left-3 before:w-px before:bg-border">
                       {[
-                        "OpenAI Agents SDK",
-                        "Zod-validated tool registry",
-                        "Read-only source connectors",
+                        "Source evidence",
+                        "Deterministic services",
+                        "Agent investigation/drafting",
+                        "HITL approval",
                         "Audit ledger"
                       ].map((step, index) => (
                         <div className="relative flex items-center gap-3 bg-card" key={step}>
@@ -389,6 +444,30 @@ export default function LandingPage() {
               </TabsContent>
             </div>
           </Tabs>
+
+          <div className="flex shrink-0 items-center justify-center gap-3 pt-3" data-testid="recoup-landing-bottom-cta">
+            <Button
+              asChild
+              className="h-[44px] min-w-[176px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
+              data-testid="recoup-landing-enter-cta"
+              size="sm"
+            >
+              <a href={mayaLoginHref}>
+                Enter as Maya
+                <ArrowRight data-icon="inline-end" />
+              </a>
+            </Button>
+            <Button
+              asChild
+              className="h-[44px] min-w-[178px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
+              size="sm"
+            >
+              <a href={davidLoginHref}>
+                Enter as David
+                <ArrowRight data-icon="inline-end" />
+              </a>
+            </Button>
+          </div>
         </section>
       </main>
     </div>

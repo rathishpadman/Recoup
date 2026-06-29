@@ -361,8 +361,66 @@ async function assertLandingPage(browser: Browser): Promise<void> {
 
     await page.getByRole("tab", { name: "Problem" }).click();
     await expectVisibleText(page, "65–80%");
+    await expectVisibleText(page, "Deduction proof is scattered");
+    await expectVisibleText(page, "Credit decisions lack dispute context");
+    await expectVisibleText(page, "Recovery actions need control");
+
+    await page.getByRole("tab", { name: "Solution" }).click();
+    await expectVisibleText(page, "Deduction Forensics & Recovery");
+    await expectVisibleText(page, "Credit Risk Sentinel");
+    await expectVisibleText(page, "Evidence packet");
+    await expectVisibleText(page, "Human-approved recovery");
+    await expectVisibleText(page, "Exposure signals");
+    await expectVisibleText(page, "Human-approved action");
+    await expectVisibleText(page, "Code computes dollars and risk math");
+    await expectVisibleText(page, "Tamper-evident audit trail");
+
     await page.getByRole("tab", { name: "Tech" }).click();
-    await expectVisibleText(page, "GPT-5.5, GPT-4.1, GPT Realtime");
+    const architectureImage = page.locator('img[src="/architecture-diagram.png"]');
+    await architectureImage.waitFor({ state: "visible", timeout: 15_000 });
+    const initialArchitectureImage = await architectureImage.evaluate((image) => {
+      if (!(image instanceof HTMLImageElement)) {
+        return null;
+      }
+      const rect = image.getBoundingClientRect();
+      return {
+        complete: image.complete,
+        height: rect.height,
+        naturalHeight: image.naturalHeight,
+        naturalWidth: image.naturalWidth,
+        width: rect.width
+      };
+    });
+    assert(
+      initialArchitectureImage !== null &&
+        initialArchitectureImage.complete &&
+        initialArchitectureImage.naturalWidth > 0 &&
+        initialArchitectureImage.naturalHeight > 0 &&
+        initialArchitectureImage.width > 0 &&
+        initialArchitectureImage.height > 0,
+      `architecture diagram must render a decoded image, received ${JSON.stringify(initialArchitectureImage)}`
+    );
+    await expectVisibleText(page, "100%");
+    await page.getByLabel("Zoom architecture diagram in").click();
+    await expectVisibleText(page, "125%");
+    const zoomedArchitectureImage = await architectureImage.evaluate((image) => {
+      const rect = image.getBoundingClientRect();
+      return {
+        height: rect.height,
+        width: rect.width
+      };
+    });
+    assert(
+      zoomedArchitectureImage.width > initialArchitectureImage.width + 1,
+      `architecture diagram zoom must increase rendered width from ${String(initialArchitectureImage.width)}px; received ${String(
+        zoomedArchitectureImage.width
+      )}px`
+    );
+
+    await page.getByRole("tab", { name: "How We Built It" }).click();
+    await expectVisibleText(page, "OpenAI Agents SDK orchestration");
+    const buildCopy = await page.getByTestId("recoup-landing-tab-build").innerText();
+    assert(!/Claude|Codex|Superpowers/iu.test(buildCopy), "How We Built It must not expose internal coding tool references");
     assertNoForbiddenRequests(apiRequests, "Public landing page");
     await assertNoHorizontalOverflow(page, "Recoup landing desktop");
     const viewportFit = await page.evaluate(() => ({
