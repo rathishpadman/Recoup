@@ -14,6 +14,11 @@ const editorialDisplayStyle = {
   fontFamily: "var(--font-editorial)",
   fontVariationSettings: '"opsz" 72'
 } satisfies CSSProperties;
+const heroHeadlineStyle = {
+  ...editorialDisplayStyle,
+  fontSize: "40px",
+  lineHeight: "1.12"
+} satisfies CSSProperties;
 
 type LandingTab = "problem" | "solution" | "demo" | "tech" | "how-we-built-it" | "about";
 
@@ -32,24 +37,24 @@ export default function LandingPage() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#fbfbfa] font-sans text-[#172032]" data-testid="recoup-landing-page">
       <main className="mx-auto flex h-dvh min-h-0 w-full max-w-[1424px] flex-col">
-        <section className="flex shrink-0 flex-col items-center justify-center px-4 pb-8 pt-7 text-center" data-testid="recoup-landing-hero">
+        <section className="flex min-h-[358px] shrink-0 flex-col items-center px-4 pb-10 pt-10 text-center" data-testid="recoup-landing-hero">
           <h1
-            className="max-w-[1080px] font-serif text-[48px] font-semibold leading-[1.12] text-[#172032]"
-            style={editorialDisplayStyle}
+            className="max-w-[1424px] font-serif text-[40px] font-semibold leading-[1.12] text-[#172032]"
+            style={heroHeadlineStyle}
           >
             CPG manufacturers lose 2–5% of gross revenue to retailer deductions. Most never get it back.
           </h1>
-          <p className="mt-7 max-w-[840px] text-[20px] font-semibold leading-8 text-[#5f6878]">
+          <p className="mt-8 max-w-[900px] text-[22px] font-semibold leading-9 text-[#5f6878]">
             Recoup is an agentic Order-to-Cash recovery cockpit, evidence-backed, governed, and auditable by design.
           </p>
-          <p className="mt-3 text-[16px] font-semibold text-[#71809c]">
+          <p className="mt-4 text-[17px] font-semibold text-[#71809c]">
             Agents investigate. Code computes. Humans approve. Every decision cites evidence.
           </p>
 
-          <div className="mt-6 flex items-center gap-3">
+          <div className="mt-auto flex items-center gap-3 pt-10">
             <Button
               asChild
-              className="h-[40px] min-w-[164px] rounded-none bg-[#2d8793] px-5 text-[15px] font-semibold text-white hover:bg-[#247784]"
+              className="h-[44px] min-w-[176px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
               data-testid="recoup-landing-enter-cta"
               size="sm"
             >
@@ -60,7 +65,7 @@ export default function LandingPage() {
             </Button>
             <Button
               asChild
-              className="h-[40px] min-w-[166px] rounded-none bg-[#2d8793] px-5 text-[15px] font-semibold text-white hover:bg-[#247784]"
+              className="h-[44px] min-w-[178px] rounded-none bg-[#2d8793] px-6 text-[16px] font-semibold text-white hover:bg-[#247784]"
               size="sm"
             >
               <a href={davidLoginHref}>
