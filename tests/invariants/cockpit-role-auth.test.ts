@@ -75,6 +75,27 @@ describe("cockpit role-based demo auth", () => {
     expect(demoProfiles).toContain('"/governance/connectors"');
   });
 
+  it("prefills landing persona login IDs without bypassing credential auth", () => {
+    const landing = readFileSync("cockpit/app/page.tsx", "utf8");
+    const loginPage = readFileSync("cockpit/app/login/page.tsx", "utf8");
+    const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
+
+    expect(landing).toContain('const mayaLoginHref = "/login?loginId=Maya"');
+    expect(landing).toContain('const davidLoginHref = "/login?loginId=david"');
+    expect(landing).toContain("href={mayaLoginHref}");
+    expect(landing).toContain("href={davidLoginHref}");
+    expect(loginPage).toContain("loginId?: string | string[]");
+    expect(loginPage).toContain("const requestedLoginId = readFirstSearchParam(params?.loginId)");
+    expect(loginPage).toContain("personas.find((persona) => persona.loginId === requestedLoginId)");
+    expect(loginPage).toContain("initialLoginId={initialLoginId}");
+    expect(loginForm).toContain("initialLoginId: string | undefined");
+    expect(loginForm).toContain("const initialPersonaLoginId");
+    expect(loginForm).toContain("setLoginId(initialPersonaLoginId)");
+    expect(loginForm).toContain('body: JSON.stringify({ loginId, password })');
+    expect(landing).not.toContain("password=");
+    expect(loginPage).not.toContain("password=");
+  });
+
   it("defines deterministic role-derived human principals for demo sessions", () => {
     expect(cockpitHumanPrincipalByDemoRole).toEqual({
       cfo: "human:cfo-lead",

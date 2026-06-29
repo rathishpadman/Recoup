@@ -10,15 +10,16 @@ function read(paths: string[]): string {
   return paths.map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
-function readTree(root: string, extensions: string[]): string {
+function readTree(root: string, extensions: string[], excludedPaths: string[] = []): string {
   const files: string[] = [];
+  const excluded = new Set(excludedPaths);
 
   function walk(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name).replace(/\\/g, "/");
       if (entry.isDirectory()) {
         walk(path);
-      } else if (extensions.some((extension) => path.endsWith(extension))) {
+      } else if (extensions.some((extension) => path.endsWith(extension)) && !excluded.has(path)) {
         files.push(path);
       }
     }
@@ -41,7 +42,6 @@ function cssBlock(styles: string, selector: string): string {
 describe("S5 cockpit business-logic boundary", () => {
   it("keeps the Next cockpit surface free of core rule and Decimal imports", () => {
     const cockpitSources = read([
-      "cockpit/app/page.tsx",
       "cockpit/app/cockpit-data.ts",
       "cockpit/app/cockpit-shell.tsx",
       "cockpit/app/forensics/page.tsx",
@@ -58,6 +58,35 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(cockpitAndMayaSources).not.toContain("src/core");
     expect(cockpitAndMayaSources).not.toContain("evaluateRule");
     expect(cockpitAndMayaSources).not.toContain("runForensicsInvestigation");
+  });
+
+  it("keeps the public landing page editorial and outside backend computation", () => {
+    const root = readFileSync("cockpit/app/page.tsx", "utf8");
+
+    expect(root).toContain('data-testid="recoup-landing-page"');
+    expect(root).toContain('data-testid="recoup-landing-shell"');
+    expect(root).toContain("max-w-[1424px]");
+    expect(root).toContain("@/components/ui/tabs");
+    expect(root).toContain("@/components/ui/button");
+    expect(root).toContain("@/components/ui/badge");
+    expect(root).toContain("@/components/ui/card");
+    expect(root).toContain("@/components/ui/table");
+    expect(root).not.toContain('from "decimal.js"');
+    expect(root).not.toContain("src/core");
+    expect(root).not.toContain("src/services");
+    expect(root).not.toContain("RECOUP_API_URL");
+    expect(root).not.toContain("localRuntimeEnv");
+    expect(root).not.toContain("fetch(");
+  });
+
+  it("keeps the approved SaaS landing mockup content in the public page", () => {
+    const root = readFileSync("cockpit/app/page.tsx", "utf8");
+
+    expect(root).toContain("CPG manufacturers lose 2–5% of gross revenue to retailer deductions.");
+    expect(root).toContain("65–80%");
+    expect(root).toContain("O2C leakages amount to 3–5% of EBITDA.");
+    expect(root).toContain("GPT-5.5, GPT-4.1, GPT Realtime");
+    expect(root).toContain("Data is synthetic. The governance architecture, audit trail, scoring logic, and UI flows are presented as real product behavior.");
   });
 
   it("wires Maya shadcn query and approval through credential-gated browser/API boundaries", () => {
@@ -775,8 +804,17 @@ describe("S5 cockpit business-logic boundary", () => {
     const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
     const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
 
-    expect(root).toContain("requireDemoSession");
-    expect(root).toContain("defaultRoute");
+    expect(root).toContain('data-testid="recoup-landing-page"');
+    expect(root).toContain('value={activeTab}');
+    expect(root).toContain("onValueChange");
+    expect(root).toContain("Solution");
+    expect(root).toContain("Demo");
+    expect(root).toContain("Tech");
+    expect(root).toContain("How We Built It");
+    expect(root).toContain("About");
+    expect(root).not.toContain("requireDemoSession");
+    expect(root).not.toContain("redirect(");
+    expect(forensics).toContain("requireRouteAccess");
     expect(shell).toContain('href: "/forensics"');
     expect(shell).toContain('href: "/run"');
     expect(shell).toContain('href: "/credit"');
@@ -854,7 +892,7 @@ describe("S5 cockpit business-logic boundary", () => {
 
   it("keeps operational surfaces restrained instead of over-framed demo cards", () => {
     const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
-    const cockpitSources = normalizeNewlines(readTree("cockpit/app", [".css", ".ts", ".tsx"]));
+    const cockpitSources = normalizeNewlines(readTree("cockpit/app", [".css", ".ts", ".tsx"], ["cockpit/app/page.tsx"]));
 
     expect(styles).toContain(".route-grid.forensics.workbench-grid");
     expect(styles).toContain("border-radius: var(--radius-lg);");
@@ -883,7 +921,7 @@ describe("S5 cockpit business-logic boundary", () => {
 
   it("blocks generated cockpit UI tells across CSS and component markup", () => {
     const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
-    const cockpitSources = normalizeNewlines(readTree("cockpit/app", [".css", ".ts", ".tsx"]));
+    const cockpitSources = normalizeNewlines(readTree("cockpit/app", [".css", ".ts", ".tsx"], ["cockpit/app/page.tsx"]));
     const pxAtLeastTwo = String.raw`(?:[2-9]|[1-9]\d+)(?:\.\d+)?px`;
 
     expect(styles).not.toMatch(

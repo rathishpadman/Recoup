@@ -5,6 +5,7 @@ import { LoginForm } from "./login-form.tsx";
 interface LoginPageProps {
   searchParams?: Promise<{
     error?: string | string[];
+    loginId?: string | string[];
   }>;
 }
 
@@ -14,6 +15,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const hasInvalidSession =
     errorParam === "demo-login" || (Array.isArray(errorParam) && errorParam.includes("demo-login"));
   const personas = buildCockpitDemoLoginPersonas();
+  const requestedLoginId = readFirstSearchParam(params?.loginId);
+  const initialLoginId = personas.find((persona) => persona.loginId === requestedLoginId)?.loginId;
 
   return (
     <main
@@ -36,12 +39,16 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
           </CardHeader>
           <CardContent className="mx-auto flex w-[82%] max-w-[484px] flex-col px-0 pb-9 pt-4">
-            <LoginForm hasInvalidSession={hasInvalidSession} personas={personas} />
+            <LoginForm hasInvalidSession={hasInvalidSession} initialLoginId={initialLoginId} personas={personas} />
           </CardContent>
         </Card>
       </div>
     </main>
   );
+}
+
+function readFirstSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function RecoupAngularMark() {

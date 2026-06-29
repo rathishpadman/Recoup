@@ -34,8 +34,17 @@ describe("cockpit route architecture", () => {
     const root = readFileSync("cockpit/app/page.tsx", "utf8");
     const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
 
-    expect(root).toContain("requireDemoSession");
-    expect(root).toContain("defaultRoute");
+    expect(root).toContain('data-testid="recoup-landing-page"');
+    expect(root).toContain('data-testid="recoup-landing-shell"');
+    expect(root).toContain('value={activeTab}');
+    expect(root).toContain("onValueChange");
+    expect(root).toContain("max-w-[1424px]");
+    expect(root).toContain("@/components/ui/tabs");
+    expect(root).toContain("@/components/ui/button");
+    expect(root).toContain("How We Built It");
+    expect(root).toContain("About");
+    expect(root).not.toContain("requireDemoSession");
+    expect(root).not.toContain("redirect(");
     expect(shell).toContain('href: "/forensics"');
     expect(shell).toContain('href: "/run"');
     expect(shell).toContain('href: "/credit"');

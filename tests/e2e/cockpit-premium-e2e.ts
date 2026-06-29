@@ -122,7 +122,7 @@ const repoRoot = process.cwd();
 const localEnv = loadLocalEnv();
 const apiUrl = process.env.RECOUP_E2E_API_URL ?? "http://127.0.0.1:4317";
 const appPort = Number(process.env.RECOUP_E2E_COCKPIT_PORT ?? "3000");
-const appUrl = `http://127.0.0.1:${String(appPort)}`;
+const appUrl = `http://localhost:${String(appPort)}`;
 const outputDir = "output/playwright/e2e";
 const demoPassword = process.env.RECOUP_E2E_DEMO_PASSWORD ?? "Welcome#123";
 
@@ -171,6 +171,7 @@ const breakpoints = [
 ] as const;
 
 const screenshotTargets = [
+  { name: "landing", path: "/", role: "anonymous" },
   { name: "login", path: "/login", role: "anonymous" },
   { name: "maya-forensics", path: "/forensics", role: "maya" },
   { name: "maya-shadcn-forensics", path: "/forensics/shadcn", role: "maya" },
@@ -211,6 +212,7 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
 
     browser = await chromium.launch({ headless: true });
     await assertApiHealth();
+    await assertLandingPage(browser);
     if (options.mayaLoginOnly) {
       await captureMayaLoginBeatScreenshot(browser);
       console.log(`Maya Beat 1 login screenshot written to ${outputDir}/maya-beat-01-login.png`);
@@ -291,7 +293,7 @@ async function ensureCockpit(): Promise<ManagedProcess | undefined> {
   const managedProcess = startManagedProcess(
     "cockpit",
     process.execPath,
-    [nextBin(), "dev", "cockpit", "--hostname", "127.0.0.1", "--port", String(appPort)],
+    [nextBin(), "dev", "cockpit", "--hostname", "localhost", "--port", String(appPort)],
     e2eEnv
   );
   try {
@@ -315,6 +317,78 @@ async function assertApiHealth(): Promise<void> {
   assert(response.status === 200, `API health expected 200, received ${String(response.status)}`);
   const payload = (await response.json()) as unknown;
   assert(isRecord(payload) && payload.surface === "cockpit-api", "API health returned unexpected JSON");
+}
+
+async function assertLandingPage(browser: Browser): Promise<void> {
+  const page = await browser.newPage({ viewport: { height: 900, width: 1440 } });
+  const apiRequests: string[] = [];
+
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/")) {
+      apiRequests.push(`${request.method()} ${url.pathname}`);
+    }
+  });
+
+  try {
+    await page.goto(`${appUrl}/`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-page"]', "Recoup landing page");
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-shell"]', "Recoup single-viewport landing shell");
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-hero"]', "Recoup landing hero");
+    await expectVisibleText(page, "CPG manufacturers lose 2–5% of gross revenue to retailer deductions.");
+    await expectVisibleText(page, "Recoup is an agentic Order-to-Cash recovery cockpit");
+    await expectVisibleText(page, "Code computes.");
+    const heroCopy = await page.getByTestId("recoup-landing-hero").innerText();
+    assert(!heroCopy.includes("McKinsey"), "Landing hero must not show the reference strip below the persona CTAs");
+    assert(!heroCopy.includes("RVCF"), "Landing hero must not show the reference strip below the persona CTAs");
+    assert(!heroCopy.includes("APQC"), "Landing hero must not show the reference strip below the persona CTAs");
+    assert(!heroCopy.includes("UpClear"), "Landing hero must not show the reference strip below the persona CTAs");
+    await expectVisibleText(page, "McKinsey");
+    await expectVisibleText(page, "RVCF");
+    await expectVisibleText(page, "UpClear");
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-tab-problem"]', "Recoup Problem tab");
+
+    for (const target of [
+      { label: "Solution", selector: '[data-testid="recoup-landing-tab-solution"]' },
+      { label: "Demo", selector: '[data-testid="recoup-landing-tab-demo"]' },
+      { label: "Tech", selector: '[data-testid="recoup-landing-tab-tech"]' },
+      { label: "How We Built It", selector: '[data-testid="recoup-landing-tab-build"]' },
+      { label: "About", selector: '[data-testid="recoup-landing-tab-about"]' }
+    ] as const) {
+      await page.getByRole("tab", { name: target.label }).click();
+      await expectVisibleLocator(page, target.selector, `Recoup ${target.label} tab`);
+    }
+
+    await page.getByRole("tab", { name: "Problem" }).click();
+    await expectVisibleText(page, "65–80%");
+    await page.getByRole("tab", { name: "Tech" }).click();
+    await expectVisibleText(page, "GPT-5.5, GPT-4.1, GPT Realtime");
+    assertNoForbiddenRequests(apiRequests, "Public landing page");
+    await assertNoHorizontalOverflow(page, "Recoup landing desktop");
+    const viewportFit = await page.evaluate(() => ({
+      innerHeight: window.innerHeight,
+      scrollHeight: document.documentElement.scrollHeight
+    }));
+    assert(
+      viewportFit.scrollHeight <= viewportFit.innerHeight + 4,
+      `landing page must fit one desktop viewport, received ${JSON.stringify(viewportFit)}`
+    );
+
+    await page.getByRole("tab", { name: "Demo" }).click();
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-tab-demo"]', "Recoup Demo tab before CTA");
+    await page.getByTestId("recoup-landing-maya-cta").click();
+    await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("loginId") === "Maya", {
+      timeout: 15_000
+    });
+    assert(
+      new URL(page.url()).searchParams.get("loginId") === "Maya",
+      "Maya landing CTA must route to the existing login flow with a Maya loginId hint"
+    );
+    await expectVisibleLocator(page, 'input[name="loginId"]', "Maya landing-prefilled login ID input");
+    await expectLoginIdValue(page, "Maya");
+  } finally {
+    await page.close();
+  }
 }
 
 async function assertRoleRouting(browser: Browser): Promise<void> {
@@ -1262,6 +1336,9 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
           : await newRoleContext(browser, target.role, breakpoint.width, breakpoint.height);
       const page = await context.newPage();
       await page.goto(`${appUrl}${target.path}`, { waitUntil: "networkidle" });
+      if (target.name === "landing") {
+        await expectVisibleLocator(page, '[data-testid="recoup-landing-page"]', "Recoup landing screenshot page");
+      }
       if (target.name === "maya-shadcn-forensics") {
         await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn screenshot workbench");
         await openMayaOverviewSourceReadiness(page, "Maya shadcn screenshot");

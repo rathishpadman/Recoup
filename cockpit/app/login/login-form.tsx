@@ -30,6 +30,7 @@ interface DemoLoginResponse {
 
 interface LoginFormProps {
   hasInvalidSession: boolean;
+  initialLoginId: string | undefined;
   personas: LoginCockpitModel["personas"];
 }
 
@@ -42,7 +43,7 @@ const invalidSessionMessage = "Your session is invalid or has expired. Please si
 const rememberUserIdKey = "recoup.login.rememberUserId:v1";
 const rememberedLoginIdKey = "recoup.login.loginId:v1";
 
-export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
+export function LoginForm({ hasInvalidSession, initialLoginId, personas }: LoginFormProps) {
   const personaOptions = useMemo(
     () =>
       personas.map((persona): PersonaOption => ({
@@ -51,7 +52,11 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
       })),
     [personas]
   );
-  const [loginId, setLoginId] = useState("");
+  const initialPersonaLoginId = useMemo(
+    () => personaOptions.find((persona) => persona.loginId === initialLoginId)?.loginId,
+    [initialLoginId, personaOptions]
+  );
+  const [loginId, setLoginId] = useState(initialPersonaLoginId ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [dismissedInitialError, setDismissedInitialError] = useState(false);
@@ -62,6 +67,16 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
     error ?? (hasInvalidSession && !dismissedInitialError ? invalidSessionMessage : undefined);
 
   useEffect(() => {
+    if (initialPersonaLoginId !== undefined) {
+      setLoginId(initialPersonaLoginId);
+      try {
+        setRememberUserId(window.localStorage.getItem(rememberUserIdKey) === "true");
+      } catch {
+        setRememberUserId(false);
+      }
+      return;
+    }
+
     try {
       if (window.localStorage.getItem(rememberUserIdKey) !== "true") {
         return;
@@ -76,7 +91,7 @@ export function LoginForm({ hasInvalidSession, personas }: LoginFormProps) {
     } catch {
       setRememberUserId(false);
     }
-  }, [personaOptions]);
+  }, [initialPersonaLoginId, personaOptions]);
 
   useEffect(() => {
     try {
