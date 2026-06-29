@@ -130,6 +130,7 @@ const e2eEnv = {
   ...localEnv,
   ...process.env,
   RECOUP_API_URL: apiUrl,
+  RECOUP_READ_MODEL_CACHE: "disabled",
   RECOUP_DEMO_SESSION_SECRET:
     process.env.RECOUP_DEMO_SESSION_SECRET ??
     localEnv.RECOUP_DEMO_SESSION_SECRET ??
@@ -571,7 +572,6 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
   const viewportSize = page.viewportSize();
   assert(launcherRect !== null, `${label} Recoup Agent launcher must expose a measurable viewport rect`);
   assert(viewportSize !== null, `${label} Recoup Agent launcher viewport check requires a viewport`);
-  const rightInset = viewportSize.width - (launcherRect.x + launcherRect.width);
   const bottomInset = viewportSize.height - (launcherRect.y + launcherRect.height);
   assert(
     launcherRect.x >= 0 &&
@@ -581,8 +581,8 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
     `${label} Recoup Agent launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
   );
   assert(
-    launcherRect.x >= viewportSize.width * 0.62 && rightInset <= 32 && bottomInset <= 32,
-    `${label} Recoup Agent launcher must sit on the bottom-right rail below overview rows; rect=${JSON.stringify(
+    launcherRect.y >= viewportSize.height - 96 && bottomInset <= 32,
+    `${label} Recoup Agent launcher must sit on the bottom rail below overview rows; rect=${JSON.stringify(
       launcherRect
     )} viewport=${JSON.stringify(viewportSize)}`
   );
@@ -3055,7 +3055,7 @@ async function assertBeat5EvidenceDossierFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-evidence-review-state"]', "Maya Beat 5 review state readout");
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
-  const syntheticTile = connectors.sourceTiles.find((source) => source.statusTone === "synthetic");
+  const proxyTile = connectors.sourceTiles.find((source) => source.modeLabel === "Proxy - Supabase");
   const closedGroups = await page.locator('[data-testid="maya-evidence-business-group"] button[aria-expanded="false"]').all();
   for (const group of closedGroups) {
     await group.click();
@@ -3129,11 +3129,15 @@ async function assertBeat5EvidenceDossierFidelity(
     "Beat 5 must not render mockup-only evidence pod names"
   );
 
-  if (syntheticTile !== undefined) {
-    const matchingSourceRow = result.sourceRows.find((row) => row.text.includes(syntheticTile.label));
-    assert(matchingSourceRow !== undefined, `Beat 5 source provenance must include ${syntheticTile.label}`);
-    assert(matchingSourceRow.statusTone === "synthetic", `Beat 5 must keep ${syntheticTile.label} marked synthetic`);
-    assert(!matchingSourceRow.text.includes("Live read"), `Beat 5 must not relabel ${syntheticTile.label} as live`);
+  if (proxyTile !== undefined) {
+    const matchingSourceRow = result.sourceRows.find((row) => row.text.includes(proxyTile.label));
+    assert(matchingSourceRow !== undefined, `Beat 5 source provenance must include ${proxyTile.label}`);
+    assert(
+      matchingSourceRow.statusTone === proxyTile.statusTone,
+      `Beat 5 must keep ${proxyTile.label} on backend status tone ${proxyTile.statusTone}`
+    );
+    assert(matchingSourceRow.text.includes("Proxy - Supabase"), `Beat 5 must label ${proxyTile.label} as proxy-backed`);
+    assert(!matchingSourceRow.text.includes("Live read"), `Beat 5 must not relabel ${proxyTile.label} as live`);
   }
 
   assert(forbiddenRequests.length === 0, `Beat 5 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
@@ -3732,6 +3736,9 @@ async function assertBeat2SourceReadinessFidelity(page: Page, connectors: Connec
   const expectedHasReady = expectedTones.includes("ready");
   const expectedHasSynthetic = expectedTones.includes("synthetic");
   const expectedHasBlocked = expectedTones.includes("blocked");
+  const expectedHasProxy = connectors.sourceTiles.some(
+    (sourceTile) => sourceTile.modeLabel === "Proxy - Supabase" || sourceTile.stateLabel === "Proxy - Supabase"
+  );
   const sourceStrip = await page.evaluate(() => {
     const strip = document.querySelector<HTMLElement>('[data-testid="maya-source-readiness-strip"]');
     const tiles = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-tile"]')].filter(
@@ -3798,13 +3805,13 @@ async function assertBeat2SourceReadinessFidelity(page: Page, connectors: Connec
   );
   assert(
     sourceStrip.hasSynthetic === expectedHasSynthetic,
-    `${label} source readiness must reflect backend proxy state truthfully`
+    `${label} source readiness must reflect backend synthetic fallback tone truthfully`
   );
   assert(
     sourceStrip.hasBlocked === expectedHasBlocked,
     `${label} source readiness must reflect backend blocked state truthfully`
   );
-  if (expectedHasSynthetic) {
+  if (expectedHasProxy) {
     assert(
       sourceStrip.tileText.some((text) => text.includes("Proxy - Supabase")),
       `${label} source readiness must label proxy-backed source states as Proxy - Supabase`

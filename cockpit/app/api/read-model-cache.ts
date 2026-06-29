@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { after } from "next/server.js";
 
 type RuntimeEnv = Partial<Record<string, string | undefined>>;
 type ReadModelSurface = "connector-readiness" | "forensics-analyst";
+type ReadModelPayloadSurface = ReadModelSurface | "forensics-work-item-detail";
 type ReadModelCacheStatus = "hit" | "miss" | "refresh";
 
 interface SupabaseReadModelRow {
@@ -20,12 +22,17 @@ export const mayaConnectorsReadModelKey = "maya:connectors:v1";
 export const readModelCacheHeader = "x-recoup-read-model-cache";
 export const readModelSourceRefreshedAtHeader = "x-recoup-read-model-source-refreshed-at";
 
+export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
+  return `maya:forensics:work-item:${lineId}:v1`;
+}
+
 export async function readCachedReadModelPayload(
   runtimeEnv: RuntimeEnv,
   modelKey: string,
-  surface: ReadModelSurface
+  surface: ReadModelSurface,
+  options: { payloadSurface?: ReadModelPayloadSurface } = {}
 ): Promise<{ payload: Record<string, unknown>; sourceRefreshedAt: string } | undefined> {
-  if (runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
+  if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
     return undefined;
   }
 
@@ -60,6 +67,7 @@ export async function readCachedReadModelPayload(
     }
     const row = rows[0];
     const payload = parsePayloadRecord(row.payload_json);
+    const payloadSurface = options.payloadSurface ?? surface;
     if (
       row.model_key !== modelKey ||
       row.persona !== "maya" ||
@@ -68,7 +76,7 @@ export async function readCachedReadModelPayload(
       !/^[a-f0-9]{64}$/u.test(row.payload_hash) ||
       !isNonEmptyStringArray(parseJsonCell(row.source_record_ids_json)) ||
       typeof row.source_refreshed_at !== "string" ||
-      !isReadModelPayloadForSurface(payload, surface)
+      !isReadModelPayloadForSurface(payload, payloadSurface)
     ) {
       return undefined;
     }
@@ -79,6 +87,66 @@ export async function readCachedReadModelPayload(
     };
   } catch {
     return undefined;
+  }
+}
+
+export async function publishCachedReadModelPayload(
+  runtimeEnv: RuntimeEnv,
+  input: {
+    modelKey: string;
+    payload: Record<string, unknown>;
+    payloadSurface: ReadModelPayloadSurface;
+    rowSurface: ReadModelSurface;
+    sourceRecordIds: string[];
+    sourceRefreshedAt?: string;
+  }
+): Promise<void> {
+  if (
+    isReadModelCacheDisabled(runtimeEnv) ||
+    runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined ||
+    runtimeEnv.SUPABASE_URL === undefined ||
+    !isReadModelPayloadForSurface(input.payload, input.payloadSurface) ||
+    !isNonEmptyStringArray(input.sourceRecordIds)
+  ) {
+    return;
+  }
+
+  try {
+    const tableName = runtimeEnv.RECOUP_SUPABASE_READ_MODEL_TABLE ?? "recoup_cockpit_read_models";
+    if (!isSafeTableName(tableName)) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const url = new URL(`${normalizeSupabaseUrl(runtimeEnv.SUPABASE_URL)}/rest/v1/${tableName}`);
+    url.searchParams.set("on_conflict", "model_key");
+    const response = await fetch(url.href, {
+      body: JSON.stringify([
+        {
+          generated_at: now,
+          model_key: input.modelKey,
+          payload_hash: sha256CanonicalJson(input.payload),
+          payload_json: input.payload,
+          persona: "maya",
+          source_record_ids_json: input.sourceRecordIds,
+          source_refreshed_at: input.sourceRefreshedAt ?? now,
+          surface: input.rowSurface
+        }
+      ]),
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        apikey: runtimeEnv.SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${runtimeEnv.SUPABASE_SERVICE_ROLE_KEY}`,
+        "content-type": "application/json",
+        prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      method: "POST"
+    });
+    if (!response.ok) {
+      return;
+    }
+  } catch {
+    return;
   }
 }
 
@@ -112,9 +180,9 @@ export function proxyJsonResponse(upstream: Response, body: string, fallbackCach
 export function refreshReadModelAfterResponse(
   runtimeEnv: RuntimeEnv,
   authHeaders: HeadersInit,
-  target: { method: "GET" | "POST"; path: "/connectors" | "/forensics/refresh" }
+  target: { method: "GET" | "POST"; path: "/connectors" | "/forensics/refresh" | `/forensics/work-items/${string}` }
 ): void {
-  if (runtimeEnv.RECOUP_READ_MODEL_BACKGROUND_REFRESH === "disabled") {
+  if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.RECOUP_READ_MODEL_BACKGROUND_REFRESH === "disabled") {
     return;
   }
 
@@ -136,7 +204,7 @@ export function refreshReadModelAfterResponse(
 
 function isReadModelPayloadForSurface(
   value: unknown,
-  surface: ReadModelSurface
+  surface: ReadModelPayloadSurface
 ): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && "surface" in value && value.surface === surface;
 }
@@ -168,4 +236,28 @@ function isSafeTableName(value: string): boolean {
 
 function normalizeSupabaseUrl(value: string): string {
   return value.replace(/\/+$/u, "");
+}
+
+function isReadModelCacheDisabled(runtimeEnv: RuntimeEnv): boolean {
+  return runtimeEnv.RECOUP_READ_MODEL_CACHE === "disabled";
+}
+
+function sha256CanonicalJson(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
 }

@@ -2102,15 +2102,14 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell:
         surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
-      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the bottom-right rail below overview rows"),
-      cssPinsLauncherLowerRight:
-        styles.includes("right: max(1rem, env(safe-area-inset-right));") &&
-        styles.includes("bottom: max(1rem, env(safe-area-inset-bottom));") &&
+      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the bottom rail below overview rows"),
+      cssPinsLauncherLowerWorkspaceRail:
+        styles.includes("left: calc(var(--sidebar-width, 15rem) + max(1rem, env(safe-area-inset-left)));") &&
+        styles.includes("bottom: max(0.75rem, env(safe-area-inset-bottom));") &&
         !styles.includes("top: 50vh;") &&
         !styles.includes("top: 55vh;") &&
         !styles.includes("transform: translateY(-50%);") &&
-        !styles.includes("left: max(1rem, env(safe-area-inset-left));") &&
-        !styles.includes("left: calc(var(--sidebar-width) + 1rem);"),
+        !styles.includes("right: max(1rem, env(safe-area-inset-right));"),
       e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
       e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Agent launcher")
     }).toEqual({
@@ -2124,7 +2123,7 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
       e2eChecksFloatingPosition: true,
-      cssPinsLauncherLowerRight: true,
+      cssPinsLauncherLowerWorkspaceRail: true,
       e2eCoversNoReplayAfterNormalOpen: true,
       e2eVerifiesGroundedDock: true
     });

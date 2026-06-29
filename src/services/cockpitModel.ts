@@ -2564,12 +2564,12 @@ function remittanceEdiTile(
 ): SourceReadinessTile {
   const remittanceTile = sourceTileFromConnector(remittance, remittanceHealth);
   const ediTile = sourceTileFromConnector(edi, ediHealth);
+  const proxyBacked =
+    remittanceHealth.sourceMode === "synthetic_static_table" || ediHealth.sourceMode === "synthetic_static_table";
   const statusTone: SourceReadinessTile["statusTone"] =
     remittanceTile.statusTone === "blocked" || ediTile.statusTone === "blocked"
       ? "blocked"
-      : remittanceTile.statusTone === "synthetic" || ediTile.statusTone === "synthetic"
-        ? "synthetic"
-        : "ready";
+      : "ready";
 
   return {
     detail: `${remittance.reason} ${edi.reason}`,
@@ -2577,7 +2577,7 @@ function remittanceEdiTile(
     key: "remittance-edi",
     label: "Remittance / EDI",
     mark: "R",
-    modeLabel: statusTone === "ready" ? "Live read" : "Proxy - Supabase",
+    modeLabel: proxyBacked ? "Proxy - Supabase" : "Live read",
     proofItems: uniqueStrings([...remittanceTile.proofItems, ...ediTile.proofItems]),
     provenance: businessProvenance("sourceTiles.remittance-edi", {
       sourceKind: remittanceHealth.status === "connected" && ediHealth.status === "connected" ? "supabase" : "derived_backend",
@@ -2586,7 +2586,7 @@ function remittanceEdiTile(
       deterministicBasis: `merged remittance and edi-remittance SourceHealthResult statuses ${remittanceHealth.status}/${ediHealth.status} from ConnectorReadiness credential/schema probe/read-only proof flags`,
       checkedAtIso: mostRecentSourceHealthCheckedAt([remittanceHealth, ediHealth]) ?? remittanceHealth.checkedAtIso
     }),
-    stateLabel: statusTone === "blocked" ? "Setup" : statusTone === "synthetic" ? "Proxy - Supabase" : "Connected",
+    stateLabel: statusTone === "blocked" ? "Setup" : proxyBacked ? "Proxy - Supabase" : "Connected",
     statusTone,
     summary: statusTone === "blocked" ? "Input required" : "Payment advice verified"
   };
@@ -2649,7 +2649,7 @@ function sourceHealthStatusTone(health: SourceHealthResult): SourceReadinessTile
     return "blocked";
   }
 
-  return health.sourceMode === "synthetic_static_table" ? "synthetic" : "ready";
+  return "ready";
 }
 
 function sourceHealthModeLabel(health: SourceHealthResult): string {

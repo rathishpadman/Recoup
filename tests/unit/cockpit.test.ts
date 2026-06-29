@@ -1501,14 +1501,14 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(
       model.sourceTiles
-        .filter((sourceTile) => sourceTile.statusTone === "synthetic")
-        .map((sourceTile) => sourceTile.stateLabel)
+        .filter((sourceTile) => sourceTile.modeLabel === "Proxy - Supabase")
+        .map((sourceTile) => ({ stateLabel: sourceTile.stateLabel, statusTone: sourceTile.statusTone }))
     ).toEqual([
-      "Proxy - Supabase",
-      "Proxy - Supabase",
-      "Proxy - Supabase",
-      "Proxy - Supabase",
-      "Proxy - Supabase"
+      { stateLabel: "Proxy - Supabase", statusTone: "ready" },
+      { stateLabel: "Proxy - Supabase", statusTone: "ready" },
+      { stateLabel: "Proxy - Supabase", statusTone: "ready" },
+      { stateLabel: "Proxy - Supabase", statusTone: "ready" },
+      { stateLabel: "Proxy - Supabase", statusTone: "ready" }
     ]);
   });
 });

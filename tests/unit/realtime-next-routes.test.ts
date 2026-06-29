@@ -18,7 +18,8 @@ import {
 const envPatch = {
   RECOUP_API_URL: "http://recoup-api.test",
   RECOUP_COCKPIT_AUTH_TOKEN: "test-human-token",
-  RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead"
+  RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead",
+  RECOUP_READ_MODEL_CACHE: "disabled"
 } as const;
 const mayaEnvPatch = {
   ...envPatch,
@@ -26,6 +27,7 @@ const mayaEnvPatch = {
 } as const;
 const mayaSupabaseEnvPatch = {
   ...mayaEnvPatch,
+  RECOUP_READ_MODEL_CACHE: "enabled",
   SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key",
   SUPABASE_URL: "https://recoup.supabase.co"
 } as const;
@@ -81,7 +83,7 @@ describe("Realtime Next proxy routes", () => {
   });
 
   it("forwards connector readiness refreshes through the same-origin backend proxy", async () => {
-    stubRouteEnv(mayaEnvPatch);
+    stubRouteEnv(mayaSupabaseEnvPatch);
     const connectorReadiness = {
       checkedAtIso: "2026-06-24T10:16:00.000Z",
       connectors: [],
@@ -237,6 +239,59 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("serves cached Maya work-item detail before triggering a non-blocking Render refresh", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedDetail = {
+      lineId: "S6-L1",
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1" }
+    };
+    let sawCacheLookup = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
+        sawCacheLookup = true;
+        expect(init).toMatchObject({ method: "GET" });
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S6-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: cachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "INV-S6-1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+
+      expect(input).toBe("http://recoup-api.test/forensics/work-items/S6-L1");
+      expect(sawCacheLookup).toBe(true);
+      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof cachedDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+    expect(body).toEqual(cachedDetail);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects Forensics force-refresh proxy requests without request-bound human auth", async () => {
     stubRouteEnv();
     const fetchMock = vi.fn();
@@ -322,6 +377,65 @@ describe("Realtime Next proxy routes", () => {
       "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
       "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
     });
+  });
+
+  it("publishes source-derived work-item detail cache after a Render detail miss", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const backendDetail = {
+      lineId: "S6-L1",
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1" }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S6-L1") {
+        return Promise.resolve(Response.json(backendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        if (typeof init.body !== "string") {
+          throw new Error("Expected read-model cache publish to send a JSON string body.");
+        }
+        const body = JSON.parse(init.body) as Array<{
+          model_key: string;
+          payload_json: { surface?: string };
+          source_record_ids_json: string[];
+          surface: string;
+        }>;
+
+        expect(body).toMatchObject([
+          {
+            model_key: "maya:forensics:work-item:S6-L1:v1",
+            payload_json: { surface: "forensics-work-item-detail" },
+            source_record_ids_json: ["S6-L1"],
+            surface: "forensics-analyst"
+          }
+        ]);
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof backendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body).toEqual(backendDetail);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("preserves Forensics work-item upstream JSON error status and content type", async () => {

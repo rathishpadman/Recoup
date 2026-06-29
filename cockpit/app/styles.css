@@ -6728,8 +6728,8 @@ code {
   display: flex;
   pointer-events: none;
   position: fixed;
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  left: calc(var(--sidebar-width, 15rem) + max(1rem, env(safe-area-inset-left)));
   z-index: 30;
 }
 
@@ -6908,6 +6908,10 @@ code {
 }
 
 @media (max-width: 760px) {
+  .maya-recoup-agent-float {
+    left: max(1rem, env(safe-area-inset-left));
+  }
+
   .workspace,
   .sidebar {
     padding: var(--space-3);
