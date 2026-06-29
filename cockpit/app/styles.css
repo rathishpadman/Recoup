@@ -6728,9 +6728,8 @@ code {
   display: flex;
   pointer-events: none;
   position: fixed;
+  bottom: max(1rem, env(safe-area-inset-bottom));
   right: max(1rem, env(safe-area-inset-right));
-  top: 50vh;
-  transform: translateY(-50%);
   z-index: 30;
 }
 

@@ -209,7 +209,22 @@ export function MayaWorkspaceShell({
             <SidebarTrigger className="md:hidden" />
             <div className="grid min-w-0 gap-1">
               <h1 className="truncate text-2xl font-semibold leading-none">{displayHeading}</h1>
-              <p className="truncate text-sm text-muted-foreground">{displaySupport}</p>
+              <Button
+                aria-label="Open source-backed worklist"
+                className="-ml-2 h-auto min-w-0 max-w-full justify-start px-2 py-0 text-sm font-normal text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                data-testid="maya-header-work-items-link"
+                disabled={onSectionChange === undefined}
+                onClick={() => {
+                  if (onSectionChange !== undefined) {
+                    onSectionChange("worklist");
+                  }
+                }}
+                title={displaySupport}
+                type="button"
+                variant="ghost"
+              >
+                <span className="truncate">{displaySupport}</span>
+              </Button>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

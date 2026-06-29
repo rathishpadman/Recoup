@@ -649,7 +649,10 @@ export function MayaForensicsSurface({
                       <ScrollArea className="max-h-[440px]">
                         <Table data-testid="maya-overview-case-concentration-table">
                           <TableHeader>
-                            <TableRow>
+                            <TableRow
+                              className="bg-muted/70 hover:bg-muted/70"
+                              data-testid="maya-overview-case-concentration-header-row"
+                            >
                               <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "id")} className="min-w-48">
                                 <Button
                                   className="h-8 px-2"
@@ -737,12 +740,12 @@ export function MayaForensicsSurface({
                                   data-testid="maya-overview-case-concentration-row"
                                   key={`overview-concentration-${item.lineId}`}
                                   onClick={() => {
-                                    handleSelectWorklistItem(item);
+                                    void openInvestigationForItem(item);
                                   }}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter" || event.key === " ") {
                                       event.preventDefault();
-                                      handleSelectWorklistItem(item);
+                                      void openInvestigationForItem(item);
                                     }
                                   }}
                                   tabIndex={0}

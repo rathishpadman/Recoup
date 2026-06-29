@@ -2102,11 +2102,13 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell:
         surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
-      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the right-side rail above bottom controls"),
-      cssPinsLauncherRight:
+      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the bottom-right rail below overview rows"),
+      cssPinsLauncherLowerRight:
         styles.includes("right: max(1rem, env(safe-area-inset-right));") &&
-        styles.includes("top: 50vh;") &&
-        styles.includes("transform: translateY(-50%);") &&
+        styles.includes("bottom: max(1rem, env(safe-area-inset-bottom));") &&
+        !styles.includes("top: 50vh;") &&
+        !styles.includes("top: 55vh;") &&
+        !styles.includes("transform: translateY(-50%);") &&
         !styles.includes("left: max(1rem, env(safe-area-inset-left));") &&
         !styles.includes("left: calc(var(--sidebar-width) + 1rem);"),
       e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
@@ -2122,7 +2124,7 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
       e2eChecksFloatingPosition: true,
-      cssPinsLauncherRight: true,
+      cssPinsLauncherLowerRight: true,
       e2eCoversNoReplayAfterNormalOpen: true,
       e2eVerifiesGroundedDock: true
     });
@@ -2643,6 +2645,7 @@ describe("Maya shadcn human QA contract", () => {
       "maya-overview-intelligence-grid",
       "maya-overview-source-readiness-toggle",
       "maya-overview-case-concentration-table",
+      "maya-overview-case-concentration-header-row",
       "maya-overview-case-concentration-row",
       "maya-overview-case-concentration-filter",
       "maya-overview-case-concentration-sort-id",
@@ -2674,11 +2677,20 @@ describe("Maya shadcn human QA contract", () => {
       concentrationTitleHierarchy:
         /data-testid="maya-overview-concentration-title"/u.test(overviewSource) &&
         /className="text-lg font-semibold text-foreground"/u.test(overviewSource),
+      caseConcentrationHeaderUsesShadedRow:
+        /data-testid="maya-overview-case-concentration-header-row"/u.test(overviewSource) &&
+        /className="[^"]*\bbg-muted\/70\b/u.test(overviewSource),
       kpiStripShowsNoTrendFallback: hasJsxDataTestId(kpiStrip, "maya-kpi-trend-unavailable"),
       kpiStripAvoidsFakeTrendOrDelta:
         !/\b(?:sparkline|deltaValue|trendDelta|trendSeries|seriesData)\b/u.test(kpiStrip) &&
         !/["'`][^"'`]*[+-]\d+(?:\.\d+)?%[^"'`]*["'`]/u.test(kpiStrip),
-      overviewRemovesPrimaryInvestigationLaunch: !/\bopenInvestigationForItem\s*\(/u.test(overviewSource),
+      caseConcentrationRowsOpenBackendInvestigation:
+        /data-testid="maya-overview-case-concentration-row"[\s\S]{0,700}\bonClick=\{\(\) => \{[\s\S]{0,160}\bopenInvestigationForItem\(item\)/u.test(
+          overviewSource
+        ) &&
+        /data-testid="maya-overview-case-concentration-row"[\s\S]{0,900}\bonKeyDown=\{\(event\) => \{[\s\S]{0,320}\bopenInvestigationForItem\(item\)/u.test(
+          overviewSource
+        ),
       caseConcentrationUsesBackendWorklist:
         /\bfilterOverviewCaseConcentrationItems\(model\.worklist,\s*overviewCaseFilter\)/u.test(overviewSource) &&
         /\bsortOverviewCaseConcentrationItems\(\s*filterOverviewCaseConcentrationItems/u.test(overviewSource),
@@ -2699,7 +2711,11 @@ describe("Maya shadcn human QA contract", () => {
         /\boverviewSourceReadinessOpen\s*\?\s*<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
       cockpitE2eExercisesOverviewDisclosureAndTable:
         /expectNoVisibleLocator\([\s\S]{0,240}maya-source-readiness-strip/u.test(cockpitE2e) &&
+        /\boverviewDirectOpenTarget\b[\s\S]{0,1200}\bmaya-overview-case-concentration-row\b[\s\S]{0,1200}\bexpectMayaCaseDetailFlow\b/u.test(
+          cockpitE2e
+        ) &&
         /\bmaya-overview-source-readiness-toggle\b[\s\S]{0,800}\bclick\(\)/u.test(cockpitE2e) &&
+        /\bmaya-overview-case-concentration-header-row\b/u.test(cockpitE2e) &&
         /\bmaya-overview-case-concentration-sort-customer\b[\s\S]{0,800}\bclick\(\)/u.test(cockpitE2e) &&
         /\bmaya-overview-case-concentration-filter\b[\s\S]{0,800}\bfill\(/u.test(cockpitE2e),
       realBackendE2eExercisesOverviewDisclosure:
@@ -2719,9 +2735,10 @@ describe("Maya shadcn human QA contract", () => {
       missingOverviewHooks: [],
       missingOverviewBandHooks: [],
       concentrationTitleHierarchy: true,
+      caseConcentrationHeaderUsesShadedRow: true,
       kpiStripShowsNoTrendFallback: true,
       kpiStripAvoidsFakeTrendOrDelta: true,
-      overviewRemovesPrimaryInvestigationLaunch: true,
+      caseConcentrationRowsOpenBackendInvestigation: true,
       caseConcentrationUsesBackendWorklist: true,
       caseConcentrationRendersBackendRows: true,
       caseConcentrationControlsStayLocal: true,
@@ -2816,6 +2833,11 @@ describe("Maya shadcn human QA contract", () => {
         displaySupportFallback.includes("worklistCount") &&
         displaySupportFallback.includes("pendingActionCount") &&
         !/\bsession\.displayName\b|\bfirstName\b/u.test(displaySupportFallback),
+      shellSupportLineOpensWorklist:
+        /data-testid="maya-header-work-items-link"/u.test(shell) &&
+        /aria-label="Open source-backed worklist"/u.test(shell) &&
+        /onSectionChange\("worklist"\)/u.test(shell) &&
+        /type="button"/u.test(shell),
       shellPreservesRunDateMetadata: /Run date unavailable/u.test(shell),
       detailErrorTitleIsSourceUnavailable: /\bSource unavailable\b/u.test(surface),
       detailErrorPrimaryUsesControlledCopy:
@@ -2855,6 +2877,7 @@ describe("Maya shadcn human QA contract", () => {
       emptyStateUsesNonSingletonIconMap: true,
       shellDefaultHeadingIsQueueContext: true,
       shellDefaultSupportDerivesFromCounts: true,
+      shellSupportLineOpensWorklist: true,
       shellPreservesRunDateMetadata: true,
       shellRemovesConsumerGreeting: true,
       missingKindUnionMembers: [],

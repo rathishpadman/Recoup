@@ -105,6 +105,14 @@ Do this instead:
 - Visual audit scores below `4/5` are not passable: `1/5`, `2/5`, and `3/5` remain failed/pending and cannot be marked complete.
 - Persona work uses implementer subagent -> reviewer gate(s) -> verification -> handoff update. Stale or slow subagents must be terminated or replaced rather than waited on indefinitely.
 
+## 5.2 Cockpit branch/worktree alignment
+
+Before editing any `cockpit/` change, prove the target source of truth first: production branch, PR branch, deployment branch/commit, or branch explicitly named in the session brief. Record the current local branch/SHA and compare it with that target before editing.
+
+If local branch/SHA differs from the target, stop and switch to or create a clean worktree from the target branch/commit; do not patch a stale or divergent branch as if it were current QA. If localhost renders structurally different UI/behavior than the target branch or deployed app, treat branch/worktree mismatch as the first suspect and reconcile Git before changing code.
+
+Close-out for cockpit work must state the branch/worktree edited, the route tested, and whether it matches the intended target. Do not move toward production until the edited branch/worktree is the one that was tested.
+
 ## 6. Definition of done (per session)
 
 Stated success check passes · `npm run verify` green · no unrelated lines in the diff · spec-validation produced no unresolved inconsistencies · `tests/invariants/` and the release-blocking eval gates (I-5, I-22, I-27, I-28) still green · senior-critique pass done.

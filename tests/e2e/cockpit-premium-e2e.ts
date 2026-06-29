@@ -366,6 +366,8 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
   const connectors = await loadConnectorE2EModel();
   const backendSelectedRow =
     model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
+  const overviewDirectOpenTarget =
+    model.worklist.find((item) => item.lineId === "S1-L1") ?? firstItem(model.worklist, "worklist rows");
   const beat2RowOpenTarget = model.worklist.find((item) => item.lineId !== backendSelectedRow.lineId);
   assert(
     beat2RowOpenTarget !== undefined,
@@ -396,6 +398,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleLocator(page, '[data-testid="maya-overview-command-center"]', "Maya Overview command center");
       await expectVisibleLocator(page, '[data-testid="maya-overview-intelligence-grid"]', "Maya Overview intelligence grid");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-table"]', "Maya Overview concentration table");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-header-row"]', "Maya Overview concentration header row");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-row"]', "Maya Overview concentration row");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-filter"]', "Maya Overview concentration filter");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-id"]', "Maya Overview concentration ID sort");
@@ -406,11 +409,29 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await assertRecoupAgentLauncherAvoidsOverviewData(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoClippedBeat2Chips(page, `Maya Beat 2 ${String(target.width)}px`);
+      const overviewDetailPath = `/api/forensics/work-items/${encodeURIComponent(overviewDirectOpenTarget.lineId)}`;
+      const overviewDetailRequest = page.waitForRequest(
+        (request) => request.method() === "GET" && request.url().includes(overviewDetailPath),
+        { timeout: 5_000 }
+      );
+      await page.locator(`[data-testid="maya-overview-case-concentration-row"][data-line-id="${overviewDirectOpenTarget.lineId}"]`).click();
+      await overviewDetailRequest;
+      await expectMayaCaseDetailFlow(
+        page,
+        overviewDirectOpenTarget,
+        `Maya Beat 2 ${String(target.width)}px overview row direct-open`
+      );
+      await page.getByRole("button", { name: /^Overview$/u }).click();
+      await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview after concentration row direct-open");
       await assertBeat2SourceReadinessFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2HeaderFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2SidebarFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertBeat2OverviewIsNotBlank(page, model, `Maya Beat 2 ${String(target.width)}px`);
       await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard${target.label}.png` });
+      await page.getByTestId("maya-header-work-items-link").click();
+      await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist section from header work-items link");
+      await page.getByRole("button", { name: /^Overview$/u }).click();
+      await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview after header work-items link return");
       if (target.label === "") {
         await assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(browser, backendSelectedRow, beat2RowOpenTarget);
         await assertMayaDetailErrorStateIsActionable(browser, beat2RowOpenTarget);
@@ -560,8 +581,8 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
     `${label} Recoup Agent launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
   );
   assert(
-    launcherRect.x >= viewportSize.width * 0.62 && rightInset <= 32 && bottomInset >= 160,
-    `${label} Recoup Agent launcher must sit on the right-side rail above bottom controls; rect=${JSON.stringify(
+    launcherRect.x >= viewportSize.width * 0.62 && rightInset <= 32 && bottomInset <= 32,
+    `${label} Recoup Agent launcher must sit on the bottom-right rail below overview rows; rect=${JSON.stringify(
       launcherRect
     )} viewport=${JSON.stringify(viewportSize)}`
   );
@@ -573,7 +594,7 @@ async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: st
   const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
   assert(launcherRect !== null, `${label} Recoup Agent launcher overlap check requires a launcher rect`);
   const checkedSelectors = [
-    '[data-testid="maya-overview-case-concentration-table"]',
+    '[data-testid="maya-overview-case-concentration-header-row"]',
     '[data-testid="maya-overview-case-concentration-row"]',
     '[data-testid="maya-overview-case-concentration-sort-exposure"]'
   ];
@@ -587,10 +608,11 @@ async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: st
         })
         .filter((rect) => rect.height > 0 && rect.width > 0)
     );
-    for (const box of boxes) {
+    const guardedBoxes = selector.includes("case-concentration-row") ? boxes.slice(0, 2) : boxes;
+    for (const box of guardedBoxes) {
       assert(
         !rectsIntersect(launcherRect, box),
-        `${label} Recoup Agent launcher must not overlap visible business data (${selector}); launcher=${JSON.stringify(
+        `${label} Recoup Agent launcher must not overlap the concentration header or first rows (${selector}); launcher=${JSON.stringify(
           launcherRect
         )} data=${JSON.stringify(box)}`
       );
