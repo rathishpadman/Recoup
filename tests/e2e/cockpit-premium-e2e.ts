@@ -378,6 +378,19 @@ async function assertLandingPage(browser: Browser): Promise<void> {
     await page.getByRole("tab", { name: "Tech" }).click();
     const architectureImage = page.locator('img[src="/architecture-diagram.png"]');
     await architectureImage.waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForFunction(
+      () => {
+        const image = document.querySelector('img[src="/architecture-diagram.png"]');
+        return (
+          image instanceof HTMLImageElement &&
+          image.complete &&
+          image.naturalWidth > 0 &&
+          image.naturalHeight > 0
+        );
+      },
+      undefined,
+      { timeout: 15_000 }
+    );
     const initialArchitectureImage = await architectureImage.evaluate((image) => {
       if (!(image instanceof HTMLImageElement)) {
         return null;
