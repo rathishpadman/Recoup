@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as postDemoReset } from "../../cockpit/app/api/admin/demo-reset/route.js";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
 import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
+import { GET as getForensics } from "../../cockpit/app/api/forensics/route.js";
 import { POST as postForensicsRefresh } from "../../cockpit/app/api/forensics/refresh/route.js";
 import { POST as postForensicsQuery } from "../../cockpit/app/api/forensics/query/route.js";
 import { GET as getForensicsWorkItem } from "../../cockpit/app/api/forensics/work-items/[lineId]/route.js";
@@ -22,6 +23,11 @@ const envPatch = {
 const mayaEnvPatch = {
   ...envPatch,
   RECOUP_DEMO_SESSION_SECRET: "test-demo-session-secret"
+} as const;
+const mayaSupabaseEnvPatch = {
+  ...mayaEnvPatch,
+  SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key",
+  SUPABASE_URL: "https://recoup.supabase.co"
 } as const;
 const davidEnvPatch = {
   ...envPatch,
@@ -91,8 +97,10 @@ describe("Realtime Next proxy routes", () => {
       surface: "connector-readiness"
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      void input;
       void init;
+      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
+        return Promise.resolve(Response.json([]));
+      }
       return Promise.resolve(Response.json(connectorReadiness));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -110,14 +118,106 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toEqual(connectorReadiness);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchInputUrl(fetchMock.mock.calls[0]?.[0])).toContain("recoup_cockpit_read_models");
+    const [url, init] = fetchMock.mock.calls[1] ?? [];
     expect(url).toBe("http://recoup-api.test/connectors");
     expect(init).toMatchObject({ cache: "no-store", method: "GET" });
     expect(init?.headers).toMatchObject({
       "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
       "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
     });
+  });
+
+  it("serves cached Maya forensics read models before triggering a non-blocking Render refresh", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedModel = {
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
+        expect(init).toMatchObject({ method: "GET" });
+        expect(init?.headers).toMatchObject({
+          apikey: "supabase-secret-key",
+          authorization: "Bearer supabase-secret-key"
+        });
+
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:v1",
+              payload_hash: "a".repeat(64),
+              payload_json: cachedModel,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+
+      expect(input).toBe("http://recoup-api.test/forensics/refresh");
+      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      expect(init?.headers).toMatchObject({
+        "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+        "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+      });
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensics(
+      new Request("http://localhost/api/forensics", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      })
+    );
+    const body = (await response.json()) as typeof cachedModel;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+    expect(body).toEqual(cachedModel);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to Render when the Maya forensics read model is absent", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const backendModel = {
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
+        return Promise.resolve(Response.json([]));
+      }
+
+      expect(input).toBe("http://recoup-api.test/forensics");
+      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+      return Promise.resolve(Response.json(backendModel));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensics(
+      new Request("http://localhost/api/forensics", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      })
+    );
+    const body = (await response.json()) as typeof backendModel;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body).toEqual(backendModel);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {
@@ -1004,4 +1104,15 @@ function headerValue(headers: HeadersInit | undefined, name: string): string | u
   }
 
   return headers[name];
+}
+
+function fetchInputUrl(input: RequestInfo | URL | undefined): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  return input?.url ?? "";
 }

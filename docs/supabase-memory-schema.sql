@@ -122,6 +122,17 @@ CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models (
+  model_key text PRIMARY KEY,
+  surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness')),
+  persona text NOT NULL CHECK (persona IN ('maya')),
+  payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
+  source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0),
+  payload_hash text NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$'),
+  source_refreshed_at timestamptz NOT NULL,
+  generated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS customers (
   customer_id text PRIMARY KEY,
   customer_name text NOT NULL,
@@ -354,6 +365,8 @@ CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_customer ON recoup_src_sap (custom
 CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_linked_record_ids ON recoup_src_sap USING gin (linked_record_ids);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_customer_window ON recoup_src_tpm (customer_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_claim_refs ON recoup_src_tpm USING gin (claim_refs);
+CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_surface_persona ON recoup_cockpit_read_models (surface, persona);
+CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_record_ids ON recoup_cockpit_read_models USING gin (source_record_ids_json);
 CREATE INDEX IF NOT EXISTS idx_payments_customer_invoice_ref ON payments (customer_id, invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_invoice ON pod_records (invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_delivery ON pod_records (delivery_ref);
@@ -512,6 +525,7 @@ REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role
 REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_cockpit_read_models FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
@@ -543,6 +557,7 @@ GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
 GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_cockpit_read_models TO service_role;
 GRANT SELECT ON TABLE customers TO service_role;
 GRANT SELECT ON TABLE payments TO service_role;
 GRANT SELECT ON TABLE pod_records TO service_role;
@@ -676,9 +691,14 @@ ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_cockpit_read_models ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_cockpit_read_models FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_select ON recoup_cockpit_read_models;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_insert ON recoup_cockpit_read_models;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_update ON recoup_cockpit_read_models;
 CREATE POLICY recoup_source_health_snapshots_service_role_select
   ON recoup_source_health_snapshots
   FOR SELECT TO service_role USING (true);
@@ -687,6 +707,15 @@ CREATE POLICY recoup_source_health_snapshots_service_role_insert
   FOR INSERT TO service_role WITH CHECK (true);
 CREATE POLICY recoup_source_health_snapshots_service_role_update
   ON recoup_source_health_snapshots
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_select
+  ON recoup_cockpit_read_models
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_insert
+  ON recoup_cockpit_read_models
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_update
+  ON recoup_cockpit_read_models
   FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;

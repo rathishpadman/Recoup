@@ -9,6 +9,8 @@ import {
   buildSupabaseMemorySchemaSql,
   createSupabaseGovernedConfigRepository,
   createSupabaseGovernedConfigRepositoryFromEnv,
+  createSupabaseReadModelRepository,
+  createSupabaseReadModelRepositoryFromEnv,
   createSupabaseMemoryRepository,
   createSupabaseMemoryRepositoryFromEnv,
   createSupabaseReleaseOwnerInputRepository,
@@ -145,6 +147,95 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("CREATE POLICY recoup_source_health_snapshots_service_role_update");
     expect(sql).toContain("FOR UPDATE TO service_role USING (true) WITH CHECK (true)");
     expect(sql).not.toMatch(/CREATE POLICY\s+recoup_source_health_snapshots[\s\S]+TO\s+(?:anon|authenticated)/iu);
+  });
+
+  it("documents a service-role-only cockpit read-model table for fast source-derived page loads", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models");
+    expect(sql).toContain("model_key text PRIMARY KEY");
+    expect(sql).toContain("surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness'))");
+    expect(sql).toContain("persona text NOT NULL CHECK (persona IN ('maya'))");
+    expect(sql).toContain("payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')");
+    expect(sql).toContain(
+      "source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0)"
+    );
+    expect(sql).toContain("payload_hash text NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$')");
+    expect(sql).toContain("source_refreshed_at timestamptz NOT NULL");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_surface_persona");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_record_ids");
+    expect(sql).toContain("REVOKE ALL ON TABLE recoup_cockpit_read_models FROM anon, authenticated, service_role");
+    expect(sql).toContain("GRANT SELECT, INSERT, UPDATE ON TABLE recoup_cockpit_read_models TO service_role");
+    expect(sql).toContain("ALTER TABLE recoup_cockpit_read_models ENABLE ROW LEVEL SECURITY");
+    expect(sql).toContain("ALTER TABLE recoup_cockpit_read_models FORCE ROW LEVEL SECURITY");
+    expect(sql).toContain("CREATE POLICY recoup_cockpit_read_models_service_role_select");
+    expect(sql).not.toMatch(/CREATE POLICY\s+recoup_cockpit_read_models[\s\S]+TO\s+(?:anon|authenticated)/iu);
+  });
+
+  it("round-trips source-derived cockpit read models through Supabase without exposing browser credentials", async () => {
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const storedRows: unknown[] = [];
+    const fetcher: SupabaseMemoryFetch = (url, init) => {
+      const call: { body?: string; method?: string; url: string } = { url };
+      if (typeof init.body === "string") {
+        call.body = init.body;
+      }
+      if (init.method !== undefined) {
+        call.method = init.method;
+      }
+      calls.push(call);
+      expect(init.headers).toMatchObject({
+        apikey: "supabase-secret-key",
+        authorization: "Bearer supabase-secret-key"
+      });
+
+      if (init.method === "POST") {
+        const rows = JSON.parse(init.body as string) as unknown;
+        expect(Array.isArray(rows)).toBe(true);
+        storedRows.splice(0, storedRows.length, ...(rows as unknown[]));
+        return Promise.resolve(new Response(JSON.stringify(storedRows), { status: 200 }));
+      }
+
+      return Promise.resolve(new Response(JSON.stringify(storedRows), { status: 200 }));
+    };
+    const repository = createSupabaseReadModelRepository({
+      fetcher,
+      serviceRoleKey: "supabase-secret-key",
+      url: "https://recoup.supabase.co"
+    });
+    const payload = {
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+
+    await repository.upsert({
+      modelKey: "maya:forensics",
+      payload,
+      payloadHash: sha256CanonicalJson(payload),
+      persona: "maya",
+      sourceRecordIds: ["S6-L1", "recoup_deduction_lines"],
+      sourceRefreshedAt: "2026-06-29T00:00:00.000Z",
+      surface: "forensics-analyst"
+    });
+    const loaded = await repository.load("maya:forensics");
+
+    expect(loaded).toMatchObject({
+      modelKey: "maya:forensics",
+      payload,
+      persona: "maya",
+      sourceRecordIds: ["S6-L1", "recoup_deduction_lines"],
+      surface: "forensics-analyst"
+    });
+    expect(calls[0]?.url).toContain("/rest/v1/recoup_cockpit_read_models?on_conflict=model_key");
+    expect(calls[1]?.url).toContain("/rest/v1/recoup_cockpit_read_models");
+    expect(calls[1]?.url).toContain("model_key=eq.maya%3Aforensics");
+    expect(createSupabaseReadModelRepositoryFromEnv({ SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key" }, fetcher)).toBeUndefined();
+    expect(
+      createSupabaseReadModelRepositoryFromEnv(
+        { SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key", SUPABASE_URL: "https://recoup.supabase.co" },
+        fetcher
+      )
+    ).toBeDefined();
   });
 
   it("documents Supabase Tools_data tables required by connector readiness and Sentinel risk observations", () => {

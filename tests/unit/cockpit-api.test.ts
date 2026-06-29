@@ -1616,6 +1616,93 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("serves the source-derived Maya forensics read model from Supabase without source hydration", async () => {
+    const calls: string[] = [];
+    const payload = {
+      cachedAtIso: "2026-06-29T00:00:00.000Z",
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1", recordIds: ["S6-L1", "INV-S6-1"] }]
+    };
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend"
+        },
+        memoryFetcher: readModelOnlyFetcher(calls, {
+          modelKey: "maya:forensics:v1",
+          payload,
+          payloadHash: sha256CanonicalJson(payload),
+          persona: "maya",
+          sourceRecordIds: ["S6-L1", "INV-S6-1", "recoup_deduction_lines"],
+          sourceRefreshedAt: "2026-06-29T00:00:00.000Z",
+          surface: "forensics-analyst"
+        })
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as typeof payload;
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+      expect(body).toEqual(payload);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain("/rest/v1/recoup_cockpit_read_models");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("force-refreshes Maya forensics from governed sources and republishes the Supabase read model", async () => {
+    const calls: string[] = [];
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        memoryFetcher: readModelPublishingSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const refreshed = await fetch(`${baseUrl}/forensics/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const refreshedBody = (await refreshed.json()) as { surface?: string; worklist?: unknown[] };
+      const readModelWrites = calls.filter(
+        (url) => new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models"
+      );
+
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.headers.get("x-recoup-read-model-cache")).toBe("refresh");
+      expect(refreshedBody.surface).toBe("forensics-analyst");
+      expect(refreshedBody.worklist).toHaveLength(8);
+      expect(readModelWrites).toHaveLength(1);
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads());
+      expect(sourceTableReadCount(calls, "recoup_src_docs")).toBe(expectedForensicsSourceTableReads());
+    } finally {
+      await close(server);
+    }
+  });
+
   it("hydrates optional OpenAI vector evidence only when the RAG env gate is complete", async () => {
     const missingGateCalls: string[] = [];
     const blockedVectorFetcher = vi.fn(() =>
@@ -5785,6 +5872,85 @@ function missingEvidenceAfterRiskObservationFetcher(calls: string[]): SupabaseMe
 
 function successfulRealBackendSourceFetcher(calls: string[]): SupabaseMemoryFetch {
   return sourceFetcherWithSapAvailability(calls, () => true);
+}
+
+function readModelOnlyFetcher(
+  calls: string[],
+  record: {
+    modelKey: string;
+    payload: Record<string, unknown>;
+    payloadHash: string;
+    persona: string;
+    sourceRecordIds: string[];
+    sourceRefreshedAt: string;
+    surface: string;
+  }
+): SupabaseMemoryFetch {
+  return (url, init) => {
+    calls.push(url);
+    expect(init.headers).toMatchObject({
+      apikey: "supabase-secret-key",
+      authorization: "Bearer supabase-secret-key"
+    });
+
+    if (new URL(url).pathname.split("/").at(-1) !== "recoup_cockpit_read_models") {
+      throw new Error(`Unexpected source hydration call while read model is available: ${url}`);
+    }
+
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            generated_at: "2026-06-29T00:00:00.000Z",
+            model_key: record.modelKey,
+            payload_hash: record.payloadHash,
+            payload_json: record.payload,
+            persona: record.persona,
+            source_record_ids_json: record.sourceRecordIds,
+            source_refreshed_at: record.sourceRefreshedAt,
+            surface: record.surface
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  };
+}
+
+function readModelPublishingSourceFetcher(calls: string[]): SupabaseMemoryFetch {
+  const sourceFetcher = successfulRealBackendSourceFetcher(calls);
+
+  return (url, init) => {
+    calls.push(url);
+    if (new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models") {
+      expect(init.method).toBe("POST");
+      expect(init.headers).toMatchObject({
+        apikey: "supabase-secret-key",
+        authorization: "Bearer supabase-secret-key"
+      });
+      const rows = JSON.parse(init.body as string) as Array<{
+        model_key?: string;
+        payload_json?: { surface?: string; worklist?: unknown[] };
+        source_record_ids_json?: string[];
+        surface?: string;
+      }>;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        model_key: "maya:forensics:v1",
+        payload_json: {
+          surface: "forensics-analyst"
+        },
+        surface: "forensics-analyst"
+      });
+      expect(rows[0]?.payload_json?.worklist).toHaveLength(8);
+      expect(rows[0]?.source_record_ids_json).toEqual(expect.arrayContaining(["recoup_deduction_lines", "S6-L1"]));
+
+      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200 }));
+    }
+
+    calls.pop();
+    return sourceFetcher(url, init);
+  };
 }
 
 function vectorStoreSearchResponseForS6(): Response {

@@ -34,6 +34,7 @@ import {
 import {
   createSupabaseGovernedConfigRepositoryFromEnv,
   createSupabaseMemoryRepositoryFromEnv,
+  createSupabaseReadModelRepositoryFromEnv,
   createSupabaseReleaseOwnerInputRepositoryFromEnv,
   createSupabaseSourceHealthSnapshotRepositoryFromEnv,
   createSupabaseTableReadinessProbeFromEnv,
@@ -220,6 +221,9 @@ const unsafeMayaQueryMemoryRecordIdPattern =
   /(?:@|bearer|secret|token|api[-_]?key|password|client[_-]?secret|sk-|\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b)/iu;
 // Runtime freshness only; this is not a business threshold or policy constant.
 const defaultForensicsSourceContextCacheTtlMs = 30_000;
+const mayaForensicsReadModelKey = "maya:forensics:v1";
+const mayaConnectorsReadModelKey = "maya:connectors:v1";
+const readModelCacheHeader = "x-recoup-read-model-cache";
 const cockpitRateLimitMaxRequestsEnv = "RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS";
 const cockpitRateLimitWindowMsEnv = "RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS";
 const forensicsSourceContextTableIdentity = [
@@ -332,6 +336,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   const dataMode = readRecoupDataMode(runtimeEnv);
   const allowedOrigins = readAllowedOrigins(runtimeEnv);
   const forensicsSourceContextCacheTtlMs = readForensicsSourceContextCacheTtlMs(runtimeEnv);
+  const readModelRepository = createSupabaseReadModelRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
   const rateLimitConfig = readCockpitRateLimitConfig(runtimeEnv);
   const rateLimitBuckets = new Map<string, CockpitRateLimitBucket>();
   const rateLimitAuditEndpoint = (route: CockpitRateLimitedRoute) =>
@@ -412,6 +417,13 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
+    const cachedReadModel = await loadReadModelPayload(mayaForensicsReadModelKey, "forensics-analyst");
+    if (cachedReadModel !== undefined) {
+      response.setHeader(readModelCacheHeader, "hit");
+      response.json(cachedReadModel);
+      return;
+    }
+
     const runContext = await loadRequiredForensicsRunContext(request, response);
     if (runContext === undefined) {
       return;
@@ -422,15 +434,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    response.json(
-      buildForensicsCockpitModel({
-        approvalRecordSource: approvalRecordsSnapshot.source,
-        approvalRecords: approvalRecordsSnapshot.records,
-        governedConfig,
-        serviceContext,
-        settlementSource: source
-      })
-    );
+    const model = buildForensicsCockpitModel({
+      approvalRecordSource: approvalRecordsSnapshot.source,
+      approvalRecords: approvalRecordsSnapshot.records,
+      governedConfig,
+      serviceContext,
+      settlementSource: source
+    });
+    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model);
+    response.setHeader(readModelCacheHeader, "miss");
+    response.json(model);
   });
 
   app.get("/forensics/work-items/:lineId", async (request, response) => {
@@ -494,15 +507,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    response.json(
-      buildForensicsCockpitModel({
-        approvalRecordSource: approvalRecordsSnapshot.source,
-        approvalRecords: approvalRecordsSnapshot.records,
-        governedConfig,
-        serviceContext,
-        settlementSource: source
-      })
-    );
+    const model = buildForensicsCockpitModel({
+      approvalRecordSource: approvalRecordsSnapshot.source,
+      approvalRecords: approvalRecordsSnapshot.records,
+      governedConfig,
+      serviceContext,
+      settlementSource: source
+    });
+    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model);
+    response.setHeader(readModelCacheHeader, "refresh");
+    response.json(model);
   });
 
   app.get("/login", (_request, response) => {
@@ -579,6 +593,13 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
+    const cachedReadModel = await loadReadModelPayload(mayaConnectorsReadModelKey, "connector-readiness");
+    if (cachedReadModel !== undefined) {
+      response.setHeader(readModelCacheHeader, "hit");
+      response.json(cachedReadModel);
+      return;
+    }
+
     const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
     const availableCredentialEnvNames = readConfiguredEnvNames(runtimeEnv);
     const sourceHealth = await buildSourceHealthResultsFromSnapshots({
@@ -588,7 +609,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       snapshotStore: sourceHealthSnapshotStore
     });
 
-    response.json(buildConnectorReadinessModel(availableCredentialEnvNames, undefined, sourceHealth));
+    const model = buildConnectorReadinessModel(availableCredentialEnvNames, undefined, sourceHealth);
+    await publishReadModel(mayaConnectorsReadModelKey, "connector-readiness", model);
+    response.setHeader(readModelCacheHeader, "miss");
+    response.json(model);
   });
 
   app.get("/sources/r1/:need", async (request, response) => {
@@ -878,6 +902,50 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (cacheGenerationAtLoadStart === cachedForensicsRunContextGeneration) {
       cachedForensicsRunContext = nextCachedContext;
       cachedForensicsRunContextGeneration += 1;
+    }
+  }
+
+  async function loadReadModelPayload(
+    modelKey: string,
+    surface: "connector-readiness" | "forensics-analyst"
+  ): Promise<Record<string, unknown> | undefined> {
+    if (readModelRepository === undefined) {
+      return undefined;
+    }
+
+    try {
+      const record = await readModelRepository.load(modelKey);
+      if (record === undefined || record.surface !== surface || !isReadModelPayloadForSurface(record.payload, surface)) {
+        return undefined;
+      }
+
+      return record.payload;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function publishReadModel(
+    modelKey: string,
+    surface: "connector-readiness" | "forensics-analyst",
+    model: unknown
+  ): Promise<void> {
+    if (readModelRepository === undefined || !isReadModelPayloadForSurface(model, surface)) {
+      return;
+    }
+
+    try {
+      await readModelRepository.upsert({
+        modelKey,
+        payload: model,
+        payloadHash: sha256CanonicalJson(model),
+        persona: "maya",
+        sourceRecordIds: collectReadModelSourceRecordIds(model),
+        sourceRefreshedAt: new Date().toISOString(),
+        surface
+      });
+    } catch {
+      return;
     }
   }
 
@@ -1824,6 +1892,55 @@ function retrieveFixtureSyntheticEvidence(
 
 function readRecoupDataMode(env: RuntimeEnv): RecoupDataMode {
   return env.RECOUP_DATA_MODE?.trim() === "fixture" ? "fixture" : "real-backend";
+}
+
+function isReadModelPayloadForSurface(
+  value: unknown,
+  surface: "connector-readiness" | "forensics-analyst"
+): value is Record<string, unknown> {
+  return isRecord(value) && value.surface === surface;
+}
+
+function collectReadModelSourceRecordIds(model: Record<string, unknown>): string[] {
+  const recordIds = new Set<string>(forensicsSourceContextTableIdentity);
+  collectRecordIdsFromUnknown(model, recordIds, false);
+
+  return [...recordIds].sort();
+}
+
+function collectRecordIdsFromUnknown(value: unknown, recordIds: Set<string>, acceptStringArray: boolean): void {
+  if (Array.isArray(value)) {
+    if (acceptStringArray && value.every((item) => typeof item === "string")) {
+      for (const item of value) {
+        if (item.trim().length > 0) {
+          recordIds.add(item);
+        }
+      }
+      return;
+    }
+
+    for (const item of value) {
+      collectRecordIdsFromUnknown(item, recordIds, false);
+    }
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "recordIds") {
+      collectRecordIdsFromUnknown(child, recordIds, true);
+      continue;
+    }
+
+    collectRecordIdsFromUnknown(child, recordIds, false);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readForensicsSourceContextCacheTtlMs(env: RuntimeEnv): number {

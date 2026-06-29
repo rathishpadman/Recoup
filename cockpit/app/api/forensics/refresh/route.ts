@@ -1,5 +1,6 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../../human-auth.ts";
+import { proxyJsonResponse } from "../../read-model-cache.ts";
 
 export async function POST(request: Request): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
@@ -18,13 +19,7 @@ export async function POST(request: Request): Promise<Response> {
       method: "POST"
     });
 
-    return new Response(await upstream.text(), {
-      headers: {
-        "cache-control": "no-store",
-        "content-type": upstream.headers.get("content-type") ?? "application/json"
-      },
-      status: upstream.status
-    });
+    return proxyJsonResponse(upstream, await upstream.text(), "refresh");
   } catch {
     return Response.json({ error: "Forensics source refresh service unavailable." }, { headers: noStoreHeaders(), status: 502 });
   }

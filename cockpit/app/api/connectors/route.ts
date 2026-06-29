@@ -1,5 +1,12 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../human-auth.ts";
+import {
+  mayaConnectorsReadModelKey,
+  proxyJsonResponse,
+  readCachedReadModelPayload,
+  readModelJsonResponse,
+  refreshReadModelAfterResponse
+} from "../read-model-cache.ts";
 
 export async function GET(request: Request): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
@@ -11,6 +18,12 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Verified human cockpit auth required." }, { headers: noStoreHeaders(), status: 401 });
   }
 
+  const cached = await readCachedReadModelPayload(runtimeEnv, mayaConnectorsReadModelKey, "connector-readiness");
+  if (cached !== undefined) {
+    refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "GET", path: "/connectors" });
+    return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+  }
+
   try {
     const upstream = await fetch(`${apiBaseUrl}/connectors`, {
       cache: "no-store",
@@ -18,13 +31,7 @@ export async function GET(request: Request): Promise<Response> {
       method: "GET"
     });
 
-    return new Response(await upstream.text(), {
-      headers: {
-        "cache-control": "no-store",
-        "content-type": upstream.headers.get("content-type") ?? "application/json"
-      },
-      status: upstream.status
-    });
+    return proxyJsonResponse(upstream, await upstream.text(), "miss");
   } catch {
     return Response.json({ error: "Connector readiness service unavailable." }, { headers: noStoreHeaders(), status: 502 });
   }

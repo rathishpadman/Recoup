@@ -45,6 +45,25 @@ export interface SupabaseSourceHealthSnapshotRepository {
   upsert(results: readonly SourceHealthResult[]): Promise<void>;
 }
 
+export type SupabaseReadModelSurface = "connector-readiness" | "forensics-analyst";
+export type SupabaseReadModelPersona = "maya";
+
+export interface SupabaseReadModelRecord {
+  generatedAt: string;
+  modelKey: string;
+  payload: Record<string, unknown>;
+  payloadHash: string;
+  persona: SupabaseReadModelPersona;
+  sourceRecordIds: string[];
+  sourceRefreshedAt: string;
+  surface: SupabaseReadModelSurface;
+}
+
+export interface SupabaseReadModelRepository {
+  load(modelKey: string): Promise<SupabaseReadModelRecord | undefined>;
+  upsert(record: Omit<SupabaseReadModelRecord, "generatedAt"> & { generatedAt?: string }): Promise<SupabaseReadModelRecord>;
+}
+
 export interface SupabaseMemoryRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
@@ -65,6 +84,13 @@ export interface SupabaseReleaseOwnerInputRepositoryOptions {
 }
 
 export interface SupabaseSourceHealthSnapshotRepositoryOptions {
+  fetcher?: SupabaseMemoryFetch;
+  serviceRoleKey: string;
+  tableName?: string;
+  url: string;
+}
+
+export interface SupabaseReadModelRepositoryOptions {
   fetcher?: SupabaseMemoryFetch;
   serviceRoleKey: string;
   tableName?: string;
@@ -113,8 +139,20 @@ interface SupabaseSourceHealthSnapshotRow {
   status: string;
 }
 
+interface SupabaseReadModelRow {
+  generated_at: string;
+  model_key: string;
+  payload_hash: string;
+  payload_json: Record<string, unknown> | string;
+  persona: string;
+  source_record_ids_json: string[] | string;
+  source_refreshed_at: string;
+  surface: string;
+}
+
 const defaultMemoryTableName = "recoup_memory_records";
 const defaultSourceHealthSnapshotTableName = "recoup_source_health_snapshots";
+const defaultReadModelTableName = "recoup_cockpit_read_models";
 
 export function createSupabaseMemoryRepository(options: SupabaseMemoryRepositoryOptions): SupabaseMemoryRepository {
   const tableName = normalizeTableName(options.tableName ?? defaultMemoryTableName);
@@ -341,6 +379,58 @@ export function createSupabaseSourceHealthSnapshotRepositoryFromEnv(
   return createSupabaseSourceHealthSnapshotRepository({
     ...(fetcher === undefined ? {} : { fetcher }),
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    url: env.SUPABASE_URL
+  });
+}
+
+export function createSupabaseReadModelRepository(options: SupabaseReadModelRepositoryOptions): SupabaseReadModelRepository {
+  const tableName = normalizeTableName(options.tableName ?? defaultReadModelTableName);
+  const baseUrl = normalizeSupabaseUrl(options.url);
+  const fetcher = options.fetcher ?? fetch;
+
+  return {
+    async load(modelKey) {
+      const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
+      url.searchParams.set(
+        "select",
+        "model_key,surface,persona,payload_json,source_record_ids_json,payload_hash,source_refreshed_at,generated_at"
+      );
+      url.searchParams.set("model_key", `eq.${modelKey}`);
+      url.searchParams.set("limit", "1");
+      const rows = await requestReadModelRows(fetcher, {
+        method: "GET",
+        serviceRoleKey: options.serviceRoleKey,
+        url: url.href
+      });
+
+      return rows.length === 0 ? undefined : parseSupabaseReadModelRow(rows[0]);
+    },
+    async upsert(record) {
+      const parsed = parseReadModelRecord(record);
+      const rows = await requestReadModelRows(fetcher, {
+        body: JSON.stringify([toSupabaseReadModelRow(parsed)]),
+        method: "POST",
+        serviceRoleKey: options.serviceRoleKey,
+        url: `${baseUrl}/rest/v1/${tableName}?on_conflict=model_key`
+      });
+
+      return rows[0] === undefined ? parsed : parseSupabaseReadModelRow(rows[0]);
+    }
+  };
+}
+
+export function createSupabaseReadModelRepositoryFromEnv(
+  env: RuntimeEnv,
+  fetcher?: SupabaseMemoryFetch
+): SupabaseReadModelRepository | undefined {
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  return createSupabaseReadModelRepository({
+    ...(fetcher === undefined ? {} : { fetcher }),
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    ...(env.RECOUP_SUPABASE_READ_MODEL_TABLE === undefined ? {} : { tableName: env.RECOUP_SUPABASE_READ_MODEL_TABLE }),
     url: env.SUPABASE_URL
   });
 }
@@ -634,6 +724,17 @@ CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models (
+  model_key text PRIMARY KEY,
+  surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness')),
+  persona text NOT NULL CHECK (persona IN ('maya')),
+  payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
+  source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0),
+  payload_hash text NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$'),
+  source_refreshed_at timestamptz NOT NULL,
+  generated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS customers (
   customer_id text PRIMARY KEY,
   customer_name text NOT NULL,
@@ -866,6 +967,8 @@ CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_customer ON recoup_src_sap (custom
 CREATE INDEX IF NOT EXISTS idx_recoup_src_sap_linked_record_ids ON recoup_src_sap USING gin (linked_record_ids);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_customer_window ON recoup_src_tpm (customer_id, window_start, window_end);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_claim_refs ON recoup_src_tpm USING gin (claim_refs);
+CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_surface_persona ON recoup_cockpit_read_models (surface, persona);
+CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_record_ids ON recoup_cockpit_read_models USING gin (source_record_ids_json);
 CREATE INDEX IF NOT EXISTS idx_payments_customer_invoice_ref ON payments (customer_id, invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_invoice ON pod_records (invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_delivery ON pod_records (delivery_ref);
@@ -1024,6 +1127,7 @@ REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role
 REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_cockpit_read_models FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
@@ -1055,6 +1159,7 @@ GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
 GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_cockpit_read_models TO service_role;
 GRANT SELECT ON TABLE customers TO service_role;
 GRANT SELECT ON TABLE payments TO service_role;
 GRANT SELECT ON TABLE pod_records TO service_role;
@@ -1152,9 +1257,14 @@ ALTER TABLE recoup_src_tpm ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_tpm FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_cockpit_read_models ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_cockpit_read_models FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_select ON recoup_cockpit_read_models;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_insert ON recoup_cockpit_read_models;
+DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_update ON recoup_cockpit_read_models;
 CREATE POLICY recoup_source_health_snapshots_service_role_select
   ON recoup_source_health_snapshots
   FOR SELECT TO service_role USING (true);
@@ -1163,6 +1273,15 @@ CREATE POLICY recoup_source_health_snapshots_service_role_insert
   FOR INSERT TO service_role WITH CHECK (true);
 CREATE POLICY recoup_source_health_snapshots_service_role_update
   ON recoup_source_health_snapshots
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_select
+  ON recoup_cockpit_read_models
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_insert
+  ON recoup_cockpit_read_models
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_cockpit_read_models_service_role_update
+  ON recoup_cockpit_read_models
   FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;
@@ -1260,6 +1379,37 @@ async function requestSourceHealthRows(
   }
 
   return rows.map((row) => row as SupabaseSourceHealthSnapshotRow);
+}
+
+async function requestReadModelRows(
+  fetcher: SupabaseMemoryFetch,
+  input: {
+    body?: string;
+    method: "GET" | "POST";
+    serviceRoleKey: string;
+    url: string;
+  }
+): Promise<SupabaseReadModelRow[]> {
+  const response = await fetcher(input.url, {
+    ...(input.body === undefined ? {} : { body: input.body }),
+    headers: {
+      ...serviceRoleReadHeaders(input.serviceRoleKey),
+      ...(input.body === undefined ? {} : { "content-type": "application/json" }),
+      prefer: "resolution=merge-duplicates,return=representation"
+    },
+    method: input.method
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase cockpit read model request failed with HTTP ${String(response.status)}.`);
+  }
+
+  const rows = (await response.json()) as unknown;
+  if (!Array.isArray(rows)) {
+    throw new Error("Supabase cockpit read model response must be an array of rows.");
+  }
+
+  return rows.map((row) => row as SupabaseReadModelRow);
 }
 
 async function requestGovernedConfigRows(
@@ -1399,6 +1549,19 @@ function toSupabaseSourceHealthSnapshotRow(result: SourceHealthResult): Supabase
   };
 }
 
+function toSupabaseReadModelRow(record: SupabaseReadModelRecord): SupabaseReadModelRow {
+  return {
+    generated_at: record.generatedAt,
+    model_key: record.modelKey,
+    payload_hash: record.payloadHash,
+    payload_json: record.payload,
+    persona: record.persona,
+    source_record_ids_json: record.sourceRecordIds,
+    source_refreshed_at: record.sourceRefreshedAt,
+    surface: record.surface
+  };
+}
+
 function parseSupabaseMemoryRow(row: SupabaseMemoryRow | undefined): MemoryRecord {
   if (row === undefined) {
     throw new Error("Supabase memory response did not include a record.");
@@ -1412,6 +1575,29 @@ function parseSupabaseMemoryRow(row: SupabaseMemoryRow | undefined): MemoryRecor
     recordIds: parseJsonCell(row.record_ids_json),
     scope: row.scope,
     trustLevel: row.trust_level
+  });
+}
+
+function parseSupabaseReadModelRow(row: SupabaseReadModelRow | undefined): SupabaseReadModelRecord {
+  if (row === undefined) {
+    throw new Error("Supabase cockpit read model response did not include a record.");
+  }
+  if (row.persona !== "maya") {
+    throw new Error("Supabase cockpit read model row has an invalid persona.");
+  }
+  if (!isReadModelSurface(row.surface)) {
+    throw new Error("Supabase cockpit read model row has an invalid surface.");
+  }
+
+  return parseReadModelRecord({
+    generatedAt: normalizeSupabaseTimestamp(row.generated_at),
+    modelKey: row.model_key,
+    payload: parseJsonRecordCell(row.payload_json, "payload_json"),
+    payloadHash: row.payload_hash,
+    persona: row.persona,
+    sourceRecordIds: parseStringArrayCell(row.source_record_ids_json, "source_record_ids_json"),
+    sourceRefreshedAt: normalizeSupabaseTimestamp(row.source_refreshed_at),
+    surface: row.surface
   });
 }
 
@@ -1440,8 +1626,58 @@ function parseSupabaseSourceHealthSnapshotRow(row: SupabaseSourceHealthSnapshotR
   };
 }
 
+type SupabaseReadModelRecordInput = Omit<SupabaseReadModelRecord, "generatedAt" | "persona" | "surface"> & {
+  generatedAt?: string;
+  persona: string;
+  surface: string;
+};
+
+function parseReadModelRecord(record: SupabaseReadModelRecordInput): SupabaseReadModelRecord {
+  if (!isReadModelSurface(record.surface)) {
+    throw new Error("Supabase cockpit read model row has an invalid surface.");
+  }
+  if (record.persona !== "maya") {
+    throw new Error("Supabase cockpit read model row has an invalid persona.");
+  }
+  if (!isSafeReadModelKey(record.modelKey)) {
+    throw new Error("Supabase cockpit read model key must be safe.");
+  }
+  if (!/^[a-f0-9]{64}$/u.test(record.payloadHash)) {
+    throw new Error("Supabase cockpit read model payload hash must be a SHA-256 hex digest.");
+  }
+  if (!Array.isArray(record.sourceRecordIds) || record.sourceRecordIds.length === 0) {
+    throw new Error("Supabase cockpit read model source record IDs must be non-empty.");
+  }
+  if (!record.sourceRecordIds.every((recordId) => typeof recordId === "string" && recordId.trim().length > 0)) {
+    throw new Error("Supabase cockpit read model source record IDs must be strings.");
+  }
+  if (!isJsonRecord(record.payload)) {
+    throw new Error("Supabase cockpit read model payload must be an object.");
+  }
+
+  return {
+    generatedAt: normalizeSupabaseTimestamp(record.generatedAt ?? new Date().toISOString()),
+    modelKey: record.modelKey,
+    payload: record.payload,
+    payloadHash: record.payloadHash,
+    persona: record.persona,
+    sourceRecordIds: record.sourceRecordIds,
+    sourceRefreshedAt: normalizeSupabaseTimestamp(record.sourceRefreshedAt),
+    surface: record.surface
+  };
+}
+
 function parseJsonCell(value: Record<string, unknown> | string | string[]): unknown {
   return typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+}
+
+function parseJsonRecordCell(value: Record<string, unknown> | string, columnName: string): Record<string, unknown> {
+  const parsed = parseJsonCell(value);
+  if (!isJsonRecord(parsed)) {
+    throw new Error(`Supabase cockpit read model ${columnName} must be an object.`);
+  }
+
+  return parsed;
 }
 
 function parseStringArrayCell(value: string[] | string, columnName: string): string[] {
@@ -1459,6 +1695,14 @@ function isSourceHealthStatus(value: string): value is SourceHealthResult["statu
 
 function isSourceHealthMode(value: string): value is SourceHealthResult["sourceMode"] {
   return value === "live" || value === "synthetic_static_table" || value === "unavailable";
+}
+
+function isReadModelSurface(value: string): value is SupabaseReadModelSurface {
+  return value === "connector-readiness" || value === "forensics-analyst";
+}
+
+function isSafeReadModelKey(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$/u.test(value);
 }
 
 function normalizeSupabaseTimestamp(value: string): string {
