@@ -5,9 +5,11 @@ export default [
   {
     ignores: [
       "node_modules/**",
+      ".claude/**",
       ".next/**",
       "**/.next/**",
       "design-system/**",
+      "mockups/**",
       "output/**",
       "*.config.js",
       "*.config.cjs",

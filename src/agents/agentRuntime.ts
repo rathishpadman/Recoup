@@ -1,5 +1,6 @@
 import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
 import { Agent, type MCPServer } from "./openAiAgentsSdk.js";
+import { assembleRecoupPrompt } from "./promptAssembly.js";
 import { loadAgentPrompt, type AgentPromptFileName } from "./prompts.js";
 
 const promptFiles = {
@@ -20,7 +21,10 @@ export function createRecoveryDrafterAgent(options: AgentMcpServerOptions = {}) 
     name: "Recovery Drafter",
     model: runtimeModels.fast,
     modelSettings: runtimeModelSettings.recoveryDrafter,
-    instructions: loadAgentPrompt(promptFiles.recoveryDrafter),
+    instructions: assembleRecoupPrompt({
+      agentPrompt: loadAgentPrompt(promptFiles.recoveryDrafter),
+      capability: "deduction_forensics"
+    }).prompt,
     ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
   });
 }
@@ -32,7 +36,10 @@ export function createForensicsInvestigatorAgent(options: AgentMcpServerOptions 
     name: "Forensics Investigator",
     model: runtimeModels.reasoning,
     modelSettings: runtimeModelSettings.forensicsInvestigator,
-    instructions: loadAgentPrompt(promptFiles.forensicsInvestigator),
+    instructions: assembleRecoupPrompt({
+      agentPrompt: loadAgentPrompt(promptFiles.forensicsInvestigator),
+      capability: "deduction_forensics"
+    }).prompt,
     handoffs: [recoveryAgent],
     ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
   });
@@ -46,14 +53,20 @@ export const sentinelAgent = new Agent({
   name: "Sentinel",
   model: runtimeModels.fast,
   modelSettings: runtimeModelSettings.sentinel,
-  instructions: loadAgentPrompt(promptFiles.sentinel)
+  instructions: assembleRecoupPrompt({
+    agentPrompt: loadAgentPrompt(promptFiles.sentinel),
+    capability: "credit_risk"
+  }).prompt
 });
 
 export const containmentIntentAgent = new Agent({
   name: "Containment / Intent",
   model: runtimeModels.fast,
   modelSettings: runtimeModelSettings.containmentIntent,
-  instructions: loadAgentPrompt(promptFiles.containmentIntent)
+  instructions: assembleRecoupPrompt({
+    agentPrompt: loadAgentPrompt(promptFiles.containmentIntent),
+    capability: "containment"
+  }).prompt
 });
 
 export const riskMeshAgentTools = [
@@ -75,7 +88,10 @@ export const riskMeshSupervisorAgent = new Agent({
   name: "Risk-Mesh Supervisor",
   model: runtimeModels.reasoning,
   modelSettings: runtimeModelSettings.riskMeshSupervisor,
-  instructions: loadAgentPrompt(promptFiles.riskMeshSupervisor),
+  instructions: assembleRecoupPrompt({
+    agentPrompt: loadAgentPrompt(promptFiles.riskMeshSupervisor),
+    capability: "risk_mesh"
+  }).prompt,
   tools: riskMeshAgentTools
 });
 

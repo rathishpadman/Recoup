@@ -1,4 +1,5 @@
 import type { GovernedConfigValues } from "../../config/governed.js";
+import { openAiPromptCacheConfig } from "../../config/openaiPromptCache.js";
 import type { SourcePort } from "../adapters/source.js";
 import { buildDeterministicForensicsQueryAnswer } from "../agents/query.js";
 import {
@@ -6,6 +7,7 @@ import {
   forensicsQueryTracePhases,
   type ForensicsQueryTraceEvent,
   type ForensicsQueryTracePhase,
+  type OpenAiTokenUsageSnapshot,
   type StreamLiveForensicsTraceOptions
 } from "../agents/liveForensicsStream.js";
 import {
@@ -39,7 +41,7 @@ const liveForensicsQuerySessionBasis =
 
 export type ForensicsQueryLiveAgentTraceOptions = Pick<
   StreamLiveForensicsTraceOptions,
-  "env" | "maxTurns" | "onRetry" | "onTokenUsage" | "retryCap" | "runner" | "signal"
+  "env" | "maxTurns" | "onRetry" | "onTokenUsage" | "onTokenUsageSnapshot" | "retryCap" | "runner" | "signal"
 >;
 
 export type ForensicsQueryModelExecution =
@@ -48,8 +50,17 @@ export type ForensicsQueryModelExecution =
       deterministicBasis: typeof liveForensicsQueryAnswerGuardBasis;
       handoffCount: number;
       mode: "live_openai_agents";
+      promptCache?: {
+        cachedTokens?: number;
+        capability: "deduction_forensics";
+        inputTokens?: number;
+        outputTokens?: number;
+        promptCacheKey: string;
+        promptPrefixVersion: string;
+      };
       rawModelTextPolicy: "suppressed";
       tokenUsage?: number;
+      tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
     }
   | {
       deterministicBasis: typeof liveForensicsQueryRequiredBasis;
@@ -254,6 +265,7 @@ export async function runForensicsQuerySessionWithLiveAgents(
   }
 
   const tokenUsage = liveRun.tokenUsage > 0 ? { tokenUsage: liveRun.tokenUsage } : {};
+  const promptCache = buildDeductionForensicsPromptCacheMetadata(liveRun.tokenUsageSnapshot);
   return {
     ...deterministicResponse,
     deterministicBasis: liveForensicsQuerySessionBasis,
@@ -262,10 +274,28 @@ export async function runForensicsQuerySessionWithLiveAgents(
       deterministicBasis: liveForensicsQueryAnswerGuardBasis,
       handoffCount,
       mode: "live_openai_agents",
+      ...(promptCache === undefined ? {} : { promptCache }),
       rawModelTextPolicy: "suppressed",
+      ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot }),
       ...tokenUsage
     },
     trace: [...liveTrace, ...deterministicResponse.trace]
+  };
+}
+
+function buildDeductionForensicsPromptCacheMetadata(snapshot: OpenAiTokenUsageSnapshot | undefined) {
+  const cacheConfig = openAiPromptCacheConfig.deduction_forensics;
+  if (snapshot === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(snapshot.cachedTokens === undefined ? {} : { cachedTokens: snapshot.cachedTokens }),
+    capability: "deduction_forensics" as const,
+    ...(snapshot.inputTokens === undefined ? {} : { inputTokens: snapshot.inputTokens }),
+    ...(snapshot.outputTokens === undefined ? {} : { outputTokens: snapshot.outputTokens }),
+    promptCacheKey: cacheConfig.promptCacheKey,
+    promptPrefixVersion: cacheConfig.promptPrefixVersion
   };
 }
 

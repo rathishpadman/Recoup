@@ -77,6 +77,7 @@ import {
   runForensicsQuerySessionWithLiveAgents,
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
+import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
 import {
   assertR1SourceReadInput,
   buildOpenAiVectorStoreEvidenceSource,
@@ -1532,14 +1533,20 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
   try {
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
     const modelExecution = input.queryResponse.modelExecution;
+    const tokenUsageSnapshot =
+      modelExecution?.mode === "live_openai_agents" && modelExecution.tokenUsageSnapshot !== undefined
+        ? modelExecution.tokenUsageSnapshot
+        : modelExecution?.mode === "live_openai_agents" && modelExecution.tokenUsage !== undefined
+          ? { totalTokens: modelExecution.tokenUsage }
+          : undefined;
     if (
       supabaseMemory === undefined ||
       input.queryResponse.answer === undefined ||
       modelExecution === undefined ||
       modelExecution.mode !== "live_openai_agents" ||
-      modelExecution.tokenUsage === undefined ||
-      !Number.isSafeInteger(modelExecution.tokenUsage) ||
-      modelExecution.tokenUsage <= 0
+      tokenUsageSnapshot === undefined ||
+      !Number.isSafeInteger(tokenUsageSnapshot.totalTokens) ||
+      tokenUsageSnapshot.totalTokens <= 0
     ) {
       return;
     }
@@ -1548,26 +1555,29 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
     const submittedRecordIds = uniqueRecordIds(input.request.recordIds);
     const citedRecordIds = uniqueRecordIds(input.queryResponse.citations.map((citation) => citation.recordId));
     const receiptRecordIds = uniqueRecordIds([selectedLineId, ...submittedRecordIds, ...citedRecordIds]);
-    const receiptPayload = {
-      citedRecordIds,
+    const receiptPayload = buildOpenAiUsageReceiptPayload({
+      agentName: "Forensics Investigator",
+      capability: "deduction_forensics",
       correlationId: input.correlationId,
-      costDeterministicBasis: "No owner-approved pricing config is configured; dollar cost is not computed.",
-      costStatus: "pricing_not_configured_not_computed",
       deterministicBasis: input.queryResponse.deterministicBasis,
       modelExecutionMode: modelExecution.mode,
       rawModelTextPolicy: modelExecution.rawModelTextPolicy,
-      receiptType: "maya_forensics_query_token_usage",
+      recordIds: receiptRecordIds,
+      usage: tokenUsageSnapshot
+    });
+    const mayaReceiptPayload = {
+      ...receiptPayload,
+      citedRecordIds,
       selectedLineId,
-      submittedRecordIds,
-      tokenCount: modelExecution.tokenUsage
+      submittedRecordIds
     };
-    const receiptHash = sha256CanonicalJson(receiptPayload);
+    const receiptHash = sha256CanonicalJson(mayaReceiptPayload);
 
     await supabaseMemory.append({
       category: "audit_refs",
       createdAt: new Date().toISOString(),
       id: `audit:forensics-query-token-usage:${receiptHash}`,
-      payload: receiptPayload,
+      payload: mayaReceiptPayload,
       recordIds: receiptRecordIds,
       scope: `forensics-query:${selectedLineId}`,
       trustLevel: "trusted"

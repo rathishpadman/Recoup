@@ -5,6 +5,7 @@ import { ArrowRight, CheckCircle2, ClipboardCheck, FileSearch, RotateCcw, Shield
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const mayaLoginHref = "/login?loginId=Maya";
@@ -378,6 +379,26 @@ export default function LandingPage() {
                         </li>
                       ))}
                     </ul>
+                    <div className="mt-4 overflow-hidden border border-border/60 bg-background/80">
+                      <Table className="text-xs">
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="h-8 px-3 text-[11px] font-semibold text-muted-foreground">Layer</TableHead>
+                            <TableHead className="h-8 px-3 text-[11px] font-semibold text-muted-foreground">OpenAI capability</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell className="px-3 py-2 font-medium text-foreground">Runtime models</TableCell>
+                            <TableCell className="px-3 py-2 text-muted-foreground">GPT-5.5, GPT-4.1, GPT Realtime</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell className="px-3 py-2 font-medium text-foreground">Governance</TableCell>
+                            <TableCell className="px-3 py-2 text-muted-foreground">Agents SDK tools with typed evidence gates</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
 
                   <div>

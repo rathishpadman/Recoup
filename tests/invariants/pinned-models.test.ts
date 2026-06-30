@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
+import { openAiPromptCacheConfig } from "../../config/openaiPromptCache.js";
 
 describe("runtime model config", () => {
   it("uses only pinned runtime model identifiers", () => {
@@ -17,11 +18,41 @@ describe("runtime model config", () => {
 
   it("pins explicit model settings for reproducible reasoning effort", () => {
     expect(runtimeModelSettings).toEqual({
-      forensicsInvestigator: { reasoning: { effort: "high" }, text: { verbosity: "low" } },
-      riskMeshSupervisor: { reasoning: { effort: "low" }, text: { verbosity: "low" } },
-      recoveryDrafter: { reasoning: { effort: "low" }, text: { verbosity: "low" } },
-      sentinel: { reasoning: { effort: "low" }, text: { verbosity: "low" } },
-      containmentIntent: { reasoning: { effort: "low" }, text: { verbosity: "low" } },
+      forensicsInvestigator: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+        },
+        reasoning: { effort: "high" },
+        text: { verbosity: "low" }
+      },
+      riskMeshSupervisor: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.risk_mesh.promptCacheKey
+        },
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" }
+      },
+      recoveryDrafter: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+        },
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" }
+      },
+      sentinel: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+        },
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" }
+      },
+      containmentIntent: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.containment.promptCacheKey
+        },
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" }
+      },
       conversationalQuery: {}
     });
   });

@@ -374,7 +374,7 @@ async function main(): Promise<void> {
     apiServer.recorder.clear();
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench", 90_000);
-    await assertObservedRealBackendCall(apiServer, "GET", "/forensics");
+    await assertObservedForensicsReadOrRefresh(apiServer);
     await assertObservedRealBackendCall(apiServer, "GET", "/connectors");
     await assertRootSidebarSectionNavigation(page, forensicsModel);
     await assertRenderedKpiStripMatchesBackend(page, activeForensicsModel);
@@ -2791,6 +2791,23 @@ function observeBrowserCalls(page: Page, appUrl: string, apiUrl: string): void {
 async function assertObservedRealBackendCall(apiServer: ManagedApiServer, method: string, path: string): Promise<void> {
   const normalizedPath = normalizeObservedPath(path);
   await apiServer.recorder.waitFor(method, normalizedPath, 20_000);
+}
+
+async function assertObservedForensicsReadOrRefresh(apiServer: ManagedApiServer): Promise<void> {
+  const acceptedCalls = [
+    { method: "GET", path: normalizeObservedPath("/forensics") },
+    { method: "POST", path: normalizeObservedPath("/forensics/refresh") }
+  ] as const;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const observed = apiServer.recorder.snapshot();
+    if (acceptedCalls.some((expected) => observed.some((call) => call.method === expected.method && call.path === expected.path))) {
+      return;
+    }
+    await delay(250);
+  }
+
+  throw new Error("Did not observe a real backend forensics read or source-refresh call.");
 }
 
 async function waitForAppJsonResponse(

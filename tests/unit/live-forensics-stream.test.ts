@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectLiveForensicsAgentRun,
   runOpenAIForensicsAgentStream,
   streamLiveForensicsTraceEvents,
   type LiveForensicsOpenAiRunner,
@@ -38,6 +39,111 @@ describe("live forensics Agents SDK stream", () => {
         }
       }
     ]);
+  });
+
+  it("keeps cached-token evidence from earlier SDK usage events in the collected run result", async () => {
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield {
+        type: "raw_model_stream_event",
+        data: {
+          response: {
+            usage: {
+              input_tokens: 100,
+              input_tokens_details: {
+                cached_tokens: 80
+              },
+              output_tokens: 20,
+              total_tokens: 120
+            }
+          },
+          type: "response.completed"
+        }
+      };
+      yield {
+        type: "raw_model_stream_event",
+        data: {
+          response: {
+            usage: {
+              total_tokens: 130
+            }
+          },
+          type: "response.completed"
+        }
+      };
+    };
+
+    const result = await collectLiveForensicsAgentRun({
+      env: { OPENAI_API_KEY: "sk-test-secret" },
+      maxTurns: 7,
+      retryCap: 0,
+      runner
+    });
+
+    expect(result.tokenUsage).toBe(130);
+    expect(result.tokenUsageSnapshot).toEqual({
+      cachedTokens: 80,
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 130
+    });
+  });
+
+  it("aggregates total token usage across retried live SDK attempts", async () => {
+    let runnerCalls = 0;
+    const runner: LiveForensicsStreamRunner = async function* () {
+      runnerCalls += 1;
+      await Promise.resolve();
+      if (runnerCalls === 1) {
+        yield {
+          type: "raw_model_stream_event",
+          data: {
+            response: {
+              usage: {
+                input_tokens: 10,
+                input_tokens_details: {
+                  cached_tokens: 7
+                },
+                output_tokens: 2,
+                total_tokens: 12
+              }
+            },
+            type: "response.completed"
+          }
+        };
+        throw new Error("recoverable stream failure after usage metadata");
+      }
+
+      yield {
+        type: "raw_model_stream_event",
+        data: {
+          response: {
+            usage: {
+              input_tokens: 15,
+              output_tokens: 5,
+              total_tokens: 20
+            }
+          },
+          type: "response.completed"
+        }
+      };
+    };
+
+    const result = await collectLiveForensicsAgentRun({
+      env: { OPENAI_API_KEY: "sk-test-secret" },
+      maxTurns: 7,
+      retryCap: 1,
+      runner
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.tokenUsage).toBe(32);
+    expect(result.tokenUsageSnapshot).toEqual({
+      cachedTokens: 7,
+      inputTokens: 25,
+      outputTokens: 7,
+      totalTokens: 32
+    });
   });
 
   it("maps streamed SDK events into non-decision forensics status events", async () => {
@@ -199,6 +305,7 @@ describe("live forensics Agents SDK stream", () => {
 
   it("records live token usage deltas only from explicit SDK usage metadata", async () => {
     const tokenDeltas: number[] = [];
+    const usageSnapshots: Array<{ cachedTokens?: number; inputTokens?: number; outputTokens?: number; totalTokens: number }> = [];
     const runner: LiveForensicsStreamRunner = async function* () {
       await Promise.resolve();
       yield {
@@ -206,6 +313,11 @@ describe("live forensics Agents SDK stream", () => {
         data: {
           response: {
             usage: {
+              input_tokens: 8,
+              input_tokens_details: {
+                cached_tokens: 4
+              },
+              output_tokens: 2,
               total_tokens: 10
             }
           },
@@ -243,11 +355,28 @@ describe("live forensics Agents SDK stream", () => {
         maxTurns: 7,
         retryCap: 1,
         onTokenUsage: (tokens) => tokenDeltas.push(tokens),
+        onTokenUsageSnapshot: (snapshot) => usageSnapshots.push(snapshot),
         runner
       })
     );
 
     expect(tokenDeltas).toEqual([10, 5]);
+    expect(usageSnapshots).toEqual([
+      {
+        cachedTokens: 4,
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10
+      },
+      {
+        inputTokens: 8,
+        outputTokens: 7,
+        totalTokens: 15
+      },
+      {
+        totalTokens: 15
+      }
+    ]);
   });
 
   it("records and uses DB-backed live retry caps for recoverable stream failures", async () => {
@@ -450,6 +579,9 @@ describe("live forensics Agents SDK stream", () => {
     expect(fakeRunner.lastAgent?.name).toBe("Forensics Investigator");
     expect(fakeRunner.lastAgent?.mcpServers).toBe(gateway.mcpServers);
     expect(fakeRunner.lastAgent?.modelSettings).toEqual({
+      providerData: {
+        prompt_cache_key: "recoup:v2:deduction-forensics:v1"
+      },
       reasoning: { effort: "high" },
       text: { verbosity: "low" }
     });

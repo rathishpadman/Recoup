@@ -781,7 +781,14 @@ describe("S5 cockpit API", () => {
           data: {
             delta: rawModelText,
             type: "output_text_delta",
-            usage: { total_tokens: 1842 }
+            usage: {
+              input_tokens: 1600,
+              input_tokens_details: {
+                cached_tokens: 1200
+              },
+              output_tokens: 242,
+              total_tokens: 1842
+            }
           },
           type: "raw_model_stream_event"
         };
@@ -831,6 +838,14 @@ describe("S5 cockpit API", () => {
       expect(response.status).toBe(200);
       expect(body.answer).toContain("S6-L1");
       expect(body.modelExecution).toMatchObject({
+        promptCache: {
+          capability: "deduction_forensics",
+          cachedTokens: 1200,
+          inputTokens: 1600,
+          outputTokens: 242,
+          promptCacheKey: "recoup:v2:deduction-forensics:v1",
+          promptPrefixVersion: "v1"
+        },
         mode: "live_openai_agents",
         tokenUsage: 1842
       });
@@ -896,15 +911,32 @@ describe("S5 cockpit API", () => {
       expect(receiptRecordIds).toEqual(expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"]));
       expect(citedRecordIds).toEqual(expect.arrayContaining(body.citations.map((citation) => citation.recordId)));
       expect(receiptPayload).toMatchObject({
+        agentName: "Forensics Investigator",
+        cachedTokens: 1200,
+        capability: "deduction_forensics",
         correlationId,
         costStatus: "pricing_not_configured_not_computed",
         deterministicBasis: body.deterministicBasis,
+        inputTokens: 1600,
+        modelExecutionMode: "live_openai_agents",
+        outputTokens: 242,
+        promptCacheKey: "recoup:v2:deduction-forensics:v1",
+        promptPrefixVersion: "v1",
+        receiptType: "openai_agent_usage",
         selectedLineId: "S6-L1",
         submittedRecordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        totalTokens: 1842,
         tokenCount: 1842
       });
+      const usageReceiptRecordIds = receiptPayload["recordIds"];
+      expect(Array.isArray(usageReceiptRecordIds)).toBe(true);
+      expect(usageReceiptRecordIds).toEqual(
+        expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"])
+      );
       expect(receiptPayload).not.toHaveProperty("answer");
       expect(receiptPayload).not.toHaveProperty("rawModelText");
+      expect(receiptPayload).not.toHaveProperty("prompt");
+      expect(receiptPayload).not.toHaveProperty("question");
       const serializedReceipt = JSON.stringify(receipt);
       expect(serializedReceipt).not.toContain("sk-test-live-query");
       expect(serializedReceipt).not.toContain("supabase-secret-key");

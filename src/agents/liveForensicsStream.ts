@@ -64,6 +64,7 @@ export interface StreamLiveForensicsTraceOptions {
   onAgentHookReceipt?: (receipt: AgentHookAuditReceipt) => void;
   onRetry?: () => void;
   onTokenUsage?: (tokens: number) => void;
+  onTokenUsageSnapshot?: (snapshot: OpenAiTokenUsageSnapshot) => void;
   retryCap?: number;
   runner?: LiveForensicsStreamRunner;
   signal?: AbortSignal;
@@ -76,6 +77,14 @@ export interface LiveForensicsAgentRunResult {
   hookReceipts: AgentHookAuditReceipt[];
   status: LiveForensicsAgentRunStatus;
   tokenUsage: number;
+  tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
+}
+
+export interface OpenAiTokenUsageSnapshot {
+  cachedTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens: number;
 }
 
 type ForensicsStatusKind = Extract<ForensicsTraceEvent, { type: "status" }>["payload"]["kind"];
@@ -119,6 +128,8 @@ export async function collectLiveForensicsAgentRun(
   const hookReceipts: AgentHookAuditReceipt[] = [];
   let status: LiveForensicsAgentRunStatus = "failed";
   let tokenUsage = 0;
+  let completedAttemptTokenUsageSnapshot: OpenAiTokenUsageSnapshot | undefined;
+  let currentAttemptTokenUsageSnapshot: OpenAiTokenUsageSnapshot | undefined;
   const sourceRunner =
     options.runner ??
     ((request: LiveForensicsStreamRequest) =>
@@ -153,6 +164,18 @@ export async function collectLiveForensicsAgentRun(
       tokenUsage += tokens;
       options.onTokenUsage?.(tokens);
     },
+    onRetry() {
+      completedAttemptTokenUsageSnapshot = sumOpenAiTokenUsageSnapshots(
+        completedAttemptTokenUsageSnapshot,
+        currentAttemptTokenUsageSnapshot
+      );
+      currentAttemptTokenUsageSnapshot = undefined;
+      options.onRetry?.();
+    },
+    onTokenUsageSnapshot(snapshot) {
+      currentAttemptTokenUsageSnapshot = mergeOpenAiTokenUsageSnapshots(currentAttemptTokenUsageSnapshot, snapshot);
+      options.onTokenUsageSnapshot?.(snapshot);
+    },
     onAgentHookReceipt(receipt) {
       hookReceipts.push(receipt);
     },
@@ -172,11 +195,64 @@ export async function collectLiveForensicsAgentRun(
     }
   }
 
+  const tokenUsageSnapshot = sumOpenAiTokenUsageSnapshots(
+    completedAttemptTokenUsageSnapshot,
+    currentAttemptTokenUsageSnapshot
+  );
+  const aggregateTokenUsageSnapshot =
+    tokenUsageSnapshot === undefined
+      ? undefined
+      : {
+          ...tokenUsageSnapshot,
+          totalTokens: tokenUsage
+        };
+
   return {
     events,
     hookReceipts,
     status,
-    tokenUsage
+    tokenUsage,
+    ...(aggregateTokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: aggregateTokenUsageSnapshot })
+  };
+}
+
+function sumOpenAiTokenUsageSnapshots(
+  current: OpenAiTokenUsageSnapshot | undefined,
+  next: OpenAiTokenUsageSnapshot | undefined
+): OpenAiTokenUsageSnapshot | undefined {
+  if (current === undefined && next === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(current?.cachedTokens === undefined && next?.cachedTokens === undefined
+      ? {}
+      : { cachedTokens: (current?.cachedTokens ?? 0) + (next?.cachedTokens ?? 0) }),
+    ...(current?.inputTokens === undefined && next?.inputTokens === undefined
+      ? {}
+      : { inputTokens: (current?.inputTokens ?? 0) + (next?.inputTokens ?? 0) }),
+    ...(current?.outputTokens === undefined && next?.outputTokens === undefined
+      ? {}
+      : { outputTokens: (current?.outputTokens ?? 0) + (next?.outputTokens ?? 0) }),
+    totalTokens: (current?.totalTokens ?? 0) + (next?.totalTokens ?? 0)
+  };
+}
+
+function mergeOpenAiTokenUsageSnapshots(
+  current: OpenAiTokenUsageSnapshot | undefined,
+  next: OpenAiTokenUsageSnapshot
+): OpenAiTokenUsageSnapshot {
+  return {
+    ...(current?.cachedTokens === undefined && next.cachedTokens === undefined
+      ? {}
+      : { cachedTokens: Math.max(current?.cachedTokens ?? 0, next.cachedTokens ?? 0) }),
+    ...(current?.inputTokens === undefined && next.inputTokens === undefined
+      ? {}
+      : { inputTokens: Math.max(current?.inputTokens ?? 0, next.inputTokens ?? 0) }),
+    ...(current?.outputTokens === undefined && next.outputTokens === undefined
+      ? {}
+      : { outputTokens: Math.max(current?.outputTokens ?? 0, next.outputTokens ?? 0) }),
+    totalTokens: Math.max(current?.totalTokens ?? 0, next.totalTokens)
   };
 }
 
@@ -243,10 +319,13 @@ export async function* streamLiveForensicsTraceEvents(
         for (const receiptEvent of drainAgentHookReceiptEvents(agentHookReceipts)) {
           yield receiptEvent;
         }
-        const tokenTotal = readCumulativeTokenUsage(event);
-        if (tokenTotal !== undefined && tokenTotal > recordedTokenTotal) {
-          options.onTokenUsage?.(tokenTotal - recordedTokenTotal);
-          recordedTokenTotal = tokenTotal;
+        const tokenUsageSnapshot = readTokenUsageSnapshot(event);
+        if (tokenUsageSnapshot !== undefined) {
+          options.onTokenUsageSnapshot?.(tokenUsageSnapshot);
+          if (tokenUsageSnapshot.totalTokens > recordedTokenTotal) {
+            options.onTokenUsage?.(tokenUsageSnapshot.totalTokens - recordedTokenTotal);
+            recordedTokenTotal = tokenUsageSnapshot.totalTokens;
+          }
         }
         const sdkToolReceipt =
           agentHookRecordIds.length > 0
@@ -689,7 +768,7 @@ function readAgentName(agent: unknown): string {
   return isRecord(agent) && typeof agent.name === "string" && agent.name.length > 0 ? agent.name : "unknown";
 }
 
-function readCumulativeTokenUsage(event: unknown): number | undefined {
+function readTokenUsageSnapshot(event: unknown): OpenAiTokenUsageSnapshot | undefined {
   if (!isRecord(event)) {
     return undefined;
   }
@@ -702,32 +781,55 @@ function readCumulativeTokenUsage(event: unknown): number | undefined {
   ];
 
   for (const candidate of candidates) {
-    const tokens = readTokenCount(candidate);
-    if (tokens !== undefined) {
-      return tokens;
+    const snapshot = readTokenUsage(candidate);
+    if (snapshot !== undefined) {
+      return snapshot;
     }
   }
 
   return undefined;
 }
 
-function readTokenCount(value: unknown): number | undefined {
+function readTokenUsage(value: unknown): OpenAiTokenUsageSnapshot | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
 
   const totalTokens = readNonNegativeInteger(value.total_tokens ?? value.totalTokens);
   if (totalTokens !== undefined) {
-    return totalTokens;
+    return {
+      totalTokens,
+      ...readOptionalTokenUsageDetails(value)
+    };
   }
 
   const inputTokens = readNonNegativeInteger(value.input_tokens ?? value.inputTokens);
   const outputTokens = readNonNegativeInteger(value.output_tokens ?? value.outputTokens);
   if (inputTokens !== undefined && outputTokens !== undefined) {
-    return inputTokens + outputTokens;
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      ...readOptionalTokenUsageDetails(value)
+    };
   }
 
   return undefined;
+}
+
+function readOptionalTokenUsageDetails(value: Record<string, unknown>): Omit<OpenAiTokenUsageSnapshot, "totalTokens"> {
+  const inputTokens = readNonNegativeInteger(value.input_tokens ?? value.inputTokens);
+  const outputTokens = readNonNegativeInteger(value.output_tokens ?? value.outputTokens);
+  const inputTokenDetails = value.input_tokens_details ?? value.inputTokensDetails;
+  const cachedTokens = isRecord(inputTokenDetails)
+    ? readNonNegativeInteger(inputTokenDetails.cached_tokens ?? inputTokenDetails.cachedTokens)
+    : undefined;
+
+  return {
+    ...(cachedTokens === undefined ? {} : { cachedTokens }),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens })
+  };
 }
 
 function readNonNegativeInteger(value: unknown): number | undefined {

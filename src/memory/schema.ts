@@ -21,6 +21,7 @@ const DirectEmailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const DirectPhonePattern = /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/u;
 const OpenAiApiKeyPattern = /\bsk-[A-Za-z0-9_-]{8,}\b/u;
 const SecretFieldPattern = /(?:api[_-]?key|client[_-]?secret|password|token|secret)/iu;
+const RecoupPromptCacheKeyPattern = /^recoup:v2:[a-z-]+:v\d+$/u;
 
 export const MemoryRecordSchema = z.object({
   id: z.string().min(1),
@@ -45,6 +46,10 @@ export type TrustLevel = z.infer<typeof TrustLevelSchema>;
 
 function containsDirectPiiOrSecret(value: unknown, fieldName = ""): boolean {
   if (typeof value === "string") {
+    if (fieldName === "promptCacheKey" && RecoupPromptCacheKeyPattern.test(value)) {
+      return false;
+    }
+
     return (
       DirectEmailPattern.test(value) ||
       DirectPhonePattern.test(value) ||
