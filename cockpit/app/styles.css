@@ -5854,6 +5854,290 @@ code {
   font-size: 12px;
 }
 
+.evals-finops-dashboard {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.evals-finops-toolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.evals-finops-toolbar span {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 36px;
+  padding: 9px 12px;
+}
+
+.evals-finops-kpi-strip {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.evals-finops-kpi-card,
+.evals-finops-panel,
+.evals-finops-metric-tile {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.evals-finops-kpi-card {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 150px;
+  overflow: hidden;
+  padding: var(--space-4);
+}
+
+.evals-finops-kpi-card > div {
+  align-items: center;
+  color: var(--text-primary);
+  display: flex;
+  font-size: 13px;
+  font-weight: 750;
+  gap: var(--space-2);
+}
+
+.evals-finops-kpi-card svg {
+  color: var(--color-primary);
+}
+
+.evals-finops-kpi-card.good svg,
+.evals-finops-kpi-card.good strong,
+.good-text {
+  color: var(--status-success-text);
+}
+
+.evals-finops-kpi-card.watch svg,
+.evals-finops-kpi-card.watch strong {
+  color: var(--aging-31-60);
+}
+
+.evals-finops-kpi-card.info svg,
+.evals-finops-kpi-card.info strong {
+  color: var(--focus-ring);
+}
+
+.evals-finops-kpi-card strong {
+  font-family: var(--font-mono);
+  font-size: clamp(24px, 3vw, 36px);
+  line-height: 1;
+}
+
+.evals-finops-kpi-card small,
+.evals-finops-metric-tile small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.evals-finops-kpi-card i {
+  align-self: end;
+  background: currentColor;
+  border-radius: 999px;
+  display: block;
+  height: 5px;
+  min-width: 16px;
+}
+
+.evals-finops-panel {
+  overflow: hidden;
+}
+
+.evals-finops-panel-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  min-height: 54px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.evals-finops-panel-heading h2 {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 20px;
+}
+
+.evals-finops-panel-heading span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.evals-finops-scorecard-scroll {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.evals-finops-scorecard-table,
+.evals-finops-persona-table,
+.evals-finops-action-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.evals-finops-scorecard-table {
+  min-width: 980px;
+}
+
+.evals-finops-scorecard-table th,
+.evals-finops-scorecard-table td,
+.evals-finops-persona-table th,
+.evals-finops-persona-table td,
+.evals-finops-action-table th,
+.evals-finops-action-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 18px;
+  padding: var(--space-3);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.evals-finops-scorecard-table th,
+.evals-finops-persona-table th,
+.evals-finops-action-table th {
+  background: color-mix(in srgb, var(--bg-subtle) 68%, var(--bg-surface));
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.evals-finops-scorecard-table td:first-child strong,
+.evals-finops-persona-table td:first-child,
+.evals-finops-action-table td:first-child {
+  font-weight: 800;
+}
+
+.evals-finops-scorecard-table td:first-child span,
+.evals-finops-persona-table td span {
+  color: var(--text-muted);
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  margin-top: 2px;
+}
+
+.evals-finops-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.evals-finops-token-grid,
+.evals-finops-token-split,
+.evals-finops-efficiency-grid {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.evals-finops-token-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.evals-finops-token-split {
+  border-top: 1px solid var(--border-subtle);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.evals-finops-efficiency-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.evals-finops-metric-tile {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 112px;
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.evals-finops-metric-tile span {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.evals-finops-metric-tile strong {
+  color: var(--focus-ring);
+  font-family: var(--font-mono);
+  font-size: clamp(18px, 2.2vw, 28px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.evals-finops-status {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.evals-finops-status.good {
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+  color: var(--status-success-text);
+}
+
+.evals-finops-status.watch {
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+  color: var(--status-warning-text);
+}
+
+@media (max-width: 1180px) {
+  .evals-finops-kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evals-finops-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .evals-finops-token-grid,
+  .evals-finops-efficiency-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .evals-finops-toolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .evals-finops-kpi-strip,
+  .evals-finops-token-grid,
+  .evals-finops-token-split,
+  .evals-finops-efficiency-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .evals-finops-panel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .agent-roster.governance-table .governance-table-head,
 .agent-roster.governance-table .governance-data-row {
   grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.1fr) minmax(250px, 0.8fr);

@@ -204,12 +204,13 @@ if (process.argv.includes("--fixture-api")) {
   await runFixtureApi();
 } else {
   await main({
+    evalsFinopsOnly: process.argv.includes("--evals-finops-only"),
     mayaLoginOnly: process.argv.includes("--maya-login-only"),
     mayaShadcnOnly: process.argv.includes("--maya-shadcn-only")
   });
 }
 
-async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }): Promise<void> {
+async function main(options: { evalsFinopsOnly: boolean; mayaLoginOnly: boolean; mayaShadcnOnly: boolean }): Promise<void> {
   const managedProcesses: ManagedProcess[] = [];
   let browser: Browser | undefined;
 
@@ -227,6 +228,12 @@ async function main(options: { mayaLoginOnly: boolean; mayaShadcnOnly: boolean }
 
     browser = await chromium.launch({ headless: true });
     await assertApiHealth();
+    if (options.evalsFinopsOnly) {
+      await assertEvalsFinopsGovernanceRoute(browser);
+      console.log(`Evals FinOps governance route checked; screenshot written to ${outputDir}/governance-evals-finops-1440.png`);
+      return;
+    }
+
     await assertLandingPage(browser);
     if (options.mayaLoginOnly) {
       await captureMayaLoginBeatScreenshot(browser);
@@ -1399,32 +1406,35 @@ async function assertEvalsFinopsGovernanceRoute(browser: Browser): Promise<void>
     await page.goto(`${appUrl}/governance/evals-finops`, { waitUntil: "networkidle" });
     await expectVisibleLocator(page, '[data-testid="evals-finops-surface"]', "Evals and FinOps governance surface");
     await expectVisibleText(page, "Evals + FinOps");
-    await expectVisibleText(page, "Quality gates");
-    await expectVisibleText(page, "Agent economics");
-    await expectVisibleText(page, "Unit economics");
-    await expectVisibleText(page, "Recommendations");
+    await expectVisibleText(page, "Agent Scorecard");
+    await expectVisibleText(page, "Persona KPI Matrix");
+    await expectVisibleText(page, "Token Usage");
+    await expectVisibleText(page, "Cost Efficiency");
+    await expectVisibleText(page, "Action Queue");
 
     assert(model.evalGates.length > 0, "Evals FinOps model must expose eval gate rows");
     assert(model.agentMetrics.length > 0, "Evals FinOps model must expose typed agent metrics");
     assert(model.recommendations.length > 0, "Evals FinOps model must expose deterministic recommendations");
 
-    await expectVisibleText(page, firstItem(model.evalGates, "eval gate rows").scoreLabel);
-    await expectVisibleText(page, "q1");
-    await expectVisibleText(page, "usage-1");
-    await expectVisibleText(page, "usage-unpriced");
+    await expectVisibleText(page, "1/3");
+    await expectVisibleText(page, "2/3");
+    await expectVisibleText(page, "33%");
+    await expectVisibleText(page, "Maya Forensics");
+    await expectVisibleText(page, "Release Evaluator");
     await expectVisibleText(page, "20.0%");
-    await expectVisibleText(page, "200,000");
-    await expectVisibleText(page, "USD 0.2250");
-    await expectVisibleText(page, "Pricing blocked");
-    await expectVisibleText(page, "pricing-missing-for-observed-model");
-    await expectVisibleText(page, "Human approval required");
+    await expectVisibleText(page, "1,101,000");
+    await expectVisibleText(page, "200K");
+    await expectVisibleText(page, "0.2250");
+    await expectVisibleText(page, "USD / owner pricing");
+    await expectVisibleText(page, "Approve model pricing");
+    await expectVisibleText(page, "Approve eval labels");
 
     const surfaceText = await page.getByTestId("evals-finops-surface").innerText();
-    assert(!surfaceText.includes("$0"), "Evals FinOps missing-pricing state must not render $0");
-    assert(
-      surfaceText.includes("Owner-approved pricing is unavailable for observed model gpt-5-nano."),
-      "Evals FinOps page must expose the missing-pricing blocked input for the unpriced observed model"
-    );
+    assert(!surfaceText.includes("$0"), "Evals FinOps incomplete-pricing state must not render $0");
+    assert(!surfaceText.includes("Pricing blocked"), "Evals FinOps KPI surface must not show the old pricing-blocked label");
+    assert(!surfaceText.includes("Blocked inputs"), "Evals FinOps KPI surface must not show blocked-input copy");
+    assert(!surfaceText.includes("pricing-missing-for-observed-model"), "Evals FinOps KPI surface must hide raw recommendation IDs");
+    assert(!surfaceText.includes("Human approval required"), "Evals FinOps KPI surface must avoid workflow narration in the CFO readout");
     await assertNoHorizontalOverflow(page, "Evals FinOps governance desktop");
     await page.screenshot({ fullPage: true, path: `${outputDir}/governance-evals-finops-1440.png` });
   } finally {
