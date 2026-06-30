@@ -833,5 +833,18 @@ export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promi
 }
 
 export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalFinopsCockpitModel> {
-  return fetchJson<EvalFinopsCockpitModel>("/evals-finops", headers);
+  return fetchJson<EvalFinopsCockpitModel>("/evals-finops", headers ?? buildServerCockpitAuthHeaders());
+}
+
+function buildServerCockpitAuthHeaders(): HeadersInit | undefined {
+  const principal = process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL?.trim();
+  const token = process.env.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
+  if (principal === undefined || principal.length === 0 || token === undefined || token.length === 0) {
+    return undefined;
+  }
+
+  return {
+    "x-recoup-human-principal": principal,
+    "x-recoup-human-token": token
+  };
 }
