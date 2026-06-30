@@ -376,8 +376,49 @@ describe("S5 cockpit API", () => {
       expect(model.personas.map((persona) => persona.loginId)).toEqual(["Maya", "david", "CFO"]);
       expect(model.personas.map((persona) => persona.role)).toEqual(["maya", "david", "cfo"]);
       expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics/shadcn", "/credit", "/cfo"]);
-      expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([2, 1, 5]);
+      expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([2, 1, 6]);
       expect(model.personas.every((persona) => persona.sourceMode === "deterministic_demo_profile")).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves the Evals and FinOps governance model without fabricating missing pricing", async () => {
+    const { baseUrl, server } = await listen({ env: cockpitAuthEnv });
+    try {
+      const response = await fetch(`${baseUrl}/evals-finops`, { headers: cockpitAuthHeaders });
+      const model = (await response.json()) as {
+        blockedInputs: Array<{ inputId: string; reason: string }>;
+        promptCache: { savingsLabel: string; savingsStatus: string; status: string };
+        releaseReadiness: { status: string };
+        surface: string;
+        unitEconomics: Array<{ costStatus: string; metric: string; valueLabel: string }>;
+      };
+
+      expect(response.status).toBe(200);
+      expect(model.surface).toBe("evals-finops");
+      expect(model.releaseReadiness.status).toBe("blocked");
+      expect(model.unitEconomics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            costStatus: "pricing_not_configured_not_computed",
+            metric: "Cost per successful run",
+            valueLabel: "Pricing not configured"
+          })
+        ])
+      );
+      expect(model.promptCache).toMatchObject({
+        savingsLabel: "Pricing not configured",
+        savingsStatus: "pricing_not_configured_not_computed",
+        status: "usage_unavailable"
+      });
+      expect(model.blockedInputs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ inputId: "recoup_agent_usage_runs" }),
+          expect.objectContaining({ inputId: "recoup_model_pricing" })
+        ])
+      );
+      expect(JSON.stringify(model)).not.toContain("$0");
     } finally {
       await close(server);
     }
@@ -772,6 +813,7 @@ describe("S5 cockpit API", () => {
     const requestBodySecret = "request-body-secret-bearer";
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
     const memoryRows: Array<Record<string, unknown>> = [];
+    const agentUsageRows: Array<Record<string, unknown>> = [];
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       emitForensicsHandoffReceipts(request);
       return (async function* stream() {
@@ -801,6 +843,12 @@ describe("S5 cockpit API", () => {
       if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
         const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
         memoryRows.push(row);
+        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+      }
+
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_agent_usage_runs")) {
+        const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+        agentUsageRows.push(row);
         return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
       }
 
@@ -850,10 +898,16 @@ describe("S5 cockpit API", () => {
         tokenUsage: 1842
       });
       expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toHaveLength(3);
+      expect(calls.filter((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_agent_usage_runs"))).toHaveLength(1);
       expect(memoryRows).toHaveLength(3);
+      expect(agentUsageRows).toHaveLength(1);
       const queryScope = memoryRows.find((row) => row["category"] === "session_state");
       const caseRecall = memoryRows.find((row) => row["category"] === "case_state");
       const receipt = memoryRows.find((row) => row["category"] === "audit_refs");
+      const typedUsageRow = agentUsageRows[0];
+      if (typedUsageRow === undefined) {
+        throw new Error("Expected Supabase typed agent usage row.");
+      }
       const queryScopePayload = queryScope?.["payload_json"];
       if (queryScope === undefined || !isJsonRecord(queryScopePayload)) {
         throw new Error("Expected Supabase Maya query scope memory receipt.");
@@ -928,6 +982,33 @@ describe("S5 cockpit API", () => {
         totalTokens: 1842,
         tokenCount: 1842
       });
+      expect(typedUsageRow).toMatchObject({
+        agent_name: "Forensics Investigator",
+        cached_input_tokens: 1200,
+        cache_capability: "deduction_forensics",
+        correlation_id: correlationId,
+        deterministic_basis: body.deterministicBasis,
+        handoff_count: 1,
+        input_tokens: 1600,
+        model_execution_mode: "live_openai_agents",
+        output_tokens: 242,
+        prompt_cache_key: "recoup:v2:deduction-forensics:v1",
+        prompt_prefix_version: "v1",
+        status: "succeeded",
+        total_tokens: 1842,
+        uncached_input_tokens: 400,
+        workflow_name: "maya_forensics_query"
+      });
+      const typedUsageCitedRecordIds = typedUsageRow["cited_record_ids_json"];
+      const typedUsageRecordIds = typedUsageRow["record_ids_json"];
+      if (!isStringArray(typedUsageCitedRecordIds) || !isStringArray(typedUsageRecordIds)) {
+        throw new Error("Expected typed agent usage row record IDs.");
+      }
+      expect(typedUsageCitedRecordIds).toEqual(expect.arrayContaining(body.citations.map((citation) => citation.recordId)));
+      expect(typedUsageRecordIds).toEqual(
+        expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"])
+      );
+      expect(String(typedUsageRow["usage_run_id"])).toMatch(/^usage:maya-forensics-query:[a-f0-9]{64}$/u);
       const usageReceiptRecordIds = receiptPayload["recordIds"];
       expect(Array.isArray(usageReceiptRecordIds)).toBe(true);
       expect(usageReceiptRecordIds).toEqual(
@@ -944,6 +1025,11 @@ describe("S5 cockpit API", () => {
       expect(serializedReceipt).not.toContain(rawModelText);
       expect(serializedReceipt).not.toContain(requestBodySecret);
       expect(serializedReceipt).not.toContain("$");
+      const serializedTypedUsageRow = JSON.stringify(typedUsageRow);
+      expect(serializedTypedUsageRow).not.toContain("sk-test-live-query");
+      expect(serializedTypedUsageRow).not.toContain("supabase-secret-key");
+      expect(serializedTypedUsageRow).not.toContain(rawModelText);
+      expect(serializedTypedUsageRow).not.toContain(requestBodySecret);
     } finally {
       await close(server);
     }
@@ -6412,6 +6498,10 @@ function signedDemoProxyHeaders(input: {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item): item is string => typeof item === "string");
 }
 
 function isSupabaseMemoryTestRow(value: unknown): value is { category: string; id: string; scope: string } {

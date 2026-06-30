@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recoup Evals + FinOps Governance Mockups</title>
+    <style>
+      :root {
+        --ink: #18181b;
+        --muted: #52525b;
+        --line: #d4d4d8;
+        --soft: #f4f4f5;
+        --panel: #ffffff;
+        --sidebar: #27272a;
+        --good: #166534;
+        --good-bg: #dcfce7;
+        --warn: #92400e;
+        --warn-bg: #fef3c7;
+        --bad: #991b1b;
+        --bad-bg: #fee2e2;
+        --info: #075985;
+        --info-bg: #e0f2fe;
+        font-family: "IBM Plex Sans", Inter, system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fafafa; color: var(--ink); }
+      .shell { display: grid; grid-template-columns: 188px minmax(0, 1fr); min-height: 100vh; }
+      .sidebar { background: var(--sidebar); color: #f4f4f5; padding: 12px 8px; }
+      .brand { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+      .brand-sub { color: #d4d4d8; font-size: 12px; margin-bottom: 14px; }
+      .nav { display: grid; gap: 2px; }
+      .nav div { border-radius: 4px; color: #d4d4d8; font-size: 12px; font-weight: 650; padding: 8px 8px; }
+      .nav .active { background: #3f3f46; color: white; }
+      .workspace { min-width: 0; padding: 10px; }
+      .topbar { align-items: end; border-bottom: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; padding-bottom: 8px; }
+      .topbar small { color: var(--muted); display: block; font-size: 12px; margin-bottom: 4px; }
+      h1 { font-size: 25px; line-height: 30px; margin: 0; }
+      h2 { font-size: 16px; margin: 0; }
+      p { margin: 0; }
+      .tabs { display: flex; gap: 4px; max-width: 620px; overflow-x: auto; }
+      .tabs span { align-items: center; border: 1px solid var(--line); border-radius: 5px; display: inline-flex; font-size: 12px; gap: 6px; min-height: 34px; padding: 0 10px; white-space: nowrap; }
+      .tabs .active { background: var(--ink); color: white; }
+      .strip { display: grid; gap: 8px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 10px 0; }
+      .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-height: 72px; padding: 10px; }
+      .tile span, .meta { color: var(--muted); font-size: 12px; }
+      .tile strong { display: block; font-size: 18px; margin-top: 8px; overflow-wrap: anywhere; }
+      .layout { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) 310px; }
+      .panel, .rail { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+      .section-head { align-items: end; display: flex; justify-content: space-between; margin-bottom: 8px; }
+      .section-head span { color: var(--muted); font-size: 12px; }
+      .table { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+      .row, .head { align-items: start; display: grid; gap: 10px; grid-template-columns: 1.6fr .7fr .7fr 1.3fr; padding: 9px 10px; }
+      .head { background: var(--soft); color: var(--muted); font-size: 12px; font-weight: 700; }
+      .row { border-top: 1px solid #e4e4e7; font-size: 13px; }
+      .row strong { display: block; margin-bottom: 3px; }
+      code { background: var(--soft); border: 1px solid #e4e4e7; border-radius: 4px; display: inline-block; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; margin: 2px 3px 2px 0; padding: 2px 5px; }
+      code { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+      .chip { border-radius: 999px; display: inline-flex; font-size: 11px; font-weight: 750; padding: 3px 7px; }
+      .pass { background: var(--good-bg); color: var(--good); }
+      .blocked, .warn { background: var(--warn-bg); color: var(--warn); }
+      .fail, .critical { background: var(--bad-bg); color: var(--bad); }
+      .info { background: var(--info-bg); color: var(--info); }
+      .rail { display: grid; gap: 8px; align-content: start; }
+      .rail-item { border-bottom: 1px solid #e4e4e7; display: grid; gap: 5px; padding-bottom: 8px; }
+      .rail-item:last-child { border-bottom: 0; padding-bottom: 0; }
+      .cards { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .card { border: 1px solid var(--line); border-radius: 6px; display: grid; gap: 6px; padding: 10px; }
+      .metric-grid { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .blocked-list { display: grid; gap: 8px; }
+      .blocked-item { border: 1px solid var(--line); border-left: 4px solid #f59e0b; border-radius: 6px; display: grid; gap: 5px; padding: 10px; }
+      .mobile-note { display: none; }
+      @media (max-width: 760px) {
+        .shell { grid-template-columns: 1fr; }
+        .workspace { padding: 8px; }
+        .sidebar { position: static; }
+        .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .topbar { align-items: start; flex-direction: column; }
+        .strip, .layout, .cards, .metric-grid { grid-template-columns: 1fr; }
+        .panel, .rail { min-width: 0; padding: 10px; }
+        .section-head span { overflow-wrap: anywhere; }
+        .blocked-item { padding: 8px; }
+        .blocked-item span { font-size: 12px; line-height: 1.32; }
+        .table { overflow-x: auto; }
+        .head, .row { min-width: 760px; }
+        .mobile-note { color: var(--muted); display: block; font-size: 12px; line-height: 1.35; margin: 8px 0; overflow-wrap: anywhere; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div class="brand">Recoup</div>
+        <div class="brand-sub">Deduction recovery mesh</div>
+        <div class="nav">
+          <div>Executive Readout</div><div>Agents</div><div>Connectors</div><div class="active">Evals + FinOps</div>
+          <div>Memory</div><div>Trace</div><div>Reports</div>
+        </div>
+      </aside>
+      <section class="workspace">
+        <header class="topbar">
+          <div><small>Governance</small><h1>Evals + FinOps</h1><p class="meta">Release quality, agent usage, cost posture, and optimization actions.</p></div>
+          <div class="tabs"><span>Agents</span><span>Connectors</span><span class="active">Evals + FinOps</span><span>Memory</span><span>Trace</span></div>
+        </header>
+        <div id="screen"></div>
+      </section>
+    </main>
+    <script>
+      const views = {
+        overview: {
+          title: "Governance overview",
+          strip: [["Release", "Blocked"], ["Cost", "Pricing blocked"], ["Tokens", "184,200"], ["Blocked inputs", "3"]],
+          main: overview()
+        },
+        gates: {
+          title: "Quality gates",
+          strip: [["Release", "Fail"], ["Eval run", "eval-run-8fc2"], ["Failing gates", "1"], ["Blocked gates", "1"]],
+          main: gates()
+        },
+        agents: {
+          title: "Agent economics",
+          strip: [["Agents", "3"], ["Total tokens", "184,200"], ["Guardrail trips", "3"], ["Tool calls", "42"]],
+          main: agents()
+        },
+        units: {
+          title: "Unit economics",
+          strip: [["Cost status", "Provider cost"], ["Cases", "48"], ["Cited answers", "31"], ["Approved drafts", "9"]],
+          main: units()
+        },
+        recommendations: {
+          title: "Recommendations",
+          strip: [["Open actions", "5"], ["Critical", "2"], ["Approval required", "4"], ["Evidence IDs", "18"]],
+          main: recommendations()
+        },
+        blocked: {
+          title: "Fail-closed source state",
+          strip: [["Release", "Blocked"], ["Usage", "Unavailable"], ["Cost", "Blocked"], ["Savings", "Blocked"]],
+          main: blocked()
+        },
+        mobile: {
+          title: "Responsive stacked state",
+          strip: [["Release", "Blocked"], ["Cost", "Blocked"], ["Tokens", "184,200"], ["Blocked inputs", "3"]],
+          main: mobileBlocked() + '<p class="mobile-note">Dense tables retain horizontal scrolling below the blocked-source proof.</p>' + agents()
+        }
+      };
+      const key = location.hash.replace("#", "") || "overview";
+      const view = views[key] || views.overview;
+      document.getElementById("screen").innerHTML = render(view);
+
+      function render(view) {
+        return `<div class="strip">${view.strip.map(([a,b]) => `<div class="tile"><span>${a}</span><strong>${b}</strong></div>`).join("")}</div>
+          <div class="layout"><section class="panel"><div class="section-head"><div><h2>${view.title}</h2><span>Visual contract only. Production values come from EvalFinopsCockpitModel.</span></div></div>${view.main}</section>${rail()}</div>`;
+      }
+      function rail() {
+        return `<aside class="rail"><div class="rail-item"><strong>Provenance rail</strong><span class="meta">derived_backend | evals-finops-model</span><code>usage-1</code><code>q1</code><code>pricing-gate</code></div>
+          <div class="rail-item"><strong>Blocked inputs</strong><span class="meta">Pricing, labels, and usage rows remain explicit.</span><code>recoup_model_pricing</code><code>release_eval_label_manifest</code></div>
+          <div class="rail-item"><strong>Recommendation posture</strong><span class="meta">Read-only; human approval before config/runtime changes.</span></div></aside>`;
+      }
+      function gates() {
+        return table(["Gate", "Score", "Status", "Proof"], [
+          ["Run control", "pass", chip("Pass","pass"), "<code>cfg-run-control</code>"],
+          ["Intent precision", "0.8200 / 0.9000", chip("Fail","fail"), "<span class='meta'>intent precision below threshold</span><code>q1</code><code>q2</code>"],
+          ["Arbitration agreement", "unavailable", chip("Blocked","blocked"), "<span class='meta'>owner labels required</span><code>release-label-manifest</code>"],
+          ["Detection false positive", "0.0120 / 0.0200", chip("Pass","pass"), "<code>fp-gate</code>"]
+        ]);
+      }
+      function agents() {
+        return table(["Agent / workflow / model", "Runs", "Tokens/run", "Handoffs / tools / guardrails"], [
+          ["Maya Forensics<br><code>maya_forensics_query</code><code>gpt-5.5</code>", "24 runs<br><span class='meta'>2 blocked</span>", "4,820 avg<br><span class='meta'>115,680 total</span>", "18 handoffs<br>31 tools<br>2 guardrails"],
+          ["Recovery Drafter<br><code>draft_recovery_package</code><code>gpt-5.4</code>", "9 runs<br><span class='meta'>0 failed</span>", "2,140 avg", "9 handoffs<br>8 tools<br>0 guardrails"],
+          ["Release Evaluator<br><code>release_readiness</code><code>gpt-5-mini</code>", "5 runs<br><span class='meta'>1 failed</span>", "1,760 avg", "0 handoffs<br>3 tools<br>1 guardrail"]
+        ]);
+      }
+      function units() {
+        return `<div class="metric-grid">
+          ${metric("Cost per case", "USD 1.0000", "provider cost / cases")}
+          ${metric("Tokens per case", "3,838", "rollup tokens / cases")}
+          ${metric("Cost per cited answer", "USD 2.0000", "provider cost / cited answers")}
+          ${metric("Cost per approved draft", "USD 4.0000", "provider cost / approvals")}
+          ${metric("Prompt-cache savings", "Pricing blocked", "cached tokens observed; pricing required")}
+          ${metric("Disputed amount denominator", "9200.00", "rollup disputed_amount")}
+        </div>`;
+      }
+      function recommendations() {
+        return `<div class="cards">
+          ${rec("critical", "Inspect failing intent gate", "quality-gate-failed", "q1 q2", "Read-only review")}
+          ${rec("critical", "Configure pricing for gpt-5-nano", "pricing-missing-for-observed-model", "usage-unpriced", "Human approval required")}
+          ${rec("warn", "Review guardrail trips", "guardrail-regression", "usage-1 S3-L1", "Read-only review")}
+          ${rec("info", "Evaluate prompt-cache reuse", "cache-opportunity", "usage-1", "Human approval required")}
+          ${rec("info", "Review async release processing", "batch-eval-candidate", "eval-run-8fc2", "Human approval required")}
+        </div>`;
+      }
+      function blocked() {
+        return `<div class="blocked-list">
+          ${blockedItem("Cost blocked", "Owner-approved model pricing is not configured. Token metrics remain visible; dollar cost and dollar savings are not computed.", "recoup_model_pricing")}
+          ${blockedItem("Release gate blocked", "Owner label manifest is missing. Labels must be supplied by the owner; Recoup will not synthesize labels.", "release_eval_label_manifest")}
+          ${blockedItem("Usage unavailable", "No typed agent usage rows are available. Do not render zero usage, zero cost, or agent efficiency claims.", "recoup_agent_usage_runs")}
+          ${blockedItem("Provider cost import unavailable", "Trusted provider cost buckets have not been imported. Use owner-approved pricing or keep dollar cost blocked.", "recoup_openai_cost_buckets")}
+          ${blockedItem("Prompt-cache savings blocked", "Cached input tokens are observed, but dollar savings require owner-approved input and cached-input pricing.", "prompt_cache_pricing")}
+        </div>`;
+      }
+      function mobileBlocked() {
+        return `<div class="blocked-list">
+          ${blockedItem("Cost and savings blocked", "Pricing is unavailable; tokens remain visible but dollar cost and dollar savings are not computed.", "recoup_model_pricing")}
+        </div>`;
+      }
+      function overview() {
+        return gates() + "<br>" + units();
+      }
+      function table(headers, rows) {
+        return `<div class="table"><div class="head">${headers.map(h => `<span>${h}</span>`).join("")}</div>${rows.map(row => `<div class="row">${row.map(cell => `<div>${cell}</div>`).join("")}</div>`).join("")}</div>`;
+      }
+      function chip(label, kind) { return `<span class="chip ${kind}">${label}</span>`; }
+      function metric(label, value, basis) { return `<div class="tile"><span>${label}</span><strong>${value}</strong><span>${basis}</span></div>`; }
+      function rec(kind, title, basis, ids, approval) { return `<article class="card"><span class="chip ${kind}">${kind}</span><strong>${title}</strong><span>${approval}</span><span class="meta">Basis ${basis}</span>${ids.split(" ").map(id => `<code>${id}</code>`).join("")}</article>`; }
+      function blockedItem(title, copy, id) { return `<div class="blocked-item"><strong>${title}</strong><span>${copy}</span><code>${id}</code></div>`; }
+    </script>
+  </body>
+</html>

@@ -28,6 +28,7 @@ describe("cockpit demo auth helpers", () => {
       "/cfo",
       "/governance/agents",
       "/governance/connectors",
+      "/governance/evals-finops",
       "/governance/memory",
       "/governance/trace"
     ]);
@@ -42,8 +43,10 @@ describe("cockpit demo auth helpers", () => {
     expect(isDemoRouteAllowed("/forensics/line/S2", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/run/replay", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/credit", mayaRoutes)).toBe(false);
+    expect(isDemoRouteAllowed("/governance/evals-finops", mayaRoutes)).toBe(false);
     expect(isDemoRouteAllowed("/governance/connectors", cfoRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/governance/connectors/detail", cfoRoutes)).toBe(true);
+    expect(isDemoRouteAllowed("/governance/evals-finops", cfoRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/forensics", cfoRoutes)).toBe(false);
   });
 

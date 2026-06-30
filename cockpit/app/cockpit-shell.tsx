@@ -12,7 +12,16 @@ import { WarningIcon as Warning } from "@phosphor-icons/react/dist/ssr/Warning";
 import type { DemoSession } from "./demo-auth.ts";
 import { LogoutButton } from "./logout-button.tsx";
 
-export type ActiveRoute = "forensics" | "run" | "credit" | "cfo" | "agents" | "connectors" | "memory" | "trace";
+export type ActiveRoute =
+  | "forensics"
+  | "run"
+  | "credit"
+  | "cfo"
+  | "agents"
+  | "connectors"
+  | "evals-finops"
+  | "memory"
+  | "trace";
 
 interface SidebarModule {
   depth?: 1;
@@ -41,6 +50,7 @@ const personaMaps: Record<DemoSession["role"], PersonaSidebarMap> = {
       { icon: <Database size={15} />, label: "Data lineage", state: "quiet" },
       { href: "/governance/agents", icon: <UsersThree size={15} />, label: "Agents", state: "quiet" },
       { href: "/governance/connectors", icon: <Circuitry size={15} />, label: "Connectors", state: "quiet" },
+      { href: "/governance/evals-finops", icon: <Scales size={15} />, label: "Evals + FinOps", state: "quiet" },
       { href: "/governance/memory", icon: <Database size={15} />, label: "Memory", state: "quiet" },
       { href: "/governance/trace", icon: <GitBranch size={15} />, label: "Trace", state: "quiet" },
       { icon: <Stack size={15} />, label: "What Changed", state: "quiet" },
@@ -220,6 +230,10 @@ function routeForHref(href: string): ActiveRoute | undefined {
 
   if (href === "/governance/connectors") {
     return "connectors";
+  }
+
+  if (href === "/governance/evals-finops") {
+    return "evals-finops";
   }
 
   if (href === "/governance/memory") {

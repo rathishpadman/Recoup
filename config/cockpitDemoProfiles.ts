@@ -45,7 +45,14 @@ export const cockpitDemoProfiles = [
     workspace: "Risk Mesh arbitration queue"
   },
   {
-    allowedRoutes: ["/cfo", "/governance/agents", "/governance/connectors", "/governance/memory", "/governance/trace"],
+    allowedRoutes: [
+      "/cfo",
+      "/governance/agents",
+      "/governance/connectors",
+      "/governance/evals-finops",
+      "/governance/memory",
+      "/governance/trace"
+    ],
     defaultRoute: "/cfo",
     displayName: "CFO",
     loginId: "CFO",

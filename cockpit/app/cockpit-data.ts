@@ -7,6 +7,94 @@ export interface MayaFieldProvenance {
   sourceName: string;
 }
 
+export type EvalsFinopsStatus = "pass" | "fail" | "blocked";
+export type EvalsFinopsCostStatus =
+  | "computed_from_owner_pricing"
+  | "reconciled_from_provider_cost_api"
+  | "pricing_not_configured_not_computed";
+export type EvalsFinopsPromptCacheSavingsStatus =
+  | "computed_from_owner_pricing"
+  | "pricing_not_configured_not_computed"
+  | "no_cached_tokens_observed";
+
+export interface EvalFinopsCockpitModel {
+  surface: "evals-finops";
+  generatedAtIso: string;
+  provenance: {
+    sourceKind: "supabase" | "derived_backend";
+    sourceName: string;
+    deterministicBasis: string;
+    recordIds: string[];
+  };
+  releaseReadiness: {
+    status: EvalsFinopsStatus;
+    latestEvalRunId?: string;
+    blockers: Array<{
+      gate: string;
+      reason: string;
+      score?: string;
+      threshold?: string;
+      openDependencies: string[];
+    }>;
+  };
+  evalGates: Array<{
+    gate: string;
+    status: EvalsFinopsStatus;
+    scoreLabel: string;
+    thresholdLabel: string;
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+  agentMetrics: Array<{
+    agentName: string;
+    workflowName: string;
+    modelId: string;
+    statusLabel: string;
+    runCount: number;
+    blockedCount: number;
+    failedCount: number;
+    totalTokens: number;
+    averageTokensPerRun: string;
+    handoffCount: number;
+    toolCallCount: number;
+    guardrailTripCount: number;
+    citedAnswerRateLabel: string;
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+  unitEconomics: Array<{
+    metric: string;
+    valueLabel: string;
+    costStatus: EvalsFinopsCostStatus;
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+  promptCache: {
+    status: "active" | "no_cached_tokens_observed" | "pricing_not_configured_not_computed" | "usage_unavailable";
+    cachedInputTokens: number;
+    uncachedInputTokens: number;
+    cacheHitRateLabel: string;
+    savingsLabel: string;
+    savingsStatus: EvalsFinopsPromptCacheSavingsStatus;
+    deterministicBasis: string;
+    recordIds: string[];
+  };
+  recommendations: Array<{
+    recommendationId: string;
+    severity: "critical" | "important" | "advisory";
+    title: string;
+    recommendedAction: string;
+    requiresHumanApproval: boolean;
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+  blockedInputs: Array<{
+    inputId: string;
+    reason: string;
+    requiredFor: string[];
+  }>;
+}
+
 export interface CockpitApiFailClosedBody {
   correlationId: string;
   error: string;
@@ -742,4 +830,8 @@ export async function fetchAgentGraphModel(): Promise<AgentGraphCockpitModel> {
 
 export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promise<ConnectorReadinessCockpitModel> {
   return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers);
+}
+
+export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalFinopsCockpitModel> {
+  return fetchJson<EvalFinopsCockpitModel>("/evals-finops", headers);
 }

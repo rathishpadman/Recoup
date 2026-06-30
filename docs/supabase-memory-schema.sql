@@ -133,6 +133,145 @@ CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models (
   generated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS recoup_agent_usage_runs (
+  usage_run_id text PRIMARY KEY,
+  correlation_id text NOT NULL,
+  workflow_name text NOT NULL,
+  agent_name text NOT NULL,
+  model_id text NOT NULL,
+  model_execution_mode text NOT NULL,
+  cache_capability text CHECK (cache_capability IS NULL OR cache_capability IN ('deduction_forensics', 'credit_risk', 'risk_mesh', 'containment')),
+  prompt_cache_key text,
+  prompt_prefix_version text,
+  status text NOT NULL CHECK (status IN ('succeeded', 'blocked', 'failed')),
+  input_tokens int NOT NULL CHECK (input_tokens >= 0),
+  output_tokens int NOT NULL CHECK (output_tokens >= 0),
+  cached_input_tokens int NOT NULL CHECK (cached_input_tokens >= 0),
+  uncached_input_tokens int NOT NULL CHECK (uncached_input_tokens >= 0),
+  reasoning_tokens int NOT NULL CHECK (reasoning_tokens >= 0),
+  total_tokens int NOT NULL CHECK (total_tokens >= 0),
+  latency_ms int CHECK (latency_ms IS NULL OR latency_ms >= 0),
+  handoff_count int NOT NULL CHECK (handoff_count >= 0),
+  tool_call_count int NOT NULL CHECK (tool_call_count >= 0),
+  guardrail_trip_count int NOT NULL CHECK (guardrail_trip_count >= 0),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  cited_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(cited_record_ids_json) = 'array'),
+  deterministic_basis text NOT NULL,
+  source_receipt_id text,
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recoup_eval_gate_runs (
+  eval_run_id text PRIMARY KEY,
+  release_status text NOT NULL CHECK (release_status IN ('pass', 'fail', 'blocked')),
+  source_mode text NOT NULL CHECK (source_mode IN ('live_supabase', 'local_fixture', 'blocked')),
+  branch_name text,
+  commit_sha text CHECK (commit_sha IS NULL OR commit_sha ~ '^[a-f0-9]{40}$'),
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz NOT NULL,
+  report_hash text NOT NULL CHECK (report_hash ~ '^[a-f0-9]{64}$'),
+  report_json jsonb NOT NULL CHECK (jsonb_typeof(report_json) = 'object'),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  deterministic_basis text NOT NULL,
+  CHECK (completed_at >= started_at)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_eval_gate_results (
+  eval_gate_result_id text PRIMARY KEY,
+  eval_run_id text NOT NULL REFERENCES recoup_eval_gate_runs(eval_run_id),
+  gate text NOT NULL CHECK (gate IN ('run-control', 'deduction-validity', 'intent-precision', 'arbitration-agreement', 'detection-fp', 'decision-fp', 'gold-set-parity')),
+  status text NOT NULL CHECK (status IN ('pass', 'fail', 'blocked')),
+  score numeric CHECK (score IS NULL OR (score >= 0 AND score <= 1)),
+  threshold numeric CHECK (threshold IS NULL OR (threshold >= 0 AND threshold <= 1)),
+  blocker_reason text CHECK ((status <> 'blocked') OR (blocker_reason IS NOT NULL AND length(blocker_reason) > 0)),
+  open_dependencies_json jsonb NOT NULL CHECK (jsonb_typeof(open_dependencies_json) = 'array'),
+  record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
+  deterministic_basis text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recoup_model_pricing (
+  pricing_id text PRIMARY KEY,
+  model_id text NOT NULL,
+  service_tier text NOT NULL,
+  input_per_1m_tokens numeric NOT NULL CHECK (input_per_1m_tokens >= 0),
+  output_per_1m_tokens numeric NOT NULL CHECK (output_per_1m_tokens >= 0),
+  cached_input_per_1m_tokens numeric NOT NULL CHECK (cached_input_per_1m_tokens >= 0),
+  reasoning_per_1m_tokens numeric NOT NULL CHECK (reasoning_per_1m_tokens >= 0),
+  currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+  effective_from timestamptz NOT NULL,
+  effective_to timestamptz,
+  approved_by text NOT NULL REFERENCES recoup_app_principals(principal),
+  pricing_hash text NOT NULL CHECK (pricing_hash ~ '^[a-f0-9]{64}$'),
+  active boolean NOT NULL DEFAULT true,
+  CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_openai_cost_buckets (
+  cost_bucket_id text PRIMARY KEY,
+  bucket_start timestamptz NOT NULL,
+  bucket_end timestamptz NOT NULL,
+  project_id text,
+  model_id text,
+  line_item text NOT NULL,
+  amount numeric NOT NULL CHECK (amount >= 0),
+  currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+  source_response_hash text NOT NULL CHECK (source_response_hash ~ '^[a-f0-9]{64}$'),
+  imported_at timestamptz NOT NULL,
+  provenance text NOT NULL CHECK (provenance = 'openai_org_cost_api'),
+  CHECK (bucket_end > bucket_start)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_finops_daily_rollups (
+  rollup_id text PRIMARY KEY,
+  rollup_date date NOT NULL,
+  workflow_name text NOT NULL,
+  agent_name text NOT NULL,
+  model_id text NOT NULL,
+  run_count int NOT NULL CHECK (run_count >= 0),
+  succeeded_count int NOT NULL CHECK (succeeded_count >= 0),
+  blocked_count int NOT NULL CHECK (blocked_count >= 0),
+  failed_count int NOT NULL CHECK (failed_count >= 0),
+  total_tokens int NOT NULL CHECK (total_tokens >= 0),
+  input_tokens int NOT NULL CHECK (input_tokens >= 0),
+  output_tokens int NOT NULL CHECK (output_tokens >= 0),
+  cached_input_tokens int NOT NULL CHECK (cached_input_tokens >= 0),
+  uncached_input_tokens int NOT NULL CHECK (uncached_input_tokens >= 0),
+  computed_cost_amount numeric CHECK (computed_cost_amount IS NULL OR computed_cost_amount >= 0),
+  computed_cost_currency text CHECK (computed_cost_currency IS NULL OR computed_cost_currency ~ '^[A-Z]{3}$'),
+  cost_status text NOT NULL CHECK (cost_status IN ('computed_from_owner_pricing', 'reconciled_from_provider_cost_api', 'pricing_not_configured_not_computed')),
+  prompt_cache_hit_rate numeric CHECK (prompt_cache_hit_rate IS NULL OR (prompt_cache_hit_rate >= 0 AND prompt_cache_hit_rate <= 1)),
+  prompt_cache_savings_amount numeric CHECK (prompt_cache_savings_amount IS NULL OR prompt_cache_savings_amount >= 0),
+  prompt_cache_savings_currency text CHECK (prompt_cache_savings_currency IS NULL OR prompt_cache_savings_currency ~ '^[A-Z]{3}$'),
+  prompt_cache_savings_status text NOT NULL CHECK (prompt_cache_savings_status IN ('computed_from_owner_pricing', 'pricing_not_configured_not_computed', 'no_cached_tokens_observed')),
+  cases_processed_count int NOT NULL CHECK (cases_processed_count >= 0),
+  cited_answer_count int NOT NULL CHECK (cited_answer_count >= 0),
+  approved_draft_count int NOT NULL CHECK (approved_draft_count >= 0),
+  disputed_amount numeric NOT NULL CHECK (disputed_amount >= 0),
+  unit_economics_json jsonb NOT NULL CHECK (jsonb_typeof(unit_economics_json) = 'object'),
+  source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0),
+  deterministic_basis text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_finops_recommendations (
+  recommendation_id text PRIMARY KEY,
+  recommendation_type text NOT NULL CHECK (recommendation_type IN ('quality_gate', 'pricing_config', 'token_budget', 'prompt_cache', 'batch_eval', 'guardrail_regression', 'model_routing', 'source_gap')),
+  severity text NOT NULL CHECK (severity IN ('critical', 'important', 'advisory')),
+  status text NOT NULL CHECK (status IN ('open', 'accepted', 'dismissed', 'superseded')),
+  title text NOT NULL,
+  recommended_action text NOT NULL,
+  affected_agent_name text,
+  affected_workflow_name text,
+  expected_impact_json jsonb NOT NULL CHECK (jsonb_typeof(expected_impact_json) = 'object'),
+  evidence_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(evidence_record_ids_json) = 'array' AND jsonb_array_length(evidence_record_ids_json) > 0),
+  deterministic_basis text NOT NULL,
+  requires_human_approval boolean NOT NULL,
+  created_at timestamptz NOT NULL,
+  resolved_at timestamptz,
+  resolved_by text REFERENCES recoup_app_principals(principal),
+  CHECK (resolved_at IS NULL OR resolved_at >= created_at)
+);
+
 CREATE TABLE IF NOT EXISTS customers (
   customer_id text PRIMARY KEY,
   customer_name text NOT NULL,
@@ -367,6 +506,19 @@ CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_customer_window ON recoup_src_tpm 
 CREATE INDEX IF NOT EXISTS idx_recoup_src_tpm_claim_refs ON recoup_src_tpm USING gin (claim_refs);
 CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_surface_persona ON recoup_cockpit_read_models (surface, persona);
 CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_record_ids ON recoup_cockpit_read_models USING gin (source_record_ids_json);
+CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_created_agent_model ON recoup_agent_usage_runs (created_at, agent_name, model_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_workflow_agent_model ON recoup_agent_usage_runs (workflow_name, agent_name, model_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_record_ids ON recoup_agent_usage_runs USING gin (record_ids_json);
+CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_cited_record_ids ON recoup_agent_usage_runs USING gin (cited_record_ids_json);
+CREATE INDEX IF NOT EXISTS idx_recoup_eval_gate_runs_completed_at ON recoup_eval_gate_runs (completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_recoup_eval_gate_results_eval_run_gate ON recoup_eval_gate_results (eval_run_id, gate);
+CREATE INDEX IF NOT EXISTS idx_recoup_model_pricing_active_model_tier ON recoup_model_pricing (active, model_id, service_tier);
+CREATE INDEX IF NOT EXISTS idx_recoup_openai_cost_buckets_bucket_model ON recoup_openai_cost_buckets (bucket_start, bucket_end, model_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_finops_daily_rollups_date_agent_model ON recoup_finops_daily_rollups (rollup_date, agent_name, model_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_finops_daily_rollups_workflow_agent_model ON recoup_finops_daily_rollups (workflow_name, agent_name, model_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_finops_daily_rollups_source_record_ids ON recoup_finops_daily_rollups USING gin (source_record_ids_json);
+CREATE INDEX IF NOT EXISTS idx_recoup_finops_recommendations_status_severity ON recoup_finops_recommendations (status, severity, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_recoup_finops_recommendations_evidence_record_ids ON recoup_finops_recommendations USING gin (evidence_record_ids_json);
 CREATE INDEX IF NOT EXISTS idx_payments_customer_invoice_ref ON payments (customer_id, invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_invoice ON pod_records (invoice_ref);
 CREATE INDEX IF NOT EXISTS idx_pod_records_delivery ON pod_records (delivery_ref);
@@ -526,6 +678,13 @@ REVOKE ALL ON TABLE recoup_src_sap FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_tpm FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_source_health_snapshots FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_cockpit_read_models FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_agent_usage_runs FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_eval_gate_runs FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_eval_gate_results FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_model_pricing FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_openai_cost_buckets FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_finops_daily_rollups FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_finops_recommendations FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE payments FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE pod_records FROM anon, authenticated, service_role;
@@ -558,6 +717,13 @@ GRANT SELECT ON TABLE recoup_src_sap TO service_role;
 GRANT SELECT ON TABLE recoup_src_tpm TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_source_health_snapshots TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE recoup_cockpit_read_models TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_agent_usage_runs TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_eval_gate_runs TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_eval_gate_results TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_model_pricing TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_openai_cost_buckets TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_finops_daily_rollups TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_finops_recommendations TO service_role;
 GRANT SELECT ON TABLE customers TO service_role;
 GRANT SELECT ON TABLE payments TO service_role;
 GRANT SELECT ON TABLE pod_records TO service_role;
@@ -693,12 +859,47 @@ ALTER TABLE recoup_source_health_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_source_health_snapshots FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_cockpit_read_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_cockpit_read_models FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_agent_usage_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_agent_usage_runs FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_eval_gate_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_eval_gate_runs FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_eval_gate_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_eval_gate_results FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_model_pricing ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_model_pricing FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_openai_cost_buckets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_openai_cost_buckets FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_finops_daily_rollups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_finops_daily_rollups FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_finops_recommendations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_finops_recommendations FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_select ON recoup_cockpit_read_models;
 DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_insert ON recoup_cockpit_read_models;
 DROP POLICY IF EXISTS recoup_cockpit_read_models_service_role_update ON recoup_cockpit_read_models;
+DROP POLICY IF EXISTS recoup_agent_usage_runs_service_role_select ON recoup_agent_usage_runs;
+DROP POLICY IF EXISTS recoup_agent_usage_runs_service_role_insert ON recoup_agent_usage_runs;
+DROP POLICY IF EXISTS recoup_agent_usage_runs_service_role_update ON recoup_agent_usage_runs;
+DROP POLICY IF EXISTS recoup_eval_gate_runs_service_role_select ON recoup_eval_gate_runs;
+DROP POLICY IF EXISTS recoup_eval_gate_runs_service_role_insert ON recoup_eval_gate_runs;
+DROP POLICY IF EXISTS recoup_eval_gate_runs_service_role_update ON recoup_eval_gate_runs;
+DROP POLICY IF EXISTS recoup_eval_gate_results_service_role_select ON recoup_eval_gate_results;
+DROP POLICY IF EXISTS recoup_eval_gate_results_service_role_insert ON recoup_eval_gate_results;
+DROP POLICY IF EXISTS recoup_eval_gate_results_service_role_update ON recoup_eval_gate_results;
+DROP POLICY IF EXISTS recoup_model_pricing_service_role_select ON recoup_model_pricing;
+DROP POLICY IF EXISTS recoup_model_pricing_service_role_insert ON recoup_model_pricing;
+DROP POLICY IF EXISTS recoup_model_pricing_service_role_update ON recoup_model_pricing;
+DROP POLICY IF EXISTS recoup_openai_cost_buckets_service_role_select ON recoup_openai_cost_buckets;
+DROP POLICY IF EXISTS recoup_openai_cost_buckets_service_role_insert ON recoup_openai_cost_buckets;
+DROP POLICY IF EXISTS recoup_openai_cost_buckets_service_role_update ON recoup_openai_cost_buckets;
+DROP POLICY IF EXISTS recoup_finops_daily_rollups_service_role_select ON recoup_finops_daily_rollups;
+DROP POLICY IF EXISTS recoup_finops_daily_rollups_service_role_insert ON recoup_finops_daily_rollups;
+DROP POLICY IF EXISTS recoup_finops_daily_rollups_service_role_update ON recoup_finops_daily_rollups;
+DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_select ON recoup_finops_recommendations;
+DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_insert ON recoup_finops_recommendations;
+DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_update ON recoup_finops_recommendations;
 CREATE POLICY recoup_source_health_snapshots_service_role_select
   ON recoup_source_health_snapshots
   FOR SELECT TO service_role USING (true);
@@ -716,6 +917,69 @@ CREATE POLICY recoup_cockpit_read_models_service_role_insert
   FOR INSERT TO service_role WITH CHECK (true);
 CREATE POLICY recoup_cockpit_read_models_service_role_update
   ON recoup_cockpit_read_models
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_agent_usage_runs_service_role_select
+  ON recoup_agent_usage_runs
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_agent_usage_runs_service_role_insert
+  ON recoup_agent_usage_runs
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_agent_usage_runs_service_role_update
+  ON recoup_agent_usage_runs
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_eval_gate_runs_service_role_select
+  ON recoup_eval_gate_runs
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_eval_gate_runs_service_role_insert
+  ON recoup_eval_gate_runs
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_eval_gate_runs_service_role_update
+  ON recoup_eval_gate_runs
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_eval_gate_results_service_role_select
+  ON recoup_eval_gate_results
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_eval_gate_results_service_role_insert
+  ON recoup_eval_gate_results
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_eval_gate_results_service_role_update
+  ON recoup_eval_gate_results
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_model_pricing_service_role_select
+  ON recoup_model_pricing
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_model_pricing_service_role_insert
+  ON recoup_model_pricing
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_model_pricing_service_role_update
+  ON recoup_model_pricing
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_openai_cost_buckets_service_role_select
+  ON recoup_openai_cost_buckets
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_openai_cost_buckets_service_role_insert
+  ON recoup_openai_cost_buckets
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_openai_cost_buckets_service_role_update
+  ON recoup_openai_cost_buckets
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_finops_daily_rollups_service_role_select
+  ON recoup_finops_daily_rollups
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_finops_daily_rollups_service_role_insert
+  ON recoup_finops_daily_rollups
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_finops_daily_rollups_service_role_update
+  ON recoup_finops_daily_rollups
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_finops_recommendations_service_role_select
+  ON recoup_finops_recommendations
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_finops_recommendations_service_role_insert
+  ON recoup_finops_recommendations
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_finops_recommendations_service_role_update
+  ON recoup_finops_recommendations
   FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;

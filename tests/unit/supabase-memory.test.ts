@@ -172,6 +172,72 @@ describe("supabase memory repository", () => {
     expect(sql).not.toMatch(/CREATE POLICY\s+recoup_cockpit_read_models[\s\S]+TO\s+(?:anon|authenticated)/iu);
   });
 
+  it("documents service-role-only evals and FinOps tables for governed agent economics", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+    const evalFinopsTables = [
+      "recoup_agent_usage_runs",
+      "recoup_eval_gate_runs",
+      "recoup_eval_gate_results",
+      "recoup_model_pricing",
+      "recoup_openai_cost_buckets",
+      "recoup_finops_daily_rollups",
+      "recoup_finops_recommendations"
+    ];
+
+    for (const tableName of evalFinopsTables) {
+      expect(sql).toContain(`CREATE TABLE IF NOT EXISTS ${tableName}`);
+      expect(sql).toContain(`REVOKE ALL ON TABLE ${tableName} FROM anon, authenticated, service_role`);
+      expect(sql).toContain(`GRANT SELECT, INSERT, UPDATE ON TABLE ${tableName} TO service_role`);
+      expect(sql).not.toMatch(new RegExp(`GRANT\\s+[^;]*DELETE[^;]*ON TABLE ${tableName} TO service_role`, "iu"));
+      expect(sql).toContain(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_select`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_insert`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_update`);
+      expect(sql).not.toMatch(new RegExp(`CREATE POLICY\\s+${tableName}[\\s\\S]+TO\\s+(?:anon|authenticated)`, "iu"));
+    }
+
+    expect(sql).toContain("usage_run_id text PRIMARY KEY");
+    expect(sql).toContain("status text NOT NULL CHECK (status IN ('succeeded', 'blocked', 'failed'))");
+    expect(sql).toContain("input_tokens int NOT NULL CHECK (input_tokens >= 0)");
+    expect(sql).toContain("cached_input_tokens int NOT NULL CHECK (cached_input_tokens >= 0)");
+    expect(sql).toContain("uncached_input_tokens int NOT NULL CHECK (uncached_input_tokens >= 0)");
+    expect(sql).toContain("total_tokens int NOT NULL CHECK (total_tokens >= 0)");
+    expect(sql).toContain(
+      "record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0)"
+    );
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_created_agent_model");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_agent_usage_runs_workflow_agent_model");
+
+    expect(sql).toContain("release_status text NOT NULL CHECK (release_status IN ('pass', 'fail', 'blocked'))");
+    expect(sql).toContain("source_mode text NOT NULL CHECK (source_mode IN ('live_supabase', 'local_fixture', 'blocked'))");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_eval_gate_runs_completed_at");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_eval_gate_results_eval_run_gate");
+
+    expect(sql).toContain("input_per_1m_tokens numeric NOT NULL CHECK (input_per_1m_tokens >= 0)");
+    expect(sql).toContain("cached_input_per_1m_tokens numeric NOT NULL CHECK (cached_input_per_1m_tokens >= 0)");
+    expect(sql).toContain("approved_by text NOT NULL REFERENCES recoup_app_principals(principal)");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_model_pricing_active_model_tier");
+
+    expect(sql).toContain("provenance text NOT NULL CHECK (provenance = 'openai_org_cost_api')");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_openai_cost_buckets_bucket_model");
+
+    expect(sql).toContain(
+      "cost_status text NOT NULL CHECK (cost_status IN ('computed_from_owner_pricing', 'reconciled_from_provider_cost_api', 'pricing_not_configured_not_computed'))"
+    );
+    expect(sql).toContain(
+      "prompt_cache_savings_status text NOT NULL CHECK (prompt_cache_savings_status IN ('computed_from_owner_pricing', 'pricing_not_configured_not_computed', 'no_cached_tokens_observed'))"
+    );
+    expect(sql).toContain("disputed_amount numeric NOT NULL CHECK (disputed_amount >= 0)");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_finops_daily_rollups_date_agent_model");
+
+    expect(sql).toContain(
+      "recommendation_type text NOT NULL CHECK (recommendation_type IN ('quality_gate', 'pricing_config', 'token_budget', 'prompt_cache', 'batch_eval', 'guardrail_regression', 'model_routing', 'source_gap'))"
+    );
+    expect(sql).toContain("requires_human_approval boolean NOT NULL");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_finops_recommendations_status_severity");
+  });
+
   it("round-trips source-derived cockpit read models through Supabase without exposing browser credentials", async () => {
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
     const storedRows: unknown[] = [];

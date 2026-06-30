@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseEnv } from "node:util";
@@ -16,6 +16,7 @@ import { governedConfigSeedRows } from "../../config/governed.js";
 import { releaseOwnerInputSeedRows } from "../../config/releaseOwnerInputs.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
+import type { EvalFinopsCockpitModel } from "../../src/services/evalsFinopsTypes.js";
 
 type DemoRole = "cfo" | "david" | "maya";
 type DemoLoginId = "CFO" | "Maya" | "david";
@@ -131,6 +132,12 @@ const e2eEnv = {
   ...process.env,
   RECOUP_API_URL: apiUrl,
   RECOUP_READ_MODEL_CACHE: "disabled",
+  RECOUP_COCKPIT_HUMAN_PRINCIPAL:
+    process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL ?? localEnv.RECOUP_COCKPIT_HUMAN_PRINCIPAL ?? "human:e2e-cockpit",
+  RECOUP_COCKPIT_AUTH_TOKEN:
+    process.env.RECOUP_COCKPIT_AUTH_TOKEN ?? localEnv.RECOUP_COCKPIT_AUTH_TOKEN ?? "recoup-e2e-human-auth-token",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? localEnv.SUPABASE_SERVICE_ROLE_KEY ?? "recoup-e2e-service-role",
+  SUPABASE_URL: process.env.SUPABASE_URL ?? localEnv.SUPABASE_URL ?? apiUrl,
   RECOUP_DEMO_SESSION_SECRET:
     process.env.RECOUP_DEMO_SESSION_SECRET ??
     localEnv.RECOUP_DEMO_SESSION_SECRET ??
@@ -141,7 +148,14 @@ const e2eEnv = {
 
 const demoSessions = {
   cfo: {
-    allowedRoutes: ["/cfo", "/governance/agents", "/governance/connectors", "/governance/memory", "/governance/trace"],
+    allowedRoutes: [
+      "/cfo",
+      "/governance/agents",
+      "/governance/connectors",
+      "/governance/evals-finops",
+      "/governance/memory",
+      "/governance/trace"
+    ],
     defaultRoute: "/cfo",
     displayName: "CFO",
     loginId: "CFO",
@@ -181,6 +195,7 @@ const screenshotTargets = [
   { name: "cfo", path: "/cfo", role: "cfo" },
   { name: "governance-agents", path: "/governance/agents", role: "cfo" },
   { name: "governance-connectors", path: "/governance/connectors", role: "cfo" },
+  { name: "governance-evals-finops", path: "/governance/evals-finops", role: "cfo" },
   { name: "governance-memory", path: "/governance/memory", role: "cfo" },
   { name: "governance-trace", path: "/governance/trace", role: "cfo" }
 ] as const satisfies Array<{ name: string; path: string; role: ScreenshotRole }>;
@@ -505,6 +520,13 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
   await expectText(cfoPage, "Connector readiness");
   await expectText(cfoPage, "Source mode");
   await cfoContext.close();
+
+  const mayaGovernanceContext = await newRoleContext(browser, "maya", 1440, 900);
+  const mayaGovernancePage = await mayaGovernanceContext.newPage();
+  await mayaGovernancePage.goto(`${appUrl}/governance/evals-finops`, { waitUntil: "domcontentloaded" });
+  await mayaGovernancePage.waitForURL("**/forensics/shadcn", { timeout: 15_000 });
+  assert(mayaGovernancePage.url().endsWith("/forensics/shadcn"), "Maya must be redirected away from /governance/evals-finops");
+  await mayaGovernanceContext.close();
 }
 
 async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void> {
@@ -1364,6 +1386,50 @@ async function assertPremiumSurfaces(browser: Browser): Promise<void> {
   await expectText(cfo, "$112,400.00");
   await expectText(cfo, "Production calibration proof");
   await cfoContext.close();
+
+  await assertEvalsFinopsGovernanceRoute(browser);
+}
+
+async function assertEvalsFinopsGovernanceRoute(browser: Browser): Promise<void> {
+  const model = await loadEvalFinopsE2EModel();
+  const cfoContext = await newRoleContext(browser, "cfo", 1440, 900);
+  const page = await cfoContext.newPage();
+
+  try {
+    await page.goto(`${appUrl}/governance/evals-finops`, { waitUntil: "networkidle" });
+    await expectVisibleLocator(page, '[data-testid="evals-finops-surface"]', "Evals and FinOps governance surface");
+    await expectVisibleText(page, "Evals + FinOps");
+    await expectVisibleText(page, "Quality gates");
+    await expectVisibleText(page, "Agent economics");
+    await expectVisibleText(page, "Unit economics");
+    await expectVisibleText(page, "Recommendations");
+
+    assert(model.evalGates.length > 0, "Evals FinOps model must expose eval gate rows");
+    assert(model.agentMetrics.length > 0, "Evals FinOps model must expose typed agent metrics");
+    assert(model.recommendations.length > 0, "Evals FinOps model must expose deterministic recommendations");
+
+    await expectVisibleText(page, firstItem(model.evalGates, "eval gate rows").scoreLabel);
+    await expectVisibleText(page, "q1");
+    await expectVisibleText(page, "usage-1");
+    await expectVisibleText(page, "usage-unpriced");
+    await expectVisibleText(page, "20.0%");
+    await expectVisibleText(page, "200,000");
+    await expectVisibleText(page, "USD 0.2250");
+    await expectVisibleText(page, "Pricing blocked");
+    await expectVisibleText(page, "pricing-missing-for-observed-model");
+    await expectVisibleText(page, "Human approval required");
+
+    const surfaceText = await page.getByTestId("evals-finops-surface").innerText();
+    assert(!surfaceText.includes("$0"), "Evals FinOps missing-pricing state must not render $0");
+    assert(
+      surfaceText.includes("Owner-approved pricing is unavailable for observed model gpt-5-nano."),
+      "Evals FinOps page must expose the missing-pricing blocked input for the unpriced observed model"
+    );
+    await assertNoHorizontalOverflow(page, "Evals FinOps governance desktop");
+    await page.screenshot({ fullPage: true, path: `${outputDir}/governance-evals-finops-1440.png` });
+  } finally {
+    await cfoContext.close();
+  }
 }
 
 async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
@@ -1599,19 +1665,36 @@ async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Prom
 async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise<void> {
   await captureMayaLoginBeatScreenshot(browser);
 
+  const model = await loadForensicsE2EModel();
+  const backendSelectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
   const context = await newRoleContext(browser, "maya", 1440, 900);
   const page = await context.newPage();
+
+  await page.route("**/api/forensics/query", async (route) => {
+    await route.fulfill({
+      body: JSON.stringify(
+        buildE2EForensicsQueryResponse(
+          model,
+          "E2E storyboard cited answer from the backend query route.",
+          "E2E deterministic basis from the storyboard backend query response."
+        )
+      ),
+      contentType: "application/json",
+      status: 200
+    });
+  });
 
   try {
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard.png` });
 
     await page.getByRole("button", { name: /^Worklist$/u }).click();
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-03-recommended-action.png` });
 
-    await page.getByTestId("maya-local-row-action-open").click();
-    await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 15_000 });
+    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya storyboard case detail open");
     await page.getByTestId("maya-case-workspace").scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
 
@@ -1648,6 +1731,7 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-12-return-worklist.png` });
   } finally {
+    await page.unroute("**/api/forensics/query");
     await context.close();
   }
 }
@@ -1799,6 +1883,13 @@ async function loadConnectorE2EModel(): Promise<ConnectorE2EModel> {
   assert(response.ok, `connector model expected 2xx, received ${String(response.status)}`);
 
   return (await response.json()) as ConnectorE2EModel;
+}
+
+async function loadEvalFinopsE2EModel(): Promise<EvalFinopsCockpitModel> {
+  const response = await fetch(`${apiUrl}/evals-finops`);
+  assert(response.ok, `Evals FinOps model expected 2xx, received ${String(response.status)}`);
+
+  return (await response.json()) as EvalFinopsCockpitModel;
 }
 
 async function loadForensicsWorkItemDetailE2EModel(lineId: string): Promise<ForensicsWorkItemDetailE2EModel> {
@@ -4139,20 +4230,26 @@ function tsxBin(): string {
 
 async function runFixtureApi(): Promise<void> {
   const port = Number((process.env.PORT ?? new URL(apiUrl).port) || 4317);
-  const server = createServer(
-    createCockpitApi({
-      env: {
-        ...e2eEnv,
-        RECOUP_COCKPIT_ALLOWED_ORIGINS: appUrl,
-        RECOUP_DATA_MODE: "fixture",
-        RECOUP_MEMORY_BACKEND: "supabase",
-        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records",
-        SUPABASE_SERVICE_ROLE_KEY: "recoup-e2e-service-role",
-        SUPABASE_URL: "https://recoup-e2e.supabase.co"
-      },
-      memoryFetcher: fixtureSupabaseFetcher
-    })
-  );
+  const cockpitApi = createCockpitApi({
+    env: {
+      ...e2eEnv,
+      RECOUP_COCKPIT_ALLOWED_ORIGINS: appUrl,
+      RECOUP_DATA_MODE: "fixture",
+      RECOUP_MEMORY_BACKEND: "supabase",
+      RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records",
+      SUPABASE_SERVICE_ROLE_KEY: "recoup-e2e-service-role",
+      SUPABASE_URL: "https://recoup-e2e.supabase.co"
+    },
+    memoryFetcher: fixtureSupabaseFetcher
+  });
+  const server = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? "/", `http://127.0.0.1:${String(port)}`);
+    if (requestUrl.pathname === "/rest/v1/rpc/verify_recoup_demo_login") {
+      handleFixtureDemoLogin(request, response);
+      return;
+    }
+    cockpitApi(request, response);
+  });
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", () => {
@@ -4172,6 +4269,62 @@ async function runFixtureApi(): Promise<void> {
   });
 }
 
+function handleFixtureDemoLogin(request: IncomingMessage, response: ServerResponse): void {
+  if (request.method !== "POST") {
+    response.writeHead(405, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "method_not_allowed" }));
+    return;
+  }
+
+  const chunks: Buffer[] = [];
+  request.on("data", (chunk: Buffer) => {
+    chunks.push(chunk);
+  });
+  request.on("end", () => {
+    const body = parseFixtureDemoLoginBody(Buffer.concat(chunks).toString("utf8"));
+    const session = body === undefined ? undefined : demoSessionForLoginId(body.p_login_id);
+    if (body === undefined || body.p_password !== demoPassword || session === undefined) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(null));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        allowed_routes: session.allowedRoutes,
+        default_route: session.defaultRoute,
+        display_name: session.displayName,
+        login_id: session.loginId,
+        role: session.role
+      })
+    );
+  });
+}
+
+function parseFixtureDemoLoginBody(value: string): { p_login_id: string; p_password: string } | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      isRecord(parsed) &&
+      typeof parsed.p_login_id === "string" &&
+      typeof parsed.p_password === "string" &&
+      parsed.p_login_id.length > 0 &&
+      parsed.p_password.length > 0
+    ) {
+      return { p_login_id: parsed.p_login_id, p_password: parsed.p_password };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function demoSessionForLoginId(loginId: string): DemoProfile | undefined {
+  return Object.values(demoSessions).find((session) => session.loginId === loginId);
+}
+
 function fixtureSupabaseFetcher(url: string): Promise<Response> {
   const parsedUrl = new URL(url);
   const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
@@ -4184,6 +4337,236 @@ function fixtureSupabaseFetcher(url: string): Promise<Response> {
         : governedConfigSeedRows;
 
     return Promise.resolve(new Response(JSON.stringify(toPostgrestConfigRows(rows)), { status: 200 }));
+  }
+
+  if (tableName === "recoup_agent_usage_runs") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            agent_name: "Maya Forensics",
+            cached_input_tokens: 200_000,
+            cache_capability: "deduction_forensics",
+            cited_record_ids_json: ["S3-L1", "q1"],
+            correlation_id: "e2e-evals-finops-corr-1",
+            created_at: "2026-06-30T01:00:00.000Z",
+            deterministic_basis: "E2E typed usage receipt from fixture Supabase rows",
+            guardrail_trip_count: 2,
+            handoff_count: 3,
+            input_tokens: 1_000_000,
+            latency_ms: 1420,
+            model_execution_mode: "live_openai_agents",
+            model_id: "gpt-5.5",
+            output_tokens: 100_000,
+            prompt_cache_key: "recoup:v2:deduction-forensics:v1",
+            prompt_prefix_version: "2026-06-30",
+            reasoning_tokens: 0,
+            record_ids_json: ["usage-1", "S3-L1", "q1"],
+            source_receipt_id: "memory-usage-1",
+            status: "succeeded",
+            tool_call_count: 7,
+            total_tokens: 1_100_000,
+            uncached_input_tokens: 800_000,
+            usage_run_id: "usage-1",
+            workflow_name: "maya_forensics_query"
+          },
+          {
+            agent_name: "Release Evaluator",
+            cached_input_tokens: 0,
+            cache_capability: null,
+            cited_record_ids_json: ["q2"],
+            correlation_id: "e2e-evals-finops-corr-2",
+            created_at: "2026-06-30T01:05:00.000Z",
+            deterministic_basis: "E2E release-readiness usage receipt from fixture Supabase rows",
+            guardrail_trip_count: 0,
+            handoff_count: 0,
+            input_tokens: 0,
+            latency_ms: 310,
+            model_execution_mode: "code_eval_harness",
+            model_id: "gpt-5-nano",
+            output_tokens: 1_000,
+            prompt_cache_key: null,
+            prompt_prefix_version: null,
+            reasoning_tokens: 0,
+            record_ids_json: ["usage-unpriced", "q2"],
+            source_receipt_id: null,
+            status: "succeeded",
+            tool_call_count: 1,
+            total_tokens: 1_000,
+            uncached_input_tokens: 0,
+            usage_run_id: "usage-unpriced",
+            workflow_name: "release_readiness"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_eval_gate_runs") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            branch_name: "codex/evals-finops-governance",
+            commit_sha: "e".repeat(40),
+            completed_at: "2026-06-30T01:15:00.000Z",
+            deterministic_basis: "E2E release-readiness fixture snapshot",
+            eval_run_id: "eval-run-8fc2",
+            record_ids_json: ["cfg-run-control", "release-label-manifest"],
+            release_status: "blocked",
+            report_hash: "8".repeat(64),
+            report_json: { status: "blocked" },
+            source_mode: "live_supabase",
+            started_at: "2026-06-30T01:14:00.000Z"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_eval_gate_results") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            blocker_reason: null,
+            deterministic_basis: "run-control gate from e2e fixture",
+            eval_gate_result_id: "gate-result-run-control",
+            eval_run_id: "eval-run-8fc2",
+            gate: "run-control",
+            open_dependencies_json: [],
+            record_ids_json: ["cfg-run-control"],
+            score: "1.0000",
+            status: "pass",
+            threshold: "1.0000"
+          },
+          {
+            blocker_reason: "intent precision below threshold",
+            deterministic_basis: "intent precision gate from e2e fixture",
+            eval_gate_result_id: "gate-result-intent",
+            eval_run_id: "eval-run-8fc2",
+            gate: "intent-precision",
+            open_dependencies_json: [],
+            record_ids_json: ["q1", "q2"],
+            score: "0.8200",
+            status: "fail",
+            threshold: "0.9000"
+          },
+          {
+            blocker_reason: "owner label manifest update required",
+            deterministic_basis: "arbitration agreement gate from e2e fixture",
+            eval_gate_result_id: "gate-result-arbitration",
+            eval_run_id: "eval-run-8fc2",
+            gate: "arbitration-agreement",
+            open_dependencies_json: ["release_eval_label_manifest"],
+            record_ids_json: ["release-label-manifest"],
+            score: null,
+            status: "blocked",
+            threshold: "0.9000"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_model_pricing") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            active: true,
+            approved_by: "human:rathish-owner",
+            cached_input_per_1m_tokens: "0.125",
+            currency: "USD",
+            effective_from: "2026-06-30T00:00:00.000Z",
+            effective_to: null,
+            input_per_1m_tokens: "1.250",
+            model_id: "gpt-5.5",
+            output_per_1m_tokens: "10.000",
+            pricing_hash: "5".repeat(64),
+            pricing_id: "pricing-gpt-55-default",
+            reasoning_per_1m_tokens: "0.000",
+            service_tier: "default"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_finops_daily_rollups") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            agent_name: "Maya Forensics",
+            approved_draft_count: 1,
+            blocked_count: 0,
+            cached_input_tokens: 200_000,
+            cases_processed_count: 4,
+            cited_answer_count: 2,
+            computed_cost_amount: null,
+            computed_cost_currency: null,
+            cost_status: "pricing_not_configured_not_computed",
+            created_at: "2026-06-30T01:20:00.000Z",
+            deterministic_basis: "E2E daily rollup from typed usage and business denominator rows",
+            disputed_amount: "9200.00",
+            failed_count: 0,
+            input_tokens: 1_000_000,
+            model_id: "gpt-5.5",
+            output_tokens: 100_000,
+            prompt_cache_hit_rate: "0.2000",
+            prompt_cache_savings_amount: "0.2250",
+            prompt_cache_savings_currency: "USD",
+            prompt_cache_savings_status: "computed_from_owner_pricing",
+            rollup_date: "2026-06-30",
+            rollup_id: "rollup-e2e-maya",
+            run_count: 1,
+            source_record_ids_json: ["usage-1", "S3-L1", "approval-1"],
+            succeeded_count: 1,
+            total_tokens: 1_100_000,
+            uncached_input_tokens: 800_000,
+            unit_economics_json: { tokensPerRun: "1100000.0000" },
+            workflow_name: "maya_forensics_query"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_finops_recommendations") {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            affected_agent_name: "Maya Forensics",
+            affected_workflow_name: "maya_forensics_query",
+            created_at: "2026-06-30T01:30:00.000Z",
+            deterministic_basis: "stored-e2e-governance-action",
+            evidence_record_ids_json: ["usage-1", "q1"],
+            expected_impact_json: { posture: "read-only" },
+            recommendation_id: "stored-e2e-governance-action",
+            recommendation_type: "prompt_cache",
+            recommended_action: "Review prompt-cache evidence before changing runtime prompts.",
+            requires_human_approval: true,
+            resolved_at: null,
+            resolved_by: null,
+            severity: "advisory",
+            status: "open",
+            title: "Review prompt-cache evidence"
+          }
+        ]),
+        { status: 200 }
+      )
+    );
+  }
+
+  if (tableName === "recoup_openai_cost_buckets") {
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
   }
 
   if (tableName === "recoup_customers" || tableName === "recoup_deduction_lines") {

@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
+import { runtimeModels } from "../../config/models.js";
 import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues } from "../../config/governed.js";
 import { runForensicsInvestigation } from "../agents/forensics.js";
 import {
@@ -105,6 +106,8 @@ import {
   type ForensicsSseEvent
 } from "./cockpitModel.js";
 import { buildSourceHealthResultsFromSnapshots } from "./sourceHealth.js";
+import { createSupabaseEvalsFinopsRepositoryFromEnv, type EvalsFinopsRepository } from "./evalsFinopsRepository.js";
+import { buildEvalFinopsCockpitModel } from "./evalsFinopsModel.js";
 import {
   createToolDataSchemaProbeLoader,
   startSourceHealthPoller,
@@ -255,6 +258,7 @@ const cockpitApiRoutes = [
   "GET /memory",
   "GET /agents",
   "GET /connectors",
+  "GET /evals-finops",
   "GET /sources/r1/:need",
   "GET /run",
   "POST /run",
@@ -614,6 +618,24 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     await publishReadModel(mayaConnectorsReadModelKey, "connector-readiness", model);
     response.setHeader(readModelCacheHeader, "miss");
     response.json(model);
+  });
+
+  app.get("/evals-finops", async (request, response) => {
+    if (!requireProtectedReadAuth(request, response)) {
+      return;
+    }
+
+    const repository =
+      createSupabaseEvalsFinopsRepositoryFromEnv(runtimeEnv, options.memoryFetcher) ?? createUnavailableEvalsFinopsRepository();
+
+    try {
+      response.json(await buildEvalFinopsCockpitModel({ repository }));
+    } catch (error) {
+      sendFailClosedJson(request, response, 503, {
+        error: error instanceof Error ? error.message : "Evals and FinOps governance model is unavailable.",
+        missingSource: "supabase-evals-finops"
+      });
+    }
   });
 
   app.get("/sources/r1/:need", async (request, response) => {
@@ -1523,6 +1545,21 @@ function sendFailClosedJson(
   });
 }
 
+function createUnavailableEvalsFinopsRepository(): EvalsFinopsRepository {
+  return {
+    listActiveModelPricing: () => Promise.resolve([]),
+    listAgentUsageRuns: () => Promise.resolve([]),
+    listDailyRollups: () => Promise.resolve([]),
+    listEvalGateResults: () => Promise.resolve([]),
+    listOpenAiCostBuckets: () => Promise.resolve([]),
+    listOpenRecommendations: () => Promise.resolve([]),
+    loadLatestEvalRun: () => Promise.resolve(undefined),
+    upsertAgentUsageRun: () => Promise.reject(new Error("Evals FinOps repository is unavailable.")),
+    upsertEvalGateResults: () => Promise.reject(new Error("Evals FinOps repository is unavailable.")),
+    upsertEvalGateRun: () => Promise.reject(new Error("Evals FinOps repository is unavailable."))
+  };
+}
+
 async function persistForensicsQueryTokenUsageReceipt(input: {
   correlationId: string;
   env: RuntimeEnv;
@@ -1532,6 +1569,7 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
 }): Promise<void> {
   try {
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+    const evalsFinopsRepository = createSupabaseEvalsFinopsRepositoryFromEnv(input.env, input.memoryFetcher);
     const modelExecution = input.queryResponse.modelExecution;
     const tokenUsageSnapshot =
       modelExecution?.mode === "live_openai_agents" && modelExecution.tokenUsageSnapshot !== undefined
@@ -1540,7 +1578,7 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
           ? { totalTokens: modelExecution.tokenUsage }
           : undefined;
     if (
-      supabaseMemory === undefined ||
+      (supabaseMemory === undefined && evalsFinopsRepository === undefined) ||
       input.queryResponse.answer === undefined ||
       modelExecution === undefined ||
       modelExecution.mode !== "live_openai_agents" ||
@@ -1572,22 +1610,66 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
       submittedRecordIds
     };
     const receiptHash = sha256CanonicalJson(mayaReceiptPayload);
+    const receiptId = `audit:forensics-query-token-usage:${receiptHash}`;
 
-    await supabaseMemory.append({
-      category: "audit_refs",
-      createdAt: new Date().toISOString(),
-      id: `audit:forensics-query-token-usage:${receiptHash}`,
-      payload: mayaReceiptPayload,
-      recordIds: receiptRecordIds,
-      scope: `forensics-query:${selectedLineId}`,
-      trustLevel: "trusted"
-    });
+    await Promise.all([
+      ...(supabaseMemory === undefined
+        ? []
+        : [
+            supabaseMemory.append({
+              category: "audit_refs",
+              createdAt: new Date().toISOString(),
+              id: receiptId,
+              payload: mayaReceiptPayload,
+              recordIds: receiptRecordIds,
+              scope: `forensics-query:${selectedLineId}`,
+              trustLevel: "trusted"
+            })
+          ]),
+      ...(evalsFinopsRepository === undefined
+        ? []
+        : [
+            evalsFinopsRepository.upsertAgentUsageRun({
+              agentName: "Forensics Investigator",
+              cachedInputTokens: tokenUsageSnapshot.cachedTokens ?? 0,
+              cacheCapability: "deduction_forensics",
+              citedRecordIds,
+              correlationId: input.correlationId,
+              createdAt: new Date().toISOString(),
+              deterministicBasis: input.queryResponse.deterministicBasis,
+              guardrailTripCount: 0,
+              handoffCount: modelExecution.handoffCount,
+              inputTokens: tokenUsageSnapshot.inputTokens ?? 0,
+              modelExecutionMode: modelExecution.mode,
+              modelId: runtimeModels.reasoning,
+              outputTokens: tokenUsageSnapshot.outputTokens ?? 0,
+              promptCacheKey: receiptPayload.promptCacheKey,
+              promptPrefixVersion: receiptPayload.promptPrefixVersion,
+              reasoningTokens: 0,
+              recordIds: receiptRecordIds,
+              sourceReceiptId: receiptId,
+              status: "succeeded",
+              toolCallCount: input.queryResponse.trace.filter((event) => event.hook === "agent_tool_end").length,
+              totalTokens: tokenUsageSnapshot.totalTokens,
+              uncachedInputTokens:
+                tokenUsageSnapshot.inputTokens === undefined
+                  ? 0
+                  : Math.max(0, tokenUsageSnapshot.inputTokens - (tokenUsageSnapshot.cachedTokens ?? 0)),
+              usageRunId: `usage:maya-forensics-query:${receiptHash}`,
+              workflowName: "maya_forensics_query"
+            })
+          ])
+    ]);
   } catch (error) {
+    const reason = sanitizeForensicsQueryTokenReceiptError(error);
     console.warn(
       JSON.stringify({
         correlationId: input.correlationId,
         event: "maya_forensics_query_token_usage_receipt_write_failed",
-        reason: sanitizeForensicsQueryTokenReceiptError(error),
+        ...(reason === "Supabase memory token-usage receipt write failed."
+          ? { persistenceTask: "maya_query_token_usage_receipt" }
+          : {}),
+        reason,
         selectedLineId: input.request.selectedLineId
       })
     );

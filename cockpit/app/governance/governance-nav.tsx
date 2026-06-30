@@ -3,6 +3,7 @@
 import { CircuitryIcon as Circuitry } from "@phosphor-icons/react/dist/csr/Circuitry";
 import { DatabaseIcon as Database } from "@phosphor-icons/react/dist/csr/Database";
 import { GitBranchIcon as GitBranch } from "@phosphor-icons/react/dist/csr/GitBranch";
+import { ScalesIcon as Scales } from "@phosphor-icons/react/dist/csr/Scales";
 import { UsersThreeIcon as UsersThree } from "@phosphor-icons/react/dist/csr/UsersThree";
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation.js";
@@ -10,6 +11,7 @@ import { usePathname } from "next/navigation.js";
 const governanceTabs = [
   { href: "/governance/agents", icon: <UsersThree size={15} />, label: "Agents", status: "bounded" },
   { href: "/governance/connectors", icon: <Circuitry size={15} />, label: "Connectors", status: "read-only" },
+  { href: "/governance/evals-finops", icon: <Scales size={15} />, label: "Evals + FinOps", status: "blocked-safe" },
   { href: "/governance/memory", icon: <Database size={15} />, label: "Memory", status: "scoped" },
   { href: "/governance/trace", icon: <GitBranch size={15} />, label: "Trace", status: "cited" }
 ] satisfies Array<{ href: string; icon: ReactNode; label: string; status: string }>;

@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { loadLocalRuntimeEnvFiles } from "../config/env.js";
 import {
   createSupabaseGovernedConfigRepositoryFromEnv,
   createSupabaseReleaseOwnerInputRepositoryFromEnv
 } from "../src/memory/supabaseStore.js";
+import { createSupabaseEvalsFinopsRepositoryFromEnv } from "../src/services/evalsFinopsRepository.js";
+import { isEvalRunRecordingRequested, recordEvalRunSnapshot } from "../src/services/evalRunRecorder.js";
 import type { GovernedConfigValues } from "../config/governed.js";
 import {
   createSupabaseRiskObservationSnapshotReaderFromEnv,
@@ -15,6 +18,7 @@ import { buildCurrentReleaseReadinessReport, formatReleaseReadinessReport } from
 
 const envFilePaths = [".env", ".env.local"].filter((path) => existsSync(path));
 const env = loadLocalRuntimeEnvFiles(envFilePaths, process.env);
+const startedAt = new Date().toISOString();
 const governedConfigRepository = createSupabaseGovernedConfigRepositoryFromEnv(env);
 const releaseOwnerInputRepository = createSupabaseReleaseOwnerInputRepositoryFromEnv(env);
 const governedConfig = governedConfigRepository === undefined ? undefined : await governedConfigRepository.loadActive();
@@ -26,6 +30,25 @@ const report = buildCurrentReleaseReadinessReport({
   ...(releaseOwnerInputs === undefined ? {} : { releaseOwnerInputs }),
   ...(source === undefined ? {} : { source })
 });
+const completedAt = new Date().toISOString();
+
+if (isEvalRunRecordingRequested({ args: process.argv.slice(2), env })) {
+  const evalsFinopsRepository = createSupabaseEvalsFinopsRepositoryFromEnv(env);
+  if (evalsFinopsRepository === undefined) {
+    console.error("Recoup eval run recording requested, but SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured.");
+    process.exitCode = 1;
+  } else {
+    await recordEvalRunSnapshot({
+      ...loadGitMetadata(),
+      completedAt,
+      repository: evalsFinopsRepository,
+      report,
+      sourceMode:
+        governedConfig === undefined || releaseOwnerInputs === undefined || source === undefined ? "blocked" : "live_supabase",
+      startedAt
+    });
+  }
+}
 
 if (report.status === "pass") {
   console.log("Recoup release readiness passed.");
@@ -71,4 +94,23 @@ function riskObservationSourcesFromGovernedConfig(
       sourceCustomerId: harbor.riskObservationSource.sourceCustomerId
     }
   };
+}
+
+function loadGitMetadata(): { branchName?: string; commitSha?: string } {
+  const branchName = readGitValue(["branch", "--show-current"]);
+  const commitSha = readGitValue(["rev-parse", "HEAD"]);
+
+  return {
+    ...(branchName === undefined ? {} : { branchName }),
+    ...(commitSha === undefined ? {} : { commitSha })
+  };
+}
+
+function readGitValue(args: string[]): string | undefined {
+  try {
+    const value = execFileSync("git", args, { encoding: "utf8" }).trim();
+    return value.length === 0 ? undefined : value;
+  } catch {
+    return undefined;
+  }
 }
