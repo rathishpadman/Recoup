@@ -113,6 +113,12 @@ If local branch/SHA differs from the target, stop and switch to or create a clea
 
 Close-out for cockpit work must state the branch/worktree edited, the route tested, and whether it matches the intended target. Do not move toward production until the edited branch/worktree is the one that was tested.
 
+## 5.3 Vercel production deployment credentials
+
+Before reporting that Vercel production deployment is blocked by missing CLI credentials, check `VERCEL_TOKEN` in the current process, Windows User scope, and Windows Machine scope. If present, run Vercel commands with `--token $env:VERCEL_TOKEN`; do not rely only on `vercel login` state or Vercel auth JSON files. Report only whether the token is present, never the token value.
+
+For production deploys, confirm `main` is pushed to `origin/main`, then run `vercel deploy --prod -y --token $env:VERCEL_TOKEN` from the verified main worktree. After deploy, smoke the public alias and confirm it serves the pushed commit's behavior before saying production is updated.
+
 ## 6. Definition of done (per session)
 
 Stated success check passes · `npm run verify` green · no unrelated lines in the diff · spec-validation produced no unresolved inconsistencies · `tests/invariants/` and the release-blocking eval gates (I-5, I-22, I-27, I-28) still green · senior-critique pass done.
