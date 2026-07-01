@@ -39,7 +39,8 @@ import {
   createSupabaseReleaseOwnerInputRepositoryFromEnv,
   createSupabaseSourceHealthSnapshotRepositoryFromEnv,
   createSupabaseTableReadinessProbeFromEnv,
-  type SupabaseMemoryFetch
+  type SupabaseMemoryFetch,
+  type SupabaseReadModelRecord
 } from "../memory/supabaseStore.js";
 import {
   createSupabaseAuditChainRepositoryFromEnv,
@@ -105,7 +106,11 @@ import {
   type ApprovalRecordSourceMetadata,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
-import { buildSourceHealthResultsFromSnapshots } from "./sourceHealth.js";
+import {
+  buildSourceHealthResultsFromSnapshots,
+  type SourceHealthResult,
+  type SourceHealthSnapshotStore
+} from "./sourceHealth.js";
 import { createSupabaseEvalsFinopsRepositoryFromEnv, type EvalsFinopsRepository } from "./evalsFinopsRepository.js";
 import { buildEvalFinopsCockpitModel } from "./evalsFinopsModel.js";
 import {
@@ -598,25 +603,31 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const cachedReadModel = await loadReadModelPayload(mayaConnectorsReadModelKey, "connector-readiness");
-    if (cachedReadModel !== undefined) {
+    const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
+    const sourceHealthSnapshots = await loadLatestSourceHealthSnapshots(sourceHealthSnapshotStore);
+    const cachedReadModel = await loadReadModelRecord(mayaConnectorsReadModelKey, "connector-readiness");
+    if (
+      cachedReadModel !== undefined &&
+      isConnectorReadModelFreshForSnapshots(cachedReadModel, sourceHealthSnapshots)
+    ) {
       response.setHeader(readModelCacheHeader, "hit");
-      response.json(cachedReadModel);
+      response.json(cachedReadModel.payload);
       return;
     }
 
-    const sourceHealthSnapshotStore = createSupabaseSourceHealthSnapshotRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
     const availableCredentialEnvNames = readConfiguredEnvNames(runtimeEnv);
     const sourceHealth = await buildSourceHealthResultsFromSnapshots({
       availableCredentialEnvNames,
       env: runtimeEnv,
       fetcher: options.sapFetcher,
-      snapshotStore: sourceHealthSnapshotStore
+      snapshotStore: sourceHealthSnapshots === undefined
+        ? sourceHealthSnapshotStore
+        : sourceHealthSnapshotStoreFromRows(sourceHealthSnapshots)
     });
 
     const model = buildConnectorReadinessModel(availableCredentialEnvNames, undefined, sourceHealth);
     await publishReadModel(mayaConnectorsReadModelKey, "connector-readiness", model);
-    response.setHeader(readModelCacheHeader, "miss");
+    response.setHeader(readModelCacheHeader, cachedReadModel === undefined ? "miss" : "refresh");
     response.json(model);
   });
 
@@ -932,6 +943,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     modelKey: string,
     surface: "connector-readiness" | "forensics-analyst"
   ): Promise<Record<string, unknown> | undefined> {
+    const record = await loadReadModelRecord(modelKey, surface);
+    return record?.payload;
+  }
+
+  async function loadReadModelRecord(
+    modelKey: string,
+    surface: "connector-readiness" | "forensics-analyst"
+  ): Promise<SupabaseReadModelRecord | undefined> {
     if (readModelRepository === undefined) {
       return undefined;
     }
@@ -942,7 +961,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         return undefined;
       }
 
-      return record.payload;
+      return record;
     } catch {
       return undefined;
     }
@@ -970,6 +989,85 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     } catch {
       return;
     }
+  }
+
+  async function loadLatestSourceHealthSnapshots(
+    snapshotStore: SourceHealthSnapshotStore | undefined
+  ): Promise<SourceHealthResult[] | undefined> {
+    if (snapshotStore === undefined) {
+      return undefined;
+    }
+
+    try {
+      return await snapshotStore.loadLatest();
+    } catch {
+      return undefined;
+    }
+  }
+
+  function isConnectorReadModelFreshForSnapshots(
+    record: SupabaseReadModelRecord,
+    snapshots: readonly SourceHealthResult[] | undefined
+  ): boolean {
+    if (snapshots === undefined || snapshots.length === 0) {
+      return true;
+    }
+
+    const latestSnapshotCheckedAt = mostRecentCheckedAtIso(snapshots);
+    if (latestSnapshotCheckedAt === undefined) {
+      return true;
+    }
+
+    const cachedCheckedAt = readConnectorModelCheckedAt(record.payload);
+    return cachedCheckedAt !== undefined && Date.parse(cachedCheckedAt) >= Date.parse(latestSnapshotCheckedAt);
+  }
+
+  function readConnectorModelCheckedAt(payload: Record<string, unknown>): string | undefined {
+    if (isValidTimestamp(payload.checkedAtIso)) {
+      return payload.checkedAtIso;
+    }
+
+    return Array.isArray(payload.sourceHealth) ? mostRecentCheckedAtIso(payload.sourceHealth) : undefined;
+  }
+
+  function mostRecentCheckedAtIso(rows: readonly unknown[]): string | undefined {
+    let latest: string | undefined;
+    for (const row of rows) {
+      const checkedAtIso = readCheckedAtIso(row);
+      if (checkedAtIso === undefined) {
+        continue;
+      }
+
+      if (latest === undefined || Date.parse(checkedAtIso) > Date.parse(latest)) {
+        latest = checkedAtIso;
+      }
+    }
+
+    return latest;
+  }
+
+  function readCheckedAtIso(value: unknown): string | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value) || !("checkedAtIso" in value)) {
+      return undefined;
+    }
+
+    const checkedAtIso = (value as { checkedAtIso?: unknown }).checkedAtIso;
+    return isValidTimestamp(checkedAtIso) ? checkedAtIso : undefined;
+  }
+
+  function isValidTimestamp(value: unknown): value is string {
+    return typeof value === "string" && Number.isFinite(Date.parse(value));
+  }
+
+  function sourceHealthSnapshotStoreFromRows(snapshots: readonly SourceHealthResult[]): SourceHealthSnapshotStore {
+    return {
+      loadLatest() {
+        return Promise.resolve([...snapshots]);
+      },
+      upsert() {
+        return Promise.resolve();
+      }
+    };
   }
 
   async function loadRequiredSupabaseRunContext(

@@ -5041,6 +5041,121 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("refreshes stale connector readiness read models when source-health snapshots are newer", async () => {
+    const calls: Array<{ body?: unknown; method: string | undefined; tableName: string; url: string }> = [];
+    const staleConnectorPayload = {
+      checkedAtIso: "2026-06-29T07:29:24.995Z",
+      connectors: [],
+      lastRefreshedLabel: "7 source health rows checked at 2026-06-29T07:29:24.995Z",
+      provenance: {
+        deterministicBasis: "stale cached connector readiness payload",
+        recordIds: ["recoup_source_health_snapshots:sap-odata"],
+        sourceKind: "derived_backend",
+        sourceName: "Connector readiness and source health registry"
+      },
+      sourceHealth: [
+        {
+          checkedAtIso: "2026-06-29T07:29:24.995Z",
+          latencyMs: 0,
+          proofItems: ["supabase source-health snapshot"],
+          recordIds: ["recoup_source_health_snapshots:sap-odata"],
+          sourceMode: "unavailable",
+          sourceName: "sap-odata",
+          status: "blocked"
+        }
+      ],
+      sourceTiles: [],
+      surface: "connector-readiness"
+    };
+    const freshCheckedAt = "2026-07-01T01:12:16.319Z";
+    const sourceHealthRows = [
+      sourceHealthSnapshotRow("sap-odata", "blocked", "unavailable", "2026-07-01T01:12:16.318Z", [
+        "sap-odata",
+        "ZUI_BILLINGDOCUMENTFS_0001"
+      ]),
+      sourceHealthSnapshotRow("bureau", "connected", "synthetic_static_table", freshCheckedAt, ["bureau", "customers"]),
+      sourceHealthSnapshotRow("docs-repo", "connected", "synthetic_static_table", freshCheckedAt, ["docs-repo", "contracts"]),
+      sourceHealthSnapshotRow("edi-remittance", "connected", "synthetic_static_table", freshCheckedAt, [
+        "edi-remittance",
+        "remittance_lines"
+      ]),
+      sourceHealthSnapshotRow("mcp", "connected", "live", freshCheckedAt, ["mcp", "recoup_source_health_snapshots:mcp"]),
+      sourceHealthSnapshotRow("remittance", "connected", "synthetic_static_table", freshCheckedAt, [
+        "remittance",
+        "remittance_headers"
+      ]),
+      sourceHealthSnapshotRow("tpm", "connected", "synthetic_static_table", freshCheckedAt, ["tpm", "promotions"])
+    ];
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const tableName = new URL(url).pathname.split("/").at(-1) ?? "";
+      calls.push({
+        body: typeof init.body === "string" ? JSON.parse(init.body) : undefined,
+        method: init.method,
+        tableName,
+        url
+      });
+
+      if (tableName === "recoup_cockpit_read_models" && init.method !== "POST") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T07:31:35.837Z",
+              model_key: "maya:connectors:v1",
+              payload_hash: sha256CanonicalJson(staleConnectorPayload),
+              payload_json: staleConnectorPayload,
+              persona: "maya",
+              source_record_ids_json: ["recoup_source_health_snapshots:sap-odata"],
+              source_refreshed_at: "2026-06-29T07:31:35.837Z",
+              surface: "connector-readiness"
+            }
+          ])
+        );
+      }
+
+      if (tableName === "recoup_cockpit_read_models" && init.method === "POST") {
+        return Promise.resolve(Response.json(init.body === undefined ? [] : JSON.parse(init.body as string)));
+      }
+
+      if (tableName === "recoup_source_health_snapshots") {
+        return Promise.resolve(Response.json(sourceHealthRows));
+      }
+
+      return Promise.resolve(Response.json([]));
+    };
+    const { baseUrl, server } = await listen({
+      env: cockpitAuthEnv,
+      memoryFetcher
+    });
+    try {
+      const response = await fetch(`${baseUrl}/connectors`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as { checkedAtIso?: string; lastRefreshedLabel?: string; surface?: string };
+      const readModelWrites = calls.filter(
+        (call) => call.tableName === "recoup_cockpit_read_models" && call.method === "POST"
+      );
+      const writtenRows = readModelWrites[0]?.body as
+        | Array<{
+            model_key?: unknown;
+            payload_json?: { checkedAtIso?: unknown; surface?: unknown };
+            surface?: unknown;
+          }>
+        | undefined;
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-recoup-read-model-cache")).toBe("refresh");
+      expect(body.surface).toBe("connector-readiness");
+      expect(body.checkedAtIso).toBe(freshCheckedAt);
+      expect(body.lastRefreshedLabel).toBe(`7 source health rows checked at ${freshCheckedAt}`);
+      expect(readModelWrites).toHaveLength(1);
+      expect(writtenRows).toHaveLength(1);
+      expect(writtenRows?.[0]?.model_key).toBe("maya:connectors:v1");
+      expect(writtenRows?.[0]?.payload_json?.checkedAtIso).toBe(freshCheckedAt);
+      expect(writtenRows?.[0]?.payload_json?.surface).toBe("connector-readiness");
+      expect(writtenRows?.[0]?.surface).toBe("connector-readiness");
+    } finally {
+      await close(server);
+    }
+  });
+
   it("fails closed for Realtime client-secret requests when credentials are absent", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
@@ -6032,6 +6147,28 @@ function readModelOnlyFetcher(
         { status: 200 }
       )
     );
+  };
+}
+
+function sourceHealthSnapshotRow(
+  sourceName: string,
+  status: "blocked" | "connected" | "degraded",
+  sourceMode: "live" | "synthetic_static_table" | "unavailable",
+  checkedAt: string,
+  recordIds: string[]
+) {
+  return {
+    checked_at: checkedAt,
+    last_error: status === "blocked" ? `${sourceName} probe failed.` : null,
+    latency_ms: 0,
+    proof_items_json:
+      status === "blocked"
+        ? ["read-only metadata probe", "external writes blocked", "source probe failed"]
+        : ["read-only", "external writes blocked", "credentials present", "schema probe passed"],
+    record_ids_json: recordIds,
+    source_mode: sourceMode,
+    source_name: sourceName,
+    status
   };
 }
 

@@ -42,6 +42,16 @@ Env values are connection/config discovery only. They do not approve business co
 
 Live Maya query and realtime experiences are production requirements, not optional demo polish. Realtime UI may stream agent progress and grounded narrative fields, but every visible business value must still come from backend/API/read-model data with provenance, and every LLM-visible source payload must pass the applicable input/tool/output guardrails.
 
+## 3.2 Production provider access
+
+Before saying Render, Supabase, or Vercel access is unavailable, prove each access path separately. Check local env/config, MCP/tool exposure, and provider APIs/CLIs. Report only provider names, project/service IDs, hosts, timestamps, status, and presence/absence of credentials. Never paste tokens, service-role keys, API keys, cookies, auth headers, env values, or secret-bearing command output into chat, docs, screenshots, or logs.
+
+**Render.** Prefer the Render MCP tools when available. Use `tool_search` for Render, then `mcp__render.list_workspaces`; if exactly one workspace is returned it may auto-select, but if multiple workspaces exist ask the user which workspace/owner ID to use before calling `select_workspace`. Use `list_services` to identify `recoup-api` and any cron/job services, `list_deploys` to confirm the deployed commit, and `list_logs` / `list_log_label_values` for read-only runtime evidence. Do not create/update services, cron jobs, env vars, deploys, or workspaces unless explicitly requested. If MCP is unavailable, use the Render CLI skill and check `RENDER_API_KEY` / `RENDER_API_TOKEN` presence without printing values.
+
+**Supabase.** Prefer Supabase MCP tools for project/log inspection when exposed. For repo-grounded production reads, load `.env.local` through `config/localRuntimeEnv.ts` and use `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` only for bounded read-only REST probes unless the user explicitly approves migrations or DML. For source/read-model debugging, inspect `recoup_source_health_snapshots`, `recoup_cockpit_read_models`, `recoup_config`, and source tables by table/row shape, timestamps, hashes, status, and record IDs only. Do not reveal row payloads that contain secrets or customer-sensitive free text unless the user explicitly asks and it is safe to summarize.
+
+**Vercel.** Check `VERCEL_TOKEN` in current process, Windows User scope, and Windows Machine scope before claiming Vercel is blocked. Use `--token $env:VERCEL_TOKEN` for CLI commands, or the Vercel REST API with `.vercel/project.json` for alias/deployment/env metadata. For production evidence, confirm the public alias, deployment ID, deployment timestamp, target, linked project, and env-key presence. Do not print encrypted env values. Production deploys require explicit user instruction and must be followed by public-alias smoke against the intended behavior.
+
 ## 4. Repo map (TypeScript — see SDD §3.2)
 
 ```
