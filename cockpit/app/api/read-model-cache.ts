@@ -21,6 +21,7 @@ export const mayaForensicsReadModelKey = "maya:forensics:v1";
 export const mayaConnectorsReadModelKey = "maya:connectors:v1";
 export const readModelCacheHeader = "x-recoup-read-model-cache";
 export const readModelSourceRefreshedAtHeader = "x-recoup-read-model-source-refreshed-at";
+const sourceHealthSnapshotTableName = "recoup_source_health_snapshots";
 
 export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
   return `maya:forensics:work-item:${lineId}:v1`;
@@ -88,6 +89,55 @@ export async function readCachedReadModelPayload(
   } catch {
     return undefined;
   }
+}
+
+export async function readLatestSourceHealthSnapshotCheckedAt(runtimeEnv: RuntimeEnv): Promise<string | undefined> {
+  if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(`${normalizeSupabaseUrl(runtimeEnv.SUPABASE_URL)}/rest/v1/${sourceHealthSnapshotTableName}`);
+    url.searchParams.set("select", "checked_at");
+    url.searchParams.set("order", "checked_at.desc");
+    url.searchParams.set("limit", "1");
+    const response = await fetch(url.href, {
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        apikey: runtimeEnv.SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${runtimeEnv.SUPABASE_SERVICE_ROLE_KEY}`
+      },
+      method: "GET"
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const rows = (await response.json()) as unknown;
+    if (!Array.isArray(rows)) {
+      return undefined;
+    }
+    const checkedAt = rows
+      .map((row) => (typeof row === "object" && row !== null && !Array.isArray(row) ? (row as { checked_at?: unknown }).checked_at : undefined))
+      .find(isValidTimestamp);
+
+    return checkedAt;
+  } catch {
+    return undefined;
+  }
+}
+
+export function isConnectorReadModelFreshForSourceHealth(
+  payload: Record<string, unknown>,
+  latestSourceHealthCheckedAt: string | undefined
+): boolean {
+  if (latestSourceHealthCheckedAt === undefined) {
+    return true;
+  }
+
+  const cachedCheckedAt = readConnectorModelCheckedAt(payload);
+  return cachedCheckedAt !== undefined && Date.parse(cachedCheckedAt) >= Date.parse(latestSourceHealthCheckedAt);
 }
 
 export async function publishCachedReadModelPayload(
@@ -228,6 +278,43 @@ function parseJsonCell(value: unknown): unknown {
 
 function isNonEmptyStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
+function readConnectorModelCheckedAt(payload: Record<string, unknown>): string | undefined {
+  if (isValidTimestamp(payload.checkedAtIso)) {
+    return payload.checkedAtIso;
+  }
+
+  return Array.isArray(payload.sourceHealth) ? mostRecentCheckedAtIso(payload.sourceHealth) : undefined;
+}
+
+function mostRecentCheckedAtIso(rows: readonly unknown[]): string | undefined {
+  let latest: string | undefined;
+  for (const row of rows) {
+    const checkedAtIso = readCheckedAtIso(row);
+    if (checkedAtIso === undefined) {
+      continue;
+    }
+
+    if (latest === undefined || Date.parse(checkedAtIso) > Date.parse(latest)) {
+      latest = checkedAtIso;
+    }
+  }
+
+  return latest;
+}
+
+function readCheckedAtIso(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("checkedAtIso" in value)) {
+    return undefined;
+  }
+
+  const checkedAtIso = (value as { checkedAtIso?: unknown }).checkedAtIso;
+  return isValidTimestamp(checkedAtIso) ? checkedAtIso : undefined;
+}
+
+function isValidTimestamp(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 function isSafeTableName(value: string): boolean {

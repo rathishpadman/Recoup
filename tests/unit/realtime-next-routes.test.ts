@@ -131,6 +131,98 @@ describe("Realtime Next proxy routes", () => {
     });
   });
 
+  it("refreshes stale cached connector readiness when source-health snapshots are newer", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedModel = {
+      checkedAtIso: "2026-06-29T07:29:24.995Z",
+      connectors: [],
+      lastRefreshedLabel: "7 source health rows checked at 2026-06-29T07:29:24.995Z",
+      provenance: {
+        deterministicBasis: "ConnectorReadiness and SourceHealthResult rows",
+        recordIds: ["recoup_source_health_snapshots:sap-odata"],
+        sourceKind: "supabase",
+        sourceName: "connectors"
+      },
+      sourceHealth: [
+        {
+          checkedAtIso: "2026-06-29T07:29:24.995Z",
+          proofItems: ["snapshot"],
+          recordIds: ["recoup_source_health_snapshots:sap-odata"],
+          sourceMode: "live",
+          sourceName: "sap-odata",
+          status: "blocked"
+        }
+      ],
+      sourceTiles: [],
+      surface: "connector-readiness"
+    };
+    const freshBackendModel = {
+      ...staleCachedModel,
+      checkedAtIso: "2026-07-01T01:12:16.319Z",
+      lastRefreshedLabel: "7 source health rows checked at 2026-07-01T01:12:16.319Z",
+      sourceHealth: [
+        {
+          checkedAtIso: "2026-07-01T01:12:16.319Z",
+          proofItems: ["snapshot"],
+          recordIds: ["recoup_source_health_snapshots:sap-odata"],
+          sourceMode: "live",
+          sourceName: "sap-odata",
+          status: "blocked"
+        }
+      ]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models")) {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T07:29:24.995Z",
+              model_key: "maya:connectors:v1",
+              payload_hash: "c".repeat(64),
+              payload_json: staleCachedModel,
+              persona: "maya",
+              source_record_ids_json: ["recoup_source_health_snapshots:sap-odata"],
+              source_refreshed_at: "2026-06-29T07:29:24.995Z",
+              surface: "connector-readiness"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_source_health_snapshots")) {
+        return Promise.resolve(Response.json([{ checked_at: "2026-07-01T01:12:16.319+00:00" }]));
+      }
+
+      expect(input).toBe("http://recoup-api.test/connectors");
+      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+      return Promise.resolve(
+        Response.json(freshBackendModel, {
+          headers: { "x-recoup-read-model-cache": "refresh" }
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getConnectors(
+      new Request("http://localhost/api/connectors", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      })
+    );
+    const body = (await response.json()) as typeof freshBackendModel;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("refresh");
+    expect(body.checkedAtIso).toBe("2026-07-01T01:12:16.319Z");
+    expect(body).toEqual(freshBackendModel);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchInputUrl(fetchMock.mock.calls[0]?.[0])).toContain("recoup_cockpit_read_models");
+    expect(fetchInputUrl(fetchMock.mock.calls[1]?.[0])).toContain("recoup_source_health_snapshots");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://recoup-api.test/connectors");
+  });
+
   it("serves cached Maya forensics read models before triggering a non-blocking Render refresh", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedModel = {
