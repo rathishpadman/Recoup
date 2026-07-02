@@ -14,6 +14,8 @@ import {
   sourcePortFromSupabaseSnapshots,
   type SupabaseRiskObservationSourceConfig
 } from "../src/adapters/supabaseSyntheticSource.js";
+import { readReconciliationMode } from "../config/reconciliationRollout.js";
+import { createLegacySupabaseSettlementRunReaderFromEnv } from "../src/adapters/legacySupabaseSettlementRunReader.js";
 import { buildCurrentReleaseReadinessReport, formatReleaseReadinessReport } from "./releaseReadiness.js";
 
 const envFilePaths = [".env", ".env.local"].filter((path) => existsSync(path));
@@ -59,7 +61,10 @@ if (report.status === "pass") {
 }
 
 async function loadReleaseReadinessSource(env: Record<string, string | undefined>, governedConfig: GovernedConfigValues) {
-  const settlementReader = createSupabaseSettlementRunReaderFromEnv(env, governedConfig.seed);
+  const settlementReader =
+    readReconciliationMode(env) === "legacy"
+      ? createLegacySupabaseSettlementRunReaderFromEnv(env, governedConfig.seed)
+      : createSupabaseSettlementRunReaderFromEnv(env, governedConfig.seed);
   const riskReader = createSupabaseRiskObservationSnapshotReaderFromEnv(
     env,
     riskObservationSourcesFromGovernedConfig(governedConfig)

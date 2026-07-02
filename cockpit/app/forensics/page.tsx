@@ -16,7 +16,7 @@ export default async function ForensicsPage() {
     fetchForensicsModel(backendReadAuthHeaders),
     fetchConnectorReadinessModel(backendReadAuthHeaders)
   ]);
-  const selectedScenario = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? model.worklist[0];
+  const selectedWorkItem = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? model.worklist[0];
 
   return (
     <CockpitShell
@@ -24,7 +24,7 @@ export default async function ForensicsPage() {
       kicker="Recoup / Deductions / Forensics"
       prelude={<ToolStatusRail connectors={connectors} />}
       session={session}
-      subtitle="Scenario worklist, cited evidence, sub-agent proof, and human-gated recovery drafts."
+      subtitle="Work item list, cited evidence, sub-agent proof, and human-gated recovery drafts."
       title="Recoup deduction forensics"
       titleAccessory={<span className="journey-chip">Maya journey</span>}
       toolbar={
@@ -40,14 +40,14 @@ export default async function ForensicsPage() {
             <SquaresFour size={18} />
             <span>Views</span>
           </button>
-          <button aria-label="Export scenario packet" title="Export" type="button">
+          <button aria-label="Export work item packet" title="Export" type="button">
             <DownloadSimple size={18} />
             <span>Export</span>
           </button>
         </div>
       }
     >
-      <section className="scenario-metric-ledger" aria-label="Recovery summary">
+      <section className="work-item-metric-ledger" aria-label="Recovery summary">
         {model.kpiStrip.map((item) => (
           <div key={item.label}>
             <span>{item.label}</span>
@@ -61,14 +61,14 @@ export default async function ForensicsPage() {
         <section className="worklist forensic-worklist">
           <div className="section-heading">
             <div>
-              <h2>Scenario worklist</h2>
+              <h2>Work item list</h2>
               <span>{String(model.worklist.length)} cases from the settlement run</span>
             </div>
           </div>
           <div className="workspace-table-scroll">
             <div className="data-table" role="table" aria-label="Deduction worklist">
               <div className="table-row table-head" role="row">
-                <span role="columnheader">Scenario</span>
+                <span role="columnheader">Work item</span>
                 <span role="columnheader">Reason</span>
                 <span role="columnheader">Exposure</span>
                 <span role="columnheader">Evidence</span>
@@ -79,12 +79,12 @@ export default async function ForensicsPage() {
 
                 return (
                   <div className="table-row work-row" aria-selected={isSelected} key={item.lineId} role="row">
-                    <div className="scenario-cell" role="cell">
-                      <strong>{item.scenarioId}</strong>
+                    <div className="work-item-cell" role="cell">
+                      <strong>{item.workItemId}</strong>
                       <span>{item.customerLabel}</span>
                     </div>
                     <span className="account-cell" role="cell">
-                      <span>{item.scenarioType}</span>
+                      <span>{item.deductionReason}</span>
                     </span>
                     <span className="amount" role="cell">
                       {item.amount}
@@ -106,13 +106,13 @@ export default async function ForensicsPage() {
         <section className="decision-console dossier-workbench" id="selected-line" aria-label="Selected deduction decision">
           <div className="section-heading">
             <div>
-              <h2>{selectedScenario?.scenarioId ?? model.selected.lineId}</h2>
-              <span>{selectedScenario?.scenarioType ?? "Selected deduction"}</span>
+              <h2>{selectedWorkItem?.workItemId ?? model.selected.lineId}</h2>
+              <span>{selectedWorkItem?.deductionReason ?? "Selected deduction"}</span>
             </div>
             <span className="review-state">{model.selected.draft.statusLabel}</span>
           </div>
 
-          <div className="case-tabbar" aria-label="Selected scenario sections">
+          <div className="case-tabbar" aria-label="Selected work item sections">
             <span aria-current="page">Overview</span>
             <span>Evidence {String(model.selected.evidencePack.documents.length)}</span>
             <span>Journey</span>
@@ -123,7 +123,7 @@ export default async function ForensicsPage() {
           <div className="case-snapshot case-meta-row">
             <div>
               <span>Customer</span>
-              <strong>{selectedScenario?.customerLabel ?? "Selected account"}</strong>
+              <strong>{selectedWorkItem?.customerLabel ?? "Selected account"}</strong>
             </div>
             <div>
               <span>Selected line</span>
@@ -135,11 +135,11 @@ export default async function ForensicsPage() {
             </div>
             <div>
               <span>Decision</span>
-              <strong>{selectedScenario?.verdictLabel ?? "Recovery"}</strong>
+              <strong>{selectedWorkItem?.verdictLabel ?? "Recovery"}</strong>
             </div>
           </div>
 
-          <section className="next-best-action flagship-action dossier-band" aria-label="Selected scenario overview">
+          <section className="next-best-action flagship-action dossier-band" aria-label="Selected work item overview">
             <h3>What happened</h3>
             <div className="action-summary">
               <strong>Stage the recovery draft for human review.</strong>

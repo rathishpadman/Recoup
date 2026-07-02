@@ -7,6 +7,7 @@ import {
   createAgentHookAuditReceipt,
   liveSdkAgentHookDeterministicBasis
 } from "../../src/services/conductor.js";
+import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import {
   ForensicsQueryLineNotFoundError,
   forensicsQueryDeterministicBasis,
@@ -32,6 +33,17 @@ function buildServiceInput(overrides: Partial<Parameters<typeof runForensicsQuer
     source,
     ...overrides
   };
+}
+
+function runForensicsFromServiceInput(overrides: Partial<Parameters<typeof runForensicsQuerySession>[0]> = {}) {
+  const input = buildServiceInput(overrides);
+
+  return runForensicsInvestigation({
+    governedConfig: input.governedConfig,
+    ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+    serviceContext: input.serviceContext,
+    source: input.source
+  });
 }
 
 describe("forensics query session", () => {
@@ -599,8 +611,187 @@ describe("forensics query session", () => {
     expect(result.trace.every((event) => event.receiptDeterministicBasis === "Recoup deterministic forensics hook audit event")).toBe(true);
   });
 
+  it("accepts canonical reconciliation receipt and evidence IDs for the selected line query scope", () => {
+    const result = runForensicsQuerySession(
+      buildServiceInput({
+        reconciliation: buildCanonicalS6Reconciliation(),
+        recordIds: ["INV-S6-1", "RECON-S6-L1", "EVD-SAP-S6-L1", "SAP-CANON-S6-L1"]
+      })
+    );
+
+    expect(result.answer).toContain("S6-L1");
+    expect(result.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recordId: "RECON-S6-L1", source: "supabase" }),
+        expect.objectContaining({ documentId: "EVD-SAP-S6-L1", recordId: "EVD-SAP-S6-L1", source: "sap" }),
+        expect.objectContaining({ documentId: "EVD-SAP-S6-L1", recordId: "SAP-CANON-S6-L1", source: "sap" })
+      ])
+    );
+  });
+
+  it("accepts live selected canonical evidence proof without SAP evidence when SAP is degraded", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkCanonicalSelectedEvidenceToolEvent("tool_called", "query_answer", "Forensics Investigator");
+        yield sdkCanonicalSelectedEvidenceToolEvent("tool_output", "query_answer", "Forensics Investigator");
+      })();
+    });
+
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: liveRunner
+        },
+        reconciliation: buildCanonicalS6NonSapReconciliation(),
+        recordIds: ["INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"]
+      })
+    );
+    const queryAnswerTrace = result.trace.find(
+      (event) =>
+        event.hook === "agent_tool_end" &&
+        event.toolName === "query.answer" &&
+        event.receiptDeterministicBasis === liveSdkAgentHookDeterministicBasis
+    );
+
+    expect(result.modelExecution?.mode).toBe("live_openai_agents");
+    expect(queryAnswerTrace).toMatchObject({
+      retrievalSource: "supabase",
+      sourceFreshness: "snapshot",
+      sourceKind: "supabase",
+      transportLabel: "Governed canonical snapshot",
+      transportLayer: "supabase_canonical_snapshot"
+    });
+    expect(result.trace.some((event) => event.retrievalSource === "sap_odata")).toBe(false);
+  });
+
+  it("passes top-level reconciliation into the live MCP query.answer service context", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      const selectedRecordIds = ["S6-L1", "INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"];
+      const toolOutput = invokeServiceTool(
+        "query.answer",
+        {
+          question: "Why is this recoverable?",
+          recordIds: selectedRecordIds,
+          selectedLineId: "S6-L1"
+        },
+        {
+          ...request.mcpServiceContext,
+          requireSupabaseSapEvidence: true,
+          sapEvidenceSource: {
+            readEvidence() {
+              return [];
+            }
+          }
+        }
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "query_answer", "Forensics Investigator", {
+          arguments: {
+            question: "Why is this recoverable?",
+            recordIds: selectedRecordIds,
+            selectedLineId: "S6-L1"
+          }
+        });
+        yield sdkToolEvent("tool_output", "query_answer", "Forensics Investigator", {
+          output: toolOutput
+        });
+      })();
+    });
+
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: liveRunner
+        },
+        reconciliation: buildCanonicalS6NonSapReconciliation(),
+        recordIds: ["INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"],
+        serviceContext: {
+          ...fixtureForensicsServiceContext,
+          governedConfig,
+          source: new SyntheticSource({ seed: 42 })
+        }
+      })
+    );
+
+    expect(result.modelExecution?.mode).toBe("live_openai_agents");
+    expect(
+      result.trace.find(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === liveSdkAgentHookDeterministicBasis
+      )
+    ).toMatchObject({
+      retrievalSource: "supabase",
+      sourceKind: "supabase"
+    });
+  });
+
   it("returns no answer when agent hook receipts are missing", () => {
-    const run = runForensicsInvestigation(buildServiceInput());
+    const run = runForensicsFromServiceInput();
     const result = runForensicsQuerySession(
       buildServiceInput({
         runForensics: () => ({
@@ -637,7 +828,7 @@ describe("forensics query session", () => {
   });
 
   it("returns no answer when deterministic forensics orchestration trace is missing", () => {
-    const run = runForensicsInvestigation(buildServiceInput());
+    const run = runForensicsFromServiceInput();
     const result = runForensicsQuerySession(
       buildServiceInput({
         runForensics: () => ({
@@ -656,7 +847,7 @@ describe("forensics query session", () => {
   });
 
   it("returns no answer when deterministic basis is missing", () => {
-    const run = runForensicsInvestigation(buildServiceInput());
+    const run = runForensicsFromServiceInput();
     const result = runForensicsQuerySession(
       buildServiceInput({
         runForensics: () =>
@@ -718,6 +909,99 @@ function buildQueryHookReceipts(recordIds: string[]) {
   ];
 }
 
+function buildCanonicalS6Reconciliation(): NonNullable<Parameters<typeof runForensicsQuerySession>[0]["reconciliation"]> {
+  return {
+    evidenceDataset: {
+      claims: [],
+      documents: [
+        {
+          contentHash: "a".repeat(64),
+          customerId: "CUST-S6",
+          documentType: "sap_invoice",
+          evidenceId: "EVD-SAP-S6-L1",
+          payload: { lineId: "S6-L1" },
+          provenance: "sap_odata",
+          retrievedAt: "2026-07-01T00:00:00.000Z",
+          sourceRecordId: "SAP-CANON-S6-L1",
+          sourceSystem: "sap_odata"
+        }
+      ],
+      links: []
+    },
+    receipts: [
+      {
+        claimId: "CLAIM-S6-L1",
+        confidenceFactors: {},
+        contentHash: "b".repeat(64),
+        derivedRuleInput: {
+          claimedAmount: "10.00",
+          lineId: "S6-L1",
+          period: "2026-07",
+          recordIds: ["S6-L1", "EVD-SAP-S6-L1"],
+          ruleId: "pricing-below-contract"
+        },
+        deterministicBasis: {},
+        evidenceIds: ["EVD-SAP-S6-L1"],
+        lineId: "S6-L1",
+        receiptId: "RECON-S6-L1",
+        ruleId: "pricing-below-contract"
+      }
+    ]
+  };
+}
+
+function buildCanonicalS6NonSapReconciliation(): NonNullable<Parameters<typeof runForensicsQuerySession>[0]["reconciliation"]> {
+  return {
+    evidenceDataset: {
+      claims: [],
+      documents: [
+        {
+          contentHash: "c".repeat(64),
+          customerId: "CUST-S6",
+          documentType: "pod",
+          evidenceId: "EVD-POD-S6-L1",
+          payload: { lineId: "S6-L1" },
+          provenance: "source_generated",
+          retrievedAt: "2026-07-01T00:00:00.000Z",
+          sourceRecordId: "POD-S6-L1",
+          sourceSystem: "three_pl"
+        },
+        {
+          contentHash: "d".repeat(64),
+          customerId: "CUST-S6",
+          documentType: "remittance_advice",
+          evidenceId: "EVD-REMIT-S6-L1",
+          payload: { lineId: "S6-L1" },
+          provenance: "source_generated",
+          retrievedAt: "2026-07-01T00:00:00.000Z",
+          sourceRecordId: "REMIT-S6-L1",
+          sourceSystem: "remittance"
+        }
+      ],
+      links: []
+    },
+    receipts: [
+      {
+        claimId: "CLAIM-S6-L1",
+        confidenceFactors: {},
+        contentHash: "e".repeat(64),
+        derivedRuleInput: {
+          claimedAmount: "10.00",
+          lineId: "S6-L1",
+          period: "2026-07",
+          recordIds: ["S6-L1", "EVD-POD-S6-L1", "EVD-REMIT-S6-L1"],
+          ruleId: "pricing-below-contract"
+        },
+        deterministicBasis: {},
+        evidenceIds: ["EVD-POD-S6-L1", "EVD-REMIT-S6-L1"],
+        lineId: "S6-L1",
+        receiptId: "RECON-S6-L1",
+        ruleId: "pricing-below-contract"
+      }
+    ]
+  };
+}
+
 function sdkToolEvent(
   name: "tool_called" | "tool_output",
   toolName: string,
@@ -771,6 +1055,53 @@ function sdkSelectedEvidenceToolEvent(
         ],
         selectedLineId: "S6-L1",
         selectedRecordIds: [...validS6HookRecordIds],
+        sourceFreshness: "snapshot",
+        transportLabel: "Governed canonical snapshot",
+        transportLayer: "supabase_canonical_snapshot"
+      }
+    }
+  });
+}
+
+function sdkCanonicalSelectedEvidenceToolEvent(
+  name: "tool_called" | "tool_output",
+  toolName: string,
+  agentName: string
+) {
+  const selectedRecordIds = ["S6-L1", "INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"];
+  if (name === "tool_called") {
+    return sdkToolEvent(name, toolName, agentName, {
+      arguments: {
+        question: "Why is this recoverable?",
+        recordIds: selectedRecordIds,
+        selectedLineId: "S6-L1"
+      }
+    });
+  }
+
+  return sdkToolEvent(name, toolName, agentName, {
+    output: {
+      sourceReadStatus: "source_backed_selected_scope",
+      sourceReads: {
+        canonicalModel: "EvidenceDocument",
+        selectedEvidence: [
+          {
+            documentId: "EVD-POD-S6-L1",
+            documentType: "pod",
+            recordIds: ["S6-L1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1"],
+            source: "supabase",
+            summary: "POD evidence from three_pl."
+          },
+          {
+            documentId: "EVD-REMIT-S6-L1",
+            documentType: "remittance_advice",
+            recordIds: ["S6-L1", "RECON-S6-L1", "EVD-REMIT-S6-L1"],
+            source: "supabase",
+            summary: "Remittance evidence from remittance."
+          }
+        ],
+        selectedLineId: "S6-L1",
+        selectedRecordIds,
         sourceFreshness: "snapshot",
         transportLabel: "Governed canonical snapshot",
         transportLayer: "supabase_canonical_snapshot"

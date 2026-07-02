@@ -55,6 +55,12 @@ const requiredRenderValueEnvKeys = {
   RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
 } as const;
 
+const reconciliationCutoverControlKeys = [
+  "RECOUP_RECONCILIATION_MODE",
+  "RECOUP_RECONCILIATION_CANARY_LINES",
+  "RECOUP_PRODUCTION_SUPABASE_PROJECT_REF"
+] as const;
+
 function readEnvExample(): Map<string, string> {
   return new Map(
     readFileSync(".env.example", "utf8")
@@ -79,13 +85,18 @@ function readRenderServiceBlock(): string {
   return serviceBlock;
 }
 
-function readRenderCronBlock(): string {
+function readRenderCronBlocks(): string[] {
   const renderYaml = readFileSync("render.yaml", "utf8");
   const serviceMatches = renderYaml.match(/^\s*-\s+type:\s+cron\b[\s\S]*?(?=^\s*-\s+type:|(?![\s\S]))/gmu) ?? [];
-  expect(serviceMatches).toHaveLength(1);
-  const serviceBlock = serviceMatches[0];
+  expect(serviceMatches.length).toBeGreaterThanOrEqual(1);
+
+  return serviceMatches;
+}
+
+function readRenderCronBlockByName(name: string): string {
+  const serviceBlock = readRenderCronBlocks().find((block) => block.match(new RegExp(`^\\s*name:\\s+${name}\\s*$`, "mu")) !== null);
   if (serviceBlock === undefined) {
-    throw new Error("render.yaml must define exactly one Render source-health cron service.");
+    throw new Error(`render.yaml must define Render cron service ${name}.`);
   }
 
   return serviceBlock;
@@ -133,6 +144,8 @@ describe("deployment readiness scripts", () => {
       build: "npm run build:api && npm run build:cockpit",
       "build:api": "npm run typecheck",
       "build:cockpit": "next build cockpit",
+      "preflight:reconciliation-cutover": "tsx scripts/preflightReconciliationCutover.ts",
+      "refresh:real-evidence": "tsx scripts/refreshRealEvidencePipeline.ts",
       "refresh:source-health": "tsx scripts/refreshSourceHealthSnapshots.ts",
       start: "npm run start:api",
       "start:api": "tsx src/services/cockpitApi.ts",
@@ -169,7 +182,7 @@ describe("deployment readiness manifests", () => {
   });
 
   it("declares required Render runtime env names without committed secret or instance values", () => {
-    const renderBlocks = [readRenderServiceBlock(), readRenderCronBlock()];
+    const renderBlocks = [readRenderServiceBlock(), readRenderCronBlockByName("recoup-source-health-refresh")];
 
     for (const renderBlock of renderBlocks) {
       const envVars = readRenderEnvVars(renderBlock);
@@ -188,11 +201,12 @@ describe("deployment readiness manifests", () => {
         expect(declaration).not.toMatch(/^\s*sync:\s+false\s*$/mu);
       }
     }
+
   });
 
   it("defines a Render cron job that refreshes source-health snapshots before they go stale", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
-    const cronBlock = readRenderCronBlock();
+    const cronBlock = readRenderCronBlockByName("recoup-source-health-refresh");
 
     expect(packageJson.scripts?.["refresh:source-health"]).toBe("tsx scripts/refreshSourceHealthSnapshots.ts");
     expect(cronBlock).toMatch(/^\s*name:\s+recoup-source-health-refresh\s*$/mu);
@@ -201,6 +215,25 @@ describe("deployment readiness manifests", () => {
     expect(cronBlock).toMatch(/^\s*buildCommand:\s+npm ci --include=dev && npm run build:api\s*$/mu);
     expect(cronBlock).toMatch(/^\s*startCommand:\s+npm run refresh:source-health\s*$/mu);
     expect(cronBlock).not.toMatch(/\b(?:RECOUP_API_URL|NEXT_PUBLIC_RECOUP_API_URL)\b/u);
+  });
+
+  it("keeps repository-backed real-evidence refresh manual until cutover approval", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as PackageJson;
+    const renderYaml = readFileSync("render.yaml", "utf8");
+
+    expect(packageJson.scripts?.["refresh:real-evidence"]).toBe("tsx scripts/refreshRealEvidencePipeline.ts");
+    expect(renderYaml).not.toMatch(/^\s*name:\s+recoup-real-evidence-refresh\s*$/mu);
+    expect(renderYaml).not.toMatch(/^\s*startCommand:\s+npm run refresh:real-evidence\s*$/mu);
+  });
+
+  it("does not commit authoritative reconciliation cutover controls to deployment manifests", () => {
+    const deploymentManifests = [readFileSync("render.yaml", "utf8"), readFileSync("vercel.json", "utf8")];
+
+    for (const manifest of deploymentManifests) {
+      expect(manifest).not.toMatch(/\bRECOUP_RECONCILIATION_MODE\b[\s\S]{0,120}\bvalue:\s*(?:authoritative|canary)\b/iu);
+      expect(manifest).not.toMatch(/\bRECOUP_RECONCILIATION_CANARY_LINES\b[\s\S]{0,120}\bvalue:\s*\S/iu);
+      expect(manifest).not.toMatch(/\bRECOUP_PRODUCTION_SUPABASE_PROJECT_REF\b[\s\S]{0,120}\bvalue:\s*\S/iu);
+    }
   });
 
   it("defines the root Vercel cockpit build contract without repo-committed env values", () => {
@@ -226,6 +259,9 @@ describe("deployment readiness env example", () => {
 
     expect(envExample.get("PORT")).toBe("4317");
     expect(envExample.get("RECOUP_DATA_MODE")).toBe("");
+    for (const envKey of reconciliationCutoverControlKeys) {
+      expect(envExample.get(envKey)).toBe("");
+    }
     expect(envExample.get("RECOUP_API_URL")).toBe("");
     expect(envExample.get("NEXT_PUBLIC_RECOUP_API_URL")).toBe("");
 

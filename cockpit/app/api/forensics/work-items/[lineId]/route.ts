@@ -27,7 +27,7 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
   const cached = await readCachedReadModelPayload(runtimeEnv, modelKey, "forensics-analyst", {
     payloadSurface: "forensics-work-item-detail"
   });
-  if (cached !== undefined) {
+  if (cached !== undefined && cachedWorkItemDetailMatchesLine(cached.payload, lineId)) {
     refreshReadModelAfterResponse(runtimeEnv, authHeaders, {
       method: "GET",
       path: `/forensics/work-items/${encodeURIComponent(lineId)}`
@@ -52,6 +52,7 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
           modelKey,
           payload,
           payloadSurface: "forensics-work-item-detail",
+          previousSourceRecordIds: [],
           rowSurface: "forensics-analyst",
           sourceRecordIds: collectWorkItemDetailRecordIds(payload, lineId)
         });
@@ -92,6 +93,71 @@ function parseWorkItemDetailPayload(body: string): Record<string, unknown> | und
   }
 
   return undefined;
+}
+
+function cachedWorkItemDetailMatchesLine(payload: Record<string, unknown>, lineId: string): boolean {
+  const selected = readRecord(payload.selected);
+  const workItem = readRecord(payload.workItem);
+  if (selected === undefined || workItem === undefined) {
+    return false;
+  }
+
+  const lineIds = Array.isArray(workItem.lineIds) ? workItem.lineIds : [];
+
+  return (
+    payload.lineId === lineId &&
+    selected.lineId === lineId &&
+    workItem.lineId === lineId &&
+    workItem.workItemId === lineId &&
+    lineIds.includes(lineId) &&
+    cachedWorkItemDetailHasCanonicalEvidenceProof(selected)
+  );
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function cachedWorkItemDetailHasCanonicalEvidenceProof(selected: Record<string, unknown>): boolean {
+  const evidencePack = readRecord(selected.evidencePack);
+  const documents = Array.isArray(evidencePack?.documents) ? evidencePack.documents : [];
+  const hasCanonicalDocument = documents.some((document) => {
+    const record = readRecord(document);
+
+    return (
+      record !== undefined &&
+      isNonEmptyString(record.evidenceId) &&
+      isNonEmptyString(record.receiptId) &&
+      isContentHash(record.contentHash)
+    );
+  });
+  const hasPodDocumentLink = documents.some((document) => {
+    const record = readRecord(document);
+
+    return (
+      record !== undefined &&
+      readDocumentType(record.documentType) === "pod" &&
+      isNonEmptyString(record.evidenceId) &&
+      isNonEmptyString(record.receiptId) &&
+      isContentHash(record.contentHash) &&
+      isNonEmptyString(record.storageUri) &&
+      isNonEmptyString(record.storageHref)
+    );
+  });
+
+  return hasCanonicalDocument && hasPodDocumentLink;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isContentHash(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function readDocumentType(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function collectWorkItemDetailRecordIds(payload: Record<string, unknown>, lineId: string): string[] {

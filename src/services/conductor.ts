@@ -70,6 +70,7 @@ const AgentHookAuditReceiptSchema = z.object({
   toolOutputPrimarySourceLabel: z.string().min(1).optional(),
   toolOutputPrimarySourceSystem: z.string().min(1).optional(),
   toolOutputSapEvidenceRecordIds: z.array(z.string().min(1)).min(1).optional(),
+  toolOutputSelectedEvidenceRecordIds: z.array(z.string().min(1)).min(1).optional(),
   toolOutputSelectedLineId: z.string().min(1).optional(),
   toolOutputSelectedRecordIds: z.array(z.string().min(1)).min(1).optional(),
   toolOutputSourceFreshness: z.string().min(1).optional(),
@@ -95,6 +96,7 @@ export interface AgentHookAuditReceiptInput {
   toolOutputPrimarySourceLabel?: string;
   toolOutputPrimarySourceSystem?: string;
   toolOutputSapEvidenceRecordIds?: string[];
+  toolOutputSelectedEvidenceRecordIds?: string[];
   toolOutputSelectedLineId?: string;
   toolOutputSelectedRecordIds?: string[];
   toolOutputSourceFreshness?: string;
@@ -114,6 +116,7 @@ type SdkToolOutputProof = Pick<
   | "toolOutputPrimarySourceLabel"
   | "toolOutputPrimarySourceSystem"
   | "toolOutputSapEvidenceRecordIds"
+  | "toolOutputSelectedEvidenceRecordIds"
   | "toolOutputSelectedLineId"
   | "toolOutputSelectedRecordIds"
   | "toolOutputSourceFreshness"
@@ -226,6 +229,9 @@ export function createAgentHookAuditReceipt(input: AgentHookAuditReceiptInput): 
     ...(input.toolOutputSapEvidenceRecordIds === undefined
       ? {}
       : { toolOutputSapEvidenceRecordIds: [...input.toolOutputSapEvidenceRecordIds] }),
+    ...(input.toolOutputSelectedEvidenceRecordIds === undefined
+      ? {}
+      : { toolOutputSelectedEvidenceRecordIds: [...input.toolOutputSelectedEvidenceRecordIds] }),
     ...(input.toolOutputSelectedLineId === undefined ? {} : { toolOutputSelectedLineId: input.toolOutputSelectedLineId }),
     ...(input.toolOutputSelectedRecordIds === undefined
       ? {}
@@ -361,6 +367,7 @@ function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof |
   const primarySourceLabel = readNonEmptyString(sourceReads.primarySourceLabel);
   const primarySourceSystem = readNonEmptyString(sourceReads.primarySourceSystem);
   const sapEvidenceRecordIds = collectSapEvidenceRecordIds(sourceReads.sapEvidence);
+  const selectedEvidenceRecordIds = collectSelectedEvidenceRecordIds(sourceReads.selectedEvidence);
   const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
   const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
   const sourceFreshness = readNonEmptyString(sourceReads.sourceFreshness);
@@ -372,6 +379,7 @@ function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof |
     ...(primarySourceLabel === undefined ? {} : { toolOutputPrimarySourceLabel: primarySourceLabel }),
     ...(primarySourceSystem === undefined ? {} : { toolOutputPrimarySourceSystem: primarySourceSystem }),
     ...(sapEvidenceRecordIds.length === 0 ? {} : { toolOutputSapEvidenceRecordIds: sapEvidenceRecordIds }),
+    ...(selectedEvidenceRecordIds.length === 0 ? {} : { toolOutputSelectedEvidenceRecordIds: selectedEvidenceRecordIds }),
     ...(selectedLineId === undefined ? {} : { toolOutputSelectedLineId: selectedLineId }),
     ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
     ...(sourceFreshness === undefined ? {} : { toolOutputSourceFreshness: sourceFreshness }),
@@ -448,6 +456,14 @@ function readStringArray(value: unknown): string[] | undefined {
 }
 
 function collectSapEvidenceRecordIds(value: unknown): string[] {
+  return collectEvidenceRecordIds(value);
+}
+
+function collectSelectedEvidenceRecordIds(value: unknown): string[] {
+  return collectEvidenceRecordIds(value);
+}
+
+function collectEvidenceRecordIds(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }

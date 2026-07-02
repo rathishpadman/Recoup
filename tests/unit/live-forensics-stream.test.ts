@@ -699,6 +699,71 @@ describe("live forensics Agents SDK stream", () => {
     });
   });
 
+  it("records canonical selected-evidence proof metadata without SAP evidence", async () => {
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1", "EVD-REMIT-S3-L1"];
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield sdkToolEvent("tool_called", "query_answer", "Forensics Investigator", {
+        arguments: {
+          question: "Which proof can I cite?",
+          recordIds: selectedRecordIds,
+          selectedLineId: "S3-L1"
+        }
+      });
+      yield sdkToolEvent("tool_output", "query_answer", "Forensics Investigator", {
+        output: {
+          text: JSON.stringify({
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "EvidenceDocument",
+              selectedEvidence: [
+                {
+                  documentId: "EVD-POD-S3-L1",
+                  documentType: "pod",
+                  recordIds: ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1"],
+                  source: "supabase",
+                  summary: "POD evidence from three_pl."
+                }
+              ],
+              selectedLineId: "S3-L1",
+              selectedRecordIds,
+              sourceFreshness: "snapshot",
+              transportLabel: "Governed canonical snapshot",
+              transportLayer: "supabase_canonical_snapshot"
+            }
+          }),
+          type: "text"
+        }
+      });
+    };
+
+    await collect(
+      streamLiveForensicsTraceEvents({
+        agentHookRecordIds: selectedRecordIds,
+        env: { OPENAI_API_KEY: "sk-test-secret" },
+        maxTurns: 7,
+        onAgentHookReceipt: (receipt) => receipts.push(receipt),
+        retryCap: 0,
+        runner
+      })
+    );
+
+    expect(receipts.find((receipt) => receipt.hook === "agent_tool_end")).toMatchObject({
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S3-L1",
+      toolName: "query.answer",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSelectedEvidenceRecordIds: ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1"],
+      toolOutputSelectedLineId: "S3-L1",
+      toolOutputSelectedRecordIds: selectedRecordIds,
+      toolOutputSourceFreshness: "snapshot",
+      toolOutputSourceReadStatus: "source_backed_selected_scope",
+      toolOutputTransportLabel: "Governed canonical snapshot",
+      toolOutputTransportLayer: "supabase_canonical_snapshot"
+    });
+  });
+
   it("preserves selected-evidence input proof when SDK tool output omits the call id", async () => {
     const receipts: AgentHookAuditReceipt[] = [];
     const selectedRecordIds = ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"];

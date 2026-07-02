@@ -24,6 +24,8 @@ import {
 import type { SupabaseMemoryFetch } from "../../src/memory/supabaseStore.js";
 import { SyntheticSource } from "../../src/adapters/synthetic.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
+import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
+import { reconcileDeductionClaim } from "../../src/services/reconciliationEngine.js";
 import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import { recoupCorrelationIdHeader } from "../../src/middleware/logging.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
@@ -424,6 +426,64 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("accepts a signed CFO server-proxy read for the Evals and FinOps governance model", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+      }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/evals-finops`, {
+        headers: signedDemoProxyHeaders({
+          body: "",
+          method: "GET",
+          path: "/evals-finops",
+          principal: "human:cfo-lead",
+          purpose: "read",
+          role: "cfo",
+          secret: demoProxySecret
+        }),
+        method: "GET"
+      });
+      const model = (await response.json()) as { surface: string };
+
+      expect(response.status).toBe(200);
+      expect(model.surface).toBe("evals-finops");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("accepts a signed CFO server-proxy read for connector readiness", async () => {
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        RECOUP_DEMO_SESSION_SECRET: demoProxySecret
+      }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/connectors`, {
+        headers: signedDemoProxyHeaders({
+          body: "",
+          method: "GET",
+          path: "/connectors",
+          principal: "human:cfo-lead",
+          purpose: "read",
+          role: "cfo",
+          secret: demoProxySecret
+        }),
+        method: "GET"
+      });
+      const model = (await response.json()) as { surface: string };
+
+      expect(response.status).toBe(200);
+      expect(model.surface).toBe("connector-readiness");
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves the Forensics read model and approval decisions through REST", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
     try {
@@ -470,6 +530,105 @@ describe("S5 cockpit API", () => {
       expect(approval.decision).toBe("approve");
       expect(approval.status).toBe("human_decided");
       expect(approval.auditEntryHash).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves Forensics from reconciliation receipts when rollout mode is authoritative", async () => {
+    const calls: string[] = [];
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitApprovalEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_RECONCILIATION_MODE: "authoritative"
+        },
+        memoryFetcher(url, init) {
+          calls.push(url);
+          return withGovernedConfigFetcher()(url, init);
+        }
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const model = (await response.json()) as {
+        selected?: {
+          draft?: { actionId?: string };
+          evidencePack?: {
+            documents?: Array<{
+              contentHash?: string;
+              deterministicComparisonBasis?: string;
+              documentType?: string;
+              evidenceId?: string;
+              receiptId?: string;
+              sourceFreshness?: string;
+              sourceSystem?: string;
+              storageHref?: string;
+              storageUri?: string;
+            }>;
+          };
+        };
+        surface?: string;
+      };
+
+      expect(response.status).toBe(200);
+      expect(model.surface).toBe("forensics-analyst");
+      const actionId = model.selected?.draft?.actionId;
+      expect(actionId).toBeTruthy();
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_claims"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_reconciliation_receipts"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_evidence_documents"))).toBe(true);
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_lines"))).toBe(false);
+      const podDocument = model.selected?.evidencePack?.documents?.find((document) => document.evidenceId === "EVD-POD-S3-L1");
+      expect(podDocument).toMatchObject({
+        documentType: "pod",
+        evidenceId: "EVD-POD-S3-L1",
+        receiptId: "RECON-S3-L1",
+        sourceSystem: "three_pl",
+        storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L1",
+        storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+      });
+      expect(podDocument?.deterministicComparisonBasis).toContain("canonical evidence document comparison");
+      expect(podDocument?.sourceFreshness).toContain("retrieved at");
+      expect(podDocument?.contentHash).toMatch(/^[a-f0-9]{64}$/);
+      const remittanceDocument = model.selected?.evidencePack?.documents?.find(
+        (document) => document.evidenceId === "EVD-REMIT-S3-L1"
+      );
+      expect(remittanceDocument).toMatchObject({
+        documentType: "remittance_advice",
+        evidenceId: "EVD-REMIT-S3-L1",
+        receiptId: "RECON-S3-L1",
+        sourceSystem: "remittance",
+        storageHref: "/api/forensics/evidence-documents/EVD-REMIT-S3-L1",
+        storageUri: "supabase://recoup_evidence_documents/EVD-REMIT-S3-L1"
+      });
+
+      const approvalResponse = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId,
+          approverId: "human:maya-lead",
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const approval = (await approvalResponse.json()) as { actionId?: string; status?: string };
+
+      expect(approvalResponse.status).toBe(200);
+      expect(approval.actionId).toBe(actionId);
+      expect(approval.status).toBe("human_decided");
+      expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_lines"))).toBe(false);
     } finally {
       await close(server);
     }
@@ -1734,11 +1893,49 @@ describe("S5 cockpit API", () => {
     }
   });
 
-  it("serves the source-derived Maya forensics read model from Supabase without source hydration", async () => {
+  it("serves the source-derived Maya forensics read model from Supabase only when the source fingerprint still matches", async () => {
     const calls: string[] = [];
-    const payload = {
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_RECONCILIATION_MODE: "authoritative"
+        },
+        memoryFetcher: readModelStoreAndSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const firstBody = (await first.json()) as { surface?: string };
+      const second = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const secondBody = (await second.json()) as typeof firstBody;
+
+      expect(first.status).toBe(200);
+      expect(first.headers.get("x-recoup-read-model-cache")).toBe("miss");
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-recoup-read-model-cache")).toBe("hit");
+      expect(secondBody).toEqual(firstBody);
+      expect(sourceTableReadCount(calls, "recoup_deduction_claims")).toBeGreaterThanOrEqual(2);
+      expect(sourceTableReadCount(calls, "recoup_reconciliation_receipts")).toBeGreaterThanOrEqual(2);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("marks the Maya forensics read model stale when current receipt hashes no longer match the cached fingerprint", async () => {
+    const calls: string[] = [];
+    const stalePayload = {
       cachedAtIso: "2026-06-29T00:00:00.000Z",
       selected: { lineId: "S6-L1" },
+      staleFixture: true,
       surface: "forensics-analyst",
       worklist: [{ lineId: "S6-L1", recordIds: ["S6-L1", "INV-S6-1"] }]
     };
@@ -1747,15 +1944,17 @@ describe("S5 cockpit API", () => {
         env: {
           ...governedConfigEnv,
           ...cockpitAuthEnv,
-          RECOUP_DATA_MODE: "real-backend"
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_RECONCILIATION_MODE: "authoritative"
         },
-        memoryFetcher: readModelOnlyFetcher(calls, {
-          modelKey: "maya:forensics:v1",
-          payload,
-          payloadHash: sha256CanonicalJson(payload),
+        memoryFetcher: readModelStoreAndSourceFetcher(calls, {
+          generated_at: "2026-06-29T00:00:00.000Z",
+          model_key: "maya:forensics:v1",
+          payload_hash: sha256CanonicalJson(stalePayload),
+          payload_json: stalePayload,
           persona: "maya",
-          sourceRecordIds: ["S6-L1", "INV-S6-1", "recoup_deduction_lines"],
-          sourceRefreshedAt: "2026-06-29T00:00:00.000Z",
+          source_record_ids_json: ["receipt:RECON-S6-L1:content:old"],
+          source_refreshed_at: "2026-06-29T00:00:00.000Z",
           surface: "forensics-analyst"
         })
       })
@@ -1768,13 +1967,17 @@ describe("S5 cockpit API", () => {
 
     try {
       const response = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
-      const body = (await response.json()) as typeof payload;
+      const body = (await response.json()) as typeof stalePayload;
+      const readModelWrites = calls.filter(
+        (url) => new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models" && url.includes("on_conflict")
+      );
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
-      expect(body).toEqual(payload);
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toContain("/rest/v1/recoup_cockpit_read_models");
+      expect(response.headers.get("x-recoup-read-model-cache")).toBe("stale");
+      expect(body.surface).toBe("forensics-analyst");
+      expect(body).not.toMatchObject({ staleFixture: true });
+      expect(sourceTableReadCount(calls, "recoup_reconciliation_receipts")).toBeGreaterThan(0);
+      expect(readModelWrites).toHaveLength(1);
     } finally {
       await close(server);
     }
@@ -1971,9 +2174,11 @@ describe("S5 cockpit API", () => {
     }
   });
 
-  it("fails closed on force refresh instead of serving a stale cached model when source rows fail", async () => {
+  it("fails closed on force refresh and follow-up reads instead of serving a stale cached model when source rows fail", async () => {
     const calls: string[] = [];
+    const readModelRequests: Array<{ method: string; url: string }> = [];
     let sapRowsAvailable = true;
+    const sourceFetcher = sourceFetcherWithSapAvailability(calls, () => sapRowsAvailable);
     const server = createServer(
       createCockpitApi({
         env: {
@@ -1982,7 +2187,13 @@ describe("S5 cockpit API", () => {
           RECOUP_DATA_MODE: "real-backend",
           RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
         },
-        memoryFetcher: sourceFetcherWithSapAvailability(calls, () => sapRowsAvailable)
+        memoryFetcher: (url, init) => {
+          if (new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models") {
+            readModelRequests.push({ method: init.method ?? "GET", url });
+          }
+
+          return sourceFetcher(url, init);
+        }
       })
     );
     await new Promise<void>((resolve) => {
@@ -2003,6 +2214,7 @@ describe("S5 cockpit API", () => {
 
       expect(first.status).toBe(200);
       expect(firstBody.surface).toBe("forensics-analyst");
+      expect(readModelWriteCount(readModelRequests)).toBe(1);
       expect(refreshed.status).toBe(503);
       expect(refreshedBody).toMatchObject({
         missingSource: "supabase-sap-source-evidence-rows",
@@ -2010,14 +2222,18 @@ describe("S5 cockpit API", () => {
       });
       expect(refreshedBody.surface).toBeUndefined();
       expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads() + 1);
+      expect(readModelWriteCount(readModelRequests)).toBe(1);
 
       const cachedAfterFailedRefresh = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
       const cachedAfterFailedRefreshBody = (await cachedAfterFailedRefresh.json()) as { missingSource?: string; surface?: string };
 
-      expect(cachedAfterFailedRefresh.status).toBe(200);
-      expect(cachedAfterFailedRefreshBody.surface).toBe("forensics-analyst");
-      expect(cachedAfterFailedRefreshBody.missingSource).toBeUndefined();
-      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads() + 1);
+      expect(cachedAfterFailedRefresh.status).toBe(503);
+      expect(cachedAfterFailedRefreshBody).toMatchObject({
+        missingSource: "supabase-sap-source-evidence-rows"
+      });
+      expect(cachedAfterFailedRefreshBody.surface).toBeUndefined();
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBeGreaterThan(expectedForensicsSourceTableReads() + 1);
+      expect(readModelWriteCount(readModelRequests)).toBe(1);
     } finally {
       await close(server);
     }
@@ -6107,18 +6323,20 @@ function successfulRealBackendSourceFetcher(calls: string[]): SupabaseMemoryFetc
   return sourceFetcherWithSapAvailability(calls, () => true);
 }
 
-function readModelOnlyFetcher(
-  calls: string[],
-  record: {
-    modelKey: string;
-    payload: Record<string, unknown>;
-    payloadHash: string;
-    persona: string;
-    sourceRecordIds: string[];
-    sourceRefreshedAt: string;
-    surface: string;
-  }
-): SupabaseMemoryFetch {
+interface StoredReadModelRow {
+  generated_at: string;
+  model_key: string;
+  payload_hash: string;
+  payload_json: Record<string, unknown>;
+  persona: string;
+  source_record_ids_json: string[];
+  source_refreshed_at: string;
+  surface: string;
+}
+
+function readModelStoreFetcher(calls: string[], initialRecord?: StoredReadModelRow): SupabaseMemoryFetch {
+  let storedRecord = initialRecord;
+
   return (url, init) => {
     calls.push(url);
     expect(init.headers).toMatchObject({
@@ -6127,27 +6345,41 @@ function readModelOnlyFetcher(
     });
 
     if (new URL(url).pathname.split("/").at(-1) !== "recoup_cockpit_read_models") {
-      throw new Error(`Unexpected source hydration call while read model is available: ${url}`);
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+    }
+
+    if (init.method === "POST") {
+      const rows = JSON.parse(init.body as string) as StoredReadModelRow[];
+      expect(rows).toHaveLength(1);
+      const row = rows[0];
+      if (row === undefined) {
+        throw new Error("Expected a read-model row to be published.");
+      }
+      storedRecord = {
+        ...row,
+        generated_at: row.generated_at
+      };
+
+      return Promise.resolve(new Response(JSON.stringify([storedRecord]), { status: 200 }));
     }
 
     return Promise.resolve(
       new Response(
-        JSON.stringify([
-          {
-            generated_at: "2026-06-29T00:00:00.000Z",
-            model_key: record.modelKey,
-            payload_hash: record.payloadHash,
-            payload_json: record.payload,
-            persona: record.persona,
-            source_record_ids_json: record.sourceRecordIds,
-            source_refreshed_at: record.sourceRefreshedAt,
-            surface: record.surface
-          }
-        ]),
+        JSON.stringify(storedRecord === undefined ? [] : [storedRecord]),
         { status: 200 }
       )
     );
   };
+}
+
+function readModelStoreAndSourceFetcher(calls: string[], initialRecord?: StoredReadModelRow): SupabaseMemoryFetch {
+  const readModelFetcher = readModelStoreFetcher(calls, initialRecord);
+  const sourceFetcher = successfulRealBackendSourceFetcher(calls);
+
+  return (url, init) =>
+    new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models"
+      ? readModelFetcher(url, init)
+      : sourceFetcher(url, init);
 }
 
 function sourceHealthSnapshotRow(
@@ -6198,7 +6430,7 @@ function readModelPublishingSourceFetcher(calls: string[]): SupabaseMemoryFetch 
         surface: "forensics-analyst"
       });
       expect(rows[0]?.payload_json?.worklist).toHaveLength(8);
-      expect(rows[0]?.source_record_ids_json).toEqual(expect.arrayContaining(["recoup_deduction_lines", "S6-L1"]));
+      expect(rows[0]?.source_record_ids_json).toEqual(expect.arrayContaining(["recoup_deduction_claims", "S6-L1"]));
 
       return Promise.resolve(new Response(JSON.stringify(rows), { status: 200 }));
     }
@@ -6318,7 +6550,14 @@ function isToolsDataRiskObservationUrl(url: string): boolean {
 
 function isSettlementSourceUrl(url: string): boolean {
   const tableName = new URL(url).pathname.split("/").at(-1);
-  return tableName === "recoup_customers" || tableName === "recoup_deduction_lines";
+  return (
+    tableName === "recoup_customers" ||
+    tableName === "recoup_evidence_documents" ||
+    tableName === "recoup_evidence_links" ||
+    tableName === "recoup_deduction_lines" ||
+    tableName === "recoup_deduction_claims" ||
+    tableName === "recoup_reconciliation_receipts"
+  );
 }
 
 function isSyntheticEvidenceSourceUrl(url: string): boolean {
@@ -6340,13 +6579,77 @@ function sourceTableReadCount(calls: readonly string[], tableName: string): numb
   return calls.filter((url) => new URL(url).pathname.split("/").at(-1) === tableName).length;
 }
 
+function readModelWriteCount(calls: ReadonlyArray<{ method: string; url: string }>): number {
+  return calls.filter((call) => {
+    const parsedUrl = new URL(call.url);
+    return (
+      call.method === "POST" &&
+      parsedUrl.pathname.split("/").at(-1) === "recoup_cockpit_read_models" &&
+      parsedUrl.searchParams.get("on_conflict") === "model_key"
+    );
+  }).length;
+}
+
 function toPostgrestSettlementRows(tableName: string): unknown[] {
   const dataset = buildSyntheticDataset({ seed: 42 });
+  const realEvidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
   if (tableName === "recoup_customers") {
     return dataset.customers.map((customer) => ({
       customer_id: customer.customerId,
       name: customer.name,
       profile: customer.profile
+    }));
+  }
+  if (tableName === "recoup_deduction_claims") {
+    return realEvidenceDataset.claims.map((claim) => ({
+      claim_amount: claim.claimAmount.toFixed(2),
+      claim_id: claim.claimId,
+      customer_id: claim.customerId,
+      invoice_ref: claim.invoiceRef,
+      line_id: claim.lineId,
+      reason_code: claim.reasonCode,
+      record_ids: claim.recordIds,
+      remittance_evidence_id: claim.remittanceEvidenceId
+    }));
+  }
+  if (tableName === "recoup_reconciliation_receipts") {
+    return realEvidenceDataset.claims.map((claim) => {
+      const receipt = reconcileDeductionClaim({ claim, documents: realEvidenceDataset.documents });
+      return {
+        claim_id: receipt.claimId,
+        confidence_factors: receipt.confidenceFactors,
+        content_hash: receipt.contentHash,
+        derived_rule_input_json: receipt.derivedRuleInput,
+        deterministic_basis: receipt.deterministicBasis,
+        evidence_ids: receipt.evidenceIds,
+        line_id: receipt.lineId,
+        receipt_id: receipt.receiptId,
+        rule_id: receipt.ruleId
+      };
+    });
+  }
+  if (tableName === "recoup_evidence_documents") {
+    return realEvidenceDataset.documents.map((document) => ({
+      content_hash: document.contentHash,
+      customer_id: document.customerId,
+      document_type: document.documentType,
+      evidence_id: document.evidenceId,
+      payload_json: document.payload,
+      provenance: document.provenance,
+      raw_text: document.rawText ?? null,
+      retrieved_at: document.retrievedAt,
+      source_record_id: document.sourceRecordId,
+      source_system: document.sourceSystem,
+      storage_uri: document.storageUri ?? null,
+      valid_from: document.validFrom ?? null,
+      valid_to: document.validTo ?? null
+    }));
+  }
+  if (tableName === "recoup_evidence_links") {
+    return realEvidenceDataset.links.map((link) => ({
+      evidence_id: link.evidenceId,
+      record_id: link.recordId,
+      record_role: link.recordRole
     }));
   }
   if (tableName === "recoup_deduction_lines") {

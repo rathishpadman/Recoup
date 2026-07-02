@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS recoup_customers (
 
 CREATE TABLE IF NOT EXISTS recoup_deduction_lines (
   line_id text PRIMARY KEY,
-  scenario_id text NOT NULL CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8')),
+  scenario_id text CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8')),
   customer_id text NOT NULL REFERENCES recoup_customers(customer_id),
   scenario_type text NOT NULL,
   amount numeric NOT NULL,
@@ -47,6 +47,57 @@ CREATE TABLE IF NOT EXISTS recoup_deduction_lines (
   rule_input_json jsonb NOT NULL CHECK (jsonb_typeof(rule_input_json) = 'object'),
   period text NOT NULL,
   event_id text NOT NULL CHECK (event_id ~ '^[a-f0-9]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_evidence_documents (
+  evidence_id text PRIMARY KEY,
+  document_type text NOT NULL CHECK (document_type IN ('pod', 'sap_invoice', 'sap_credit_memo', 'customer_po', 'contract_pricing', 'contract_sla', 'tpm_promo', 'tpm_accrual', 'carrier_damage_report', 'carrier_photo', 'remittance_advice', 'edi_812', 'bureau_alert', 'payment_history')),
+  source_system text NOT NULL,
+  customer_id text NOT NULL,
+  source_record_id text NOT NULL,
+  payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
+  raw_text text,
+  content_hash text NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
+  storage_uri text,
+  retrieved_at timestamptz NOT NULL,
+  valid_from date,
+  valid_to date,
+  provenance text NOT NULL CHECK (provenance IN ('sap_odata', 'source_generated', 'uploaded_document', 'provider_api')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_evidence_links (
+  evidence_id text NOT NULL REFERENCES recoup_evidence_documents(evidence_id),
+  record_id text NOT NULL,
+  record_role text NOT NULL CHECK (record_role IN ('deduction_line', 'claim', 'customer', 'invoice', 'source_record')),
+  PRIMARY KEY(evidence_id, record_id, record_role)
+);
+
+CREATE TABLE IF NOT EXISTS recoup_deduction_claims (
+  claim_id text PRIMARY KEY,
+  line_id text NOT NULL,
+  gold_scenario_id text,
+  customer_id text NOT NULL,
+  invoice_ref text NOT NULL,
+  claim_amount numeric(18,2) NOT NULL,
+  reason_code text NOT NULL,
+  remittance_evidence_id text NOT NULL REFERENCES recoup_evidence_documents(evidence_id),
+  record_ids jsonb NOT NULL CHECK (jsonb_typeof(record_ids) = 'array' AND jsonb_array_length(record_ids) > 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS recoup_reconciliation_receipts (
+  receipt_id text PRIMARY KEY,
+  claim_id text NOT NULL REFERENCES recoup_deduction_claims(claim_id),
+  line_id text NOT NULL,
+  rule_id text NOT NULL,
+  derived_rule_input_json jsonb NOT NULL CHECK (jsonb_typeof(derived_rule_input_json) = 'object'),
+  evidence_ids jsonb NOT NULL CHECK (jsonb_typeof(evidence_ids) = 'array' AND jsonb_array_length(evidence_ids) > 0),
+  deterministic_basis jsonb NOT NULL CHECK (jsonb_typeof(deterministic_basis) = 'object'),
+  confidence_factors jsonb NOT NULL CHECK (jsonb_typeof(confidence_factors) = 'object'),
+  content_hash text NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -494,6 +545,13 @@ CREATE INDEX IF NOT EXISTS idx_recoup_config_version ON recoup_config (config_ve
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recoup_audit_chain_seq ON recoup_audit_chain (seq);
 CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_customer_scenario ON recoup_deduction_lines (customer_id, scenario_id);
 CREATE INDEX IF NOT EXISTS idx_recoup_deduction_lines_record_ids ON recoup_deduction_lines USING gin (record_ids_json);
+CREATE INDEX IF NOT EXISTS idx_recoup_evidence_documents_customer_type ON recoup_evidence_documents (customer_id, document_type);
+CREATE INDEX IF NOT EXISTS idx_recoup_evidence_documents_source_record ON recoup_evidence_documents (source_system, source_record_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_evidence_links_record ON recoup_evidence_links (record_role, record_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_deduction_claims_line ON recoup_deduction_claims (line_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_deduction_claims_record_ids ON recoup_deduction_claims USING gin (record_ids);
+CREATE INDEX IF NOT EXISTS idx_recoup_reconciliation_receipts_claim ON recoup_reconciliation_receipts (claim_id);
+CREATE INDEX IF NOT EXISTS idx_recoup_reconciliation_receipts_evidence_ids ON recoup_reconciliation_receipts USING gin (evidence_ids);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_bureau_customer_date ON recoup_src_bureau (customer_id, as_of_date);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_customer ON recoup_src_docs (customer_id);
 CREATE INDEX IF NOT EXISTS idx_recoup_src_docs_linked_record_ids ON recoup_src_docs USING gin (linked_record_ids);
@@ -671,6 +729,10 @@ REVOKE ALL ON TABLE recoup_config FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_audit_chain FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_customers FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_deduction_lines FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_evidence_documents FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_evidence_links FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_deduction_claims FROM anon, authenticated, service_role;
+REVOKE ALL ON TABLE recoup_reconciliation_receipts FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_bureau FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_docs FROM anon, authenticated, service_role;
 REVOKE ALL ON TABLE recoup_src_remittance FROM anon, authenticated, service_role;
@@ -710,6 +772,10 @@ GRANT EXECUTE ON FUNCTION recoup_commit_approval_audit(text, text, text, jsonb, 
 GRANT EXECUTE ON FUNCTION recoup_reset_demo_approval_lifecycle(text, text, text, text, text, text, text, jsonb, jsonb, timestamptz) TO service_role;
 GRANT SELECT ON TABLE recoup_customers TO service_role;
 GRANT SELECT ON TABLE recoup_deduction_lines TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_evidence_documents TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_evidence_links TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_deduction_claims TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE recoup_reconciliation_receipts TO service_role;
 GRANT SELECT ON TABLE recoup_src_bureau TO service_role;
 GRANT SELECT ON TABLE recoup_src_docs TO service_role;
 GRANT SELECT ON TABLE recoup_src_remittance TO service_role;
@@ -845,6 +911,14 @@ ALTER TABLE recoup_customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_customers FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_deduction_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_deduction_lines FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_evidence_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_evidence_documents FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_evidence_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_evidence_links FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_deduction_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_deduction_claims FORCE ROW LEVEL SECURITY;
+ALTER TABLE recoup_reconciliation_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recoup_reconciliation_receipts FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_bureau ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_bureau FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_src_docs ENABLE ROW LEVEL SECURITY;
@@ -873,6 +947,18 @@ ALTER TABLE recoup_finops_daily_rollups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_finops_daily_rollups FORCE ROW LEVEL SECURITY;
 ALTER TABLE recoup_finops_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recoup_finops_recommendations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS recoup_evidence_documents_service_role_select ON recoup_evidence_documents;
+DROP POLICY IF EXISTS recoup_evidence_documents_service_role_insert ON recoup_evidence_documents;
+DROP POLICY IF EXISTS recoup_evidence_documents_service_role_update ON recoup_evidence_documents;
+DROP POLICY IF EXISTS recoup_evidence_links_service_role_select ON recoup_evidence_links;
+DROP POLICY IF EXISTS recoup_evidence_links_service_role_insert ON recoup_evidence_links;
+DROP POLICY IF EXISTS recoup_evidence_links_service_role_update ON recoup_evidence_links;
+DROP POLICY IF EXISTS recoup_deduction_claims_service_role_select ON recoup_deduction_claims;
+DROP POLICY IF EXISTS recoup_deduction_claims_service_role_insert ON recoup_deduction_claims;
+DROP POLICY IF EXISTS recoup_deduction_claims_service_role_update ON recoup_deduction_claims;
+DROP POLICY IF EXISTS recoup_reconciliation_receipts_service_role_select ON recoup_reconciliation_receipts;
+DROP POLICY IF EXISTS recoup_reconciliation_receipts_service_role_insert ON recoup_reconciliation_receipts;
+DROP POLICY IF EXISTS recoup_reconciliation_receipts_service_role_update ON recoup_reconciliation_receipts;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_select ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_insert ON recoup_source_health_snapshots;
 DROP POLICY IF EXISTS recoup_source_health_snapshots_service_role_update ON recoup_source_health_snapshots;
@@ -900,6 +986,42 @@ DROP POLICY IF EXISTS recoup_finops_daily_rollups_service_role_update ON recoup_
 DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_select ON recoup_finops_recommendations;
 DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_insert ON recoup_finops_recommendations;
 DROP POLICY IF EXISTS recoup_finops_recommendations_service_role_update ON recoup_finops_recommendations;
+CREATE POLICY recoup_evidence_documents_service_role_select
+  ON recoup_evidence_documents
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_evidence_documents_service_role_insert
+  ON recoup_evidence_documents
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_evidence_documents_service_role_update
+  ON recoup_evidence_documents
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_evidence_links_service_role_select
+  ON recoup_evidence_links
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_evidence_links_service_role_insert
+  ON recoup_evidence_links
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_evidence_links_service_role_update
+  ON recoup_evidence_links
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_deduction_claims_service_role_select
+  ON recoup_deduction_claims
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_deduction_claims_service_role_insert
+  ON recoup_deduction_claims
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_deduction_claims_service_role_update
+  ON recoup_deduction_claims
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY recoup_reconciliation_receipts_service_role_select
+  ON recoup_reconciliation_receipts
+  FOR SELECT TO service_role USING (true);
+CREATE POLICY recoup_reconciliation_receipts_service_role_insert
+  ON recoup_reconciliation_receipts
+  FOR INSERT TO service_role WITH CHECK (true);
+CREATE POLICY recoup_reconciliation_receipts_service_role_update
+  ON recoup_reconciliation_receipts
+  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY recoup_source_health_snapshots_service_role_select
   ON recoup_source_health_snapshots
   FOR SELECT TO service_role USING (true);

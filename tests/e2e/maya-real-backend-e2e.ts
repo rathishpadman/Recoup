@@ -72,21 +72,32 @@ interface WorklistModelItem {
   recommendedActionLabel: string;
   routing: string;
   routingLabel: string;
-  scenarioId: string;
-  scenarioLabel: string;
-  scenarioType: string;
+  workItemId: string;
+  workItemLabel: string;
+  deductionReason: string;
   verdict: string;
   verdictLabel: string;
 }
 
 interface EvidenceDocumentModel {
   citationId: string;
+  contentHash?: string;
   description: string;
+  deterministicComparisonBasis?: string;
   documentId: string;
   documentType: string;
+  evidenceId?: string;
+  evidenceProvenance?: string;
   provenance: MayaFieldProvenance;
+  receiptContentHash?: string;
+  receiptId?: string;
   relevance: string;
+  retrievedAt?: string;
+  sourceFreshness?: string;
   sourceLabel: string;
+  sourceRecordId?: string;
+  sourceSystem?: string;
+  storageUri?: string;
   summary: string;
   verifiedLabel: string;
 }
@@ -242,10 +253,10 @@ interface ForensicsQueryE2EResult {
   appResponseSource: "browser_response";
   backendResponse: ForensicsQueryResponse;
   durationMs: number;
-  scenario: RealMayaQueryScenario;
+  workItem: RealMayaQueryWorkItem;
 }
 
-interface RealMayaQueryScenario {
+interface RealMayaQueryWorkItem {
   id: string;
   operatorIntent: string;
   question: string;
@@ -278,21 +289,22 @@ const observedCalls: ObservedApiCall[] = [];
 const backendDelayMsByPath = new Map<string, number>();
 const fixtureProcessStarted = false;
 const screenshotDir = join("output", "playwright", "e2e", "real-backend");
-const canonicalMayaScenarioLineCounts = [
-  { lineCount: 3, scenarioId: "S1" },
-  { lineCount: 2, scenarioId: "S2" },
-  { lineCount: 4, scenarioId: "S3" },
-  { lineCount: 2, scenarioId: "S4" },
-  { lineCount: 3, scenarioId: "S5" },
-  { lineCount: 2, scenarioId: "S6" },
-  { lineCount: 2, scenarioId: "S7" },
-  { lineCount: 2, scenarioId: "S8" }
+const canonicalMayaWorkItemLineCounts = [
+  { groupKey: "S1", lineCount: 3 },
+  { groupKey: "S2", lineCount: 2 },
+  { groupKey: "S3", lineCount: 4 },
+  { groupKey: "S4", lineCount: 2 },
+  { groupKey: "S5", lineCount: 3 },
+  { groupKey: "S6", lineCount: 2 },
+  { groupKey: "S7", lineCount: 2 },
+  { groupKey: "S8", lineCount: 2 }
 ] as const;
-const canonicalMayaScenarioIds = canonicalMayaScenarioLineCounts.map((scenario) => scenario.scenarioId);
-const canonicalMayaLineIds = canonicalMayaScenarioLineCounts.flatMap((scenario) =>
-  Array.from({ length: scenario.lineCount }, (_, index) => `${scenario.scenarioId}-L${String(index + 1)}`)
+const canonicalMayaWorkItemGroupKeys = canonicalMayaWorkItemLineCounts.map((workItem) => workItem.groupKey);
+const canonicalMayaWorkItemIds = canonicalMayaWorkItemLineCounts.map((workItem) => `${workItem.groupKey}-L1`);
+const canonicalMayaLineIds = canonicalMayaWorkItemLineCounts.flatMap((workItem) =>
+  Array.from({ length: workItem.lineCount }, (_, index) => `${workItem.groupKey}-L${String(index + 1)}`)
 );
-const realMayaQueryScenarios = [
+const realMayaQueryWorkItems = [
   {
     id: "customer-dispute-response",
     operatorIntent: "Maya needs evidence language for a customer dispute follow-up.",
@@ -320,7 +332,7 @@ const realMayaQueryScenarios = [
     question:
       "What cited evidence would make this a valid deduction, and which selected SAP or document records show that this case does not meet that valid-deduction pattern?"
   }
-] as const satisfies readonly RealMayaQueryScenario[];
+] as const satisfies readonly RealMayaQueryWorkItem[];
 
 async function main(): Promise<void> {
   assertHarnessDoesNotUsePlaywrightRoutingOrFixtureApi();
@@ -396,10 +408,10 @@ async function main(): Promise<void> {
     await openEvidenceQuery(page);
     await assertRenderedQueryDockMatchesBackend(page, detail);
     await captureMayaBeat(page, "06-query-start");
-    await assertClosingRunningQueryResetsParentTrace(page, realMayaQueryScenarios[0], detail);
+    await assertClosingRunningQueryResetsParentTrace(page, realMayaQueryWorkItems[0], detail);
     await openEvidenceTab(page);
     await openEvidenceQuery(page);
-    const queryResults = await runRealMayaQueryScenarios(page, apiServer, detail);
+    const queryResults = await runRealMayaQueryWorkItems(page, apiServer, detail);
     await captureMayaBeat(page, "08-cited-answer");
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
     await page.getByRole("tab", { name: /^Draft$/u }).click();
@@ -422,7 +434,7 @@ async function main(): Promise<void> {
     assertHarnessDoesNotUsePlaywrightRoutingOrFixtureApi();
     const totalTraceRows = queryResults.reduce((sum, result) => sum + result.backendResponse.trace.length, 0);
     console.log(
-      `Maya real-backend E2E passed against ${apiServer.url}; query scenarios: ${queryResults.length.toString()}; backend trace rows: ${totalTraceRows.toString()}`
+      `Maya real-backend E2E passed against ${apiServer.url}; query workItems: ${queryResults.length.toString()}; backend trace rows: ${totalTraceRows.toString()}`
     );
   } catch (error) {
     if (page !== undefined) {
@@ -589,9 +601,9 @@ async function sweepCanonicalMayaWorklist(
   assertCanonicalForensicsModelCoverage(model);
   const visitedLineIds: string[] = [];
 
-  for (const scenarioId of canonicalMayaScenarioIds) {
-    const item = model.worklist.find((candidate) => candidate.scenarioId === scenarioId);
-    assert(item !== undefined, `Maya canonical worklist omitted scenario ${scenarioId}.`);
+  for (const workItemId of canonicalMayaWorkItemIds) {
+    const item = model.worklist.find((candidate) => candidate.workItemId === workItemId);
+    assert(item !== undefined, `Maya canonical worklist omitted Work item ${workItemId}.`);
     const firstDetail = await openBackendWorklistItem(page, apiServer, item);
 
     for (const [lineIndex, lineId] of item.lineIds.entries()) {
@@ -612,7 +624,7 @@ async function sweepCanonicalMayaWorklist(
     `MAYA_CANONICAL_BROWSE_RESULT ${JSON.stringify({
       lineIds: visitedLineIds,
       lines: visitedLineIds.length,
-      scenarios: canonicalMayaScenarioIds.length
+      workItems: canonicalMayaWorkItemIds.length
     })}`
   );
 
@@ -639,7 +651,7 @@ async function openCanonicalWorklistLine(
   }
 
   const lineIndex = item.lineIds.indexOf(lineId);
-  assert(lineIndex >= 0, `Maya canonical worklist item ${item.scenarioId} does not include ${lineId}.`);
+  assert(lineIndex >= 0, `Maya canonical worklist item ${item.workItemId} does not include ${lineId}.`);
 
   return switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex);
 }
@@ -690,7 +702,7 @@ async function readAndAssertWorkItemDetail(
   assert(detail.lineId === lineId, `Maya detail lineId mismatch: expected ${lineId}, received ${detail.lineId}.`);
   assert(detail.selected.lineId === lineId, `Maya selected detail mismatch: expected ${lineId}, received ${detail.selected.lineId}.`);
   assert(detail.workItem.lineId === item.lineId, `Maya detail work item mismatch: expected ${item.lineId}.`);
-  assert(detail.workItem.scenarioId === item.scenarioId, `Maya detail scenario mismatch: expected ${item.scenarioId}.`);
+  assert(detail.workItem.workItemId === item.workItemId, `Maya detail Work item mismatch: expected ${item.workItemId}.`);
   assert(detail.selected.evidencePack.recordIds.length > 0, `Maya ${lineId} detail returned no evidence record IDs.`);
   await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace");
   await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(lineId)}`);
@@ -710,7 +722,7 @@ async function returnToCanonicalWorklist(
   item: WorklistModelItem
 ): Promise<void> {
   const returnControl = page.getByTestId("maya-case-return-to-worklist");
-  assert((await returnControl.count()) > 0, `Maya ${item.scenarioId} case detail is missing the return-to-worklist control.`);
+  assert((await returnControl.count()) > 0, `Maya ${item.workItemId} case detail is missing the return-to-worklist control.`);
   await returnControl.click();
   await expectVisibleLocator(page, '[data-testid="maya-beat-12-worklist-page"]', "Maya returned canonical worklist");
   await expectVisibleLocator(page, '[data-testid="maya-beat-12-return-table"]', "Maya returned canonical table");
@@ -719,10 +731,10 @@ async function returnToCanonicalWorklist(
     renderedRowCount === model.worklist.length,
     `Maya returned ${renderedRowCount.toString()} worklist rows for ${model.worklist.length.toString()} backend rows.`
   );
-  const returnedScenarioRow = page.locator(
+  const returnedWorkItemRow = page.locator(
     `[data-testid="maya-worklist-row"][data-line-id="${escapeAttributeValue(item.lineId)}"]`
   );
-  await returnedScenarioRow.waitFor({ state: "visible", timeout: 20_000 });
+  await returnedWorkItemRow.waitFor({ state: "visible", timeout: 20_000 });
 }
 
 async function assertCanonicalVisibleDetailState(
@@ -797,6 +809,15 @@ async function assertCanonicalAgentProcessMapBeforeQuery(
     );
   }
 
+  assertPreQuerySourceProvenance("Canonical pre-query", detail, renderedProcessNodes, traceDetailsText);
+}
+
+function assertPreQuerySourceProvenance(
+  label: string,
+  detail: ForensicsWorkItemDetailModel,
+  renderedProcessNodes: readonly RenderedAgentProcessNode[],
+  traceDetailsText: string
+): void {
   const expectedSourceKinds = new Set(detail.selected.evidencePack.documents.map((document) => document.provenance.sourceKind));
   for (const sourceKind of expectedSourceKinds) {
     const sourceLabel = sourceKindDetailLabel(sourceKind);
@@ -812,7 +833,7 @@ async function assertCanonicalAgentProcessMapBeforeQuery(
       (traceDetailsText.includes("Source-backed") ||
         traceDetailsText.includes("source-backed") ||
         traceDetailsText.includes("backend") ||
-        sourceDocumentLabels.some((label) => traceDetailsText.includes(normalizeUiText(label))));
+        sourceDocumentLabels.some((documentLabel) => traceDetailsText.includes(normalizeUiText(documentLabel))));
     assert(
       renderedProcessNodes.some(
         (node) =>
@@ -820,24 +841,24 @@ async function assertCanonicalAgentProcessMapBeforeQuery(
           node.retrievalSource === sourceKind ||
           traceDetailsText.includes(sourceLabel)
       ) || hasSupabaseSourceBackedSummary,
-      `Canonical pre-query Agent Trace omitted ${sourceLabel} provenance for ${detail.lineId}.`
+      `${label} Agent Trace omitted ${sourceLabel} provenance for ${detail.lineId}.`
     );
   }
 }
 
 function assertCanonicalForensicsModelCoverage(model: ForensicsRealBackendModel): void {
-  const scenarioIds = model.worklist.map((item) => item.scenarioId);
+  const workItemIds = model.worklist.map((item) => item.workItemId);
   const lineIds = model.worklist.flatMap((item) => item.lineIds);
   assert(
-    model.worklist.length === canonicalMayaScenarioIds.length,
-    `Maya worklist exposed ${model.worklist.length.toString()} scenarios instead of ${canonicalMayaScenarioIds.length.toString()}.`
+    model.worklist.length === canonicalMayaWorkItemIds.length,
+    `Maya worklist exposed ${model.worklist.length.toString()} Work items instead of ${canonicalMayaWorkItemIds.length.toString()}.`
   );
-  assertNoDuplicateStrings(scenarioIds, "Maya canonical worklist scenarios");
+  assertNoDuplicateStrings(workItemIds, "Maya canonical worklist Work items");
   assertNoDuplicateStrings(lineIds, "Maya canonical worklist lines");
   assertSameRecordIds(
-    [...scenarioIds].sort(),
-    [...canonicalMayaScenarioIds].sort(),
-    "Maya canonical S1-S8 worklist scenarios"
+    [...workItemIds].sort(),
+    [...canonicalMayaWorkItemIds].sort(),
+    "Maya canonical worklist item IDs"
   );
   assertSameRecordIds(
     [...lineIds].sort(),
@@ -846,19 +867,20 @@ function assertCanonicalForensicsModelCoverage(model: ForensicsRealBackendModel)
   );
 
   for (const item of model.worklist) {
-    assert(item.lineCount === item.lineIds.length, `Maya worklist ${item.scenarioId} lineCount did not match lineIds.`);
-    assert(item.lineIds.includes(item.lineId), `Maya worklist ${item.scenarioId} row lineId ${item.lineId} was not in lineIds.`);
+    assert(item.lineCount === item.lineIds.length, `Maya worklist ${item.workItemId} lineCount did not match lineIds.`);
+    assert(item.lineIds.includes(item.lineId), `Maya worklist ${item.workItemId} row lineId ${item.lineId} was not in lineIds.`);
     assert(
-      canonicalScenarioIdForLineId(item.lineId) === item.scenarioId,
-      `Maya worklist ${item.lineId} scenarioId ${item.scenarioId} did not match its canonical line prefix.`
+      item.workItemId === item.lineId,
+      `Maya worklist ${item.lineId} workItemId ${item.workItemId} did not match its source line identity.`
     );
+    const workItemGroupKey = canonicalWorkItemGroupKeyForLineId(item.workItemId);
     for (const lineId of item.lineIds) {
       assert(
-        canonicalScenarioIdForLineId(lineId) === item.scenarioId,
-        `Maya worklist scenario ${item.scenarioId} included foreign line ${lineId}.`
+        canonicalWorkItemGroupKeyForLineId(lineId) === workItemGroupKey,
+        `Maya worklist Work item ${item.workItemId} included foreign line ${lineId}.`
       );
     }
-    assertMayaFieldProvenance(item.provenance, `Maya worklist ${item.scenarioId}`, item.lineIds);
+    assertMayaFieldProvenance(item.provenance, `Maya worklist ${item.workItemId}`, item.lineIds);
   }
 }
 
@@ -870,9 +892,9 @@ function assertCanonicalWorkItemDetailBackendModel(
   assert((canonicalMayaLineIds as readonly string[]).includes(lineId), `Maya detail opened non-canonical line ${lineId}.`);
   assert(detail.lineId === lineId, `Maya detail returned ${detail.lineId} instead of ${lineId}.`);
   assert(detail.selected.lineId === lineId, `Maya selected detail returned ${detail.selected.lineId} instead of ${lineId}.`);
-  assert(detail.workItem.lineId === item.lineId, `Maya detail ${lineId} changed scenario row identity.`);
-  assert(detail.workItem.scenarioId === item.scenarioId, `Maya detail ${lineId} changed scenario ID.`);
-  assertSameRecordIds(detail.workItem.lineIds, item.lineIds, `Maya detail ${lineId} scenario line IDs`);
+  assert(detail.workItem.lineId === item.lineId, `Maya detail ${lineId} changed Work item row identity.`);
+  assert(detail.workItem.workItemId === item.workItemId, `Maya detail ${lineId} changed Work item ID.`);
+  assertSameRecordIds(detail.workItem.lineIds, item.lineIds, `Maya detail ${lineId} Work item line IDs`);
   assert(detail.recommendedAction.lineId === lineId, `Maya detail ${lineId} recommended action is scoped to ${detail.recommendedAction.lineId}.`);
   assert(
     detail.selected.draft.actionId === detail.recoveryDraft.actionId &&
@@ -907,6 +929,7 @@ function assertCanonicalWorkItemDetailBackendModel(
     assert(document.documentId.trim().length > 0, `Maya detail ${lineId} cited document with blank documentId.`);
     assert(document.citationId.trim().length > 0, `Maya detail ${lineId} cited document ${document.documentId} with blank citationId.`);
     assertMayaFieldProvenance(document.provenance, `Maya detail ${lineId} evidence document ${document.documentId}`);
+    assertCanonicalEvidenceMetadata(document, lineId);
   }
   for (const prompt of detail.multimodalDock.promptSuggestions) {
     assert(prompt.recordIds.length > 0, `Maya detail ${lineId} prompt ${prompt.label} omitted cited record IDs.`);
@@ -937,16 +960,54 @@ function assertMayaFieldProvenance(
   }
 }
 
-function canonicalScenarioIdForLineId(lineId: string): string {
+function assertCanonicalEvidenceMetadata(document: EvidenceDocumentModel, lineId: string): void {
+  assert(
+    document.evidenceId !== undefined && /^EVD-[A-Z0-9-]+$/u.test(document.evidenceId),
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted canonical evidenceId.`
+  );
+  assert(document.receiptId === `RECON-${lineId}`, `Maya detail ${lineId} evidence document ${document.documentId} omitted RECON receipt.`);
+  assert(
+    document.contentHash !== undefined && /^[a-f0-9]{64}$/u.test(document.contentHash),
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted canonical content hash.`
+  );
+  assert(
+    document.receiptContentHash !== undefined && /^[a-f0-9]{64}$/u.test(document.receiptContentHash),
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted receipt content hash.`
+  );
+  assert(
+    document.sourceFreshness !== undefined && document.sourceFreshness.includes("retrieved at"),
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted source freshness.`
+  );
+  assert(
+    document.sourceRecordId !== undefined && document.sourceRecordId.trim().length > 0,
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted sourceRecordId.`
+  );
+  assert(
+    document.sourceSystem !== undefined && document.sourceSystem.trim().length > 0,
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted sourceSystem.`
+  );
+  assert(
+    document.deterministicComparisonBasis?.includes("canonical evidence document comparison") === true,
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted deterministic comparison basis.`
+  );
+  if (document.documentType === "pod") {
+    assert(
+      document.storageUri !== undefined && document.storageUri.trim().length > 0,
+      `Maya detail ${lineId} POD evidence document ${document.documentId} omitted storageUri.`
+    );
+  }
+}
+
+function canonicalWorkItemGroupKeyForLineId(lineId: string): string {
   const match = /^(S[1-8])-L\d+$/u.exec(lineId);
   assert(match !== null, `Maya line ID ${lineId} is not a canonical S1-S8 line ID.`);
-  const scenarioId = match[1];
+  const workItemGroupKey = match[1];
   assert(
-    scenarioId !== undefined && (canonicalMayaScenarioIds as readonly string[]).includes(scenarioId),
-    `Maya line ID ${lineId} has non-canonical scenario ${scenarioId ?? "missing"}.`
+    workItemGroupKey !== undefined && (canonicalMayaWorkItemGroupKeys as readonly string[]).includes(workItemGroupKey),
+    `Maya line ID ${lineId} has non-canonical work item group ${workItemGroupKey ?? "missing"}.`
   );
 
-  return scenarioId;
+  return workItemGroupKey;
 }
 
 function assertNoDuplicateStrings(values: readonly string[], context: string): void {
@@ -1059,6 +1120,12 @@ async function switchToBackendCaseLine(
     `Maya Line ${String(lineIndex + 1)} selected payload is outside the opened backend work item group.`
   );
   await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(lineId)}`);
+  await expectVisibleLocator(
+    page,
+    '[data-testid="maya-case-workspace"]',
+    `Maya Line ${String(lineIndex + 1)} case workspace`
+  );
+  await page.getByRole("tab", { name: /^Overview$/u }).waitFor({ state: "visible", timeout: 20_000 });
   return lineDetail;
 }
 
@@ -1090,29 +1157,29 @@ async function assertSelectedCaseLineOverviewMatchesBackend(
   );
 }
 
-async function runRealMayaQueryScenarios(
+async function runRealMayaQueryWorkItems(
   page: Page,
   apiServer: ManagedApiServer,
   detail: ForensicsWorkItemDetailModel
 ): Promise<ForensicsQueryE2EResult[]> {
   const results: ForensicsQueryE2EResult[] = [];
 
-  for (const [index, scenario] of realMayaQueryScenarios.entries()) {
+  for (const [index, workItem] of realMayaQueryWorkItems.entries()) {
     if (index > 0) {
       await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
       await openEvidenceTab(page);
       await openEvidenceQuery(page);
     }
 
-    const queryResult = await runEvidenceQuery(page, apiServer, scenario, detail);
+    const queryResult = await runEvidenceQuery(page, apiServer, workItem, detail);
     assertQueryResponseBackedByTrace(queryResult.backendResponse, detail);
     assertAppQueryResponseMatchesBackend(queryResult.backendResponse, queryResult.appResponse);
-    await assertRenderedCitedAnswerMatchesBackend(page, scenario, queryResult.backendResponse);
+    await assertRenderedCitedAnswerMatchesBackend(page, workItem, queryResult.backendResponse);
     await assertRenderedConversationTurnsMatchBackend(page, queryResult);
-    await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', `Maya cited answer for ${scenario.id}`);
+    await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', `Maya cited answer for ${workItem.id}`);
     await assertAgentProcessMapAfterQuery(page, queryResult);
     await assertRenderedTraceRowsMatchBackend(page, queryResult.backendResponse.trace);
-    await captureMayaBeat(page, index === 0 ? "07-agent-trace" : `07-query-${scenario.id}`);
+    await captureMayaBeat(page, index === 0 ? "07-agent-trace" : `07-query-${workItem.id}`);
     logRealMayaQueryResult(queryResult, detail);
     results.push(queryResult);
   }
@@ -1123,7 +1190,7 @@ async function runRealMayaQueryScenarios(
 async function runEvidenceQuery(
   page: Page,
   apiServer: ManagedApiServer,
-  scenario: RealMayaQueryScenario,
+  workItem: RealMayaQueryWorkItem,
   detail: ForensicsWorkItemDetailModel
 ): Promise<ForensicsQueryE2EResult> {
   apiServer.recorder.clear();
@@ -1135,26 +1202,26 @@ async function runEvidenceQuery(
     return (
       url.pathname === "/api/forensics/query" &&
       request.method() === "POST" &&
-      isSubmittedQueryScope(safePostDataJson(request), scenario, detail)
+      isSubmittedQueryScope(safePostDataJson(request), workItem, detail)
     );
   });
-  await page.getByTestId("maya-query-input").fill(scenario.question);
+  await page.getByTestId("maya-query-input").fill(workItem.question);
   await page.getByRole("button", { name: /^Run query$/u }).click();
   const queryRequest = await queryRequestPromise;
-  assertBrowserSubmittedQueryScope(queryRequest.postDataJSON() as unknown, scenario, detail);
+  assertBrowserSubmittedQueryScope(queryRequest.postDataJSON() as unknown, workItem, detail);
   await assertObservedRealBackendCall(apiServer, "POST", "/forensics/query");
   const backendResponse = await apiServer.recorder.waitForJsonResponse<ForensicsQueryResponse>(
     "POST",
     "/forensics/query",
     queryResponseTimeoutMs,
     (response, call) =>
-      isSubmittedQueryScope(safeJsonParse(call.requestBodyText), scenario, detail) &&
+      isSubmittedQueryScope(safeJsonParse(call.requestBodyText), workItem, detail) &&
       Array.isArray(response.trace) &&
       response.trace.length > 0
   );
   const queryResponse = await queryRequest.response();
   if (queryResponse === null) {
-    throw new Error(`Maya forensics query ${scenario.id} did not receive a browser response.`);
+    throw new Error(`Maya forensics query ${workItem.id} did not receive a browser response.`);
   }
   const appResponse = await readRequiredJsonResponse<ForensicsQueryResponse>(
     queryResponse,
@@ -1162,16 +1229,16 @@ async function runEvidenceQuery(
   );
   assertAppQueryResponseMatchesBackend(backendResponse, appResponse);
 
-  return { appResponse, appResponseSource: "browser_response", backendResponse, durationMs: Date.now() - queryStartedAt, scenario };
+  return { appResponse, appResponseSource: "browser_response", backendResponse, durationMs: Date.now() - queryStartedAt, workItem };
 }
 
 async function assertClosingRunningQueryResetsParentTrace(
   page: Page,
-  scenario: RealMayaQueryScenario,
+  workItem: RealMayaQueryWorkItem,
   detail: ForensicsWorkItemDetailModel
 ): Promise<void> {
   await assertVisibleSelectedEvidenceScope(page, detail);
-  await page.getByTestId("maya-query-input").fill(scenario.question);
+  await page.getByTestId("maya-query-input").fill(workItem.question);
   await page.getByRole("button", { name: /^Run query$/u }).click();
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
   await page.getByTestId("maya-case-agent-trace-tab").click();
@@ -1210,10 +1277,10 @@ function logRealMayaQueryResult(
 ): void {
   const answer = result.backendResponse.answer;
   const deterministicBasis = result.backendResponse.deterministicBasis;
-  assert(answer !== undefined && answer.trim().length > 0, `Maya query scenario ${result.scenario.id} returned no answer.`);
+  assert(answer !== undefined && answer.trim().length > 0, `Maya query Work item ${result.workItem.id} returned no answer.`);
   assert(
     deterministicBasis !== undefined && deterministicBasis.trim().length > 0,
-    `Maya query scenario ${result.scenario.id} returned no deterministic basis.`
+    `Maya query Work item ${result.workItem.id} returned no deterministic basis.`
   );
 
   console.log(
@@ -1235,9 +1302,9 @@ function logRealMayaQueryResult(
           sourceKind: event.sourceKind ?? null,
           toolName: event.toolName ?? null
         })),
-      operatorIntent: result.scenario.operatorIntent,
-      question: result.scenario.question,
-      scenarioId: result.scenario.id,
+      operatorIntent: result.workItem.operatorIntent,
+      question: result.workItem.question,
+      workItemId: result.workItem.id,
       selectedLineId: detail.selected.lineId,
       trace: result.backendResponse.trace.map((event) => ({
         agentName: event.agentName,
@@ -1372,12 +1439,12 @@ function dedupePromptSuggestionsByQuestion<T extends { question: string }>(promp
 
 function assertBrowserSubmittedQueryScope(
   payload: unknown,
-  scenario: RealMayaQueryScenario,
+  workItem: RealMayaQueryWorkItem,
   detail: ForensicsWorkItemDetailModel
 ): void {
   assert(typeof payload === "object" && payload !== null, "Maya browser submitted a non-object query payload.");
   const submitted = payload as { question?: unknown; recordIds?: unknown; selectedLineId?: unknown };
-  assert(submitted.question === scenario.question, `Maya browser submitted the wrong query for scenario ${scenario.id}.`);
+  assert(submitted.question === workItem.question, `Maya browser submitted the wrong query for Work item ${workItem.id}.`);
   assert(
     submitted.selectedLineId === detail.selected.lineId,
     `Maya browser submitted selectedLineId ${String(submitted.selectedLineId)} instead of ${detail.selected.lineId}.`
@@ -1387,13 +1454,13 @@ function assertBrowserSubmittedQueryScope(
   assertSameRecordIds(
     submittedRecordIds.map((recordId) => String(recordId)).sort(),
     [...detail.selected.evidencePack.recordIds].sort(),
-    `Maya browser submitted selected evidence scope for ${scenario.id}`
+    `Maya browser submitted selected evidence scope for ${workItem.id}`
   );
 }
 
 function isSubmittedQueryScope(
   payload: unknown,
-  scenario: RealMayaQueryScenario,
+  workItem: RealMayaQueryWorkItem,
   detail: ForensicsWorkItemDetailModel
 ): boolean {
   if (typeof payload !== "object" || payload === null) {
@@ -1401,7 +1468,7 @@ function isSubmittedQueryScope(
   }
 
   const submitted = payload as { question?: unknown; recordIds?: unknown; selectedLineId?: unknown };
-  if (submitted.question !== scenario.question || submitted.selectedLineId !== detail.selected.lineId) {
+  if (submitted.question !== workItem.question || submitted.selectedLineId !== detail.selected.lineId) {
     return false;
   }
   if (!Array.isArray(submitted.recordIds)) {
@@ -1584,6 +1651,15 @@ async function assertAgentProcessMapBeforeQuery(
   const renderedProcessText = normalizeUiText(renderedProcessNodes.map((node) => node.text).join(" "));
   const recordIdsInProcessNodeData = new Set(renderedProcessNodes.flatMap((node) => splitRecordIdsAttribute(node.recordIds)));
   const selectedLineId = detail.selected.lineId;
+  for (const node of renderedProcessNodes) {
+    if (node.uiProcessKind !== null && node.retrievalSource === null && node.sourceKind === null) {
+      assert(
+        normalizeUiText(node.text).length > 0,
+        "Pre-query source-backed UI summary process node rendered without business-readable text."
+      );
+      continue;
+    }
+  }
   assert(
     renderedProcessNodes.length > 0 && sourceTiles.length > 0,
     `Pre-query process map rendered ${renderedProcessNodes.length.toString()} nodes for ${sourceTiles.length.toString()} backend source tiles.`
@@ -1613,29 +1689,7 @@ async function assertAgentProcessMapBeforeQuery(
       `Pre-query Trace details omitted selected backend evidence recordId ${recordId}.`
     );
   }
-  assert(
-    renderedProcessNodes.some(
-      (node) =>
-        node.sourceKind === "sap_odata" ||
-        node.retrievalSource === "sap_odata" ||
-        traceDetailsText.includes("SAP OData")
-    ),
-    "Pre-query Agent Trace omitted SAP OData retrieval provenance from Trace details or data attributes."
-  );
-  assert(
-    renderedProcessNodes.some((node) => {
-      const hasSupabaseProvenance =
-        node.sourceKind === "supabase" ||
-        node.retrievalSource === "supabase" ||
-        traceDetailsText.includes("Supabase");
-      const hasSourceBackedUiSummary =
-        node.uiProcessKind !== null && node.retrievalSource === null && node.sourceKind === null;
-      const hasTraceDetailsSourceBackedLabel = /\bsource-backed\b/iu.test(traceDetailsText) || /\bbackend\b/iu.test(traceDetailsText);
-
-      return hasSupabaseProvenance || (hasSourceBackedUiSummary && hasTraceDetailsSourceBackedLabel);
-    }),
-    "Pre-query Agent Trace omitted Supabase/source-backed retrieval provenance from Trace details or data attributes."
-  );
+  assertPreQuerySourceProvenance("Pre-query", detail, renderedProcessNodes, traceDetailsText);
 }
 
 async function assertAgentProcessMapAfterQuery(page: Page, queryResult: ForensicsQueryE2EResult): Promise<void> {
@@ -2113,16 +2167,16 @@ function citationTraceSourceKind(citation: ForensicsQueryResponse["citations"][n
 
 async function assertRenderedCitedAnswerMatchesBackend(
   page: Page,
-  scenario: RealMayaQueryScenario,
+  workItem: RealMayaQueryWorkItem,
   backendResponse: ForensicsQueryResponse
 ): Promise<void> {
-  assert(backendResponse.answer !== undefined, `Maya query scenario ${scenario.id} returned no backend answer.`);
-  assert(backendResponse.deterministicBasis !== undefined, `Maya query scenario ${scenario.id} returned no backend basis.`);
+  assert(backendResponse.answer !== undefined, `Maya query Work item ${workItem.id} returned no backend answer.`);
+  assert(backendResponse.deterministicBasis !== undefined, `Maya query Work item ${workItem.id} returned no backend basis.`);
 
   const submittedQueryText = normalizeUiText(await page.getByTestId("maya-submitted-query").innerText());
   assert(
-    submittedQueryText.includes(normalizeUiText(scenario.question)),
-    `Maya UI did not render submitted query for scenario ${scenario.id}.`
+    submittedQueryText.includes(normalizeUiText(workItem.question)),
+    `Maya UI did not render submitted query for Work item ${workItem.id}.`
   );
 
   const assistantText = normalizeUiText(await page.getByTestId("maya-query-assistant-message").innerText());
@@ -2133,7 +2187,7 @@ async function assertRenderedCitedAnswerMatchesBackend(
   );
   assert(
     assistantText.includes(normalizeUiText(expectedDisplayAnswer)),
-    `Maya assistant answer bubble did not render the redacted backend answer for scenario ${scenario.id}.`
+    `Maya assistant answer bubble did not render the redacted backend answer for Work item ${workItem.id}.`
   );
   for (const citation of backendResponse.citations) {
     assert(
@@ -2148,7 +2202,7 @@ async function assertRenderedCitedAnswerMatchesBackend(
   const basisText = normalizeUiText(await page.getByTestId("maya-cited-answer-basis").innerText());
   assert(
     basisText.includes(normalizeUiText(backendResponse.deterministicBasis)),
-    `Maya deterministic basis details did not match backend basis for scenario ${scenario.id}.`
+    `Maya deterministic basis details did not match backend basis for Work item ${workItem.id}.`
   );
 
   const citedSourceDetails = page.getByTestId("maya-cited-source-details");
@@ -2171,7 +2225,7 @@ async function assertRenderedCitedAnswerMatchesBackend(
   assertSameRecordIds(
     renderedCitationRecordIds,
     backendResponse.citations.map((citation) => citation.recordId),
-    `Maya rendered cited record row order for scenario ${scenario.id}`
+    `Maya rendered cited record row order for Work item ${workItem.id}`
   );
   const metadataGapCount = await page.locator('[data-testid="maya-cited-record-row"][data-metadata-gap="true"]').count();
   assert(metadataGapCount === 0, `Maya rendered ${metadataGapCount.toString()} cited record metadata gaps.`);
@@ -2203,16 +2257,16 @@ async function assertRenderedConversationTurnsMatchBackend(
 ): Promise<void> {
   assert(
     queryResult.backendResponse.answer !== undefined,
-    `Maya query scenario ${queryResult.scenario.id} returned no backend answer.`
+    `Maya query Work item ${queryResult.workItem.id} returned no backend answer.`
   );
   assert(
     queryResult.backendResponse.deterministicBasis !== undefined,
-    `Maya query scenario ${queryResult.scenario.id} returned no backend deterministic basis.`
+    `Maya query Work item ${queryResult.workItem.id} returned no backend deterministic basis.`
   );
   const userTurnText = normalizeUiText(await page.getByTestId("maya-query-user-message").innerText());
   assert(
-    userTurnText.includes(normalizeUiText(queryResult.scenario.question)),
-    `Maya user conversation turn did not match backend query scenario ${queryResult.scenario.id}.`
+    userTurnText.includes(normalizeUiText(queryResult.workItem.question)),
+    `Maya user conversation turn did not match backend query Work item ${queryResult.workItem.id}.`
   );
   const assistantTurnText = normalizeUiText(await page.getByTestId("maya-query-assistant-message").innerText());
   const expectedDisplayAnswer = displayAnswerWithoutInlineRecordIds(
@@ -2224,19 +2278,19 @@ async function assertRenderedConversationTurnsMatchBackend(
   ).size;
   assert(
     assistantTurnText.includes(normalizeUiText(expectedDisplayAnswer)),
-    `Maya assistant answer bubble omitted backend answer for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble omitted backend answer for ${queryResult.workItem.id}.`
   );
   assert(
     !assistantTurnText.includes(normalizeUiText(queryResult.backendResponse.deterministicBasis)),
-    `Maya assistant answer bubble leaked backend technical basis for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble leaked backend technical basis for ${queryResult.workItem.id}.`
   );
   assert(
     assistantTurnText.includes(`${queryResult.backendResponse.citations.length.toString()} citations`),
-    `Maya assistant answer bubble omitted backend citation count for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble omitted backend citation count for ${queryResult.workItem.id}.`
   );
   assert(
     assistantTurnText.includes(`${citedRecordIdCount.toString()} record IDs`),
-    `Maya assistant answer bubble omitted backend cited record ID count for ${queryResult.scenario.id}.`
+    `Maya assistant answer bubble omitted backend cited record ID count for ${queryResult.workItem.id}.`
   );
   for (const citation of queryResult.backendResponse.citations) {
     assert(
@@ -2492,7 +2546,7 @@ async function assertRenderedWorklistTableMatchesBackend(page: Page, forensicsMo
     const rowText = normalizeUiText(await row.innerText());
     for (const expectedText of [
       item.lineId,
-      item.scenarioLabel,
+      item.workItemLabel,
       item.customerLabel,
       item.amount,
       item.verdictLabel,
@@ -2574,9 +2628,13 @@ async function assertRenderedEvidenceDossierMatchesBackend(
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya evidence dossier");
-  const closedGroups = await page.locator('[data-testid="maya-evidence-business-group"] button[aria-expanded="false"]').all();
-  for (const group of closedGroups) {
-    await group.click();
+  const groupTriggers = page.locator('[data-testid="maya-evidence-business-group"] button');
+  const groupTriggerCount = await groupTriggers.count();
+  for (let index = 0; index < groupTriggerCount; index += 1) {
+    const groupTrigger = groupTriggers.nth(index);
+    if ((await groupTrigger.getAttribute("aria-expanded")) !== "true") {
+      await groupTrigger.click();
+    }
   }
   const renderedDossierText = normalizeUiText(await page.getByTestId("maya-evidence-dossier").innerText());
   const renderedDocumentRows = page.getByTestId("maya-evidence-document-row");
@@ -2597,6 +2655,29 @@ async function assertRenderedEvidenceDossierMatchesBackend(
     assert(
       renderedDossierText.includes(normalizeUiText(document.summary)),
       `Maya evidence dossier omitted backend document summary for ${document.documentId}.`
+    );
+    for (const expectedMetadata of [
+      document.evidenceId,
+      document.receiptId,
+      document.contentHash,
+      document.storageUri,
+      document.sourceFreshness,
+      document.deterministicComparisonBasis
+    ]) {
+      if (expectedMetadata !== undefined) {
+        assert(
+          renderedDossierText.includes(normalizeUiText(expectedMetadata)),
+          `Maya evidence dossier omitted backend evidence metadata ${expectedMetadata} for ${document.documentId}.`
+        );
+      }
+    }
+  }
+  const podDocuments = detail.selected.evidencePack.documents.filter((document) => document.documentType === "pod");
+  if (podDocuments.length > 0) {
+    const renderedPodPreviewCount = await page.getByTestId("pod-document-preview").count();
+    assert(
+      renderedPodPreviewCount >= podDocuments.length,
+      `Maya evidence dossier rendered ${renderedPodPreviewCount.toString()} POD previews for ${podDocuments.length.toString()} backend POD documents.`
     );
   }
   await expectVisibleLocator(page, '[data-testid="maya-evidence-source-details"]', "Maya evidence source details disclosure");
@@ -2619,6 +2700,11 @@ async function assertRenderedEvidenceDossierMatchesBackend(
 
 async function assertRenderedQueryDockMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
+  const sourceDetails = page.getByTestId("maya-query-source-details");
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /Source details/u });
+  if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
+    await sourceDetailsTrigger.click();
+  }
   const renderedDockText = normalizeUiText(await page.getByTestId("maya-query-dock").innerText());
   assert(
     renderedDockText.includes(normalizeUiText(detail.selected.lineId)),
@@ -2626,6 +2712,23 @@ async function assertRenderedQueryDockMatchesBackend(page: Page, detail: Forensi
   );
   for (const recordId of detail.selected.evidencePack.recordIds) {
     assert(renderedDockText.includes(normalizeUiText(recordId)), `Maya query dock omitted backend recordId ${recordId}.`);
+  }
+  for (const document of detail.selected.evidencePack.documents) {
+    for (const expectedMetadata of [
+      document.evidenceId,
+      document.receiptId,
+      document.contentHash,
+      document.storageUri,
+      document.sourceFreshness,
+      document.deterministicComparisonBasis
+    ]) {
+      if (expectedMetadata !== undefined) {
+        assert(
+          renderedDockText.includes(normalizeUiText(expectedMetadata)),
+          `Maya query dock omitted backend evidence metadata ${expectedMetadata} for ${document.documentId}.`
+        );
+      }
+    }
   }
   await assertRenderedPromptChipsMatchBackend(page, detail);
 }
@@ -2938,7 +3041,8 @@ function buildE2eEnv(apiUrl: string, appUrl: string): NodeJS.ProcessEnv {
     RECOUP_COCKPIT_AUTH_TOKEN: authToken,
     RECOUP_COCKPIT_HUMAN_PRINCIPAL: readEnvValue("RECOUP_COCKPIT_HUMAN_PRINCIPAL", "human:maya-lead"),
     RECOUP_DATA_MODE: "real-backend",
-    RECOUP_DEMO_SESSION_SECRET: demoSecret
+    RECOUP_DEMO_SESSION_SECRET: demoSecret,
+    RECOUP_RECONCILIATION_MODE: "authoritative"
   });
 }
 

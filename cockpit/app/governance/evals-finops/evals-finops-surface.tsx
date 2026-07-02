@@ -23,6 +23,7 @@ interface PersonaKpi {
 interface ActionRow {
   action: string;
   due: string;
+  id: string;
   owner: string;
   priority: string;
   status: string;
@@ -256,7 +257,7 @@ export function EvalsFinopsSurface({ model }: Readonly<{ model: EvalFinopsCockpi
             </thead>
             <tbody>
               {actions.map((action) => (
-                <tr key={action.action}>
+                <tr key={action.id}>
                   <td>{action.action}</td>
                   <td>{action.owner}</td>
                   <td>
@@ -329,6 +330,7 @@ function mapActionRow(recommendation: EvalFinopsCockpitModel["recommendations"][
   return {
     action: actionTitle(recommendation),
     due: "Next review",
+    id: recommendation.recommendationId,
     owner: actionOwner(recommendation),
     priority: recommendation.severity === "critical" ? "High" : recommendation.severity === "important" ? "Medium" : "Low",
     status: recommendation.requiresHumanApproval ? "Pending" : "Review"

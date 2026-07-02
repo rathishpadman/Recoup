@@ -75,7 +75,7 @@ export function RecoveryDraftReview({
         <div className="grid min-w-0 gap-2 sm:grid-cols-3">
           <HeaderFact label="Selected line" value="Opened line" />
           <HeaderFact label="Draft status" value={draft.statusLabel} />
-          <HeaderFact label="Work item" value={selectedWorklistItem?.scenarioLabel ?? "Source detail pending"} />
+          <HeaderFact label="Work item" value={selectedWorklistItem?.workItemLabel ?? "Source detail pending"} />
         </div>
       </div>
 
@@ -234,7 +234,7 @@ export function RecoveryDraftReview({
             ) : (
               <div className="grid min-w-0 gap-2">
                 <ContextFact label="Customer" value={selectedWorklistItem.customerLabel} />
-                <ContextFact label="Scenario" value={selectedWorklistItem.scenarioLabel} />
+                <ContextFact label="Work item" value={selectedWorklistItem.workItemLabel} />
                 <ContextFact label="Selected line" value="Opened line" />
                 <ContextFact label="Worklist amount" value={selectedWorklistItem.amount} />
                 <ContextFact label="Queue" value={selectedWorklistItem.queueLabel} />

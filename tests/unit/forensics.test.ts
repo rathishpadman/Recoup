@@ -13,6 +13,7 @@ import { buildSyntheticDataset } from "../../datagen/generate.js";
 import { createInMemoryStore } from "../../src/memory/store.js";
 import { readAgentHandoffPacket, readTransactionState } from "../../src/memory/session.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
 
 const governedConfig = day1GovernedConfigSeed.values;
 const source = new SyntheticSource({ seed: 42 });
@@ -72,6 +73,17 @@ describe("Forensics Investigator hero run", () => {
     );
     expect(run.actions.filter((action) => action.actionType === "draft-rebill").map((action) => action.lineId)).toEqual(
       run.decisions.filter((decision) => decision.verdict !== "valid").map((decision) => decision.lineId)
+    );
+  });
+
+  it("uses reconciliation receipts for authoritative Forensics decisions", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-06-18T00:00:00.000Z" });
+    const run = runForensics({ reconciliation: { evidenceDataset, mode: "authoritative" } });
+    const shortageDecision = run.decisions.find((decision) => decision.lineId === "S3-L1");
+
+    expect(shortageDecision?.deterministicBasis.ruleId).toBe("shortage-pod-mismatch");
+    expect(shortageDecision?.recordIds).toEqual(
+      expect.arrayContaining(["CLAIM-S3-L1", "S3-L1", "EVD-POD-S3-L1", "EVD-REMIT-S3-L1"])
     );
   });
 

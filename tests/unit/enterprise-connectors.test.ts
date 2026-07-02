@@ -15,12 +15,28 @@ import {
   sourcePortFromSupabaseSnapshots,
   type SupabaseSyntheticSourceFetch
 } from "../../src/adapters/supabaseSyntheticSource.js";
+import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
+import { reconcileDeductionClaim, type ReconciliationReceipt } from "../../src/services/reconciliationEngine.js";
 import { TpmReadOnlyAdapter, TpmSourceContractSchema } from "../../src/adapters/tpm.js";
+import type { DeductionClaim } from "../../src/types/claims.js";
+import type { CanonicalEvidenceDocument, EvidenceLink } from "../../src/types/evidence.js";
 
 const baseLine = buildSyntheticDataset({ seed: 42 }).deductionLines[0];
 if (baseLine === undefined) {
   throw new Error("Synthetic dataset must include at least one deduction line.");
 }
+const realEvidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+const canonicalClaim = realEvidenceDataset.claims.find((claim) => claim.lineId === "S1-L1");
+if (canonicalClaim === undefined) {
+  throw new Error("Real evidence dataset must include S1-L1.");
+}
+const canonicalReceipt = reconcileDeductionClaim({ claim: canonicalClaim, documents: realEvidenceDataset.documents });
+const canonicalReceiptEvidenceIds = new Set(canonicalReceipt.evidenceIds);
+const canonicalEvidenceDocuments = realEvidenceDataset.documents.filter((document) =>
+  canonicalReceiptEvidenceIds.has(document.evidenceId)
+);
+const canonicalEvidenceDocumentIds = new Set(canonicalEvidenceDocuments.map((document) => document.evidenceId));
+const canonicalEvidenceLinks = realEvidenceDataset.links.filter((link) => canonicalEvidenceDocumentIds.has(link.evidenceId));
 
 const line = {
   ...baseLine,
@@ -95,23 +111,24 @@ describe("enterprise read-only connector adapters", () => {
             }
           ]));
         }
-        if (tableName === "recoup_deduction_lines") {
-          return Promise.resolve(jsonResponse([
-            {
-              amount: "2700.00",
-              customer_id: "CUST-GREENLEAF",
-              event_id: "0000000000000000000000000000000000000000000000000000000000000001",
-              line_id: "S1-L1",
-              period: "2026-06",
-              record_ids_json: ["S1-L1", "PHOTO-CARRIER-1", "INV-S1-1"],
-              routing: "billing",
-              rule_id: "damage-evidence-valid",
-              rule_input_json: baseLine.ruleInput,
-              scenario_id: "S1",
-              scenario_type: "Damaged product, evidence received",
-              verdict: "valid"
-            }
-          ]));
+        if (tableName === "recoup_deduction_claims") {
+          return Promise.resolve(jsonResponse([toDeductionClaimRow(canonicalClaim)]));
+        }
+        if (tableName === "recoup_reconciliation_receipts") {
+          return Promise.resolve(jsonResponse([toReconciliationReceiptRow(canonicalReceipt)]));
+        }
+        if (tableName === "recoup_evidence_documents") {
+          return Promise.resolve(
+            jsonResponse(
+              canonicalEvidenceDocuments.map((document) => ({
+                ...toEvidenceDocumentRow(document),
+                retrieved_at: "2026-07-01 00:00:00+00"
+              }))
+            )
+          );
+        }
+        if (tableName === "recoup_evidence_links") {
+          return Promise.resolve(jsonResponse(canonicalEvidenceLinks.map(toEvidenceLinkRow)));
         }
 
         throw new Error(`Unexpected Supabase table ${String(tableName)}.`);
@@ -122,6 +139,7 @@ describe("enterprise read-only connector adapters", () => {
     });
 
     const settlementRun = await reader.loadSettlementRun();
+    const evidenceDataset = await reader.loadRealEvidenceDataset();
 
     expect(settlementRun.customers).toEqual([
       {
@@ -138,13 +156,23 @@ describe("enterprise read-only connector adapters", () => {
     expect(line).toMatchObject({
       customerId: "CUST-GREENLEAF",
       lineId: "S1-L1",
-      recordIds: ["S1-L1", "PHOTO-CARRIER-1", "INV-S1-1"],
       routing: "billing",
       verdict: "valid"
     });
+    expect(line.recordIds).toEqual(expect.arrayContaining([
+      "S1-L1",
+      canonicalClaim.invoiceRef,
+      canonicalClaim.remittanceEvidenceId,
+      canonicalReceipt.receiptId,
+      ...canonicalReceipt.evidenceIds
+    ]));
     expect(line.amount.toFixed(2)).toBe("2700.00");
+    expect(evidenceDataset.documents.every((document) => document.retrievedAt === "2026-07-01T00:00:00.000Z")).toBe(true);
     expect(calls.some((url) => url.includes("/rest/v1/recoup_customers"))).toBe(true);
-    expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_lines"))).toBe(true);
+    expect(calls.some((url) => url.includes("/rest/v1/recoup_deduction_claims"))).toBe(true);
+    expect(calls.some((url) => url.includes("/rest/v1/recoup_reconciliation_receipts"))).toBe(true);
+    expect(calls.some((url) => url.includes("/rest/v1/recoup_evidence_documents"))).toBe(true);
+    expect(calls.some((url) => url.includes("/rest/v1/recoup_evidence_links"))).toBe(true);
   });
 
   it("fails closed when Supabase settlement rows are incomplete", async () => {
@@ -154,7 +182,12 @@ describe("enterprise read-only connector adapters", () => {
         if (tableName === "recoup_customers") {
           return Promise.resolve(jsonResponse([]));
         }
-        if (tableName === "recoup_deduction_lines") {
+        if (
+          tableName === "recoup_deduction_claims" ||
+          tableName === "recoup_reconciliation_receipts" ||
+          tableName === "recoup_evidence_documents" ||
+          tableName === "recoup_evidence_links"
+        ) {
           return Promise.resolve(jsonResponse([]));
         }
         throw new Error(`Unexpected Supabase table ${String(tableName)}.`);
@@ -534,6 +567,7 @@ describe("enterprise read-only connector adapters", () => {
       {
         documentId: "SAP-90000002",
         documentType: "invoice",
+        freshnessRecordIds: [expect.stringMatching(/^source-row:recoup_src_sap:SAP-90000002:hash:[a-f0-9]{64}$/u)],
         provenance: "sap-odata",
         recordIds: [line.lineId, "SAP-90000002", "INV-SHOULD-NOT-MATCH"],
         source: "sap",
@@ -1400,6 +1434,59 @@ function vectorAttributes(overrides: Record<string, unknown> = {}): Record<strin
     scenario_type: line.scenarioType,
     source_table: "recoup_src_docs",
     ...overrides
+  };
+}
+
+function toDeductionClaimRow(claim: DeductionClaim): Record<string, unknown> {
+  return {
+    claim_amount: claim.claimAmount,
+    claim_id: claim.claimId,
+    customer_id: claim.customerId,
+    invoice_ref: claim.invoiceRef,
+    line_id: claim.lineId,
+    reason_code: claim.reasonCode,
+    record_ids: claim.recordIds,
+    remittance_evidence_id: claim.remittanceEvidenceId
+  };
+}
+
+function toReconciliationReceiptRow(receipt: ReconciliationReceipt): Record<string, unknown> {
+  return {
+    claim_id: receipt.claimId,
+    confidence_factors: receipt.confidenceFactors,
+    content_hash: receipt.contentHash,
+    derived_rule_input_json: receipt.derivedRuleInput,
+    deterministic_basis: receipt.deterministicBasis,
+    evidence_ids: receipt.evidenceIds,
+    line_id: receipt.lineId,
+    receipt_id: receipt.receiptId,
+    rule_id: receipt.ruleId
+  };
+}
+
+function toEvidenceDocumentRow(document: CanonicalEvidenceDocument): Record<string, unknown> {
+  return {
+    content_hash: document.contentHash,
+    customer_id: document.customerId,
+    document_type: document.documentType,
+    evidence_id: document.evidenceId,
+    payload_json: document.payload,
+    provenance: document.provenance,
+    raw_text: document.rawText ?? null,
+    retrieved_at: document.retrievedAt,
+    source_record_id: document.sourceRecordId,
+    source_system: document.sourceSystem,
+    storage_uri: document.storageUri ?? null,
+    valid_from: document.validFrom ?? null,
+    valid_to: document.validTo ?? null
+  };
+}
+
+function toEvidenceLinkRow(link: EvidenceLink): Record<string, unknown> {
+  return {
+    evidence_id: link.evidenceId,
+    record_id: link.recordId,
+    record_role: link.recordRole
   };
 }
 

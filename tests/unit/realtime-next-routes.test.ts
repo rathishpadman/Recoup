@@ -2,12 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as postDemoReset } from "../../cockpit/app/api/admin/demo-reset/route.js";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
 import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
+import { GET as getForensicsEvents } from "../../cockpit/app/api/forensics/events/route.js";
 import { GET as getForensics } from "../../cockpit/app/api/forensics/route.js";
 import { POST as postForensicsRefresh } from "../../cockpit/app/api/forensics/refresh/route.js";
 import { POST as postForensicsQuery } from "../../cockpit/app/api/forensics/query/route.js";
 import { GET as getForensicsWorkItem } from "../../cockpit/app/api/forensics/work-items/[lineId]/route.js";
 import { POST as postRealtimeClientSecret } from "../../cockpit/app/api/query/realtime-client-secret/route.js";
 import { POST as postRealtimeTool } from "../../cockpit/app/api/query/realtime-tool/route.js";
+import {
+  buildForensicsReadModelBusinessHashes,
+  mayaForensicsReadModelKey,
+  publishCachedReadModelPayload,
+  proxyJsonResponse,
+  subscribeForensicsReadModelEvents
+} from "../../cockpit/app/api/read-model-cache.js";
 import {
   createSignedDemoSessionValue,
   demoSessionCookieName,
@@ -46,6 +54,123 @@ describe("Realtime Next proxy routes", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("exposes a Forensics SSE route for business read-model invalidation", async () => {
+    const response = getForensicsEvents(new Request("http://localhost/api/forensics/events"));
+    const reader = response.body?.getReader();
+    if (reader === undefined) {
+      throw new Error("Expected Forensics SSE route to return a readable stream.");
+    }
+
+    const chunk = await reader.read();
+    await reader.cancel();
+    const text = new TextDecoder().decode(chunk.value);
+
+    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+    expect(response.headers.get("Cache-Control")).toContain("no-cache");
+    expect(text).toContain("event: connected");
+    expect(text).toContain('"status":"connected"');
+  });
+
+  it("publishes a Forensics invalidation event only when source or receipt fingerprints change", async () => {
+    const oldRecordIds = [
+      "evidence:docs:S3-L1:EVD-POD-S3-L1:old",
+      "receipt:RECON-S3-L1:content:old"
+    ];
+    const nextRecordIds = [
+      "evidence:docs:S3-L1:EVD-POD-S3-L1:new",
+      "receipt:RECON-S3-L1:content:new"
+    ];
+    const events: Array<{ receiptHash: string; sourceHash: string; type: string }> = [];
+    const unsubscribe = subscribeForensicsReadModelEvents((event) => {
+      if (event.type === "forensics-read-model-invalidated") {
+        events.push(event);
+      }
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: mayaForensicsReadModelKey,
+              payload_hash: "a".repeat(64),
+              payload_json: { surface: "forensics-analyst" },
+              persona: "maya",
+              source_record_ids_json: oldRecordIds,
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await publishCachedReadModelPayload(mayaSupabaseEnvPatch, {
+        modelKey: mayaForensicsReadModelKey,
+        payload: { surface: "forensics-analyst" },
+        payloadSurface: "forensics-analyst",
+        rowSurface: "forensics-analyst",
+        sourceRecordIds: nextRecordIds
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "forensics-read-model-invalidated",
+        ...buildForensicsReadModelBusinessHashes(nextRecordIds)
+      });
+      expect(events[0]?.sourceHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(events[0]?.receiptHash).toMatch(/^[a-f0-9]{64}$/u);
+
+      events.length = 0;
+      await publishCachedReadModelPayload(mayaSupabaseEnvPatch, {
+        modelKey: mayaForensicsReadModelKey,
+        payload: { surface: "forensics-analyst" },
+        payloadSurface: "forensics-analyst",
+        rowSurface: "forensics-analyst",
+        sourceRecordIds: oldRecordIds
+      });
+
+      expect(events).toHaveLength(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("publishes a Forensics invalidation event when forwarded backend business hashes change", () => {
+    const events: Array<{ receiptHash: string; sourceHash: string; type: string }> = [];
+    const unsubscribe = subscribeForensicsReadModelEvents((event) => {
+      if (event.type === "forensics-read-model-invalidated") {
+        events.push(event);
+      }
+    });
+    try {
+      const firstHashes = { receiptHash: "b".repeat(64), sourceHash: "a".repeat(64) };
+      const nextHashes = { receiptHash: "d".repeat(64), sourceHash: "c".repeat(64) };
+      proxyJsonResponse(upstreamWithBusinessHashes(firstHashes), "{}", "miss");
+      events.length = 0;
+
+      proxyJsonResponse(upstreamWithBusinessHashes(firstHashes), "{}", "miss");
+      expect(events).toHaveLength(0);
+
+      proxyJsonResponse(upstreamWithBusinessHashes(nextHashes), "{}", "refresh");
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "forensics-read-model-invalidated",
+        ...nextHashes
+      });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("rejects client-secret proxy requests without request-bound human auth", async () => {
@@ -223,44 +348,30 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe("http://recoup-api.test/connectors");
   });
 
-  it("serves cached Maya forensics read models before triggering a non-blocking Render refresh", async () => {
+  it("delegates Maya forensics reads to the backend freshness gate instead of serving direct cached read models", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
-    const cachedModel = {
+    const backendModel = {
       selected: { lineId: "S6-L1" },
       surface: "forensics-analyst",
       worklist: [{ lineId: "S6-L1" }]
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
-        expect(init).toMatchObject({ method: "GET" });
-        expect(init?.headers).toMatchObject({
-          apikey: "supabase-secret-key",
-          authorization: "Bearer supabase-secret-key"
-        });
-
-        return Promise.resolve(
-          Response.json([
-            {
-              generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:v1",
-              payload_hash: "a".repeat(64),
-              payload_json: cachedModel,
-              persona: "maya",
-              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
-              source_refreshed_at: "2026-06-29T00:00:00.000Z",
-              surface: "forensics-analyst"
-            }
-          ])
-        );
-      }
-
-      expect(input).toBe("http://recoup-api.test/forensics/refresh");
-      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      expect(input).toBe("http://recoup-api.test/forensics");
+      expect(fetchInputUrl(input)).not.toContain("recoup_cockpit_read_models");
+      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
       expect(init?.headers).toMatchObject({
         "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
         "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
       });
-      return new Promise<Response>(() => {});
+      return Promise.resolve(
+        Response.json(backendModel, {
+          headers: {
+            "x-recoup-read-model-cache": "stale",
+            "x-recoup-read-model-receipt-hash": "b".repeat(64),
+            "x-recoup-read-model-source-hash": "a".repeat(64)
+          }
+        })
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -272,12 +383,14 @@ describe("Realtime Next proxy routes", () => {
         method: "GET"
       })
     );
-    const body = (await response.json()) as typeof cachedModel;
+    const body = (await response.json()) as typeof backendModel;
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
-    expect(body).toEqual(cachedModel);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("stale");
+    expect(response.headers.get("x-recoup-read-model-source-hash")).toBe("a".repeat(64));
+    expect(response.headers.get("x-recoup-read-model-receipt-hash")).toBe("b".repeat(64));
+    expect(body).toEqual(backendModel);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to Render when the Maya forensics read model is absent", async () => {
@@ -311,7 +424,7 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
     expect(body).toEqual(backendModel);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {
@@ -335,9 +448,23 @@ describe("Realtime Next proxy routes", () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedDetail = {
       lineId: "S6-L1",
-      selected: { lineId: "S6-L1" },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
       surface: "forensics-work-item-detail",
-      workItem: { lineId: "S6-L1" }
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
     };
     let sawCacheLookup = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -382,6 +509,145 @@ describe("Realtime Next proxy routes", () => {
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
     expect(body).toEqual(cachedDetail);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bypasses stale cached Maya work-item detail when cached identity does not match the requested line", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S6-L1",
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S6-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S6-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.workItem.workItemId).toBe("S6-L1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses cached Maya work-item detail when canonical evidence proof fields are missing", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S6-L1",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              documentType: "pod",
+              documentId: "DOC-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S6-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S6-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.evidencePack.documents[0]?.evidenceId).toBe("EVD-POD-S6-L1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects Forensics force-refresh proxy requests without request-bound human auth", async () => {
@@ -477,7 +743,7 @@ describe("Realtime Next proxy routes", () => {
       lineId: "S6-L1",
       selected: { lineId: "S6-L1" },
       surface: "forensics-work-item-detail",
-      workItem: { lineId: "S6-L1" }
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = fetchInputUrl(input);
@@ -1310,6 +1576,18 @@ function headerValue(headers: HeadersInit | undefined, name: string): string | u
   }
 
   return headers[name];
+}
+
+function upstreamWithBusinessHashes(hashes: { receiptHash: string; sourceHash: string }): Response {
+  return Response.json(
+    { surface: "forensics-analyst" },
+    {
+      headers: {
+        "x-recoup-read-model-receipt-hash": hashes.receiptHash,
+        "x-recoup-read-model-source-hash": hashes.sourceHash
+      }
+    }
+  );
 }
 
 function fetchInputUrl(input: RequestInfo | URL | undefined): string {

@@ -26,6 +26,7 @@ export interface EvidenceDocument {
   documentType: EvidenceDocumentType;
   summary: string;
   recordIds: string[];
+  freshnessRecordIds?: string[];
   retrieval?: EvidenceDocumentRetrievalMetadata;
 }
 

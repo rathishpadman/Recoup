@@ -467,7 +467,7 @@ export function NegotiationGraph({ credit }: Readonly<{ credit: CreditCockpitMod
             <code>{credit.partialHold.releaseRatioPercent} release path</code>
           </div>
           {credit.negotiation.nodes.map((node, index) => (
-            <article className={`graph-node orbit-node orbit-node-${String(index + 1)}`} key={node.functionName}>
+            <article className={`graph-node orbit-node orbit-node-${String(index + 1)}`} key={`${node.functionName}-${String(index)}`}>
               <div>
                 <strong>{node.displayName}</strong>
                 <code>{node.weight}</code>

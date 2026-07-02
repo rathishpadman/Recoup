@@ -662,14 +662,14 @@ function traceTabPanelRendersTraceUi(source: string): boolean {
   );
 }
 
-function queryScenarioFlowAssertsDenseTraceRowsFromTraceTab(source: string): boolean {
-  const runner = findFunctionDefinition(stripComments(source), "runRealMayaQueryScenarios");
+function queryWorkItemFlowAssertsDenseTraceRowsFromTraceTab(source: string): boolean {
+  const runner = findFunctionDefinition(stripComments(source), "runRealMayaQueryWorkItems");
   if (runner === undefined) {
     return false;
   }
 
   const body = runner.body;
-  const citedAnswerIndex = body.indexOf("await assertRenderedCitedAnswerMatchesBackend(page, scenario, queryResult.backendResponse);");
+  const citedAnswerIndex = body.indexOf("await assertRenderedCitedAnswerMatchesBackend(page, workItem, queryResult.backendResponse);");
   const processMapIndex = body.indexOf("await assertAgentProcessMapAfterQuery(page, queryResult);");
   const directTracePanelIndex = body.indexOf("await assertRenderedAgentTracePanelMatchesBackend(page, queryResult);");
   const traceRowCalls = [...body.matchAll(/await\s+assertRenderedTraceRowsMatchBackend\(page,\s*queryResult\.backendResponse\.trace\);/gu)];
@@ -1251,7 +1251,7 @@ function bodyHasAssertion(body: string): boolean {
 }
 
 function bodyReferencesBackendReadModel(body: string): boolean {
-  return /\b(?:forensicsModel|connectorsModel|backendResponse|appResponse|queryResult|scenario|sourceTiles|worklist|evidencePack|kpiStrip|multimodalDock|backendTrace|approvalActions|auditState|actionInbox|draft)\b|\bdetail\.(?:selected|workItem|lineId)\b/u.test(
+  return /\b(?:forensicsModel|connectorsModel|backendResponse|appResponse|queryResult|workItem|sourceTiles|worklist|evidencePack|kpiStrip|multimodalDock|backendTrace|approvalActions|auditState|actionInbox|draft)\b|\bdetail\.(?:selected|workItem|lineId)\b/u.test(
     stripComments(body)
   );
 }
@@ -1490,7 +1490,7 @@ function matchingSourceFragments(source: string, pattern: RegExp, path: string):
 
 function forbiddenLocalBackendReadModelAssignments(body: string): string[] {
   const backendReadModelNamePatternSource =
-    String.raw`(?:backendResponse|appResponse|forensicsModel|connectorsModel|queryResult|scenario|readModel|model|sourceTiles|worklist|evidencePack|kpiStrip|multimodalDock|backendTrace|approvalActions|auditState|actionInbox|draft)`;
+    String.raw`(?:backendResponse|appResponse|forensicsModel|connectorsModel|queryResult|workItem|readModel|model|sourceTiles|worklist|evidencePack|kpiStrip|multimodalDock|backendTrace|approvalActions|auditState|actionInbox|draft)`;
   const localAssignmentPattern =
     new RegExp(String.raw`\b(?:const|let|var)\s+${backendReadModelNamePatternSource}\b(?:\s*:\s*[^=\n]+)?\s*=\s*(?:\{|\[)`, "giu");
   const localReassignmentPattern = new RegExp(
@@ -1541,8 +1541,8 @@ function helperSpecificRequiredBodyPatterns(helperName: string): readonly Labele
     case "assertRenderedConversationTurnsMatchBackend":
       return [
         renderedBackendAssertionPattern(
-          "rendered conversation turns asserted against scenario and backend query response",
-          String.raw`\b(?:scenario\.(?:question|operatorIntent|id)|queryResult\.(?:backendResponse|appResponse|scenario)|backendResponse\.(?:answer|citations|deterministicBasis)|appResponse\.(?:answer|citations|deterministicBasis))\b`
+          "rendered conversation turns asserted against work item and backend query response",
+          String.raw`\b(?:workItem\.(?:question|operatorIntent|id)|queryResult\.(?:backendResponse|appResponse|workItem)|backendResponse\.(?:answer|citations|deterministicBasis)|appResponse\.(?:answer|citations|deterministicBasis))\b`
         )
       ];
     case "assertAgentProcessMapBeforeQuery":
@@ -1625,8 +1625,8 @@ function helperSpecificRequiredBodyPatterns(helperName: string): readonly Labele
     case "assertRenderedCitedAnswerMatchesBackend":
       return [
         renderedBackendAssertionPattern(
-          "cited answer rendered answer/basis/citations asserted against scenario and backendResponse",
-          String.raw`\b(?:scenario\.(?:question|id)|backendResponse\.(?:answer|deterministicBasis|citations))\b`
+          "cited answer rendered answer/basis/citations asserted against work item and backendResponse",
+          String.raw`\b(?:workItem\.(?:question|id)|backendResponse\.(?:answer|deterministicBasis|citations))\b`
         )
       ];
     case "assertRenderedRecoveryDraftMatchesBackend":
@@ -2433,7 +2433,7 @@ describe("Maya shadcn human QA contract", () => {
         /function\s+assertRenderedTraceRowsMatchBackend[\s\S]{0,700}\bopenAgentTraceDetailsAndReadText\s*\(\s*page\s*\)[\s\S]{0,700}maya-backend-trace-row/u.test(
           e2e
         ),
-      denseTraceRowsAssertedFromTraceTab: queryScenarioFlowAssertsDenseTraceRowsFromTraceTab(e2e),
+      denseTraceRowsAssertedFromTraceTab: queryWorkItemFlowAssertsDenseTraceRowsFromTraceTab(e2e),
       compactProcessNodesAvoidRawBackendSummaryText:
         !/\bmessage\s*:\s*(?:document\.summary|citation\.summary\b)/u.test(stripComments(agentTrace)),
       compactProcessNodesUseNonIdSourceMessages:
@@ -2695,7 +2695,7 @@ describe("Maya shadcn human QA contract", () => {
         /\bsortOverviewCaseConcentrationItems\(\s*filterOverviewCaseConcentrationItems/u.test(overviewSource),
       caseConcentrationRendersBackendRows:
         /\boverviewConcentrationItems\.map\b/u.test(overviewSource) &&
-        ["lineId", "customerLabel", "scenarioLabel", "lineCount", "amount"].every((field) =>
+        ["lineId", "customerLabel", "workItemLabel", "lineCount", "amount"].every((field) =>
           new RegExp(`\\bitem\\.${field}\\b`, "u").test(overviewSource)
         ),
       caseConcentrationControlsStayLocal:
@@ -2889,7 +2889,7 @@ describe("Maya shadcn human QA contract", () => {
     const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
     const returnedWorklist = surface.slice(surface.indexOf("function BeatTwelveReturnedWorklist"));
 
-    expect(worklist).toContain("Search by scenario, customer, or line ID");
+    expect(worklist).toContain("Search by work item, customer, or line ID");
     expect(worklist).not.toContain("Save view");
     expect(worklist).not.toContain("Worklist display options");
     expect(worklist).not.toContain("More filters");
@@ -3325,7 +3325,7 @@ describe("Maya shadcn human QA contract", () => {
       rowClickKeepsLocalSelectionOnly:
         /onClick=\{\(\)\s*=>\s*\{[\s\S]{0,80}\bonSelectItem\(item\);[\s\S]{0,80}\}\}/u.test(worklist),
       checkboxCopyNamesLocalFocus:
-        /\baria-label=\{`\$\{item\.scenarioLabel\} local focus selection`\}/u.test(worklist),
+        /\baria-label=\{`\$\{item\.workItemLabel\} local focus selection`\}/u.test(worklist),
       rowKeyboardIgnoresInteractiveDescendants:
         /isInteractiveDescendantEvent\(event\.target\)[\s\S]{0,80}\breturn\b/u.test(worklist),
       visibleRowOpenActionUsesOpenIntent:

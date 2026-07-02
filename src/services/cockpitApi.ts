@@ -5,7 +5,8 @@ import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import { runtimeModels } from "../../config/models.js";
 import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues } from "../../config/governed.js";
-import { runForensicsInvestigation } from "../agents/forensics.js";
+import { readCanaryLines, readReconciliationMode } from "../../config/reconciliationRollout.js";
+import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
 import {
   streamLiveForensicsTraceEvents,
   type LiveForensicsStreamRunner
@@ -53,6 +54,7 @@ import {
   SapODataReadOnlyClient,
   type SapODataConnection
 } from "../adapters/sapOData.js";
+import { createLegacySupabaseSettlementRunReaderFromEnv } from "../adapters/legacySupabaseSettlementRunReader.js";
 import type { SourcePort } from "../adapters/source.js";
 import {
   createSupabaseSettlementRunReaderFromEnv,
@@ -80,6 +82,10 @@ import {
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
 import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
+import {
+  buildForensicsReadModelFreshnessRecordIds,
+  isForensicsReadModelFresh
+} from "./evidenceFreshness.js";
 import {
   assertR1SourceReadInput,
   buildOpenAiVectorStoreEvidenceSource,
@@ -233,11 +239,14 @@ const defaultForensicsSourceContextCacheTtlMs = 30_000;
 const mayaForensicsReadModelKey = "maya:forensics:v1";
 const mayaConnectorsReadModelKey = "maya:connectors:v1";
 const readModelCacheHeader = "x-recoup-read-model-cache";
+const readModelReceiptHashHeader = "x-recoup-read-model-receipt-hash";
+const readModelSourceHashHeader = "x-recoup-read-model-source-hash";
 const cockpitRateLimitMaxRequestsEnv = "RECOUP_COCKPIT_RATE_LIMIT_MAX_REQUESTS";
 const cockpitRateLimitWindowMsEnv = "RECOUP_COCKPIT_RATE_LIMIT_WINDOW_MS";
 const forensicsSourceContextTableIdentity = [
   "recoup_customers",
-  "recoup_deduction_lines",
+  "recoup_deduction_claims",
+  "recoup_reconciliation_receipts",
   "recoup_src_bureau",
   "recoup_src_docs",
   "recoup_src_sap",
@@ -315,12 +324,15 @@ interface ForensicsSourceContextCacheKey {
   governedConfigHash: string;
   governedSeed: 42;
   openAiEvidenceVectorStoreIdentity: string;
+  reconciliationCanaryLines: string[];
+  reconciliationMode: string;
   riskObservationRequired: boolean;
   sourceTableIdentity: typeof forensicsSourceContextTableIdentity;
   supabaseSourceIdentity: string;
 }
 
 interface ForensicsRunContext {
+  reconciliation?: ForensicsReconciliationOptions | undefined;
   serviceContext: ServiceInvocationContext;
   source: SourcePort;
 }
@@ -427,18 +439,27 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const cachedReadModel = await loadReadModelPayload(mayaForensicsReadModelKey, "forensics-analyst");
-    if (cachedReadModel !== undefined) {
-      response.setHeader(readModelCacheHeader, "hit");
-      response.json(cachedReadModel);
-      return;
-    }
-
-    const runContext = await loadRequiredForensicsRunContext(request, response);
+    const cachedReadModel = await loadReadModelRecord(mayaForensicsReadModelKey, "forensics-analyst");
+    const runContext = await loadRequiredForensicsRunContext(request, response, { bypassCache: true });
     if (runContext === undefined) {
       return;
     }
-    const { governedConfig, serviceContext, source } = runContext;
+    const { governedConfig, reconciliation, serviceContext, source } = runContext;
+    const sourceRecordIds = buildForensicsReadModelFreshnessRecordIds({
+      canaryLines: [...readCanaryLines(runtimeEnv)].sort(),
+      reconciliation,
+      reconciliationMode: readReconciliationMode(runtimeEnv),
+      serviceContext,
+      source,
+      sourceTableIdentity: forensicsSourceContextTableIdentity
+    });
+    if (cachedReadModel !== undefined && isForensicsReadModelFresh(cachedReadModel.sourceRecordIds, sourceRecordIds)) {
+      response.setHeader(readModelCacheHeader, "hit");
+      setForensicsReadModelHashHeaders(response, sourceRecordIds);
+      response.json(cachedReadModel.payload);
+      return;
+    }
+
     const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
     if (approvalRecordsSnapshot === undefined) {
       return;
@@ -448,11 +469,13 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       approvalRecordSource: approvalRecordsSnapshot.source,
       approvalRecords: approvalRecordsSnapshot.records,
       governedConfig,
+      reconciliation,
       serviceContext,
       settlementSource: source
     });
-    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model);
-    response.setHeader(readModelCacheHeader, "miss");
+    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model, { sourceRecordIds });
+    response.setHeader(readModelCacheHeader, cachedReadModel === undefined ? "miss" : "stale");
+    setForensicsReadModelHashHeaders(response, sourceRecordIds);
     response.json(model);
   });
 
@@ -466,7 +489,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (runContext === undefined) {
       return;
     }
-    const { governedConfig, serviceContext, source } = runContext;
+    const { governedConfig, reconciliation, serviceContext, source } = runContext;
     const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
     if (approvalRecordsSnapshot === undefined) {
       return;
@@ -479,6 +502,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
             approvalRecordSource: approvalRecordsSnapshot.source,
             approvalRecords: approvalRecordsSnapshot.records,
             governedConfig,
+            reconciliation,
             serviceContext,
             settlementSource: source
           },
@@ -511,7 +535,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (runContext === undefined) {
       return;
     }
-    const { governedConfig, serviceContext, source } = runContext;
+    const { governedConfig, reconciliation, serviceContext, source } = runContext;
     const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
     if (approvalRecordsSnapshot === undefined) {
       return;
@@ -521,11 +545,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       approvalRecordSource: approvalRecordsSnapshot.source,
       approvalRecords: approvalRecordsSnapshot.records,
       governedConfig,
+      reconciliation,
       serviceContext,
       settlementSource: source
     });
-    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model);
+    const sourceRecordIds = buildForensicsReadModelFreshnessRecordIds({
+      canaryLines: [...readCanaryLines(runtimeEnv)].sort(),
+      reconciliation,
+      reconciliationMode: readReconciliationMode(runtimeEnv),
+      serviceContext,
+      source,
+      sourceTableIdentity: forensicsSourceContextTableIdentity
+    });
+    await publishReadModel(mayaForensicsReadModelKey, "forensics-analyst", model, { sourceRecordIds });
     response.setHeader(readModelCacheHeader, "refresh");
+    setForensicsReadModelHashHeaders(response, sourceRecordIds);
     response.json(model);
   });
 
@@ -553,12 +587,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const source = await loadRequiredSupabaseSource(_request, response, governedConfig, { riskObservationRequired: true });
-    if (source === undefined) {
+    const runContext = await loadRequiredSupabaseRunContext(_request, response, governedConfig, { riskObservationRequired: true });
+    if (runContext === undefined) {
       return;
     }
+    const { reconciliation, serviceContext, source } = runContext;
 
-    response.json(buildCfoSummaryCockpitModel({ governedConfig, riskObservationSource: source, settlementSource: source }));
+    response.json(
+      buildCfoSummaryCockpitModel({
+        governedConfig,
+        reconciliation,
+        riskObservationSource: source,
+        serviceContext,
+        settlementSource: source
+      })
+    );
   });
 
   app.get("/trace", async (_request, response) => {
@@ -599,7 +642,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   });
 
   app.get("/connectors", async (_request, response) => {
-    if (!requireProtectedReadAuth(_request, response)) {
+    if (
+      !requireProtectedReadAuth(_request, response, {
+        allowProxyDemoRoles: ["cfo"],
+        proxyPurpose: "read"
+      })
+    ) {
       return;
     }
 
@@ -632,7 +680,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   });
 
   app.get("/evals-finops", async (request, response) => {
-    if (!requireProtectedReadAuth(request, response)) {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["cfo"],
+        proxyPurpose: "read"
+      })
+    ) {
       return;
     }
 
@@ -683,7 +736,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (runContext === undefined) {
       return;
     }
-    const { governedConfig, serviceContext, source } = runContext;
+    const { governedConfig, reconciliation, serviceContext, source } = runContext;
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
     const memoryStore = supabaseMemory === undefined ? createRuntimeMemoryStore(runtimeEnv) : createInMemoryStore();
     let events: ForensicsSseEvent[];
@@ -695,6 +748,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           : { decisionConfidenceThreshold: runControl.decisionConfidenceThreshold }),
         governedConfig,
         memoryStore,
+        ...(reconciliation === undefined ? {} : { reconciliation }),
         serviceContext,
         sessionId,
         source
@@ -804,12 +858,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     return undefined;
   }
 
-  function requireProtectedReadAuth(request: Request, response: Response): boolean {
+  function requireProtectedReadAuth(request: Request, response: Response, options: CockpitHumanAuthOptions = {}): boolean {
     if (dataMode === "fixture") {
       return true;
     }
 
-    const human = verifyHumanCockpitAuth(request, runtimeEnv);
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, options);
     if (human.success) {
       return true;
     }
@@ -843,7 +897,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     request: Request,
     response: Response,
     sourceOptions: { bypassCache?: boolean; riskObservationRequired?: boolean } = {}
-  ): Promise<{ governedConfig: GovernedConfigValues; serviceContext: ServiceInvocationContext; source: SourcePort } | undefined> {
+  ): Promise<(ForensicsRunContext & { governedConfig: GovernedConfigValues }) | undefined> {
     if (dataMode === "fixture") {
       return buildFixtureForensicsRunContext();
     }
@@ -894,6 +948,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       governedConfigHash: sha256CanonicalJson(governedConfig),
       governedSeed: governedConfig.seed,
       openAiEvidenceVectorStoreIdentity: readOpenAiEvidenceVectorStoreIdentity(runtimeEnv),
+      reconciliationCanaryLines: [...readCanaryLines(runtimeEnv)].sort(),
+      reconciliationMode: readReconciliationMode(runtimeEnv),
       riskObservationRequired,
       sourceTableIdentity: forensicsSourceContextTableIdentity,
       supabaseSourceIdentity: readSupabaseSourceIdentity(runtimeEnv)
@@ -939,14 +995,6 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   }
 
-  async function loadReadModelPayload(
-    modelKey: string,
-    surface: "connector-readiness" | "forensics-analyst"
-  ): Promise<Record<string, unknown> | undefined> {
-    const record = await loadReadModelRecord(modelKey, surface);
-    return record?.payload;
-  }
-
   async function loadReadModelRecord(
     modelKey: string,
     surface: "connector-readiness" | "forensics-analyst"
@@ -970,7 +1018,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   async function publishReadModel(
     modelKey: string,
     surface: "connector-readiness" | "forensics-analyst",
-    model: unknown
+    model: unknown,
+    options: { sourceRecordIds?: readonly string[] } = {}
   ): Promise<void> {
     if (readModelRepository === undefined || !isReadModelPayloadForSurface(model, surface)) {
       return;
@@ -982,7 +1031,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         payload: model,
         payloadHash: sha256CanonicalJson(model),
         persona: "maya",
-        sourceRecordIds: collectReadModelSourceRecordIds(model),
+        sourceRecordIds: [...(options.sourceRecordIds ?? collectReadModelSourceRecordIds(model))],
         sourceRefreshedAt: new Date().toISOString(),
         surface
       });
@@ -1075,7 +1124,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     response: Response,
     governedConfig: GovernedConfigValues,
     sourceOptions: { bypassCache?: boolean; riskObservationRequired?: boolean } = {}
-  ): Promise<{ serviceContext: ServiceInvocationContext; source: SourcePort } | undefined> {
+  ): Promise<ForensicsRunContext | undefined> {
     const cacheKey = buildForensicsSourceContextCacheKey(governedConfig, sourceOptions.riskObservationRequired === true);
     const cacheableForensicsContext = !cacheKey.riskObservationRequired;
     const refreshRequestId =
@@ -1091,12 +1140,17 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       isReusableForensicsRunContext(cachedForensicsRunContext, cacheKey, nowMs)
     ) {
       return {
+        reconciliation: cachedForensicsRunContext.reconciliation,
         serviceContext: cachedForensicsRunContext.serviceContext,
         source: cachedForensicsRunContext.source
       };
     }
 
-    const settlementReader = createSupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher);
+    const reconciliationMode = readReconciliationMode(runtimeEnv);
+    const settlementReader =
+      reconciliationMode === "legacy"
+        ? createLegacySupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher)
+        : createSupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher);
     const sapEvidenceReader = createSupabaseSapEvidenceReaderFromEnv(runtimeEnv, options.memoryFetcher);
     const syntheticEvidenceReader = createSupabaseSyntheticSourceReaderFromEnv(runtimeEnv, options.memoryFetcher);
     if (settlementReader === undefined || sapEvidenceReader === undefined || syntheticEvidenceReader === undefined) {
@@ -1107,9 +1161,25 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return undefined;
     }
 
+    let reconciliation: ForensicsReconciliationOptions | undefined;
     let settlementRun: ReturnType<SourcePort["loadSettlementRun"]>;
     try {
       settlementRun = await settlementReader.loadSettlementRun();
+      if (hasReconciliationReceipts(settlementReader)) {
+        if (!hasRealEvidenceDataset(settlementReader)) {
+          throw new Error("Supabase canonical evidence dataset is required for reconciliation receipts.");
+        }
+        const [receipts, evidenceDataset] = await Promise.all([
+          settlementReader.loadReconciliationReceipts(),
+          settlementReader.loadRealEvidenceDataset()
+        ]);
+        reconciliation = {
+          canaryLines: readCanaryLines(runtimeEnv),
+          evidenceDataset,
+          mode: reconciliationMode,
+          receipts
+        };
+      }
     } catch {
       sendFailClosedJson(request, response, 503, {
         error: "Supabase settlement source rows are unavailable or failed validation.",
@@ -1176,6 +1246,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       const vectorStoreEvidenceSource = await buildOptionalOpenAiVectorStoreEvidenceSource(settlementRun);
 
       const runContext = {
+        ...(reconciliation === undefined ? {} : { reconciliation }),
         serviceContext: {
           governedConfig,
           requireSupabaseSapEvidence: true,
@@ -1207,6 +1278,28 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   }
 
+  function hasReconciliationReceipts(
+    reader: unknown
+  ): reader is { loadReconciliationReceipts(): Promise<NonNullable<ForensicsReconciliationOptions["receipts"]>> } {
+    return (
+      typeof reader === "object" &&
+      reader !== null &&
+      "loadReconciliationReceipts" in reader &&
+      typeof (reader as { loadReconciliationReceipts?: unknown }).loadReconciliationReceipts === "function"
+    );
+  }
+
+  function hasRealEvidenceDataset(
+    reader: unknown
+  ): reader is { loadRealEvidenceDataset(): Promise<NonNullable<ForensicsReconciliationOptions["evidenceDataset"]>> } {
+    return (
+      typeof reader === "object" &&
+      reader !== null &&
+      "loadRealEvidenceDataset" in reader &&
+      typeof (reader as { loadRealEvidenceDataset?: unknown }).loadRealEvidenceDataset === "function"
+    );
+  }
+
   async function buildOptionalOpenAiVectorStoreEvidenceSource(
     settlementRun: ReturnType<SourcePort["loadSettlementRun"]>
   ): Promise<Awaited<ReturnType<typeof buildOpenAiVectorStoreEvidenceSource>> | undefined> {
@@ -1229,10 +1322,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
 
   function validateCacheableForensicsRunContext(
     governedConfig: GovernedConfigValues,
-    runContext: { serviceContext: ServiceInvocationContext; source: SourcePort }
+    runContext: ForensicsRunContext
   ): void {
     runForensicsInvestigation({
       governedConfig,
+      ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
       serviceContext: runContext.serviceContext,
       source: runContext.source
     });
@@ -1244,7 +1338,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     governedConfig: GovernedConfigValues,
     sourceOptions: { riskObservationRequired?: boolean } = {}
   ): Promise<SourcePort | undefined> {
-    const settlementReader = createSupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher);
+    const settlementReader =
+      readReconciliationMode(runtimeEnv) === "legacy"
+        ? createLegacySupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher)
+        : createSupabaseSettlementRunReaderFromEnv(runtimeEnv, governedConfig.seed, options.memoryFetcher);
     if (settlementReader === undefined) {
       sendFailClosedJson(request, response, 503, {
         error: "Supabase settlement source rows are unavailable or failed validation.",
@@ -1350,7 +1447,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       if (runContext === undefined) {
         return;
       }
-      const { serviceContext, source } = runContext;
+      const { reconciliation, serviceContext, source } = runContext;
       const approvalInput = {
         actionId: parsed.data.actionId,
         decision: parsed.data.decision,
@@ -1365,6 +1462,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         const prepared = prepareApprovalDecision(approvalInput, {
           ...serviceContext,
           governedConfig,
+          ...(reconciliation === undefined ? {} : { reconciliation }),
           source,
           verifiedHumanPrincipal: human.principal
         });
@@ -1493,6 +1591,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         liveAgentTrace,
         ...(memoryRecall === undefined ? {} : { memoryRecall }),
         question: parsedRequest.data.question,
+        ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
         recordIds: uniqueRecordIds(parsedRequest.data.recordIds),
         selectedLineId: parsedRequest.data.selectedLineId,
         serviceContext: runContext.serviceContext,
@@ -2820,6 +2919,34 @@ function isClosableMemoryStore(memoryStore: unknown): memoryStore is { close: ()
     "close" in memoryStore &&
     typeof (memoryStore as { close?: unknown }).close === "function"
   );
+}
+
+function setForensicsReadModelHashHeaders(response: Response, sourceRecordIds: readonly string[]): void {
+  const hashes = buildForensicsReadModelBusinessHashes(sourceRecordIds);
+  response.setHeader(readModelReceiptHashHeader, hashes.receiptHash);
+  response.setHeader(readModelSourceHashHeader, hashes.sourceHash);
+}
+
+function buildForensicsReadModelBusinessHashes(sourceRecordIds: readonly string[]): {
+  receiptHash: string;
+  sourceHash: string;
+} {
+  const normalizedRecordIds = normalizeRecordIds(sourceRecordIds);
+  const receiptRecordIds = normalizedRecordIds.filter(isReceiptFreshnessRecordId);
+  const sourceRecordIdsWithoutReceipts = normalizedRecordIds.filter((recordId) => !isReceiptFreshnessRecordId(recordId));
+
+  return {
+    receiptHash: sha256CanonicalJson(receiptRecordIds),
+    sourceHash: sha256CanonicalJson(sourceRecordIdsWithoutReceipts)
+  };
+}
+
+function isReceiptFreshnessRecordId(recordId: string): boolean {
+  return recordId === "receipt-set:absent" || recordId.startsWith("receipt:") || recordId.startsWith("receipt-set:");
+}
+
+function normalizeRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))].sort();
 }
 
 function constantTimeEqual(left: string, right: string): boolean {

@@ -1,3 +1,4 @@
+import { requireBackendReadAuthHeaders } from "../../backend-read-auth.ts";
 import { CockpitShell } from "../../cockpit-shell.tsx";
 import { fetchEvalFinopsModel } from "../../cockpit-data.ts";
 import { requireRouteAccess } from "../../demo-auth.ts";
@@ -6,7 +7,12 @@ import { EvalsFinopsSurface } from "./evals-finops-surface.tsx";
 
 export default async function EvalsFinopsGovernancePage() {
   const session = await requireRouteAccess("/governance/evals-finops");
-  const model = await fetchEvalFinopsModel();
+  const backendReadAuthHeaders = await requireBackendReadAuthHeaders(["cfo"], {
+    body: "",
+    method: "GET",
+    path: "/evals-finops"
+  });
+  const model = await fetchEvalFinopsModel(backendReadAuthHeaders);
 
   return (
     <CockpitShell
