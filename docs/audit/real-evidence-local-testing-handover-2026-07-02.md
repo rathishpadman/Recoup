@@ -5,7 +5,9 @@ Status: ready for independent audit and user manual testing. Do not merge to `ma
 ## Branch And Deployment Safety
 
 - Current branch: `codex/real-evidence-phased-plan-execution`.
-- Current pushed HEAD: `89e8cff Document final preview real evidence proof`.
+- Current pushed branch state: local `HEAD` and `origin/codex/real-evidence-phased-plan-execution` were aligned at handover close; verify the exact latest commit with `git log --oneline -1` and `git rev-parse --short origin/codex/real-evidence-phased-plan-execution`.
+- Latest preview proof artifact commit: `89e8cff Document final preview real evidence proof`.
+- Later handover-only doc corrections may appear above the preview proof commit; they do not change the Preview deploy or proof artifact.
 - `codex/real-evidence-phased-plan-execution` is aligned with `origin/codex/real-evidence-phased-plan-execution`.
 - `main` and `origin/main` are aligned; no merge to `main` was performed.
 - No Vercel Production deploy or alias promotion was performed.
@@ -21,6 +23,7 @@ Status: ready for independent audit and user manual testing. Do not merge to `ma
 - `38e44e0 Harden preview governance capture proof`
 - `430565d Use server auth for connector governance reads`
 - `89e8cff Document final preview real evidence proof`
+- `6676751 Correct final preview handover head` and any later doc-only handover corrections only update audit wording.
 
 ## Local Verification Passed
 
