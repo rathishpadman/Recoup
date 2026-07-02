@@ -8,7 +8,272 @@ Verification command for the current proof pack:
 npm.cmd run verify
 ```
 
-This remains the proof-pack command because it includes `verify:release`, which reads owner-approved run-control and eval-label rows from Supabase `recoup_config`. Current 2026-06-25 controller evidence is green: `npm.cmd run verify` passed with lint, typecheck, 89 Vitest files / 737 tests, dependency-cruiser clean with 115 modules / 367 dependencies, and release readiness passed. `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318` and reached backend `/forensics/query` for 4 Maya browser query scenarios with 32 backend trace rows, including live OpenAI Agents SDK Forensics Investigator -> Recovery Drafter hook receipts while the visible answer remained deterministic and cited. Phase 0 reproducibility is not complete because the current repo remains dirty/untracked with nothing staged; do not describe the shared workspace as commit-clean or reproducible until a clean review branch/snapshot is created and the proof pack is rerun there. The server-rendered Maya pages now forward verified human backend-read headers for protected `/forensics` and `/connectors` fetches.
+This remains the proof-pack command because it includes `verify:release`, which reads owner-approved run-control and eval-label rows from Supabase `recoup_config`. Current 2026-07-02 controller evidence is green: `npm.cmd run verify` passed with lint, typecheck, 124 Vitest files / 1038 tests, dependency-cruiser clean with 141 modules / 473 dependencies, and release readiness passed. Phase 0 reproducibility is not complete because the current repo remains dirty/untracked with nothing staged; do not describe the shared workspace as commit-clean or reproducible until a clean review branch/snapshot is created and the proof pack is rerun there. Current local real-evidence browser proof is green for Maya: `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318` with 20 canonical line items, 8 work items, 5 live query work items, and 50 backend trace rows while SAP source health was visibly degraded. Production closeout is still pending: no Vercel production deploy, public alias promotion, production mode change, or provider-env change has been run for this remediation, and production movement remains blocked until the user tests and explicitly approves.
+
+## Real Evidence Baseline Audit - 2026-07-01
+
+Source plan: `docs/superpowers/plans/2026-07-01-real-evidence-phased-plan-with-audit.md`
+
+Audit source: `C:\Users\rathi\.codex\attachments\38866839-1e9d-41f0-8029-3fc330978763\pasted-text.txt`
+
+Phase 0 branch/SHA before runtime code changes: `codex/real-evidence-phased-plan-execution` / `e3e4a55d751cbcb3ea2df4e282c3d4cb6011ac02`
+
+Scoped runtime diff before implementation: empty for `src`, `cockpit`, `config`, `scripts`, `tests`, `render.yaml`, `package.json`, and `docs/supabase-memory-schema.sql`.
+
+Production alias proof: `https://recoup-self-eta.vercel.app` maps to Vercel deployment `dpl_GmRnve57izaS1GndBn2N1WBjTxRv`, target `production`, status `Ready`, inspected on 2026-07-01.
+
+Baseline artifacts:
+
+- Manifest: `docs/audit/real-evidence-baseline/2026-07-01/manifest.json`
+- Screenshots: `docs/audit/real-evidence-baseline/2026-07-01/screenshots/`
+- README: `docs/audit/real-evidence-baseline/2026-07-01/README.md`
+
+Supabase DML during Phase 0: none.
+
+Render/Vercel deploy during Phase 0: none.
+
+Secret handling: no tokens, service-role keys, cookies, auth headers, API keys, or env values were written to docs, screenshots, or logs.
+
+### Local Cutover Repair Planning Proof - 2026-07-01
+
+- Read-only preflight waits for all three required source-table probes before returning and reports sanitized table/status/code/failure-kind values only when it fails.
+- Latest local Supabase preflight on 2026-07-02 passes: `npm.cmd run preflight:reconciliation-cutover` returned 20 claims, 114 evidence documents, 20 receipts, 114 evidence hashes, 20 receipt hashes, no missing required `EVD-*` IDs, no missing `RECON-*` receipt IDs, and no mismatched evidence/receipt hashes. This is local target proof only, not production binding or frontend POD/media proof.
+- `npm.cmd run plan:reconciliation-cutover-repair` is a no-mutation planner. Latest local run is `ready_for_refresh_approval`, with no source-read failures and no schema repair actions; remaining gates are explicit refresh approval, preview/canary/browser/POD-media proof, and re-running production preflight at promotion time.
+- `npm.cmd run plan:reconciliation-cutover-sql` is also no-mutation: it does not connect to Supabase, writes no file, exits code 1, separates read-only verification commands from post-approval mutation/proof commands, and emits only a commented `reviewOnlySqlPlan` so DDL is non-executable by default.
+- `npm.cmd run plan:reconciliation-cutover-approval` is a no-mutation human approval packet: it runs the read-only preflight/repair planner and now renders `ready_for_refresh_approval` locally, with no source-read failures, no blocking preflight error, no repair actions, remaining gates, approval checklist, separated read-only/post-approval commands, and the commented review-only SQL plan.
+- `npm.cmd run check:reconciliation-cutover-env` is a no-mutation environment readiness report: it prints safe presence/host/status metadata only, blocks non-HTTPS Supabase URLs, blocks malformed or non-HTTP(S) preview URLs without echoing raw URL values, and separates read-only production preflight readiness from refresh, preview, and canary/provider approvals.
+- Latest environment readiness is blocked only on approval/runtime proof gates: local `.env.local` now has the non-secret `RECOUP_PRODUCTION_SUPABASE_PROJECT_REF` binding, so production preflight readiness is `ready`; with `RECOUP_PREVIEW_URL` pointed at the new Vercel preview, preview URL presence is `ready`; `RECOUP_REAL_EVIDENCE_REFRESH_APPROVED` is not approved. No provider env was changed.
+- Reviewers Hume and Singer re-reviewed the SQL artifact after fixes and found no remaining spec/safety or code-quality blockers.
+- Reviewers Chandrasekhar and Meitner re-reviewed the approval packet after fixes and found no remaining spec/safety or code-quality blockers.
+- Reviewers Russell and Pauli re-reviewed the environment readiness checker after URL-validation fixes and found no remaining spec/safety or code-quality blockers.
+- Focused proof: `npm.cmd run test -- tests/unit/reconciliation-cutover-env-readiness.test.ts tests/unit/reconciliation-cutover-approval-packet.test.ts tests/unit/reconciliation-cutover-sql-artifact.test.ts tests/unit/reconciliation-cutover-repair-plan.test.ts tests/unit/reconciliation-cutover-preflight.test.ts` passed 5 files / 24 tests.
+- Full proof: `npm.cmd run verify` passed lint, typecheck, 124 Vitest files / 1038 tests, dependency-cruiser with 141 modules / 473 dependencies, and release readiness.
+
+### Frontend Evidence Baseline Verdict
+
+The production frontend renders all 19 captured route/state screenshots with HTTP 200, including `/forensics`, `/forensics/shadcn`, `/run`, `/credit`, `/credit/command`, `/cfo`, `/governance`, `/governance/agents`, `/governance/connectors`, `/governance/evals-finops`, `/governance/memory`, and `/governance/trace`. The real-evidence gap remains open: the captured frontend state shows zero canonical `EVD-*` IDs, zero `RECON-*` reconciliation receipt IDs, and no loaded POD PDF/image/media artifact. The post-implementation proof must move those fields from absent to visible and load-verified when a document supports a decision.
+
+Pre-existing route health notes from the baseline: `/run` logs `ERR_CONNECTION_REFUSED`; `/governance/connectors` renders a production Server Components error message; `/governance/memory` logs the same Server Components production error while still rendering memory content. These are recorded as baseline route-health issues, not caused by the real-evidence implementation.
+
+### Data Freshness Baseline
+
+| Hop | Phase 0 verdict | Evidence anchor |
+|---|---:|---|
+| SAP -> Supabase | MANUAL-STEP-REQUIRED | Live SAP read code exists, but normal retrieval and provisioning still require separate automation before the new real-evidence pipeline can be called production-grade. |
+| Supabase -> Express backend | TTL-CACHED / PERSISTED-CACHED | Current `/forensics` can serve cached read models without the canonical evidence/receipt freshness gate required by the new plan. |
+| Express backend -> Next API | TTL-CACHED / STALE-WHILE-REFRESH | Current Next API behavior is cache-first/background-refresh, not a receipt-hash-gated real-evidence proof. |
+| Backend -> open browser tab | MANUAL-STEP-REQUIRED | No captured baseline route shows live business invalidation evidence for already-open tabs. |
+| Demo/fixture escape hatches | LIVE-CONFIGURED, CACHE DEFAULT-ENABLED | Public production renders real-backend routes, but cache/provenance proof is still insufficient for canonical evidence decisions. |
+
+### Validation Reality Baseline
+
+| Claim / item | Phase 0 verdict | Evidence anchor |
+|---|---:|---|
+| Displayed verdict/confidence/routing | PARTIALLY REAL | Current production screenshots show verdict/routing/status labels, but no `RECON-*` receipt basis. |
+| Multi-source evidence reconciliation | STUBBED / SHAPE-ONLY | Evidence tab shows source labels and record IDs, but no canonical `EVD-*` document IDs or loaded POD media. |
+| Synthetic verdict/rule-input pipeline | STUBBED | The new plan must replace runtime trust in seeded verdict/routing/rule inputs with document comparison receipts. |
+| Production `rule_input_json` path | STUBBED / EXTERNAL-PREMERGED | No Phase 0 frontend proof shows a runtime-derived reconciliation receipt. |
+| Immutable audit + approval fail-closed | REAL | Existing audit/HITL behavior remains outside the canonical real-evidence gap and must be preserved. |
+| Cross-line behavioral gaming detection | REAL LOGIC, PRE-LABELED INPUTS | Shared-surface regression checks are required before changing `cockpitApi.ts` or `cockpitModel.ts`. |
+
+### Independent Audit Verdict Movement - 2026-07-01
+
+This table is the current before/current/post audit ledger for the original pasted audit dimensions. It intentionally separates Phase 0 baseline verdicts from local implementation movement, preview proof, and production closeout. Local green tests are not a production pass.
+
+| Audit item | Phase 0 baseline verdict | Current local implementation status | Preview proof status | Production/post verdict | Required post verdict | Evidence/blocker |
+|---|---|---|---|---|---|---|
+| SAP -> Supabase | MANUAL-STEP-REQUIRED | LOCAL ONLY / SAP DEGRADED. Local materializer, refresh planner, cutover preflight, and approval packet exist. SAP rows are not being faked; selected non-SAP canonical evidence can now keep Maya live query from collapsing to `blocked_live_agent_trace`. The persisted local production project-ref binding proves production Supabase already has the expected 20 claims, 114 evidence documents, and 20 receipts through the default read-only production preflight. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | LIVE or SCHEDULED-AUTOMATED with approved production schema/backfill/refresh proof and browser proof. | `check:real-evidence-proof` blocks on missing refresh approval, missing post manifest, failed visual proof, and missing app-visible POD/media proof; provider env was not changed. |
+| Supabase -> Express backend | TTL-CACHED / PERSISTED-CACHED | LOCAL ONLY. Backend read-model cache is locally freshness-gated by source/evidence/receipt hashes and fails closed when source state cannot be verified. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | LIVE-FRESHNESS-GATED or TTL-CACHED-WITH-FRESHNESS-PROOF. | Read-only production preflight currently proves 20 claims, at least 114 evidence documents, and 20 receipts; preview/browser/POD-media proof is still pending. |
+| Express backend -> Next API | TTL-CACHED / STALE-WHILE-REFRESH | LOCAL ONLY. Next `/api/forensics` locally delegates to backend freshness checks instead of bypassing through direct Supabase cache reads. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | CACHE-WITH-FRESHNESS-PROOF. | Preview smoke, shared-surface smoke, canary proof, and public-alias post capture are pending. |
+| Backend -> open browser tab | MANUAL-STEP-REQUIRED | LOCAL ONLY. SSE invalidation, already-open-tab visible update proof, and visible degraded/stale UI are implemented; `test:e2e:forensics-sse-live-update` and `test:e2e:maya-stale-state` pass locally. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | LIVE-INVALIDATION or POLLED-WITH-VISIBLE-STALE-STATE. | Preview/public-alias screenshots and proof manifests are still required before production closeout. |
+| Demo/fixture escape hatches | LIVE-CONFIGURED, CACHE DEFAULT-ENABLED | LOCAL ONLY. Runtime authoritative decisions are gated behind rollout mode, receipt availability, and no-legacy decision-column invariants. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED UNTIL USER TEST + APPROVAL. | NOT-RUNTIME for fixture/premerged decision inputs. | Provider env and public alias were not changed. |
+| Displayed verdict/confidence/routing | PARTIALLY REAL | LOCAL ONLY. Local model can consume receipt-backed decisions instead of seeded line decision columns. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | REAL receipt-backed verdict, confidence factors, routing basis, and visible deterministic basis. | Public alias still lacks visible `RECON-*` receipt proof. |
+| Multi-source evidence reconciliation | STUBBED / SHAPE-ONLY | LOCAL ONLY. Reconciliation engine, receipts, S1-S8 matrix, mutation tests, confidence/basis assertions, and fail-closed tests are implemented. Read-only production-target Supabase proof now shows 20 reconciliation receipts, 114 evidence documents, all required evidence/receipt IDs, and no hash mismatches. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | REAL. | Production frontend post-capture document/media-backed evidence remains pending; Supabase source-table counts/receipts are proven read-only, but public-alias browser proof is not. |
+| Synthetic verdict/rule-input pipeline | STUBBED | LOCAL ONLY. Runtime decision paths are banned from seeded `rule_input_json`, `verdict`, `routing`, `rule_id`, and `scenario_id`, except explicitly named rollback helpers. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | NOT-RUNTIME. | Preview/canary proof must show authoritative receipt-backed decisions with rollback controls. |
+| Production `rule_input_json` path | STUBBED / EXTERNAL-PREMERGED | LOCAL ONLY. Runtime guards prevent promoted decision paths from reading premerged `rule_input_json`; rollback-only isolation remains explicit. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | NOT-RUNTIME. | Public alias/canary proof is pending. |
+| Runtime `scenario_id` path | PRIVATE GROUPING RISK | LOCAL ONLY. Worklist display/API now uses source-line-backed `workItemId`, `workItemLabel`, and `deductionReason`; scenario keys stay private for grouping only. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | NOT-RUNTIME. | Public alias proof must show no scenario IDs as decision/display inputs. |
+| POD/media frontend proof | ABSENT | LOCAL ONLY UPDATED. `docs/audit/real-evidence-local/2026-07-01-local-proof-5/manifest.json` now captures all 19 routes with HTTP 200, zero capture errors, zero console-error routes, `proofScope: "local"`, `releaseProof: false`, and all four required Maya evidence states showing visible `EVD-POD-S3-L1`, `EVD-REMIT-S3-L1`, `RECON-S3-L1`, visible content hashes/provenance, and a visible POD document link that returns HTTP 200 `application/pdf` with positive byte length. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | REAL MEDIA/DOCUMENT VISIBLE OR GENERATED SOURCE-DOCUMENT PROOF WITH LOAD VERIFICATION. | Preview capture `docs/audit/real-evidence-preview/2026-07-01-preview-2/manifest.json` is blocked at Vercel login and has no visible app evidence. `check:real-evidence-proof` remains blocked until approved post screenshots and POD/media proof exist against the tested URL. |
+
+Reviewer Volta confirmed the earlier POD path was metadata plus an HTML safe-viewer link, not original POD PDF/image bytes. Follow-up local hardening makes that distinction fail-closed: HTML safe-viewer proof is no longer counted as loaded POD media in the capture classifier. After the user clarified that prod-ready proof documents may be generated from controlled evidence rows, the route now renders deterministic generated PDF artifacts for `source_generated` POD, SAP invoice, and remittance rows from their persisted evidence payloads. The refreshed `local-proof-5` manifest proves the POD PDF path locally; those artifacts remain generated/source-controlled evidence, not live SAP/3PL/remittance originals.
+| Immutable audit + approval fail-closed | REAL | LOCAL ONLY / BASELINE PRESERVED. Approval/HITL paths now carry the promoted reconciliation context in local tests. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | REAL with receipt/source basis in approval/audit proof. | Public-alias approval/audit screenshots and backend proof are pending. |
+| Cross-line behavioral gaming detection | REAL LOGIC, PRE-LABELED INPUTS | LOCAL ONLY. Shared-surface regression smoke passes locally for CFO, credit, trace, and evals-finops covered routes. | PREVIEW DEPLOYED BUT BLOCKED BY VERCEL DEPLOYMENT PROTECTION. | PRODUCTION BLOCKED. | REAL LOGIC ON DERIVED INPUTS with no shared-route regression. | Preview and public-alias shared-surface regression proof are pending. |
+
+Fresh no-mutation proof-readiness on 2026-07-02 still exits blocked: `npm.cmd run check:real-evidence-proof` reports 19 baseline live captures ready. With `RECOUP_PREVIEW_URL` set to the Vercel preview, preview URL presence is ready and production preflight readiness is `ready`, but refresh approval is missing, no approved post-implementation manifest exists, and 16 visual-diff route pairs still fail. The separate local-only `local-proof-5` manifest has the generated POD PDF proof, but it is deliberately not treated as preview/public-alias release proof.
+
+Preview deployment attempt on 2026-07-02: Vercel preview `dpl_E3fhiU1v2fhX5H1ND2kD8geRHybW` is `Ready` at `https://recoup-qvclbhlrr-hackathonopenai.vercel.app`, and no production alias promotion was run. Preview capture `docs/audit/real-evidence-preview/2026-07-01-preview-2/manifest.json` is correctly marked `proofScope:"preview"` and `releaseProof:false`, but it is blocked by Vercel deployment protection: captured pages resolve to `https://vercel.com/login`, only 2 screenshots exist, 17 authenticated routes carry the explicit protection error, and no app-visible `EVD-*`, `RECON-*`, hashes, provenance, or POD media are visible. No Vercel automation bypass secret is present in Process/User/Machine env.
+
+Final resume checkpoint on 2026-07-02: focused doc/boundary verification passed `tests/unit/real-evidence-doc-honesty.test.ts`, `tests/invariants/cockpit-no-business-logic.test.ts`, and `tests/unit/realtime-next-routes.test.ts`; reviewer Erdos then found one stale safe-viewer checklist phrase, which was removed and guarded. Fresh full `npm.cmd run verify` passed with lint, typecheck, 124 Vitest files / 1038 tests, dependency-cruiser clean with 141 modules / 473 dependencies, and release readiness. `npm.cmd run check:real-evidence-proof` remains blocked exactly as above with `noMutation: true`.
+
+### Highest Priority Fix
+
+Runtime Forensics must stop treating pre-merged `rule_input_json`, seeded `verdict`, seeded `routing`, seeded `rule_id`, and scenario labels as decision inputs in authoritative mode. It must derive rule input, verdict basis, routing basis, confidence factors, evidence IDs, and receipt IDs from persisted SAP, PO, contract, TPM, POD, carrier, remittance, credit memo, bureau, and payment-history evidence documents.
+
+### Maya Live Query SAP-Degraded Proof - 2026-07-01
+
+SAP service access was temporarily unavailable during this local verification window. The Maya live-query path was remediated so SAP degradation does not collapse selected non-SAP canonical evidence queries into `blocked_live_agent_trace`.
+
+Implemented proof:
+
+- `src/services/serviceLayer.ts` emits `sourceReads.selectedEvidence` from the selected reconciliation/evidence packet without faking SAP rows.
+- `src/services/conductor.ts` and `src/agents/liveForensicsStream.ts` preserve selected-evidence proof record IDs from RunHooks and SDK stream-item events.
+- `src/services/forensicsQuerySession.ts` accepts selected canonical evidence or SAP proof for the live MCP `query.answer` receipt and propagates top-level reconciliation into the live MCP service context.
+- Reviewer Hume found one contract gap: top-level reconciliation was not merged into `mcpServiceContext` for live MCP callers. Remediation added the merge and a regression that calls the real `query.answer` service tool through `request.mcpServiceContext`.
+- `tests/e2e/maya-real-backend-e2e.ts` now keeps the pre-query process-map source-proof contract explicit while allowing UI-summary nodes without backend trace source attrs.
+
+Verification proof:
+
+```powershell
+npm.cmd run test -- tests/unit/forensics-query-session.test.ts tests/unit/live-forensics-stream.test.ts tests/unit/conductor-hooks.test.ts tests/unit/retrieval-tools.test.ts
+npm.cmd run test -- tests/unit/cockpit-api.test.ts
+npm.cmd run test -- tests/invariants/maya-shadcn-qa-contract.test.ts
+npm.cmd run test:e2e:maya-real
+npm.cmd run verify
+```
+
+Latest local results: focused live-query suite passed 4 files / 62 tests; cockpit API passed 121 tests; Maya shadcn QA invariant passed 35 tests; Maya real-backend E2E passed with 20 canonical line items, 8 work items, 5 live query work items, and 50 backend trace rows; full verify passed with 124 files / 1038 tests plus dependency-cruiser and release readiness. No production deploy, public alias promotion, production mode change, or provider-env change was performed.
+
+### Phase 1-3 Implementation Proof
+
+Current status on 2026-07-01: Phases 1, 2, and 3 of `docs/superpowers/plans/2026-07-01-real-evidence-phased-plan-with-audit.md` are complete on local branch `codex/real-evidence-phased-plan-execution`. No production Supabase DML, Render deploy, Vercel deploy, or production mode change was performed.
+
+Implemented proof:
+
+- Phase 1 added canonical Supabase DDL for `recoup_evidence_documents`, `recoup_evidence_links`, `recoup_deduction_claims`, and `recoup_reconciliation_receipts`, plus typed canonical evidence and claim schemas.
+- Phase 2 added deterministic materialization of 20 claims, 114 canonical evidence documents, and 570 evidence links, including `EVD-POD-S3-L1` as a real POD evidence record with provenance and storage URI.
+- Phase 2 added bounded local scripts `materialize:real-evidence` and `verify:real-evidence`; no production write path is invoked unless the script is explicitly run with configured credentials.
+- Phase 3 added `src/services/reconciliationEngine.ts`, `src/services/reconciliationReceipts.ts`, and `tests/unit/reconciliation-engine.test.ts`.
+- Phase 3 tests cover S1-S8 representative reconciliation paths, S3-L1 POD/remittance derivation, missing POD fail-closed behavior, source-field mutation sensitivity, runtime ban checks for `scenario_id`/`scenarioId`/`gold_scenario_id`/`goldScenarioId`, and receipt upsert shape.
+- Phase 3 reviewer Aquinas initially failed the slice because S6 omitted SAP invoice evidence and S7 treated bureau/payment context as optional. Both findings were fixed before closeout: S6 now requires `sap_invoice` and includes `EVD-SAP-INVOICE-S6-L1`; S7 now requires `bureau_alert` and `payment_history` and includes `EVD-BUREAU-S7-L1` plus `EVD-PAYMENT-HISTORY-S7-L1`.
+
+Verification proof after Phase 3 remediation:
+
+```powershell
+npm.cmd run test -- tests/unit/reconciliation-engine.test.ts
+npm.cmd run typecheck
+npm.cmd run lint
+npm.cmd run verify
+```
+
+Latest full gate passed after Phase 3 fixes: lint green, typecheck green, 103 Vitest files / 914 tests green, dependency-cruiser clean with 136 modules / 440 dependencies, and release readiness passed.
+
+### Phase 4 Implementation Proof
+
+Current status on 2026-07-01: Phase 4 of `docs/superpowers/plans/2026-07-01-real-evidence-phased-plan-with-audit.md` is complete locally after reviewer remediation. No production Supabase DML, Render deploy, Vercel deploy, or production mode change was performed.
+
+Implemented proof:
+
+- Promoted Supabase Forensics reads now use `recoup_deduction_claims` plus `recoup_reconciliation_receipts` through `src/adapters/supabaseSyntheticSource.ts`.
+- The old `recoup_deduction_lines` decision-column reader is isolated in `src/adapters/legacySupabaseSettlementRunReader.ts` and marked `rollback only`.
+- `RECOUP_RECONCILIATION_MODE` supports `legacy`, `shadow`, `canary`, and `authoritative`; the runtime default is `legacy` rollback to prevent a production outage before production evidence/receipt materialization.
+- `src/agents/forensics.ts`, `src/services/cockpitApi.ts`, `src/services/cockpitModel.ts`, and `src/services/forensicsQuerySession.ts` pass reconciliation receipts into promoted Forensics decisions, query sessions, SSE/cache validation, and shared CFO/Forensics read models.
+- The `/approval` path now carries the same reconciliation context through `prepareApprovalDecision`, so approved actions are looked up against the promoted receipt-backed Forensics run rather than a separately recomputed legacy context.
+- `cockpitModel.ts` derives recovery/billing rollups and worklist state from `runForensicsInvestigation` decisions, not persisted line `routing` or `scenario_id`.
+- `evals/releaseReadinessCli.ts` respects the active rollout mode. An intermediate full verify failed at `verify:release` with HTTP 404 for `recoup_reconciliation_receipts`, proving the deployment-sequencing risk; the final staged default keeps release readiness green until Phase 5.5 production preflight and explicit human promotion.
+- `tests/invariants/no-legacy-decision-columns-runtime.test.ts` now catches `parsed.*` and `settlementLine.*` legacy decision access and allows old columns only in rollback-marked files.
+- `tests/unit/cockpit-api.test.ts` includes an authoritative rollout test that refreshes Forensics, approves the selected draft, and asserts the request path does not read `recoup_deduction_lines`.
+
+Verification proof after Phase 4 remediation:
+
+```powershell
+npm.cmd run test -- tests/unit/reconciliation-rollout.test.ts tests/invariants/no-premerged-rule-input-runtime.test.ts tests/invariants/no-legacy-decision-columns-runtime.test.ts tests/unit/forensics.test.ts tests/unit/enterprise-connectors.test.ts tests/unit/cockpit.test.ts tests/unit/cockpit-api.test.ts tests/unit/forensics-query-session.test.ts
+npm.cmd run typecheck
+npm.cmd run verify
+```
+
+Latest full gate passed after Phase 4 fixes: lint green, typecheck green, 106 Vitest files / 931 tests green, dependency-cruiser clean with 140 modules / 461 dependencies, and release readiness passed.
+
+### Phase 5-5.5 Implementation Proof
+
+Current status on 2026-07-02: Phase 5 freshness automation and Phase 5.5 cutover preflight are implemented locally for `docs/superpowers/plans/2026-07-01-real-evidence-phased-plan-with-audit.md`. The local runtime now includes the non-secret production project-ref binding, so the default read-only production preflight passes; no production Supabase DML, Render deploy, Vercel deploy, provider env change, production backfill, or rollout-mode promotion was performed.
+
+Implemented proof:
+
+- `src/services/evidenceFreshness.ts` defines the 14 canonical evidence-source freshness inventory and builds deterministic Forensics read-model fingerprints from source table identity, line event hashes, raw source-row freshness hashes, service evidence document hashes, and reconciliation receipt content/basis/confidence hashes.
+- `src/services/cockpitApi.ts` no longer serves `/forensics` cached read models as a blind hit. It loads current governed source state with cache bypass, compares `recoup_cockpit_read_models.source_record_ids_json` with the current fingerprint, returns `hit` only on an exact match, returns `stale` and republishes on mismatch, and fails closed if current source rows cannot be verified.
+- `cockpit/app/api/forensics/route.ts` delegates Forensics reads to backend `/forensics` instead of serving a direct Supabase read-model cache hit, so the browser-facing route cannot bypass backend freshness checks. `cockpit/app/api/read-model-cache.ts` accepts `stale` as a read-model cache status so the Next proxy can carry the backend stale state.
+- `scripts/refreshRealEvidencePipeline.ts` adds an idempotent repository-upsert refresh path for canonical evidence documents, evidence links, deduction claims, and reconciliation receipts. The script fails closed unless `RECOUP_REAL_EVIDENCE_REFRESH_APPROVED=approve-real-evidence-refresh` is present, and the CLI report prints counts/hash counts only.
+- `scripts/preflightReconciliationCutover.ts` adds a read-only cutover preflight that selects only claim IDs/line IDs, evidence IDs/content hashes/timestamps, and receipt IDs/content hashes/timestamps. It fails unless the target has 20 claims, at least 114 evidence documents, 20 receipts, all expected evidence IDs, all expected `RECON-*` receipt IDs, matching evidence/receipt `content_hash` values, and a production Supabase URL host matching `RECOUP_PRODUCTION_SUPABASE_PROJECT_REF` when `--target=production`.
+- `package.json` adds `refresh:real-evidence` and `preflight:reconciliation-cutover`; `render.yaml` intentionally does not schedule the real-evidence refresh job before explicit cutover approval.
+
+Verification proof after Phase 5/5.5:
+
+```powershell
+npm.cmd run test -- tests/unit/source-freshness.test.ts tests/unit/cockpit-api.test.ts tests/unit/real-evidence-refresh-pipeline.test.ts tests/unit/reconciliation-cutover-preflight.test.ts tests/unit/reconciliation-rollout.test.ts
+npm.cmd run typecheck
+```
+
+Initial focused gate passed: 5 Vitest files / 130 tests green, and typecheck green. A reviewer then found stale Next cache bypass, unsafe scheduled refresh, missing hash comparison, raw source-row freshness gaps, and weak production target binding. Post-review focused gate passed: `npm.cmd run test -- tests/unit/realtime-next-routes.test.ts tests/unit/source-freshness.test.ts tests/unit/real-evidence-refresh-pipeline.test.ts tests/unit/reconciliation-cutover-preflight.test.ts tests/invariants/deployment-readiness.test.ts` (`5` files / `54` tests), and `npm.cmd run typecheck` passed. Full post-review `npm.cmd run verify` passed: lint green, typecheck green, 109 Vitest files / 942 tests green, dependency-cruiser clean with 141 modules / 470 dependencies, and release readiness passed.
+
+### Phase 6-7 Local Hardening And Remaining Production Blockers
+
+Current status on 2026-07-01: Phase 6 browser invalidation/provenance wiring, Phase 6.5 unit/e2e/visual hardening scaffolds, and Phase 7 capture scaffolding are implemented locally. No production Supabase DML, Render deploy, Vercel deploy, provider env change, production backfill, public-alias post capture, canary, or rollout-mode promotion was performed.
+
+Implemented proof:
+
+- `/api/forensics/events` exposes a Server-Sent Events stream for Forensics read-model invalidation, and the Next proxy publishes invalidation when forwarded backend source/receipt hashes change.
+- Maya Forensics surfaces visible source/receipt hash chips and a degraded/stale banner when the SSE path is unavailable.
+- Canonical evidence/provenance UI exposes `EVD-*`, `RECON-*`, source system/provenance, content hashes, storage URI/link, freshness, and deterministic basis when backend data supplies those fields.
+- The cockpit worklist display/API contract no longer exposes `scenarioId` or `scenarioLabel`; it uses source-line-backed `workItemId`, human `workItemLabel`, and `deductionReason`, with S1-S8 group keys kept private for grouping only.
+- Missing source evidence now has an explicit no-publish guard: the cockpit API test proves a failed `/forensics/refresh` and failed follow-up `GET /forensics` do not issue another `POST /rest/v1/recoup_cockpit_read_models?on_conflict=model_key`; the only read-model write remains the initial successful publish.
+- Rollback continuity is locally tested: canary mode can use a receipt-backed line, authoritative mode fails closed when a receipt is absent, and the local rollback transitions `canary -> legacy`, `canary -> shadow`, `authoritative -> legacy`, and `authoritative -> shadow` return `legacy_rollback` without requiring receipts. This is operational-continuity proof only; production canary/authoritative proof remains pending.
+- Deployment cutover manifests are locally guarded: `.env.example` documents blank reconciliation cutover controls, and `tests/invariants/deployment-readiness.test.ts` asserts Render/Vercel manifests do not commit `RECOUP_RECONCILIATION_MODE=authoritative|canary`, canary line IDs, or a production Supabase project ref. This is repository safety proof only; live provider env still requires explicit approval and production preflight.
+- Read-only cutover preflight diagnostics still wait for every source-table probe and report sanitized failures together when failures occur. The latest local target now passes with 20 claims, 114 evidence documents, 20 reconciliation receipts, complete required evidence/receipt IDs, and matching evidence/receipt hashes; this is stronger local source-read proof, not a production pass.
+- `scripts/planReconciliationCutoverRepair.ts` and `npm.cmd run plan:reconciliation-cutover-repair` convert preflight state into a no-mutation, approval-gated checklist. The latest dry run exits zero with `noMutation: true`, `preflightStatus: "pass"`, `status: "ready_for_refresh_approval"`, no repair actions, and remaining gates for explicit refresh approval, preview/canary/browser/POD-media proof, and re-running production preflight at promotion time.
+- Phase 6.5 tests cover S1-S8 reconciliation requirements, source-field mutation sensitivity, non-placeholder confidence/deterministic basis, missing-evidence fail-closed paths, SAP OData fallback provenance, SAP fallback UI honesty, citation prefixing, and payment-history freshness naming.
+- E2E/visual hardening scaffolds now exist for SSE live-update proof, degraded/stale-state proof, shared cockpit route smoke, browser-canvas screenshot pixel diffing, and responsive/cross-browser/accessibility checks.
+- `scripts/captureRealEvidenceAudit.ts` plus `npm.cmd run capture:real-evidence-audit` can replay the Phase 0 route inventory against an approved preview or public alias and write a sanitized manifest with route status, sanitized console/page error snippets, sanitized origin/path URLs, visible `EVD-*`, visible `RECON-*`, visible content hashes, visible provenance terms, and POD media/link load proof. Media proof now records image `complete`, decoded image dimensions, response status, content type, positive byte length, and safe host/path; non-image/PDF/link media cannot be marked loaded without HTTP status, content-type, and positive byte-length proof.
+- `scripts/captureRealEvidenceAudit.ts` now has a route-level timeout guard (`RECOUP_CAPTURE_ROUTE_TIMEOUT_MS`, default 60000ms). If a route stalls, the script closes the page, aborts any Node-side POD/media fetch, records a sanitized `captureError`, keeps proof arrays empty, and continues to the remaining routes instead of freezing without a manifest. Manifest sanitization now redacts absolute/relative query params, bearer/basic auth, authorization fields, email-shaped strings, Windows user paths, and quoted/unquoted secret assignments including lowercase and JSON-style service-role keys.
+- `scripts/checkRealEvidenceProofReadiness.ts` plus `npm.cmd run check:real-evidence-proof` provide the no-mutation Phase 7 readiness gate. It consumes the baseline manifest, post manifest, pixel-diff report, and environment readiness, and blocks until every Phase 0 live route has post-capture coverage, screenshot name, existing screenshot file, healthy status, sanitized/no console errors, and passing pixel diff. It separately requires every evidence-detail route (`selected case`, `evidence provenance drawer`, `query answer panel`, `approval audit panel`) to carry its own visible `EVD-POD-S3-L1`, visible `RECON-S3-L1`, visible content hash/provenance proof, and decoded POD image or HTTP-verified non-empty POD PDF/link proof.
+- `docs/audit/real-evidence-comparison/2026-07-01.md` now has one explicit pending comparison row for every Phase 0 live route. `tests/unit/real-evidence-comparison-doc.test.ts` reads the baseline manifest, parses the markdown table by route, checks the row-local baseline/post screenshot paths, and requires every row to remain `pending` until post-capture proof exists.
+- `README.md` now has a `Real Evidence Cutover Status` section that separates local `npm.cmd run verify` regression proof from production-release proof and names `npm.cmd run check:real-evidence-proof`, `RECOUP_PREVIEW_URL`, visible `EVD-POD-S3-L1`, visible `RECON-S3-L1`, and decoded POD image or HTTP-verified non-empty POD PDF/link proof as current cutover blockers.
+- `docs/qa/maya-journey-rag-memory-test-cases-2026-06-28.md` now has a `Historical Scope Note` plus a 2026-07-01 real-evidence proof row, so the older 2026-06-28 production smoke is not treated as today's POD/media cutover proof.
+- Pending proof scaffolds exist at `docs/audit/real-evidence-post-implementation/2026-07-01/README.md`, `docs/audit/real-evidence-preview/2026-07-01/README.md`, and `docs/audit/real-evidence-comparison/2026-07-01.md`. These are explicitly pending and are not production proof.
+
+Verification proof:
+
+```powershell
+npm.cmd run test:reconciliation:matrix
+npm.cmd run test -- tests/unit/realtime-next-routes.test.ts
+npm.cmd run test -- tests/unit/reconciliation-cutover-preflight.test.ts
+npm.cmd run test -- tests/unit/reconciliation-cutover-repair-plan.test.ts tests/unit/reconciliation-cutover-preflight.test.ts
+npm.cmd run test -- tests/unit/evidence-materializer.test.ts tests/unit/reconciliation-receipt-basis.test.ts tests/unit/reconciliation-cutover-preflight.test.ts
+npm.cmd run test -- tests/unit/cockpit.test.ts tests/invariants/no-legacy-decision-columns-runtime.test.ts tests/invariants/no-premerged-rule-input-runtime.test.ts
+npm.cmd run test -- tests/unit/cockpit-api.test.ts
+npm.cmd run test -- tests/unit/reconciliation-rollout.test.ts
+npm.cmd run test -- tests/invariants/deployment-readiness.test.ts
+npm.cmd run test -- tests/unit/real-evidence-proof-readiness.test.ts tests/unit/real-evidence-capture-media-proof.test.ts tests/unit/reconciliation-cutover-approval-packet.test.ts tests/unit/reconciliation-cutover-sql-artifact.test.ts tests/unit/reconciliation-cutover-env-readiness.test.ts
+npm.cmd run test -- tests/unit/evidence-materializer.test.ts tests/unit/real-evidence-proof-readiness.test.ts tests/unit/real-evidence-capture-media-proof.test.ts
+npm.cmd run test -- tests/unit/real-evidence-doc-honesty.test.ts
+npm.cmd run verify:real-evidence
+npm.cmd run verify:real-evidence -- --target=production
+npm.cmd run check:real-evidence-proof
+npm.cmd run verify
+```
+
+Latest focused local gate for the scenario-display hardening passed: `npm.cmd run lint`, `npm.cmd run typecheck`, and `npm.cmd run test -- tests/unit/cockpit.test.ts tests/invariants/no-legacy-decision-columns-runtime.test.ts tests/invariants/no-premerged-rule-input-runtime.test.ts` passed 3 files / 53 tests. Latest full local gate after this focused hardening passed: lint green, typecheck green, 114 Vitest files / 969 tests green, dependency-cruiser clean with 141 modules / 473 dependencies, and release readiness passed. `npm.cmd run verify:real-evidence` returned `{"claims":20,"documents":114,"frontendMediaProof":"not_checked","missingEvidenceIds":[],"proofScope":"local_materialized_dataset","requiredEvidenceIdsPresent":true,"supabasePersistence":"not_checked"}`, which is local materializer proof only and not production Supabase/frontend media proof.
+Latest focused local gate for local deterministic readiness, cutover-preflight wording, and all-table preflight failure aggregation passed: `npm.cmd run test -- tests/unit/evidence-materializer.test.ts tests/unit/reconciliation-receipt-basis.test.ts tests/unit/reconciliation-cutover-preflight.test.ts` passed 3 files / 9 tests, and `npm.cmd run verify:real-evidence` returned the local-only proof-scope JSON above.
+Latest focused local gate for the no-mutation cutover repair planner passed: `npm.cmd run test -- tests/unit/reconciliation-cutover-repair-plan.test.ts tests/unit/reconciliation-cutover-preflight.test.ts` passed 2 files / 9 tests. `npm.cmd run plan:reconciliation-cutover-repair` exited nonzero as expected while blocked and emitted `noMutation: true` plus approval-required repair actions only.
+Latest focused local gate for the missing-evidence no-publish guard passed: `npm.cmd run test -- tests/unit/cockpit-api.test.ts` passed 1 file / 121 tests.
+Latest focused local gate for rollback continuity passed: `npm.cmd run test -- tests/unit/reconciliation-rollout.test.ts` passed 1 file / 6 tests.
+Latest focused local gate for deployment cutover manifest safety passed: `npm.cmd run test -- tests/invariants/deployment-readiness.test.ts` passed 1 file / 10 tests. Latest full local gate after the no-mutation cutover repair planner passed: lint green, typecheck green, 115 Vitest files / 975 tests green, dependency-cruiser clean with 141 modules / 473 dependencies, and release readiness passed.
+Latest focused local gate for Phase 7 proof-readiness hardening passed: `npm.cmd run test -- tests/unit/real-evidence-proof-readiness.test.ts tests/unit/real-evidence-capture-media-proof.test.ts tests/unit/reconciliation-cutover-approval-packet.test.ts tests/unit/reconciliation-cutover-sql-artifact.test.ts tests/unit/reconciliation-cutover-env-readiness.test.ts` passed 5 files / 23 tests. `npm.cmd run typecheck`, `npm.cmd run lint`, and full `npm.cmd run verify` passed after the earlier reviewer fixes.
+Latest focused gate after reviewer Goodall's byte-length finding and follow-up doc-honesty updates passed: `npm.cmd run test -- tests/unit/real-evidence-capture-media-proof.test.ts tests/unit/real-evidence-proof-readiness.test.ts tests/unit/real-evidence-doc-honesty.test.ts tests/unit/evidence-materializer.test.ts tests/unit/real-evidence-comparison-doc.test.ts` passed 5 files / 19 tests. Reviewer Kant first tightened the decode/HTTP/content-type and screenshot-file requirements; reviewer Goodall then found a zero-byte PDF/link false-positive path. Byte-length remediation now rejects non-image POD media unless the manifest carries HTTP status, content type, and positive byte length. The gate also rejects `loaded: true` POD media unless the manifest carries decoded image proof or HTTP/content-type/byte-length proof, and it requires post-capture screenshot names plus existing screenshot files when filesystem proof is enabled. `npm.cmd run verify:real-evidence -- --target=production` now delegates to production preflight instead of emitting `local_materialized_dataset`; the default local runtime passes read-only 20/114/20 Supabase proof. Fresh full `npm.cmd run verify` passed lint, typecheck, 123 Vitest files / 1014 tests, dependency-cruiser clean with 141 modules / 473 dependencies, and release readiness.
+Latest focused local gate for the comparison doc hardening passed: `npm.cmd run test -- tests/unit/real-evidence-comparison-doc.test.ts tests/unit/real-evidence-proof-readiness.test.ts tests/unit/real-evidence-capture-media-proof.test.ts` passed 3 files / 9 tests.
+Latest focused local gate for release-facing documentation honesty, comparison-doc strictness, browser-target preflight, and sanitized browser diagnostics passed: `npm.cmd run test -- tests/unit/real-evidence-browser-target.test.ts tests/unit/real-evidence-doc-honesty.test.ts tests/unit/real-evidence-comparison-doc.test.ts` passed 3 files / 11 tests. Reviewer Averroes found and reviewer Beauvoir approved follow-up sanitizer hardening for whitelisted `error`/`message` diagnostics, including bearer/auth/token/password/api_key/secret/service-role/email-shaped values, quoted JSON-ish assignments, env-prefixed keys, and quoted values containing spaces or commas.
+
+Fail-closed proof still blocking production closeout:
+
+- Superseded local Maya E2E blocker: an earlier post-Kaspersky run failed closed at `/forensics` with HTTP 503 and `missingSource: "supabase-settlement-source-rows"`. The current local Maya real-backend gate is now green under SAP-degraded conditions: `npm.cmd run test:e2e:maya-real` passed against `http://127.0.0.1:4318` with 20 canonical line items, 8 work items, 5 live query work items, and 50 backend trace rows. The remaining blockers in this section are full hardening, preview, production Supabase preflight, post-capture, visual/POD-media proof, and public-alias proof.
+- `npm.cmd run preflight:reconciliation-cutover` now emits structured JSON and exits zero for the local target: 20 claims, 114 evidence documents, 20 reconciliation receipts, 114 evidence hashes, 20 receipt hashes, no missing required evidence/receipt IDs, and no hash mismatches.
+- `npm.cmd run preflight:reconciliation-cutover -- --target=production` emits structured JSON and exits zero by default from the local runtime: 20 claims, 114 evidence documents, 20 receipts, complete required IDs, and matching hashes.
+- `npm.cmd run verify:real-evidence -- --target=production` follows the production preflight path and exits zero from the local runtime with production read-only 20/114/20 proof instead of local materializer proof.
+- `npm.cmd run test:e2e:forensics-sse-live-update` now passes locally against `localhost:3000`; it proves an already-open Maya tab visibly updates after a real same-origin refresh path changes the business hash.
+- `npm.cmd run test:e2e:shared-surfaces` now passes locally after the CFO evals-finops signed read-proxy and duplicate-key fixes. `npm.cmd run test:e2e:maya-stale-state` also passes locally.
+- `npm.cmd run verify:real-evidence-a11y -- --browsers=chromium` passes locally across the script's Chromium mobile/tablet/desktop viewports, including evidence/POD visibility, labeled buttons, horizontal overflow, and contrast checks. Fresh post-fix reruns also passed `npm.cmd run typecheck`, the 5-file / 23-test focused real-evidence doc/proof/browser-target unit gate, `npm.cmd run test:e2e:forensics-sse-live-update`, `npm.cmd run test:e2e:maya-stale-state`, and `npm.cmd run test:e2e:shared-surfaces`. Reviewer Mendel re-reviewed the browser-hardening slice after the final visibility, diagnostics, and contrast fixes and approved with no remaining findings. The default all-browser `npm.cmd run verify:real-evidence-a11y` remains blocked, not passed: Firefox headless launch times out with a Windows graphics framebuffer error after browser binaries were installed. Per user instruction, cross-browser was skipped for this Windows-local proof, but Chromium-only is not release cross-browser proof.
+- Reviewer Bacon found no critical auth/write-access issue in the CFO evals-finops signed read proxy, React key changes, or visual diff fail-closed path. The only reviewer finding was that browser-helper route/login failures could look like selector timeouts; `tests/e2e/real-evidence-browser-helpers.ts` now rejects non-2xx/3xx responses, rejects `/login` redirects, uses the current header worklist path, supports mobile worklist rows, and emits visible button diagnostics when the worklist cannot open.
+- `npm.cmd run verify:real-evidence-visual` emits `docs/audit/real-evidence-comparison/2026-07-01-visual-diff.json` and exits nonzero because post-implementation screenshots are intentionally absent before approved deploy/capture; the visual-diff script now reaches this controlled missing-screenshot failure instead of crashing inside browser evaluation.
+- `npm.cmd run check:real-evidence-proof` emits no-mutation JSON and exits nonzero. Production preflight readiness is `ready` and the Vercel preview URL is recognized, but environment readiness is still blocked by missing refresh approval; no post-implementation manifest exists; post proof counts are zero for decoded/HTTP-verified non-empty media, screenshot files, provenance/hash/evidence/receipt proof; and route-level proof is missing for `selected case`, `evidence provenance drawer`, `query answer panel`, and `approval audit panel`. The latest visual-diff report reflects partial local screenshots only: 3 route pairs pass and 16 required route pairs still fail. Those partial screenshots are not Phase 7 production proof without a matching post manifest generated from the approved public alias capture.
+- Local-only capture proof on 2026-07-02, superseded by `local-proof-5`: the earlier `docs/audit/real-evidence-local/2026-07-01-local-proof/manifest.json` correctly exposed missing Maya evidence-route proof, `docs/audit/real-evidence-local/2026-07-01-local-proof-3/manifest.json` closed that visibility gap while still carrying optional-route timeout/console noise, and `docs/audit/real-evidence-local/2026-07-01-local-proof-4/manifest.json` proved the old HTML safe-viewer/link path. The current local-only manifest is `docs/audit/real-evidence-local/2026-07-01-local-proof-5/manifest.json`; it has 19 captures, 19 HTTP 200 captures, zero capture errors, zero console-error routes, screenshots for all 19 routes, `proofScope: "local"`, `releaseProof: false`, and clean local captures for the previously noisy `/forensics`, `/run`, and `/governance/connectors` routes. It closes the Maya visibility and media-load gap locally: `selected case`, `evidence provenance drawer`, `query answer panel`, and `approval audit panel` each show `EVD-POD-S3-L1`, `EVD-REMIT-S3-L1`, `RECON-S3-L1`, 2-3 content hashes, `source_generated` provenance, and an HTTP-verified POD PDF link (`application/pdf`, 1322 bytes for `EVD-POD-S3-L1`). This remains explicitly not production/preview proof.
 
 ## Maya Real-Backend SAP/Supabase Closure - 2026-06-24
 
