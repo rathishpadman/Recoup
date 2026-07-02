@@ -24,6 +24,18 @@ export function resolveBaseUrl(): string {
   return (process.env.RECOUP_E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/u, "");
 }
 
+export function buildVercelProtectionHeaders(): Record<string, string> | undefined {
+  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  if (secret === undefined || secret.length === 0) {
+    return undefined;
+  }
+
+  return {
+    "x-vercel-protection-bypass": secret,
+    "x-vercel-set-bypass-cookie": "true"
+  };
+}
+
 export async function assertBrowserTargetReachable(baseUrl: string): Promise<void> {
   const loginUrl = new URL(baseUrl);
   loginUrl.pathname = "/login";
@@ -31,7 +43,11 @@ export async function assertBrowserTargetReachable(baseUrl: string): Promise<voi
 
   let response: Response;
   try {
-    response = await fetch(loginUrl, { redirect: "manual" });
+    const headers = buildVercelProtectionHeaders();
+    response = await fetch(loginUrl, {
+      ...(headers === undefined ? {} : { headers }),
+      redirect: "manual"
+    });
   } catch (error) {
     const reason = sanitizeDiagnosticText(error instanceof Error ? error.message : String(error));
     throw new Error(
@@ -77,6 +93,10 @@ export async function newPageWithErrors(browser: Browser, viewport: { height: nu
   page: Page;
 }> {
   const page = await browser.newPage({ viewport });
+  const protectionHeaders = buildVercelProtectionHeaders();
+  if (protectionHeaders !== undefined) {
+    await page.setExtraHTTPHeaders(protectionHeaders);
+  }
   const errors = recordBrowserErrors(page);
 
   return { errors, page };

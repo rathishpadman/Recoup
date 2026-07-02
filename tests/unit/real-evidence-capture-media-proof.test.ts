@@ -5,6 +5,7 @@ import {
   buildCaptureProofMetadata,
   buildMayaRoutePreparationPlan,
   buildRealEvidenceMediaCheckFromProbe,
+  buildVercelProtectionHeaders,
   isVercelDeploymentProtectionPage,
   readCaptureKind,
   safeFetchMediaProof,
@@ -281,6 +282,26 @@ describe("real evidence capture media proof", () => {
     expect(isVercelDeploymentProtectionPage("https://vercel.com/dashboard", "Vercel")).toBe(false);
   });
 
+  it("builds Vercel automation bypass headers without requiring public preview access", () => {
+    const previous = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    try {
+      delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      expect(buildVercelProtectionHeaders()).toBeUndefined();
+
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET = " preview-proof-secret ";
+      expect(buildVercelProtectionHeaders()).toEqual({
+        "x-vercel-protection-bypass": "preview-proof-secret",
+        "x-vercel-set-bypass-cookie": "true"
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      } else {
+        process.env.VERCEL_AUTOMATION_BYPASS_SECRET = previous;
+      }
+    }
+  });
+
   it("sanitizes persisted capture URLs and console text before audit manifest output", () => {
     expect(sanitizeCaptureUrlForManifest("https://user:pass@preview.example.com/case?token=secret#frag")).toBe(
       "https://preview.example.com/case"
@@ -395,6 +416,60 @@ describe("real evidence capture media proof", () => {
       });
     } finally {
       clearTimeout(timeout);
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+  });
+
+  it("passes the Vercel bypass headers alongside existing media proof cookies", async () => {
+    let bypassHeader: string | string[] | undefined;
+    let setBypassCookieHeader: string | string[] | undefined;
+    let cookieHeader: string | string[] | undefined;
+    const server = createServer((request, response) => {
+      bypassHeader = request.headers["x-vercel-protection-bypass"];
+      setBypassCookieHeader = request.headers["x-vercel-set-bypass-cookie"];
+      cookieHeader = request.headers.cookie;
+      response.writeHead(200, { "content-type": "application/pdf" });
+      response.end("%PDF-1.4\n");
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        resolve();
+      });
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected local test server address.");
+    }
+
+    const previous = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    try {
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "media-proof-secret";
+      const proof = await safeFetchMediaProof(`http://127.0.0.1:${address.port.toString()}/pod.pdf`, undefined, {
+        cookie: "recoup_session=present"
+      });
+
+      expect(proof).toMatchObject({
+        contentType: "application/pdf",
+        status: 200,
+        urlPath: "/pod.pdf"
+      });
+      expect(bypassHeader).toBe("media-proof-secret");
+      expect(setBypassCookieHeader).toBe("true");
+      expect(cookieHeader).toBe("recoup_session=present");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      } else {
+        process.env.VERCEL_AUTOMATION_BYPASS_SECRET = previous;
+      }
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {

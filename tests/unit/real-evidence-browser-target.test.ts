@@ -1,6 +1,10 @@
 import { createServer, type Server } from "node:http";
 import { describe, expect, it } from "vitest";
-import { assertBrowserTargetReachable, formatForensicsApiDiagnostic } from "../e2e/real-evidence-browser-helpers.ts";
+import {
+  assertBrowserTargetReachable,
+  buildVercelProtectionHeaders,
+  formatForensicsApiDiagnostic
+} from "../e2e/real-evidence-browser-helpers.ts";
 
 describe("real evidence browser target preflight", () => {
   it("passes when the configured cockpit target serves login", async () => {
@@ -10,6 +14,26 @@ describe("real evidence browser target preflight", () => {
       await expect(assertBrowserTargetReachable(url)).resolves.toBeUndefined();
     } finally {
       await close();
+    }
+  });
+
+  it("builds Vercel deployment protection headers only when the bypass secret is configured", () => {
+    const previous = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    try {
+      delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      expect(buildVercelProtectionHeaders()).toBeUndefined();
+
+      process.env.VERCEL_AUTOMATION_BYPASS_SECRET = " test-bypass-secret ";
+      expect(buildVercelProtectionHeaders()).toEqual({
+        "x-vercel-protection-bypass": "test-bypass-secret",
+        "x-vercel-set-bypass-cookie": "true"
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      } else {
+        process.env.VERCEL_AUTOMATION_BYPASS_SECRET = previous;
+      }
     }
   });
 

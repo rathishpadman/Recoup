@@ -225,7 +225,7 @@ async function captureRoute(
   viewport: { height: number; width: number },
   baselineCapture: BaselineCapture
 ): Promise<RouteCapture> {
-  const page = await browser.newPage({ viewport });
+  const page = await newCapturePage(browser, viewport);
   const consoleErrors: string[] = [];
   let routeTimedOut = false;
   const routeAbort = new AbortController();
@@ -272,6 +272,16 @@ async function captureRoute(
     routeAbort.abort();
     await page.close().catch(() => undefined);
   }
+}
+
+async function newCapturePage(browser: Browser, viewport: { height: number; width: number }): Promise<Page> {
+  const page = await browser.newPage({ viewport });
+  const protectionHeaders = buildVercelProtectionHeaders();
+  if (protectionHeaders !== undefined) {
+    await page.setExtraHTTPHeaders(protectionHeaders);
+  }
+
+  return page;
 }
 
 async function captureRouteBody(
@@ -650,8 +660,9 @@ export async function safeFetchMediaProof(source: string | null, signal?: AbortS
   }
 
   try {
+    const requestHeaders = mergeHeaders(headers, buildVercelProtectionHeaders());
     const requestInit: RequestInit = {
-      ...(headers === undefined ? {} : { headers }),
+      ...(requestHeaders === undefined ? {} : { headers: requestHeaders }),
       method: "GET",
       redirect: "manual",
       ...(signal === undefined ? {} : { signal })
@@ -669,6 +680,41 @@ export async function safeFetchMediaProof(source: string | null, signal?: AbortS
   } catch {
     return { byteLength: null, contentType: null, status: null, urlHost: parsed.host, urlPath: parsed.pathname };
   }
+}
+
+export function buildVercelProtectionHeaders(): Record<string, string> | undefined {
+  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  if (secret === undefined || secret.length === 0) {
+    return undefined;
+  }
+
+  return {
+    "x-vercel-protection-bypass": secret,
+    "x-vercel-set-bypass-cookie": "true"
+  };
+}
+
+function mergeHeaders(left: HeadersInit | undefined, right: HeadersInit | undefined): HeadersInit | undefined {
+  const merged = {
+    ...headersToRecord(left),
+    ...headersToRecord(right)
+  };
+
+  return Object.keys(merged).length === 0 ? undefined : merged;
+}
+
+function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
+  if (headers === undefined) {
+    return {};
+  }
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+
+  return headers;
 }
 
 async function readBaselineManifest(): Promise<BaselineManifest> {
