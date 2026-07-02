@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchEvalFinopsModel } from "../../cockpit/app/cockpit-data.ts";
+import { fetchConnectorReadinessModel, fetchEvalFinopsModel } from "../../cockpit/app/cockpit-data.ts";
 
 describe("cockpit data client", () => {
   const originalPrincipal = process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL;
@@ -48,6 +48,39 @@ describe("cockpit data client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await fetchEvalFinopsModel();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      cache: "no-store",
+      headers: {
+        "x-recoup-human-principal": "human:cfo",
+        "x-recoup-human-token": "test-token"
+      }
+    });
+  });
+
+  it("uses server cockpit auth headers for the connector readiness backend fetch", async () => {
+    process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL = "human:cfo";
+    process.env.RECOUP_COCKPIT_AUTH_TOKEN = "test-token";
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({
+        checkedAtIso: "2026-07-02T00:00:00.000Z",
+        connectors: [],
+        lastRefreshedLabel: "No source health rows checked",
+        provenance: {
+          deterministicBasis: "test",
+          recordIds: ["connectors"],
+          sourceKind: "derived_backend",
+          sourceName: "test"
+        },
+        sourceHealth: [],
+        sourceTiles: [],
+        surface: "connector-readiness"
+      }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchConnectorReadinessModel();
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({

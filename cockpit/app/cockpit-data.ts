@@ -841,7 +841,7 @@ export async function fetchAgentGraphModel(): Promise<AgentGraphCockpitModel> {
 }
 
 export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promise<ConnectorReadinessCockpitModel> {
-  return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers);
+  return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers ?? buildServerCockpitAuthHeaders());
 }
 
 export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalFinopsCockpitModel> {
