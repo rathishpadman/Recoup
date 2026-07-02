@@ -15,4 +15,13 @@ describe("Evals FinOps KPI surface source", () => {
       expect(visibleSources).not.toContain(forbiddenLabel);
     }
   });
+
+  it("route-gates the CFO page while using server cockpit auth for the backend read", () => {
+    const page = readFileSync("cockpit/app/governance/evals-finops/page.tsx", "utf8");
+
+    expect(page).toContain('requireRouteAccess("/governance/evals-finops")');
+    expect(page).toContain("fetchEvalFinopsModel();");
+    expect(page).not.toContain("requireBackendReadAuthHeaders");
+    expect(page).not.toContain("proxyRequest");
+  });
 });
