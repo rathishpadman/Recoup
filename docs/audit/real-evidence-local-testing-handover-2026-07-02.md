@@ -5,7 +5,7 @@ Status: ready for independent audit and user manual testing. Do not merge to `ma
 ## Branch And Deployment Safety
 
 - Current branch: `codex/real-evidence-phased-plan-execution`.
-- Current pushed HEAD: `430565d Use server auth for connector governance reads`.
+- Current pushed HEAD: `89e8cff Document final preview real evidence proof`.
 - `codex/real-evidence-phased-plan-execution` is aligned with `origin/codex/real-evidence-phased-plan-execution`.
 - `main` and `origin/main` are aligned; no merge to `main` was performed.
 - No Vercel Production deploy or alias promotion was performed.
@@ -20,6 +20,7 @@ Status: ready for independent audit and user manual testing. Do not merge to `ma
 - `09bf31b Stabilize preview evals auth path`
 - `38e44e0 Harden preview governance capture proof`
 - `430565d Use server auth for connector governance reads`
+- `89e8cff Document final preview real evidence proof`
 
 ## Local Verification Passed
 
@@ -62,6 +63,6 @@ Final preview capture artifact:
 
 ## Working Tree Notes
 
-- Final preview artifact is currently untracked and ready for audit review: `docs/audit/real-evidence-preview/2026-07-02-430565d/`.
+- Final preview artifact is committed in `89e8cff`: `docs/audit/real-evidence-preview/2026-07-02-430565d/`.
 - Generated post-implementation screenshots under `docs/audit/real-evidence-post-implementation/2026-07-01/screenshots/` remain modified from local/preview smoke runs and were not staged.
 - Untracked `mockups/SaaS-Landing/` remains present and was not staged.
