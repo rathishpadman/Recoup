@@ -239,11 +239,18 @@ export interface ForensicsCockpitModel {
       recordIds: string[];
       documents: Array<{
         citationId: string;
+        contentHash?: string;
         description: string;
+        deterministicComparisonBasis?: string;
         documentId: string;
         documentType: string;
+        evidenceId?: string;
+        evidenceProvenance?: string;
         provenance: MayaFieldProvenance;
+        receiptContentHash?: string;
+        receiptId?: string;
         relevance: string;
+        retrievedAt?: string;
         retrieval?: {
           fileName: string;
           mode: "semantic-vector";
@@ -251,7 +258,12 @@ export interface ForensicsCockpitModel {
           score: number;
           vectorStoreId: string;
         };
+        sourceFreshness?: string;
         sourceLabel: string;
+        sourceRecordId?: string;
+        sourceSystem?: string;
+        storageHref?: string;
+        storageUri?: string;
         summary: string;
         verifiedLabel: string;
       }>;
@@ -751,9 +763,9 @@ export interface WorklistItem {
   routing?: string;
   routingLabel: string;
   recommendedActionLabel: string;
-  scenarioId?: string;
-  scenarioLabel: string;
-  scenarioType: string;
+  workItemId?: string;
+  workItemLabel: string;
+  deductionReason: string;
   amount: string;
   verdict: string;
   verdictLabel: string;
@@ -829,7 +841,7 @@ export async function fetchAgentGraphModel(): Promise<AgentGraphCockpitModel> {
 }
 
 export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promise<ConnectorReadinessCockpitModel> {
-  return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers);
+  return fetchJson<ConnectorReadinessCockpitModel>("/connectors", headers ?? buildServerCockpitAuthHeaders());
 }
 
 export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalFinopsCockpitModel> {

@@ -6,6 +6,7 @@ import type {
 import type { DemoSession } from "../../app/demo-auth.ts";
 
 export interface MayaForensicsSurfaceProps {
+  businessFreshness: MayaForensicsBusinessFreshness;
   connectors: ConnectorReadinessCockpitModel;
   model: ForensicsCockpitModel;
   modelVersion: number;
@@ -13,6 +14,15 @@ export interface MayaForensicsSurfaceProps {
   refreshError?: string;
   refreshStatus: "error" | "idle" | "refreshing";
   session: DemoSession;
+}
+
+export interface MayaForensicsBusinessFreshness {
+  cacheStatus?: string;
+  message?: string;
+  receiptHash?: string;
+  sourceHash?: string;
+  status: "connected" | "degraded" | "loading";
+  updatedAtIso?: string;
 }
 
 export type MayaSurfaceSection = "overview" | "worklist" | "cases" | "evidence" | "approvals";

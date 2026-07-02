@@ -1,6 +1,7 @@
 import { runtimeModels } from "../../config/models.js";
 import type { GovernedConfigValues } from "../../config/governed.js";
 import type { DecisionConfidenceThreshold } from "../../config/releaseOwnerInputs.js";
+import { readCanaryLines, readReconciliationMode, type ReconciliationMode } from "../../config/reconciliationRollout.js";
 import type { SourcePort } from "../adapters/source.js";
 import type { RuleFinding, RuleInput } from "../core/rules/index.js";
 import { redactPiiForModelContext } from "../guardrails/input/pii.js";
@@ -25,6 +26,10 @@ import { mergeEvidenceDocuments, type EvidenceDocument } from "../tools/retrieva
 import { draftRecovery } from "./recoveryDrafter.js";
 import type { DraftRebillAction } from "../tools/actions/draftRebill.js";
 import { createAgentHandoffPacket } from "./messages.js";
+import { buildLegacyRollbackRuleInput } from "../services/legacyForensicsPath.js";
+import { reconcileDeductionClaim, type ReconciliationReceipt } from "../services/reconciliationEngine.js";
+import { currentDecisionSourceForLine } from "../services/reconciliationRollout.js";
+import type { RealEvidenceDataset } from "../services/evidenceMaterializer.js";
 import {
   assessCrestlineM6Containment,
   createCrestlineM6ContainmentReviewAction,
@@ -104,9 +109,17 @@ export interface RunForensicsInvestigationOptions {
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig: GovernedConfigValues;
   memoryStore?: MemoryStore;
+  reconciliation?: ForensicsReconciliationOptions;
   serviceContext?: ServiceInvocationContext;
   sessionId?: string;
   source: SourcePort;
+}
+
+export interface ForensicsReconciliationOptions {
+  canaryLines?: ReadonlySet<string>;
+  evidenceDataset?: RealEvidenceDataset;
+  mode?: ReconciliationMode;
+  receipts?: readonly ReconciliationReceipt[];
 }
 
 type MaybePromise<T> = T | Promise<T>;
@@ -133,6 +146,7 @@ export function runForensicsInvestigation(options: RunForensicsInvestigationOpti
       line,
       state.trace,
       retrieveEvidenceDocuments(line, state.trace, serviceContext),
+      runOptions.reconciliation,
       runOptions.decisionConfidenceThreshold
     )
   );
@@ -155,6 +169,7 @@ export async function runForensicsInvestigationWithEvidenceSources(
         line,
         state.trace,
         mergeEvidenceDocuments(line, retrieveEvidenceDocuments(line, state.trace, serviceContext), [...injectedDocs]),
+        runOptions.reconciliation,
         runOptions.decisionConfidenceThreshold
       )
     );
@@ -225,10 +240,12 @@ function buildForensicsDecision(
   line: DeductionLine,
   trace: ForensicsTraceEvent[],
   evidenceDocuments: EvidenceDocument[],
+  reconciliation: ForensicsReconciliationOptions | undefined,
   decisionConfidenceThreshold: DecisionConfidenceThreshold | undefined
 ): DeductionDecision {
-  const ruleId = toRuleId(line.ruleId);
-  const finding = invokeTracedTool(trace, "core.evaluateRule", buildRuleInput(line, ruleId)) as RuleFinding;
+  const ruleInput = buildCurrentRuleInput(line, reconciliation);
+  const ruleId = ruleInput.ruleId;
+  const finding = invokeTracedTool(trace, "core.evaluateRule", ruleInput) as RuleFinding;
   trace.push({
     type: "finding",
     payload: {
@@ -464,31 +481,60 @@ function invokeTracedTool(
   return invokeServiceTool(toolName, input, context);
 }
 
-function buildRuleInput(line: DeductionLine, ruleId: RuleId): RuleInput {
-  if (line.ruleInput === undefined) {
-    throw new Error(`Supabase rule_input_json required for ${line.lineId}.`);
+function buildCurrentRuleInput(
+  line: DeductionLine,
+  reconciliation: ForensicsReconciliationOptions | undefined
+): RuleInput {
+  const mode = reconciliation?.mode ?? readReconciliationMode();
+  const canaryLines = reconciliation?.canaryLines ?? readCanaryLines();
+  const decisionSource = currentDecisionSourceForLine({
+    availability: {
+      hasReceipt(lineId) {
+        return findReconciliationReceipt(reconciliation, lineId) !== undefined || canDeriveReconciliationReceipt(reconciliation, lineId);
+      }
+    },
+    canaryLines,
+    lineId: line.lineId,
+    mode
+  });
+
+  if (decisionSource.source === "legacy_rollback") {
+    return buildLegacyRollbackRuleInput(line);
   }
 
-  const parsed = CoreRuleInputSchema.parse(line.ruleInput) as RuleInput;
-  if (parsed.lineId !== line.lineId || parsed.ruleId !== ruleId || parsed.period !== line.period) {
-    throw new Error(`Supabase rule_input_json does not match settlement line ${line.lineId}.`);
-  }
-
-  return parsed;
+  const receipt = requireReconciliationReceipt(reconciliation, line.lineId);
+  const derivedRuleInput = receipt.derivedRuleInput;
+  return CoreRuleInputSchema.parse(derivedRuleInput) as RuleInput;
 }
 
-function toRuleId(ruleId: string): RuleId {
-  switch (ruleId) {
-    case "damage-evidence-valid":
-    case "promo-not-captured":
-    case "shortage-pod-mismatch":
-    case "otif-fine-valid":
-    case "otif-timestamp-mismatch":
-    case "pricing-below-contract":
-    case "promo-overclaim":
-    case "duplicate-credit":
-      return ruleId;
-    default:
-      throw new Error(`Unknown ruleId: ${ruleId}`);
+function requireReconciliationReceipt(
+  reconciliation: ForensicsReconciliationOptions | undefined,
+  lineId: string
+): ReconciliationReceipt {
+  const existingReceipt = findReconciliationReceipt(reconciliation, lineId);
+  if (existingReceipt !== undefined) {
+    return existingReceipt;
   }
+
+  const evidenceDataset = reconciliation?.evidenceDataset;
+  const claim = evidenceDataset?.claims.find((candidate) => candidate.lineId === lineId);
+  if (evidenceDataset === undefined || claim === undefined) {
+    throw new Error(`Reconciliation receipt required for ${lineId}.`);
+  }
+
+  return reconcileDeductionClaim({ claim, documents: evidenceDataset.documents });
+}
+
+function findReconciliationReceipt(
+  reconciliation: ForensicsReconciliationOptions | undefined,
+  lineId: string
+): ReconciliationReceipt | undefined {
+  return reconciliation?.receipts?.find((receipt) => receipt.lineId === lineId);
+}
+
+function canDeriveReconciliationReceipt(
+  reconciliation: ForensicsReconciliationOptions | undefined,
+  lineId: string
+): boolean {
+  return reconciliation?.evidenceDataset?.claims.some((claim) => claim.lineId === lineId) === true;
 }

@@ -1,0 +1,517 @@
+{
+  "capturedAt": "2026-07-01T05:36:34.025Z",
+  "baseUrl": "https://recoup-self-eta.vercel.app",
+  "browser": "chromium",
+  "viewport": {
+    "width": 1440,
+    "height": 1100
+  },
+  "productionDeployment": {
+    "provider": "vercel",
+    "deploymentId": "dpl_GmRnve57izaS1GndBn2N1WBjTxRv",
+    "deploymentUrl": "https://recoup-hakd515z9-hackathonopenai.vercel.app",
+    "target": "production",
+    "status": "Ready",
+    "alias": "https://recoup-self-eta.vercel.app",
+    "inspectedAt": "2026-07-01T05:36:34.026Z"
+  },
+  "captures": [
+    {
+      "name": "public landing",
+      "url": "https://recoup-self-eta.vercel.app/",
+      "screenshot": "00-public-landing.png",
+      "persona": "public",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "login entry",
+      "url": "https://recoup-self-eta.vercel.app/login?loginId=Maya",
+      "screenshot": "01-login-entry.png",
+      "persona": "public",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "maya workspace",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "02-maya-workspace.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "forensics worklist",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "03-forensics-worklist.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "selected case",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "04-forensics-selected-case.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "evidence provenance drawer",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "05-evidence-provenance-drawer.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "query answer panel",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "06-query-answer-panel.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "approval audit panel",
+      "url": "https://recoup-self-eta.vercel.app/forensics/shadcn",
+      "screenshot": "07-approval-audit-panel.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "cfo view if live",
+      "url": "https://recoup-self-eta.vercel.app/cfo",
+      "screenshot": "08-cfo-view-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "trace view if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/trace",
+      "screenshot": "10-trace-view-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "evals finops if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/evals-finops",
+      "screenshot": "11-evals-finops-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "david credit risk if live",
+      "url": "https://recoup-self-eta.vercel.app/credit",
+      "screenshot": "09-david-credit-risk-if-live.png",
+      "persona": "david",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true
+    },
+    {
+      "name": "forensics classic if live",
+      "url": "https://recoup-self-eta.vercel.app/forensics",
+      "requestedPath": "/forensics",
+      "screenshot": "12-forensics-classic-if-live.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true,
+      "redirected": false
+    },
+    {
+      "name": "run workspace if live",
+      "url": "https://recoup-self-eta.vercel.app/run",
+      "requestedPath": "/run",
+      "screenshot": "13-run-workspace-if-live.png",
+      "persona": "Maya",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+      ],
+      "liveRoute": true,
+      "redirected": false
+    },
+    {
+      "name": "david command if live",
+      "url": "https://recoup-self-eta.vercel.app/credit/command",
+      "requestedPath": "/credit/command",
+      "screenshot": "14-david-command-if-live.png",
+      "persona": "david",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true,
+      "redirected": false
+    },
+    {
+      "name": "governance overview if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/agents",
+      "requestedPath": "/governance",
+      "screenshot": "15-governance-overview-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true,
+      "redirected": true
+    },
+    {
+      "name": "governance agents if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/agents",
+      "requestedPath": "/governance/agents",
+      "screenshot": "16-governance-agents-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [],
+      "liveRoute": true,
+      "redirected": false
+    },
+    {
+      "name": "governance connectors if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/connectors",
+      "requestedPath": "/governance/connectors",
+      "screenshot": "17-governance-connectors-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [
+        "Error: An error occurred in the Server Components render. The specific message is omitted in production builds to avoid leaking sensitive details. A digest property is included on this error instance which may provide additional details about the nature of the error."
+      ],
+      "liveRoute": true,
+      "redirected": false
+    },
+    {
+      "name": "governance memory if live",
+      "url": "https://recoup-self-eta.vercel.app/governance/memory",
+      "requestedPath": "/governance/memory",
+      "screenshot": "18-governance-memory-if-live.png",
+      "persona": "CFO",
+      "status": 200,
+      "cacheHeader": null,
+      "title": "Recoup Forensics Cockpit",
+      "visibleEvidenceIds": [],
+      "visibleReceiptIds": [],
+      "mediaChecks": [
+        {
+          "label": "POD document/media",
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "present": false,
+          "loaded": false,
+          "contentType": null,
+          "naturalWidth": null,
+          "naturalHeight": null,
+          "note": "No visible POD PDF/image/media artifact in current production UI."
+        }
+      ],
+      "consoleErrors": [
+        "Error: An error occurred in the Server Components render. The specific message is omitted in production builds to avoid leaking sensitive details. A digest property is included on this error instance which may provide additional details about the nature of the error."
+      ],
+      "liveRoute": true,
+      "redirected": false
+    }
+  ],
+  "mayaStatefulRecaptureAt": "2026-07-01T05:38:15.186Z",
+  "additionalRouteCaptureAt": "2026-07-01T05:44:58.348Z"
+}

@@ -156,6 +156,63 @@ describe("conductor AgentHooks audit receipts", () => {
     expect(JSON.stringify(receipts)).not.toContain("Why is this recoverable?");
   });
 
+  it("records canonical selected-evidence MCP proof without SAP evidence", () => {
+    const hooks = new FakeRunHooks();
+    const receipts: AgentHookAuditReceipt[] = [];
+    const selectedRecordIds = ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1"];
+    const toolCallDetails = {
+      toolCall: {
+        arguments: JSON.stringify({
+          question: "Which proof can I cite?",
+          recordIds: selectedRecordIds,
+          selectedLineId: "S3-L1"
+        })
+      }
+    };
+    const toolResult = JSON.stringify({
+      text: JSON.stringify({
+        sourceReadStatus: "source_backed_selected_scope",
+        sourceReads: {
+          canonicalModel: "EvidenceDocument",
+          selectedEvidence: [
+            {
+              documentId: "EVD-POD-S3-L1",
+              documentType: "pod",
+              recordIds: ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1"],
+              source: "supabase"
+            }
+          ],
+          selectedLineId: "S3-L1",
+          selectedRecordIds,
+          sourceFreshness: "snapshot",
+          transportLabel: "Governed canonical snapshot",
+          transportLayer: "supabase_canonical_snapshot"
+        }
+      }),
+      type: "text"
+    });
+
+    registerRunHookAuditReceipts(hooks, (receipt) => receipts.push(receipt), {
+      recordIds: selectedRecordIds
+    });
+    hooks.emit("agent_tool_end", {}, { name: "Forensics Investigator" }, { name: "query_answer" }, toolResult, toolCallDetails);
+
+    expect(receipts[0]).toMatchObject({
+      hook: "agent_tool_end",
+      toolInputRecordIds: selectedRecordIds,
+      toolInputSelectedLineId: "S3-L1",
+      toolName: "query_answer",
+      toolOutputCanonicalModel: "EvidenceDocument",
+      toolOutputSelectedEvidenceRecordIds: ["S3-L1", "RECON-S3-L1", "EVD-POD-S3-L1", "POD-S3-L1"],
+      toolOutputSelectedLineId: "S3-L1",
+      toolOutputSelectedRecordIds: selectedRecordIds,
+      toolOutputSourceFreshness: "snapshot",
+      toolOutputSourceReadStatus: "source_backed_selected_scope",
+      toolOutputTransportLabel: "Governed canonical snapshot",
+      toolOutputTransportLayer: "supabase_canonical_snapshot"
+    });
+  });
+
   it("reads selected-evidence MCP proof from SDK tool-call prototype properties", () => {
     const hooks = new FakeRunHooks();
     const receipts: AgentHookAuditReceipt[] = [];

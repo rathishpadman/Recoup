@@ -45,7 +45,7 @@ describe("Maya real-backend contract", () => {
   it("requires Maya real-backend acceptance to exercise realistic operator query scenarios", () => {
     const e2e = readFileSync("tests/e2e/maya-real-backend-e2e.ts", "utf8");
 
-    expect(e2e).toContain("realMayaQueryScenarios");
+    expect(e2e).toContain("realMayaQueryWorkItems");
     expect(e2e).toContain("customer-dispute-response");
     expect(e2e).toContain("manager-approval-brief");
     expect(e2e).toContain("billing-vs-recovery-route");

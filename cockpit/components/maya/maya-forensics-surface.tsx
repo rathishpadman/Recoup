@@ -140,6 +140,25 @@ async function readWorkItemDetailErrorBody(response: Response): Promise<WorkItem
   }
 }
 
+function reconcileWorklistItemFromModel(
+  worklist: readonly MayaWorklistItem[],
+  current: MayaWorklistItem | undefined
+): MayaWorklistItem | undefined {
+  if (current === undefined) {
+    return undefined;
+  }
+
+  return (
+    worklist.find((item) => item.workItemId === current.workItemId) ??
+    worklist.find((item) => item.lineId === current.lineId) ??
+    worklist.find((item) => current.lineIds.some((lineId) => item.lineIds.includes(lineId)))
+  );
+}
+
+function worklistContainsLine(worklist: readonly MayaWorklistItem[], lineId: string | undefined): boolean {
+  return lineId !== undefined && worklist.some((item) => item.lineIds.includes(lineId));
+}
+
 function beatTwelveMetricCards(
   items: MayaWorklistItem[],
   kpiItems: MayaForensicsSurfaceProps["model"]["kpiStrip"]
@@ -185,8 +204,8 @@ function filterOverviewCaseConcentrationItems(items: MayaWorklistItem[], query: 
     [
       item.lineId,
       item.customerLabel,
-      item.scenarioLabel,
-      item.scenarioType,
+      item.workItemLabel,
+      item.deductionReason,
       item.routingLabel,
       item.queueLabel,
       item.recommendedActionLabel,
@@ -339,6 +358,7 @@ function beatTwelveSourceReadinessIcon(statusTone: MayaSourceTile["statusTone"])
 }
 
 export function MayaForensicsSurface({
+  businessFreshness,
   connectors,
   model,
   modelVersion,
@@ -383,6 +403,7 @@ export function MayaForensicsSurface({
       ? openedCaseDetail
       : undefined;
   const agentLaunchItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem ?? visibleSelectedWorklistItem;
+  const businessFreshnessBanner = <ForensicsBusinessFreshnessBanner businessFreshness={businessFreshness} />;
 
   const openInvestigationForLine = React.useCallback(async (
     item: MayaWorklistItem,
@@ -516,15 +537,25 @@ export function MayaForensicsSurface({
   }, []);
 
   React.useEffect(() => {
-    cancelWorkItemDetailRequest(detailRequestSequence);
-    setSelectedWorklistItem((current) =>
-      current === undefined ? undefined : model.worklist.find((item) => item.lineId === current.lineId)
+    setSelectedWorklistItem((current) => reconcileWorklistItemFromModel(model.worklist, current));
+    setOpenedCaseWorklistItem((current) => reconcileWorklistItemFromModel(model.worklist, current));
+    setOpenedCaseDetail((current) => {
+      if (current === undefined) {
+        return undefined;
+      }
+
+      const refreshedWorkItem = reconcileWorklistItemFromModel(model.worklist, current.workItem);
+      if (refreshedWorkItem === undefined || !refreshedWorkItem.lineIds.includes(current.lineId)) {
+        return undefined;
+      }
+
+      return { ...current, workItem: refreshedWorkItem };
+    });
+    setWorkItemDetailLoadState((current) =>
+      current === undefined || worklistContainsLine(model.worklist, current.lineId) ? current : undefined
     );
-    setOpenedCaseWorklistItem(undefined);
-    setOpenedCaseDetail(undefined);
-    setWorkItemDetailLoadState(undefined);
-    setReturnContextLineId(undefined);
-    setAgentDockOpenLineId(undefined);
+    setReturnContextLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
+    setAgentDockOpenLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
   }, [model.worklist, modelVersion]);
 
   React.useEffect(() => {
@@ -592,7 +623,7 @@ export function MayaForensicsSurface({
                           Case Concentration Analysis
                         </CardTitle>
                         <CardDescription>
-                          Filter and sort the backend worklist by case ID, customer, scenario text, line count, and displayed exposure.
+                          Filter and sort the backend worklist by case ID, customer, work item text, line count, and displayed exposure.
                         </CardDescription>
                       </div>
                       <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 px-3 py-2 lg:min-w-48">
@@ -613,8 +644,8 @@ export function MayaForensicsSurface({
                           onChange={(event) => {
                             setOverviewCaseFilter(event.target.value);
                           }}
-                          placeholder="Filter ID, customer, or scenario"
-                          title="Filter by case ID, customer, or scenario text"
+                          placeholder="Filter ID, customer, or work item"
+                          title="Filter by case ID, customer, or work item text"
                           value={overviewCaseFilter}
                         />
                         {overviewCaseFilter.trim().length > 0 ? (
@@ -632,7 +663,7 @@ export function MayaForensicsSurface({
                         ) : null}
                       </InputGroup>
                       <span className="text-xs text-muted-foreground">
-                        Showing {overviewConcentrationItems.length.toString()} of {model.worklist.length.toString()} worklist scenarios
+                        Showing {overviewConcentrationItems.length.toString()} of {model.worklist.length.toString()} worklist work items
                       </span>
                     </div>
                   </CardHeader>
@@ -753,14 +784,9 @@ export function MayaForensicsSurface({
                                   <TableCell>
                                     <div className="grid min-w-0 gap-0.5">
                                       <span className="font-medium">{item.lineId}</span>
-                                      <span className="truncate text-xs text-muted-foreground" title={item.scenarioLabel}>
-                                        {item.scenarioLabel}
+                                      <span className="truncate text-xs text-muted-foreground" title={item.workItemLabel}>
+                                        {item.workItemLabel}
                                       </span>
-                                      {isSelected ? (
-                                        <Badge className="mt-1 w-fit" variant="outline">
-                                          Local focus
-                                        </Badge>
-                                      ) : null}
                                     </div>
                                   </TableCell>
                                   <TableCell>
@@ -974,8 +1000,8 @@ export function MayaForensicsSurface({
                       </Alert>
                     ) : null}
                       <div className="grid gap-1">
-                        <p className="text-sm text-muted-foreground">Scenario</p>
-                        <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.scenarioLabel}</h2>
+                        <p className="text-sm text-muted-foreground">Work item</p>
+                        <h2 className="text-xl font-semibold leading-tight">{visibleSelectedWorklistItem.workItemLabel}</h2>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button className="w-fit gap-1.5 px-2 text-[11px]" size="xs" type="button" variant="outline">
@@ -1118,7 +1144,7 @@ export function MayaForensicsSurface({
                       >
                         <TableCell>
                           <div className="grid gap-0.5">
-                            <span className="font-medium">{item.scenarioLabel}</span>
+                            <span className="font-medium">{item.workItemLabel}</span>
                             <span className="text-xs text-muted-foreground">{item.lineId}</span>
                           </div>
                         </TableCell>
@@ -1182,7 +1208,7 @@ export function MayaForensicsSurface({
                 <>
                   <div className="grid gap-3">
                     <DetailStateFact label="Customer" value={visibleSelectedWorklistItem.customerLabel} />
-                    <DetailStateFact label="Scenario" value={visibleSelectedWorklistItem.scenarioLabel} />
+                    <DetailStateFact label="Work item" value={visibleSelectedWorklistItem.workItemLabel} />
                     <DetailStateFact label="Amount" value={visibleSelectedWorklistItem.amount} />
                     <DetailStateFact label="Line IDs" value={visibleSelectedWorklistItem.lineIds.length.toString()} />
                     <DetailStateFact label="Evidence" value={visibleSelectedWorklistItem.evidenceLabel} />
@@ -1234,7 +1260,7 @@ export function MayaForensicsSurface({
     return (
       <MayaWorkspaceShell
         activeSection={activeSection}
-        heading={caseWorklistItem.scenarioLabel}
+        heading={caseWorklistItem.workItemLabel}
         onSectionChange={handleSurfaceSectionChange}
         onRefreshSources={onRefreshSources}
         pendingActionCount={model.actionInbox.length}
@@ -1246,6 +1272,7 @@ export function MayaForensicsSurface({
         worklistCount={model.worklist.length}
       >
         <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
+        {businessFreshnessBanner}
         <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
           <aside className="min-w-0" data-testid="maya-case-worklist-rail">
             <DeductionWorklistTable
@@ -1305,6 +1332,7 @@ export function MayaForensicsSurface({
         worklistCount={model.worklist.length}
       >
         <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
+        {businessFreshnessBanner}
         <BeatTwelveReturnedWorklist
           connectors={connectors}
           items={model.worklist}
@@ -1331,10 +1359,61 @@ export function MayaForensicsSurface({
       worklistCount={model.worklist.length}
     >
       <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
+      {businessFreshnessBanner}
       <section className="flex min-w-0 flex-1 flex-col gap-3" aria-label="Maya morning run summary">
         {renderMayaRootSection()}
       </section>
     </MayaWorkspaceShell>
+  );
+}
+
+function ForensicsBusinessFreshnessBanner({
+  businessFreshness
+}: {
+  businessFreshness: MayaForensicsSurfaceProps["businessFreshness"];
+}) {
+  const businessFreshnessIsDegraded = businessFreshness.status === "degraded";
+  if (!businessFreshnessIsDegraded) {
+    if (businessFreshness.sourceHash === undefined && businessFreshness.receiptHash === undefined) {
+      return null;
+    }
+
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="forensics-business-freshness">
+        {businessFreshness.sourceHash === undefined ? null : (
+          <Badge data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
+            {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
+          </Badge>
+        )}
+        {businessFreshness.receiptHash === undefined ? null : (
+          <Badge data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
+            {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
+          </Badge>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Alert className="border-amber-500/45 bg-amber-50/70 text-amber-950" data-testid="forensics-stale-state">
+      <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
+      <AlertTitle>Forensics live updates degraded</AlertTitle>
+      <AlertDescription>
+        <div className="flex flex-wrap gap-2">
+          <span>{businessFreshness.message ?? "Displayed business data may be stale until the stream reconnects."}</span>
+          {businessFreshness.sourceHash === undefined ? null : (
+            <Badge data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
+              {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
+            </Badge>
+          )}
+          {businessFreshness.receiptHash === undefined ? null : (
+            <Badge data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
+              {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
+            </Badge>
+          )}
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -1688,7 +1767,7 @@ function BeatTwelveReturnedWorklist({
                     </TableCell>
                     <TableCell>
                       <div className="grid gap-0.5">
-                        <p className="font-medium">{item.scenarioLabel}</p>
+                        <p className="font-medium">{item.workItemLabel}</p>
                         <p className="text-xs text-muted-foreground">{item.lineCount.toString()} lines</p>
                       </div>
                     </TableCell>

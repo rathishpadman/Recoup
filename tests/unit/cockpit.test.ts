@@ -35,6 +35,8 @@ import type {
 } from "../../src/services/serviceLayer.js";
 import { runRiskMeshClosedLoop } from "../../src/agents/riskMesh.js";
 import type { MemoryRecord } from "../../src/memory/schema.js";
+import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
+import { reconcileDeductionClaim } from "../../src/services/reconciliationEngine.js";
 import { retrieveBureau } from "../../src/tools/retrieval/bureau.js";
 import { retrieveDocs } from "../../src/tools/retrieval/docs.js";
 import { retrieveTpm } from "../../src/tools/retrieval/tpm.js";
@@ -149,6 +151,10 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.worklist.every((item) => item.recommendedActionLabel.trim().length > 0)).toBe(true);
     expect(model.worklist.every((item) => item.recommendedActionLabel === item.routingLabel)).toBe(true);
     expect(model.worklist.every((item) => item.recommendedActionLabel !== item.routing)).toBe(true);
+    expect(JSON.stringify(model.worklist)).not.toContain("scenarioId");
+    expect(JSON.stringify(model.worklist)).not.toContain("scenarioLabel");
+    expect(model.worklist.every((item) => item.workItemLabel.trim().length > 0)).toBe(true);
+    expect(model.worklist.every((item) => !/^S[1-8]-\d+ lines$/u.test(item.workItemLabel))).toBe(true);
     const expectedEvidenceSourceLabels = [
       ...new Set(model.selected.evidencePack.documents.map((document) => document.sourceLabel))
     ];
@@ -195,6 +201,81 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.recoveryTracker.billingLines).toBe(7);
   });
 
+  it("exposes canonical evidence document and reconciliation receipt provenance for the selected case", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const model = buildForensicsCockpitModel({
+      governedConfig,
+      reconciliation: {
+        evidenceDataset,
+        mode: "authoritative",
+        receipts
+      },
+      ...sourceOptions
+    });
+    const receipt = receipts.find((candidate) => candidate.lineId === model.selected.lineId);
+    if (receipt === undefined) {
+      throw new Error(`Expected reconciliation receipt for selected line ${model.selected.lineId}.`);
+    }
+    const podDocument = model.selected.evidencePack.documents.find((document) => document.documentType === "pod");
+    if (podDocument === undefined) {
+      throw new Error("Expected selected evidence pack to expose a canonical POD document.");
+    }
+
+    expect(model.selected.evidencePack.recordIds).toEqual(
+      expect.arrayContaining([receipt.receiptId, podDocument.evidenceId])
+    );
+    expect(podDocument.contentHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(podDocument.deterministicComparisonBasis).toContain("canonical evidence document comparison");
+    expect(podDocument).toMatchObject({
+      evidenceId: `EVD-POD-${model.selected.lineId}`,
+      evidenceProvenance: "source_generated",
+      receiptContentHash: receipt.contentHash,
+      receiptId: receipt.receiptId,
+      retrievedAt: "2026-07-01T00:00:00.000Z",
+      sourceFreshness: "retrieved at 2026-07-01T00:00:00.000Z",
+      sourceRecordId: `POD-${model.selected.lineId}`,
+      sourceSystem: "three_pl",
+      storageHref: `/api/forensics/evidence-documents/EVD-POD-${model.selected.lineId}`,
+      storageUri: `supabase://recoup_evidence_documents/EVD-POD-${model.selected.lineId}`
+    });
+    expect(JSON.stringify(model.selected)).not.toContain("rule_input_json");
+  });
+
+  it("does not label generated SAP-shaped fallback evidence as live SAP retrieval", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      {
+        governedConfig,
+        reconciliation: {
+          evidenceDataset,
+          mode: "authoritative",
+          receipts
+        },
+        ...sourceOptions
+      },
+      "S6-L1"
+    );
+    const sapInvoiceDocument = detail.selected.evidencePack.documents.find(
+      (document) => document.evidenceId === "EVD-SAP-INVOICE-S6-L1"
+    );
+    if (sapInvoiceDocument === undefined) {
+      throw new Error("Expected S6 detail evidence pack to expose SAP invoice evidence.");
+    }
+
+    expect(sapInvoiceDocument.citationId).toMatch(/^S\d+$/u);
+    expect(sapInvoiceDocument.evidenceProvenance).toBe("source_generated");
+    expect(sapInvoiceDocument.sourceSystem).toBe("sap_odata");
+    expect(sapInvoiceDocument.sourceLabel).toBe("SAP OData");
+    expect(sapInvoiceDocument.provenance.sourceKind).toBe("supabase");
+    expect(sapInvoiceDocument.provenance.sourceName).toContain("source_generated");
+  });
+
   it("keeps Maya worklist row clicks as local selection before explicit backend detail open", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const handleSelectStart = surface.indexOf("const handleSelectWorklistItem");
@@ -227,6 +308,58 @@ describe("S5 Forensics cockpit model", () => {
     expect(surface).not.toContain("CockpitDataFetchError");
     expect(surface).not.toContain("RECOUP_API_URL");
     expect(surface).not.toContain("http://127.0.0.1:4317");
+  });
+
+  it("wires Maya Forensics business invalidation through SSE and a visible stale state", () => {
+    const loader = readFileSync("cockpit/components/maya/maya-forensics-surface-loader.tsx", "utf8");
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+
+    expect(loader).toContain('new EventSource("/api/forensics/events")');
+    expect(loader).toContain('"forensics-read-model-invalidated"');
+    expect(loader).toContain("x-recoup-read-model-source-hash");
+    expect(loader).toContain("x-recoup-read-model-receipt-hash");
+    expect(loader).toContain("event.sourceHash !== currentHashes.sourceHash");
+    expect(surface).toContain('data-testid="forensics-stale-state"');
+    expect(surface).toContain('data-testid="forensics-source-hash"');
+    expect(surface).toContain('data-testid="forensics-receipt-hash"');
+    expect(surface).toContain("businessFreshness.status === \"degraded\"");
+  });
+
+  it("does not remount the Maya Forensics surface on model refresh", () => {
+    const loader = readFileSync("cockpit/components/maya/maya-forensics-surface-loader.tsx", "utf8");
+
+    expect(loader).toContain("modelVersion={state.modelVersion}");
+    expect(loader).not.toContain("key={state.modelVersion}");
+  });
+
+  it("preserves opened Maya work-item detail when live model refresh still contains the line group", () => {
+    const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
+    const refreshEffectStart = surface.indexOf("setSelectedWorklistItem((current) => reconcileWorklistItemFromModel");
+    const refreshEffectEnd = surface.indexOf("}, [model.worklist, modelVersion]);", refreshEffectStart);
+    const refreshEffectSource = surface.slice(refreshEffectStart, refreshEffectEnd);
+
+    expect(surface).toContain("function reconcileWorklistItemFromModel");
+    expect(refreshEffectSource).toContain("setOpenedCaseWorklistItem((current) => reconcileWorklistItemFromModel");
+    expect(refreshEffectSource).toContain("setOpenedCaseDetail((current) => {");
+    expect(refreshEffectSource).toContain("return { ...current, workItem: refreshedWorkItem };");
+    expect(refreshEffectSource).not.toContain("cancelWorkItemDetailRequest(detailRequestSequence)");
+    expect(refreshEffectSource).not.toContain("setOpenedCaseDetail(undefined)");
+  });
+
+  it("renders canonical evidence provenance fields without rule_input_json business copy", () => {
+    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
+    const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+
+    for (const source of [evidenceDossier, queryDock]) {
+      expect(source).toContain("evidenceId");
+      expect(source).toContain("receiptId");
+      expect(source).toContain("contentHash");
+      expect(source).toContain("storageUri");
+      expect(source).toContain("sourceFreshness");
+      expect(source).toContain("deterministicComparisonBasis");
+      expect(source).not.toContain("rule_input_json");
+    }
+    expect(evidenceDossier).toContain('data-testid="pod-document-preview"');
   });
 
   it("invalidates stale Maya work-item detail requests when returning to the worklist", () => {
@@ -681,7 +814,7 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(model.reportMetadata).toEqual([
       { label: "Board pack", value: "Recoup v2 executive readout", valueLabel: "Recoup v2 executive readout" },
-      { label: "Dataset", value: "Supabase recoup_deduction_lines", valueLabel: "Supabase settlement source" },
+      { label: "Dataset", value: "Supabase reconciliation receipts", valueLabel: "Supabase claims and reconciliation receipts" },
       { label: "Currency", value: "USD", valueLabel: "USD" },
       { label: "Mode", value: "Read-only board draft", valueLabel: "Read-only board draft" }
     ]);
@@ -700,7 +833,8 @@ describe("S5 Forensics cockpit model", () => {
       "Audit trail integrity"
     ]);
     expect(model.auditPosture.recordIds).toEqual([
-      "recoup_deduction_lines",
+      "recoup_deduction_claims",
+      "recoup_reconciliation_receipts",
       "S1-L1",
       "CUST-HARBOR",
       "6534",
@@ -763,8 +897,8 @@ describe("S5 Forensics cockpit model", () => {
       .map((line) => line.lineId);
     expect(model.reportMetadata).toContainEqual({
       label: "Dataset",
-      value: "Supabase recoup_deduction_lines",
-      valueLabel: "Supabase settlement source"
+      value: "Supabase reconciliation receipts",
+      valueLabel: "Supabase claims and reconciliation receipts"
     });
     expect(model.boardMetrics).toContainEqual({
       label: "External action posture",
@@ -779,8 +913,8 @@ describe("S5 Forensics cockpit model", () => {
     });
     expect(model.auditPosture.controls).toContainEqual({
       label: "Evidence spine",
-      support: "6 record IDs",
-      supportLabel: "6 citations",
+      support: "7 record IDs",
+      supportLabel: "7 citations",
       value: "Cited"
     });
     expect(model.auditPosture.evidenceRows).toContainEqual({
@@ -799,7 +933,7 @@ describe("S5 Forensics cockpit model", () => {
       recordIds: riskRun.arbitration.recordIds,
       state: "Ranked resolution recorded"
     });
-    expect(model.auditPosture.recordCountLabel).toBe("6 citations");
+    expect(model.auditPosture.recordCountLabel).toBe("7 citations");
     expect(model.changeLedger).toContainEqual({
       label: "External writes",
       posture: "Blocked by HITL",

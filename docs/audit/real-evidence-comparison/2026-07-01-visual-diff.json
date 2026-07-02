@@ -1,0 +1,154 @@
+[
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\00-public-landing.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\00-public-landing.png",
+    "route": "public landing",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\01-login-entry.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\01-login-entry.png",
+    "route": "login entry",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\02-maya-workspace.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\02-maya-workspace.png",
+    "route": "maya workspace",
+    "changedPixelRatio": 0.0001414141414141414,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\03-forensics-worklist.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\03-forensics-worklist.png",
+    "route": "forensics worklist",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\04-forensics-selected-case.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\04-forensics-selected-case.png",
+    "route": "selected case",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\05-evidence-provenance-drawer.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\05-evidence-provenance-drawer.png",
+    "route": "evidence provenance drawer",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\06-query-answer-panel.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\06-query-answer-panel.png",
+    "route": "query answer panel",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\07-approval-audit-panel.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\07-approval-audit-panel.png",
+    "route": "approval audit panel",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\08-cfo-view-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\08-cfo-view-if-live.png",
+    "route": "cfo view if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\10-trace-view-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\10-trace-view-if-live.png",
+    "route": "trace view if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\11-evals-finops-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\11-evals-finops-if-live.png",
+    "route": "evals finops if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\09-david-credit-risk-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\09-david-credit-risk-if-live.png",
+    "route": "david credit risk if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\12-forensics-classic-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\12-forensics-classic-if-live.png",
+    "route": "forensics classic if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\13-run-workspace-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\13-run-workspace-if-live.png",
+    "route": "run workspace if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\14-david-command-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\14-david-command-if-live.png",
+    "route": "david command if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\15-governance-overview-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\15-governance-overview-if-live.png",
+    "route": "governance overview if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\16-governance-agents-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\16-governance-agents-if-live.png",
+    "route": "governance agents if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\17-governance-connectors-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\17-governance-connectors-if-live.png",
+    "route": "governance connectors if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\18-governance-memory-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-post-implementation\\2026-07-01\\screenshots\\18-governance-memory-if-live.png",
+    "route": "governance memory if live",
+    "error": "Post-implementation screenshot is missing.",
+    "maxChangedPixelRatio": 0.35,
+    "pass": false
+  }
+]

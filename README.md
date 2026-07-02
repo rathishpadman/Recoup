@@ -74,9 +74,15 @@ npm.cmd install
 npm.cmd run verify
 ```
 
-`npm.cmd run verify` includes `verify:release`, which reads owner-approved release inputs from Supabase `recoup_config`. The current proof pack passes end to end when `.env.local` has the Supabase service credentials.
+`npm.cmd run verify` includes `verify:release`, which reads owner-approved release inputs from Supabase `recoup_config`. A green local verify run proves the repo regression gate for the configured environment; production evidence cutover proof is tracked separately below.
 
 The backend SDD compliance snapshot is tracked in `docs/backend-sdd-compliance-audit.md`; non-secret owner input status and remaining owner-bound items are tracked in `docs/sdd-owner-inputs-needed.md`.
+
+## Real Evidence Cutover Status
+
+`npm.cmd run verify` is the local regression and invariant gate. It is not production-release proof for the 2026-07-01 real-evidence cutover. That cutover remains blocked until `npm.cmd run check:real-evidence-proof` passes against approved preview/post-implementation evidence.
+
+The real-evidence proof gate requires environment readiness, including `RECOUP_PREVIEW_URL`; post-implementation screenshots for every Phase 0 live production route; pixel-diff proof; visible `EVD-POD-S3-L1` and `RECON-S3-L1`; visible content hash and provenance; and a decoded POD image or HTTP-verified non-empty POD PDF/link artifact in each evidence-detail route. Until that gate passes, previous production smoke and local verify runs are regression evidence only, not production-release proof.
 
 For the cockpit:
 

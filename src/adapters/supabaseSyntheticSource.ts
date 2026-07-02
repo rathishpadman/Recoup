@@ -1,13 +1,26 @@
 import { z } from "zod";
+import { sha256CanonicalJson } from "../../config/governed.js";
 import type { RuntimeEnv } from "../../config/env.js";
+import type { RuleId } from "../core/rules/index.js";
+import type { RealEvidenceDataset } from "../services/evidenceMaterializer.js";
+import type { ReconciliationReceipt } from "../services/reconciliationEngine.js";
+import { DeductionClaimSchema, type DeductionClaim } from "../types/claims.js";
+import { CoreRuleInputSchema, RuleIdSchema } from "../types/decision.js";
+import {
+  CanonicalEvidenceDocumentSchema,
+  EvidenceLinkSchema,
+  type CanonicalEvidenceDocument,
+  type EvidenceLink
+} from "../types/evidence.js";
 import {
   CustomerSchema,
   DeductionLineSchema,
   SyntheticDatasetSchema,
+  type DeductionRouting,
+  type DeductionVerdict,
   type DeductionLine,
   type SyntheticDatasetCore
 } from "../types/entities.js";
-import { money } from "../types/money.js";
 import { SYNTHETIC_SOURCE_TABLE_BY_CONNECTOR, type EnterpriseConnectorName } from "./enterpriseReadOnly.js";
 import type { SourcePort, SourceRiskObservationSnapshot } from "./source.js";
 
@@ -28,6 +41,7 @@ export type SapSourceEvidenceType = "credit-memo" | "invoice";
 export interface SyntheticSourceEvidence {
   documentId: string;
   documentType: SyntheticSourceEvidenceType;
+  freshnessRecordIds?: string[];
   provenance: "synthetic";
   recordIds: string[];
   source: SyntheticSourceEvidenceSource;
@@ -45,6 +59,7 @@ export interface SupabaseSyntheticSourceReader {
 export interface SapSourceEvidence {
   documentId: string;
   documentType: SapSourceEvidenceType;
+  freshnessRecordIds?: string[];
   provenance: "sap-odata";
   recordIds: string[];
   source: "sap";
@@ -66,6 +81,8 @@ export type SupabaseSapEvidenceReaderOptions = SupabaseSyntheticSourceReaderOpti
 
 export interface SupabaseSettlementRunReader {
   loadSettlementRun(): Promise<SyntheticDatasetCore>;
+  loadRealEvidenceDataset(): Promise<RealEvidenceDataset>;
+  loadReconciliationReceipts(): Promise<ReconciliationReceipt[]>;
 }
 
 export interface SupabaseSettlementRunReaderOptions {
@@ -217,19 +234,49 @@ const settlementCustomerRowSchema = z.object({
   profile: z.string().min(1)
 });
 
-const settlementDeductionLineRowSchema = z.object({
-  amount: z.union([z.number(), z.string()]),
+const settlementDeductionClaimRowSchema = z.object({
+  claim_amount: z.union([z.number(), z.string()]),
+  claim_id: z.string().min(1),
   customer_id: z.string().min(1),
-  event_id: z.string().regex(/^[a-f0-9]{64}$/u),
+  invoice_ref: z.string().min(1),
   line_id: z.string().min(1),
-  period: z.string().min(1),
-  record_ids_json: jsonArraySchema,
-  routing: z.enum(["billing", "recovery"]),
-  rule_id: z.string().min(1),
-  rule_input_json: jsonObjectSchema,
-  scenario_id: z.enum(["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"]),
-  scenario_type: z.string().min(1),
-  verdict: z.enum(["valid", "invalid", "partial"])
+  reason_code: z.string().min(1),
+  record_ids: jsonArraySchema,
+  remittance_evidence_id: z.string().min(1)
+});
+
+const reconciliationReceiptRowSchema = z.object({
+  claim_id: z.string().min(1),
+  confidence_factors: jsonObjectSchema,
+  content_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+  derived_rule_input_json: jsonObjectSchema,
+  deterministic_basis: jsonObjectSchema,
+  evidence_ids: jsonArraySchema,
+  line_id: z.string().min(1),
+  receipt_id: z.string().min(1),
+  rule_id: RuleIdSchema
+});
+
+const evidenceDocumentRowSchema = z.object({
+  content_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+  customer_id: z.string().min(1),
+  document_type: z.string().min(1),
+  evidence_id: z.string().min(1),
+  payload_json: jsonObjectSchema,
+  provenance: z.string().min(1),
+  raw_text: z.string().nullable().optional(),
+  retrieved_at: z.string().min(1),
+  source_record_id: z.string().min(1),
+  source_system: z.string().min(1),
+  storage_uri: z.string().nullable().optional(),
+  valid_from: z.string().nullable().optional(),
+  valid_to: z.string().nullable().optional()
+});
+
+const evidenceLinkRowSchema = z.object({
+  evidence_id: z.string().min(1),
+  record_id: z.string().min(1),
+  record_role: z.string().min(1)
 });
 
 export function createSupabaseSyntheticSourceReader(options: SupabaseSyntheticSourceReaderOptions): SupabaseSyntheticSourceReader {
@@ -327,65 +374,263 @@ export function createSupabaseSapEvidenceReaderFromEnv(
 export function createSupabaseSettlementRunReader(options: SupabaseSettlementRunReaderOptions): SupabaseSettlementRunReader {
   const baseUrl = normalizeSupabaseUrl(options.url);
   const fetcher = options.fetcher ?? fetch;
+  let snapshot: Promise<{
+    evidenceDataset: RealEvidenceDataset;
+    receipts: ReconciliationReceipt[];
+    settlementRun: SyntheticDatasetCore;
+  }> | undefined;
+
+  async function loadSnapshot(): Promise<{
+    evidenceDataset: RealEvidenceDataset;
+    receipts: ReconciliationReceipt[];
+    settlementRun: SyntheticDatasetCore;
+  }> {
+    snapshot ??= loadSupabaseSettlementSnapshot(fetcher, {
+      baseUrl,
+      seed: options.seed,
+      serviceRoleKey: options.serviceRoleKey
+    });
+
+    return snapshot;
+  }
 
   return {
     async loadSettlementRun() {
-      const [customerRows, lineRows] = await Promise.all([
-        requestSupabaseRows(fetcher, {
-          baseUrl,
-          orderBy: "customer_id.asc",
-          serviceRoleKey: options.serviceRoleKey,
-          tableName: "recoup_customers"
-        }),
-        requestSupabaseRows(fetcher, {
-          baseUrl,
-          orderBy: "line_id.asc",
-          serviceRoleKey: options.serviceRoleKey,
-          tableName: "recoup_deduction_lines"
-        })
-      ]);
-      if (customerRows.length === 0 || lineRows.length === 0) {
-        throw new Error("Supabase settlement source rows are incomplete.");
-      }
-
-      const customers = customerRows.map((row) => {
-        const parsed = settlementCustomerRowSchema.parse(row);
-        return CustomerSchema.parse({
-          customerId: parsed.customer_id,
-          name: parsed.name,
-          profile: parsed.profile
-        });
-      });
-      const customerIds = new Set(customers.map((customer) => customer.customerId));
-      const deductionLines = lineRows.map((row) => {
-        const parsed = settlementDeductionLineRowSchema.parse(row);
-        if (!customerIds.has(parsed.customer_id)) {
-          throw new Error(`Supabase settlement line references an unknown customer: ${parsed.customer_id}.`);
-        }
-
-        return DeductionLineSchema.parse({
-          amount: money(String(parsed.amount)),
-          customerId: parsed.customer_id,
-          eventId: parsed.event_id,
-          lineId: parsed.line_id,
-          period: parsed.period,
-          recordIds: parsed.record_ids_json,
-          routing: parsed.routing,
-          ruleId: parsed.rule_id,
-          ruleInput: parsed.rule_input_json,
-          scenarioId: parsed.scenario_id,
-          scenarioType: parsed.scenario_type,
-          verdict: parsed.verdict
-        });
-      });
-
-      return SyntheticDatasetSchema.parse({
-        customers,
-        deductionLines,
-        seed: options.seed
-      });
+      return (await loadSnapshot()).settlementRun;
+    },
+    async loadRealEvidenceDataset() {
+      return (await loadSnapshot()).evidenceDataset;
+    },
+    async loadReconciliationReceipts() {
+      return (await loadSnapshot()).receipts;
     }
   };
+}
+
+async function loadSupabaseSettlementSnapshot(
+  fetcher: SupabaseSyntheticSourceFetch,
+  options: {
+    baseUrl: string;
+    seed: 42;
+    serviceRoleKey: string;
+  }
+): Promise<{ evidenceDataset: RealEvidenceDataset; receipts: ReconciliationReceipt[]; settlementRun: SyntheticDatasetCore }> {
+  const [customerRows, claimRows, receiptRows, evidenceRows, evidenceLinkRows] = await Promise.all([
+    requestSupabaseRows(fetcher, {
+      baseUrl: options.baseUrl,
+      orderBy: "customer_id.asc",
+      serviceRoleKey: options.serviceRoleKey,
+      tableName: "recoup_customers"
+    }),
+    requestSupabaseRows(fetcher, {
+      baseUrl: options.baseUrl,
+      orderBy: "line_id.asc",
+      serviceRoleKey: options.serviceRoleKey,
+      tableName: "recoup_deduction_claims"
+    }),
+    requestSupabaseRows(fetcher, {
+      baseUrl: options.baseUrl,
+      orderBy: "line_id.asc",
+      serviceRoleKey: options.serviceRoleKey,
+      tableName: "recoup_reconciliation_receipts"
+    }),
+    requestSupabaseRows(fetcher, {
+      baseUrl: options.baseUrl,
+      orderBy: "evidence_id.asc",
+      serviceRoleKey: options.serviceRoleKey,
+      tableName: "recoup_evidence_documents"
+    }),
+    requestSupabaseRows(fetcher, {
+      baseUrl: options.baseUrl,
+      orderBy: "evidence_id.asc",
+      serviceRoleKey: options.serviceRoleKey,
+      tableName: "recoup_evidence_links"
+    })
+  ]);
+  if (customerRows.length === 0 || claimRows.length === 0 || receiptRows.length === 0 || evidenceRows.length === 0) {
+    throw new Error("Supabase settlement source rows are incomplete.");
+  }
+
+  const customers = customerRows.map((row) => {
+    const customerRow = settlementCustomerRowSchema.parse(row);
+    return CustomerSchema.parse({
+      customerId: customerRow.customer_id,
+      name: customerRow.name,
+      profile: customerRow.profile
+    });
+  });
+  const customerIds = new Set(customers.map((customer) => customer.customerId));
+  const receipts = receiptRows.map(toReconciliationReceipt);
+  const receiptsByClaimId = new Map(receipts.map((receipt) => [receipt.claimId, receipt]));
+  const claims = claimRows.map(toDeductionClaim);
+  const evidenceDataset: RealEvidenceDataset = {
+    claims,
+    documents: evidenceRows.map(toCanonicalEvidenceDocument),
+    links: evidenceLinkRows.map(toEvidenceLink)
+  };
+  validateRealEvidenceDataset(evidenceDataset, receipts);
+
+  const deductionLines = claims.map((claim) => {
+    if (!customerIds.has(claim.customerId)) {
+      throw new Error(`Supabase settlement claim references an unknown customer: ${claim.customerId}.`);
+    }
+
+    const receipt = receiptsByClaimId.get(claim.claimId);
+    if (receipt === undefined || receipt.lineId !== claim.lineId) {
+      throw new Error(`Supabase reconciliation receipt missing for ${claim.lineId}.`);
+    }
+    const ruleInput = CoreRuleInputSchema.parse(receipt.derivedRuleInput);
+    if (ruleInput.lineId !== claim.lineId || ruleInput.ruleId !== receipt.ruleId) {
+      throw new Error(`Supabase reconciliation receipt does not match claim ${claim.claimId}.`);
+    }
+
+    const verdict = verdictForRule(receipt.ruleId);
+    return DeductionLineSchema.parse({
+      amount: claim.claimAmount,
+      customerId: claim.customerId,
+      eventId: receipt.contentHash,
+      lineId: claim.lineId,
+      period: ruleInput.period,
+      recordIds: uniqueStrings([
+        ...claim.recordIds,
+        claim.invoiceRef,
+        claim.remittanceEvidenceId,
+        receipt.receiptId,
+        ...receipt.evidenceIds
+      ]),
+      routing: routingForVerdict(verdict),
+      ruleId: receipt.ruleId,
+      ruleInput: receipt.derivedRuleInput,
+      scenarioId: scenarioIdFromLineId(claim.lineId),
+      scenarioType: claim.reasonCode,
+      verdict
+    });
+  });
+
+  return {
+    evidenceDataset,
+    receipts,
+    settlementRun: SyntheticDatasetSchema.parse({
+      customers,
+      deductionLines,
+      seed: options.seed
+    })
+  };
+}
+
+function toReconciliationReceipt(row: unknown): ReconciliationReceipt {
+  const receiptRow = reconciliationReceiptRowSchema.parse(row);
+  CoreRuleInputSchema.parse(receiptRow.derived_rule_input_json);
+
+  return {
+    claimId: receiptRow.claim_id,
+    confidenceFactors: receiptRow.confidence_factors,
+    contentHash: receiptRow.content_hash,
+    derivedRuleInput: receiptRow.derived_rule_input_json as ReconciliationReceipt["derivedRuleInput"],
+    deterministicBasis: receiptRow.deterministic_basis,
+    evidenceIds: receiptRow.evidence_ids,
+    lineId: receiptRow.line_id,
+    receiptId: receiptRow.receipt_id,
+    ruleId: receiptRow.rule_id
+  };
+}
+
+function toDeductionClaim(row: unknown): DeductionClaim {
+  const claimRow = settlementDeductionClaimRowSchema.parse(row);
+
+  return DeductionClaimSchema.parse({
+    claimAmount: String(claimRow.claim_amount),
+    claimId: claimRow.claim_id,
+    customerId: claimRow.customer_id,
+    invoiceRef: claimRow.invoice_ref,
+    lineId: claimRow.line_id,
+    reasonCode: claimRow.reason_code,
+    recordIds: claimRow.record_ids,
+    remittanceEvidenceId: claimRow.remittance_evidence_id
+  });
+}
+
+function toCanonicalEvidenceDocument(row: unknown): CanonicalEvidenceDocument {
+  const documentRow = evidenceDocumentRowSchema.parse(row);
+
+  return CanonicalEvidenceDocumentSchema.parse({
+    contentHash: documentRow.content_hash,
+    customerId: documentRow.customer_id,
+    documentType: documentRow.document_type,
+    evidenceId: documentRow.evidence_id,
+    payload: documentRow.payload_json,
+    provenance: documentRow.provenance,
+    ...(documentRow.raw_text === undefined || documentRow.raw_text === null ? {} : { rawText: documentRow.raw_text }),
+    retrievedAt: normalizeTimestampIso(documentRow.retrieved_at),
+    sourceRecordId: documentRow.source_record_id,
+    sourceSystem: documentRow.source_system,
+    ...(documentRow.storage_uri === undefined || documentRow.storage_uri === null ? {} : { storageUri: documentRow.storage_uri }),
+    ...(documentRow.valid_from === undefined || documentRow.valid_from === null ? {} : { validFrom: documentRow.valid_from }),
+    ...(documentRow.valid_to === undefined || documentRow.valid_to === null ? {} : { validTo: documentRow.valid_to })
+  });
+}
+
+function toEvidenceLink(row: unknown): EvidenceLink {
+  const linkRow = evidenceLinkRowSchema.parse(row);
+
+  return EvidenceLinkSchema.parse({
+    evidenceId: linkRow.evidence_id,
+    recordId: linkRow.record_id,
+    recordRole: linkRow.record_role
+  });
+}
+
+function validateRealEvidenceDataset(dataset: RealEvidenceDataset, receipts: readonly ReconciliationReceipt[]): void {
+  const evidenceIds = new Set(dataset.documents.map((document) => document.evidenceId));
+  for (const claim of dataset.claims) {
+    if (!evidenceIds.has(claim.remittanceEvidenceId)) {
+      throw new Error(`Supabase evidence document missing for remittance evidence ${claim.remittanceEvidenceId}.`);
+    }
+  }
+  for (const receipt of receipts) {
+    const missingEvidenceId = receipt.evidenceIds.find((evidenceId) => !evidenceIds.has(evidenceId));
+    if (missingEvidenceId !== undefined) {
+      throw new Error(`Supabase evidence document missing for reconciliation receipt ${receipt.receiptId}: ${missingEvidenceId}.`);
+    }
+  }
+}
+
+function scenarioIdFromLineId(lineId: string): DeductionLine["scenarioId"] {
+  const scenarioId = lineId.match(/^(S[1-8])-/u)?.[1];
+  return z.enum(["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"]).parse(scenarioId);
+}
+
+function verdictForRule(ruleId: RuleId): DeductionVerdict {
+  switch (ruleId) {
+    case "damage-evidence-valid":
+    case "promo-not-captured":
+    case "otif-fine-valid":
+      return "valid";
+    case "promo-overclaim":
+      return "partial";
+    case "shortage-pod-mismatch":
+    case "otif-timestamp-mismatch":
+    case "pricing-below-contract":
+    case "duplicate-credit":
+      return "invalid";
+  }
+}
+
+function routingForVerdict(verdict: DeductionVerdict): DeductionRouting {
+  return verdict === "valid" ? "billing" : "recovery";
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeTimestampIso(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Supabase evidence timestamp failed validation.`);
+  }
+
+  return new Date(timestamp).toISOString();
 }
 
 export function createSupabaseSettlementRunReaderFromEnv(
@@ -469,7 +714,9 @@ export function createSupabaseRiskObservationSnapshotReader(
           row.severity === sourceConfig.criticalAlertSeverity &&
           !row.resolved
       );
-      const citedDeductionRows = deductionRows.filter((row) => sourceConfig.citedDeductionVerdicts.includes(row.verdict));
+      const citedDeductionRows = deductionRows.filter((deductionRow) =>
+        sourceConfig.citedDeductionVerdicts.includes(deductionRow.verdict)
+      );
       const lienSignal = lienAlert !== undefined;
       const disputeSpike = citedDeductionRows.length > 0;
       if (
@@ -743,6 +990,7 @@ function mapSyntheticRow(
         {
           documentId: parsed.bureau_id,
           documentType: "bureau-signal",
+          freshnessRecordIds: sourceRowFreshnessRecordIds("recoup_src_bureau", parsed.bureau_id, parsed),
           provenance: "synthetic",
           recordIds: dedupeRecordIds([line.lineId, line.customerId, parsed.bureau_id]),
           source: "bureau",
@@ -760,6 +1008,7 @@ function mapSyntheticRow(
         {
           documentId: parsed.doc_id,
           documentType: documentTypeForDocRepo(parsed.doc_type, parsed.linked_record_ids),
+          freshnessRecordIds: sourceRowFreshnessRecordIds("recoup_src_docs", parsed.doc_id, parsed),
           provenance: "synthetic",
           recordIds: dedupeRecordIds([line.lineId, parsed.doc_id, ...parsed.linked_record_ids]),
           source: "docs",
@@ -786,6 +1035,7 @@ function mapSyntheticRow(
         {
           documentId: parsed.remit_id,
           documentType: connectorName === "edi-remittance" ? "edi-remittance" : "remittance-advice",
+          freshnessRecordIds: sourceRowFreshnessRecordIds("recoup_src_remittance", parsed.remit_id, parsed),
           provenance: "synthetic",
           recordIds: dedupeRecordIds([line.lineId, parsed.remit_id, ...linkedRecordIds]),
           source: "remittance",
@@ -803,6 +1053,7 @@ function mapSyntheticRow(
         {
           documentId: parsed.promo_id,
           documentType: "trade-promo",
+          freshnessRecordIds: sourceRowFreshnessRecordIds("recoup_src_tpm", parsed.promo_id, parsed),
           provenance: "synthetic",
           recordIds: dedupeRecordIds([line.lineId, parsed.promo_id, ...parsed.claim_refs]),
           source: "tpm",
@@ -823,6 +1074,7 @@ function mapSapSourceRow(line: DeductionLine, row: unknown): SapSourceEvidence[]
     {
       documentId: parsed.sap_document_id,
       documentType: parsed.document_type,
+      freshnessRecordIds: sourceRowFreshnessRecordIds("recoup_src_sap", parsed.sap_document_id, parsed),
       provenance: parsed.provenance,
       recordIds: dedupeRecordIds([line.lineId, parsed.sap_document_id, ...parsed.linked_record_ids]),
       source: "sap",
@@ -878,6 +1130,10 @@ function hasLineRecordOverlap(line: DeductionLine, sourceRecordIds: readonly str
   const lineRecordIds = new Set([line.lineId, ...line.recordIds]);
 
   return sourceRecordIds.some((recordId) => lineRecordIds.has(recordId));
+}
+
+function sourceRowFreshnessRecordIds(tableName: string, rowId: string, row: Record<string, unknown>): string[] {
+  return [`source-row:${tableName}:${rowId}:hash:${sha256CanonicalJson(row)}`];
 }
 
 function isSapCustomerRecordId(recordId: string): boolean {

@@ -4,7 +4,25 @@ import { after } from "next/server.js";
 type RuntimeEnv = Partial<Record<string, string | undefined>>;
 type ReadModelSurface = "connector-readiness" | "forensics-analyst";
 type ReadModelPayloadSurface = ReadModelSurface | "forensics-work-item-detail";
-type ReadModelCacheStatus = "hit" | "miss" | "refresh";
+type ReadModelCacheStatus = "hit" | "miss" | "refresh" | "stale";
+type ForensicsReadModelEventListener = (event: ForensicsReadModelEvent) => void;
+
+export type ForensicsReadModelEvent =
+  | {
+      status: "connected";
+      type: "connected";
+    }
+  | {
+      generatedAt: string;
+      receiptHash: string;
+      sourceHash: string;
+      type: "forensics-read-model-invalidated";
+    };
+
+export interface ForensicsReadModelBusinessHashes {
+  receiptHash: string;
+  sourceHash: string;
+}
 
 interface SupabaseReadModelRow {
   generated_at: unknown;
@@ -21,7 +39,11 @@ export const mayaForensicsReadModelKey = "maya:forensics:v1";
 export const mayaConnectorsReadModelKey = "maya:connectors:v1";
 export const readModelCacheHeader = "x-recoup-read-model-cache";
 export const readModelSourceRefreshedAtHeader = "x-recoup-read-model-source-refreshed-at";
+export const readModelSourceHashHeader = "x-recoup-read-model-source-hash";
+export const readModelReceiptHashHeader = "x-recoup-read-model-receipt-hash";
 const sourceHealthSnapshotTableName = "recoup_source_health_snapshots";
+const forensicsReadModelEventSubscribers = new Set<ForensicsReadModelEventListener>();
+let lastForwardedForensicsBusinessHashes: ForensicsReadModelBusinessHashes | undefined;
 
 export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
   return `maya:forensics:work-item:${lineId}:v1`;
@@ -32,7 +54,7 @@ export async function readCachedReadModelPayload(
   modelKey: string,
   surface: ReadModelSurface,
   options: { payloadSurface?: ReadModelPayloadSurface } = {}
-): Promise<{ payload: Record<string, unknown>; sourceRefreshedAt: string } | undefined> {
+): Promise<{ payload: Record<string, unknown>; sourceRecordIds: string[]; sourceRefreshedAt: string } | undefined> {
   if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
     return undefined;
   }
@@ -69,13 +91,14 @@ export async function readCachedReadModelPayload(
     const row = rows[0];
     const payload = parsePayloadRecord(row.payload_json);
     const payloadSurface = options.payloadSurface ?? surface;
+    const sourceRecordIds = parseJsonCell(row.source_record_ids_json);
     if (
       row.model_key !== modelKey ||
       row.persona !== "maya" ||
       row.surface !== surface ||
       typeof row.payload_hash !== "string" ||
       !/^[a-f0-9]{64}$/u.test(row.payload_hash) ||
-      !isNonEmptyStringArray(parseJsonCell(row.source_record_ids_json)) ||
+      !isNonEmptyStringArray(sourceRecordIds) ||
       typeof row.source_refreshed_at !== "string" ||
       !isReadModelPayloadForSurface(payload, payloadSurface)
     ) {
@@ -84,11 +107,31 @@ export async function readCachedReadModelPayload(
 
     return {
       payload,
+      sourceRecordIds,
       sourceRefreshedAt: row.source_refreshed_at
     };
   } catch {
     return undefined;
   }
+}
+
+export function subscribeForensicsReadModelEvents(listener: ForensicsReadModelEventListener): () => void {
+  forensicsReadModelEventSubscribers.add(listener);
+
+  return () => {
+    forensicsReadModelEventSubscribers.delete(listener);
+  };
+}
+
+export function buildForensicsReadModelBusinessHashes(sourceRecordIds: readonly string[]): ForensicsReadModelBusinessHashes {
+  const normalizedRecordIds = normalizeRecordIds(sourceRecordIds);
+  const receiptRecordIds = normalizedRecordIds.filter(isReceiptFreshnessRecordId);
+  const sourceRecordIdsWithoutReceipts = normalizedRecordIds.filter((recordId) => !isReceiptFreshnessRecordId(recordId));
+
+  return {
+    receiptHash: sha256CanonicalJson(receiptRecordIds),
+    sourceHash: sha256CanonicalJson(sourceRecordIdsWithoutReceipts)
+  };
 }
 
 export async function readLatestSourceHealthSnapshotCheckedAt(runtimeEnv: RuntimeEnv): Promise<string | undefined> {
@@ -146,6 +189,7 @@ export async function publishCachedReadModelPayload(
     modelKey: string;
     payload: Record<string, unknown>;
     payloadSurface: ReadModelPayloadSurface;
+    previousSourceRecordIds?: readonly string[];
     rowSurface: ReadModelSurface;
     sourceRecordIds: string[];
     sourceRefreshedAt?: string;
@@ -166,6 +210,9 @@ export async function publishCachedReadModelPayload(
     if (!isSafeTableName(tableName)) {
       return;
     }
+    const previousSourceRecordIds = input.previousSourceRecordIds ?? (isForensicsReadModelPublish(input)
+      ? await readCachedReadModelSourceRecordIds(runtimeEnv, input.modelKey, input.rowSurface)
+      : undefined);
     const now = new Date().toISOString();
     const url = new URL(`${normalizeSupabaseUrl(runtimeEnv.SUPABASE_URL)}/rest/v1/${tableName}`);
     url.searchParams.set("on_conflict", "model_key");
@@ -195,6 +242,7 @@ export async function publishCachedReadModelPayload(
     if (!response.ok) {
       return;
     }
+    publishForensicsReadModelInvalidationIfChanged(previousSourceRecordIds, input.sourceRecordIds);
   } catch {
     return;
   }
@@ -203,13 +251,19 @@ export async function publishCachedReadModelPayload(
 export function readModelJsonResponse(
   payload: Record<string, unknown>,
   cacheStatus: ReadModelCacheStatus,
-  options: { sourceRefreshedAt?: string; status?: number } = {}
+  options: { businessHashes?: ForensicsReadModelBusinessHashes; sourceRefreshedAt?: string; status?: number } = {}
 ): Response {
   return new Response(JSON.stringify(payload), {
     headers: {
       "cache-control": "no-store",
       "content-type": "application/json",
       [readModelCacheHeader]: cacheStatus,
+      ...(options.businessHashes === undefined
+        ? {}
+        : {
+            [readModelReceiptHashHeader]: options.businessHashes.receiptHash,
+            [readModelSourceHashHeader]: options.businessHashes.sourceHash
+          }),
       ...(options.sourceRefreshedAt === undefined ? {} : { [readModelSourceRefreshedAtHeader]: options.sourceRefreshedAt })
     },
     status: options.status ?? 200
@@ -217,14 +271,95 @@ export function readModelJsonResponse(
 }
 
 export function proxyJsonResponse(upstream: Response, body: string, fallbackCacheStatus: "miss" | "refresh"): Response {
+  publishForwardedForensicsInvalidationIfChanged(readForwardedBusinessHashes(upstream));
+
   return new Response(body, {
     headers: {
       "cache-control": "no-store",
       "content-type": upstream.headers.get("content-type") ?? "application/json",
-      [readModelCacheHeader]: upstream.headers.get(readModelCacheHeader) ?? fallbackCacheStatus
+      [readModelCacheHeader]: upstream.headers.get(readModelCacheHeader) ?? fallbackCacheStatus,
+      ...forwardOptionalHeader(upstream, readModelReceiptHashHeader),
+      ...forwardOptionalHeader(upstream, readModelSourceHashHeader)
     },
     status: upstream.status
   });
+}
+
+function readForwardedBusinessHashes(response: Response): ForensicsReadModelBusinessHashes | undefined {
+  const receiptHash = response.headers.get(readModelReceiptHashHeader);
+  const sourceHash = response.headers.get(readModelSourceHashHeader);
+  if (receiptHash === null || sourceHash === null || !isSha256Hex(receiptHash) || !isSha256Hex(sourceHash)) {
+    return undefined;
+  }
+
+  return { receiptHash, sourceHash };
+}
+
+function publishForwardedForensicsInvalidationIfChanged(next: ForensicsReadModelBusinessHashes | undefined): void {
+  if (next === undefined) {
+    return;
+  }
+
+  const previous = lastForwardedForensicsBusinessHashes;
+  lastForwardedForensicsBusinessHashes = next;
+  if (previous === undefined || (previous.sourceHash === next.sourceHash && previous.receiptHash === next.receiptHash)) {
+    return;
+  }
+
+  publishForensicsReadModelInvalidation(next);
+}
+
+async function readCachedReadModelSourceRecordIds(
+  runtimeEnv: RuntimeEnv,
+  modelKey: string,
+  surface: ReadModelSurface
+): Promise<string[] | undefined> {
+  const cached = await readCachedReadModelPayload(runtimeEnv, modelKey, surface);
+
+  return cached?.sourceRecordIds;
+}
+
+function publishForensicsReadModelInvalidationIfChanged(
+  previousSourceRecordIds: readonly string[] | undefined,
+  nextSourceRecordIds: readonly string[]
+): void {
+  const next = buildForensicsReadModelBusinessHashes(nextSourceRecordIds);
+  const previous = previousSourceRecordIds === undefined ? undefined : buildForensicsReadModelBusinessHashes(previousSourceRecordIds);
+  if (previous !== undefined && previous.sourceHash === next.sourceHash && previous.receiptHash === next.receiptHash) {
+    return;
+  }
+
+  publishForensicsReadModelInvalidation(next);
+}
+
+function publishForensicsReadModelInvalidation(next: ForensicsReadModelBusinessHashes): void {
+  const event: ForensicsReadModelEvent = {
+    generatedAt: new Date().toISOString(),
+    receiptHash: next.receiptHash,
+    sourceHash: next.sourceHash,
+    type: "forensics-read-model-invalidated"
+  };
+  for (const listener of forensicsReadModelEventSubscribers) {
+    listener(event);
+  }
+}
+
+function isSha256Hex(value: string): boolean {
+  return /^[a-f0-9]{64}$/u.test(value);
+}
+
+function isForensicsReadModelPublish(input: {
+  modelKey: string;
+  payloadSurface: ReadModelPayloadSurface;
+  rowSurface: ReadModelSurface;
+}): boolean {
+  return input.rowSurface === "forensics-analyst" && input.modelKey.startsWith("maya:forensics:");
+}
+
+function forwardOptionalHeader(response: Response, name: string): Record<string, string> {
+  const value = response.headers.get(name);
+
+  return value === null ? {} : { [name]: value };
 }
 
 export function refreshReadModelAfterResponse(
@@ -276,8 +411,12 @@ function parseJsonCell(value: unknown): unknown {
   return typeof value === "string" ? (JSON.parse(value) as unknown) : value;
 }
 
-function isNonEmptyStringArray(value: unknown): boolean {
+function isNonEmptyStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
+function isReceiptFreshnessRecordId(recordId: string): boolean {
+  return recordId === "receipt-set:absent" || recordId.startsWith("receipt:") || recordId.startsWith("receipt-set:");
 }
 
 function readConnectorModelCheckedAt(payload: Record<string, unknown>): string | undefined {
@@ -327,6 +466,10 @@ function normalizeSupabaseUrl(value: string): string {
 
 function isReadModelCacheDisabled(runtimeEnv: RuntimeEnv): boolean {
   return runtimeEnv.RECOUP_READ_MODEL_CACHE === "disabled";
+}
+
+function normalizeRecordIds(recordIds: readonly string[]): string[] {
+  return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))].sort();
 }
 
 function sha256CanonicalJson(value: unknown): string {

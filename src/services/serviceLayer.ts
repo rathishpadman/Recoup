@@ -16,7 +16,7 @@ import {
   type ProposedExternalAction
 } from "./approvals.js";
 import { createAuditEntry, type AuditEntry, type AuditEntryBuildOptions } from "../audit/trail.js";
-import { runForensicsInvestigation } from "../agents/forensics.js";
+import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
 import type { ToolPermissionMetadata } from "./permissionEngine.js";
 import {
   buildDeductionDecision,
@@ -60,6 +60,7 @@ export interface ServiceInvocationContext {
   };
   r1SapMetadata?: SapODataMetadataInput;
   r1SapReadAdapter?: SapODataReadOnlyAdapter;
+  reconciliation?: ForensicsReconciliationOptions;
   requireSupabaseSapEvidence?: boolean;
   requireSupabaseSyntheticEvidence?: boolean;
   sapEvidenceSource?: ServiceSapEvidenceSource;
@@ -87,6 +88,11 @@ const defaultServiceSyntheticEvidenceConnectorNames = ["docs-repo", "tpm", "bure
 const queryAnswerSapSourceLineage = {
   primarySourceLabel: "SAP OData",
   primarySourceSystem: "sap_odata",
+  sourceFreshness: "snapshot",
+  transportLabel: "Governed canonical snapshot",
+  transportLayer: "supabase_canonical_snapshot"
+} as const;
+const queryAnswerCanonicalSourceLineage = {
   sourceFreshness: "snapshot",
   transportLabel: "Governed canonical snapshot",
   transportLayer: "supabase_canonical_snapshot"
@@ -523,6 +529,7 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
       ? {}
       : { decisionConfidenceThreshold: context.decisionConfidenceThreshold }),
     governedConfig,
+    ...(context.reconciliation === undefined ? {} : { reconciliation: context.reconciliation }),
     serviceContext: context,
     source
   });
@@ -561,15 +568,21 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
     throw new Error("query.answer selectedLineId was not found in the canonical source snapshot.");
   }
 
-  const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine);
+  const selectedEvidence = retrieveQueryAnswerSelectedEvidence(context, selectedLine, parsed.recordIds);
+  const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine, {
+    allowUnavailableWhenSelectedEvidencePresent: selectedEvidence.length > 0
+  });
 
   return {
     ...answer,
     sourceReadStatus: "source_backed_selected_scope",
     sourceReads: {
       canonicalModel: "EvidenceDocument",
-      ...(sapEvidence.length === 0 ? {} : queryAnswerSapSourceLineage),
+      ...(sapEvidence.length === 0
+        ? (selectedEvidence.length === 0 ? {} : queryAnswerCanonicalSourceLineage)
+        : queryAnswerSapSourceLineage),
       sapEvidence: sapEvidence.map(canonicalEvidenceSummary),
+      selectedEvidence,
       selectedLineId: selectedLine.lineId,
       selectedRecordIds: [...parsed.recordIds]
     }
@@ -607,6 +620,59 @@ function canonicalEvidenceSummary(document: EvidenceDocument): EvidenceDocument 
     source: document.source,
     summary: document.summary
   };
+}
+
+function retrieveQueryAnswerSelectedEvidence(
+  context: ServiceInvocationContext,
+  line: DeductionLine,
+  selectedRecordIds: readonly string[]
+): Array<{ documentId: string; documentType: string; recordIds: string[]; source: string; summary: string }> {
+  const reconciliation = context.reconciliation;
+  if (reconciliation?.evidenceDataset === undefined || reconciliation.receipts === undefined) {
+    return [];
+  }
+
+  const receipt = reconciliation.receipts.find((candidate) => candidate.lineId === line.lineId);
+  if (receipt === undefined) {
+    return [];
+  }
+
+  const selectedIds = new Set(dedupeStringValues([line.lineId, ...selectedRecordIds, receipt.receiptId]));
+  const receiptEvidenceIds = new Set(receipt.evidenceIds);
+  const linkedRecordIdsByEvidenceId = new Map<string, Set<string>>();
+  for (const link of reconciliation.evidenceDataset.links) {
+    if (!linkedRecordIdsByEvidenceId.has(link.evidenceId)) {
+      linkedRecordIdsByEvidenceId.set(link.evidenceId, new Set<string>());
+    }
+    linkedRecordIdsByEvidenceId.get(link.evidenceId)?.add(link.recordId);
+  }
+
+  return reconciliation.evidenceDataset.documents
+    .filter((document) => receiptEvidenceIds.has(document.evidenceId))
+    .filter((document) => {
+      const linkedRecordIds = linkedRecordIdsByEvidenceId.get(document.evidenceId);
+      return (
+        selectedIds.has(document.evidenceId) ||
+        selectedIds.has(document.sourceRecordId) ||
+        [...(linkedRecordIds ?? [])].some((recordId) => selectedIds.has(recordId))
+      );
+    })
+    .map((document) => {
+      const linkedRecordIds = linkedRecordIdsByEvidenceId.get(document.evidenceId);
+      return {
+        documentId: document.evidenceId,
+        documentType: document.documentType,
+        recordIds: dedupeStringValues([
+          line.lineId,
+          receipt.receiptId,
+          document.evidenceId,
+          document.sourceRecordId,
+          ...(linkedRecordIds === undefined ? [] : [...linkedRecordIds])
+        ]),
+        source: document.provenance === "sap_odata" || document.sourceSystem === "sap_odata" ? "sap" : "supabase",
+        summary: `${document.documentType} evidence from ${document.sourceSystem}.`
+      };
+    });
 }
 
 function readVerifiedHumanPrincipal(context: ServiceInvocationContext): string {
@@ -683,10 +749,11 @@ function retrieveDocsEvidence(context: ServiceInvocationContext, line: Deduction
 
 function retrieveQueryAnswerSapEvidenceOrThrow(
   context: ServiceInvocationContext,
-  line: DeductionLine
+  line: DeductionLine,
+  options: { allowUnavailableWhenSelectedEvidencePresent?: boolean } = {}
 ): EvidenceDocument[] {
   if (context.sapEvidenceSource === undefined) {
-    if (context.requireSupabaseSapEvidence === true) {
+    if (context.requireSupabaseSapEvidence === true && options.allowUnavailableWhenSelectedEvidencePresent !== true) {
       throw new Error("Supabase SAP evidence source required for query.answer.");
     }
 
@@ -694,7 +761,11 @@ function retrieveQueryAnswerSapEvidenceOrThrow(
   }
 
   const evidence = [...context.sapEvidenceSource.readEvidence(line)];
-  if (context.requireSupabaseSapEvidence === true && evidence.length === 0) {
+  if (
+    context.requireSupabaseSapEvidence === true &&
+    evidence.length === 0 &&
+    options.allowUnavailableWhenSelectedEvidencePresent !== true
+  ) {
     throw new Error("Supabase SAP evidence rows required for query.answer.");
   }
 
@@ -842,6 +913,7 @@ function toEvidenceDocument(evidence: SyntheticSourceEvidence): EvidenceDocument
   return {
     documentId: evidence.documentId,
     documentType: evidence.documentType,
+    ...(evidence.freshnessRecordIds === undefined ? {} : { freshnessRecordIds: [...evidence.freshnessRecordIds] }),
     recordIds: [...evidence.recordIds],
     source: evidence.source,
     summary: evidence.summary
@@ -852,6 +924,7 @@ function toSapEvidenceDocument(evidence: SapSourceEvidence): EvidenceDocument {
   return {
     documentId: evidence.documentId,
     documentType: evidence.documentType,
+    ...(evidence.freshnessRecordIds === undefined ? {} : { freshnessRecordIds: [...evidence.freshnessRecordIds] }),
     recordIds: [...evidence.recordIds],
     source: evidence.source,
     summary: evidence.summary

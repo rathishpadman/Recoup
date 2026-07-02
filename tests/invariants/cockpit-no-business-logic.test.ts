@@ -414,7 +414,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const returnedWorklist = surface.slice(surface.indexOf("function BeatTwelveReturnedWorklist"));
 
-    expect(worklist).toContain("Search by scenario, customer, or line ID");
+    expect(worklist).toContain("Search by work item, customer, or line ID");
     expect(worklist).not.toContain("Save view");
     expect(worklist).not.toContain("Worklist display options");
     expect(worklist).not.toContain("More filters");
@@ -460,7 +460,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const shell = readFileSync("cockpit/components/maya/maya-workspace-shell.tsx", "utf8");
     const refreshRoute = readFileSync("cockpit/app/api/forensics/refresh/route.ts", "utf8");
 
-    expect(loader).toContain('fetchJson<ForensicsCockpitModel>("/api/forensics/refresh"');
+    expect(loader).toContain('fetchJsonWithHeaders("/api/forensics/refresh"');
     expect(loader).toContain('method: "POST"');
     expect(loader).toContain("isForensicsCockpitModel");
     expect(loader).toContain("isConnectorReadinessModel");

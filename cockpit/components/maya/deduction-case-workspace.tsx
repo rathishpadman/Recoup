@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { AuditConfirmationPanel } from "./audit-confirmation-panel.tsx";
-import { EvidenceDossier } from "./evidence-dossier.tsx";
+import { EvidenceDossier, SelectedEvidenceProofStrip } from "./evidence-dossier.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { RecoveryDraftReview } from "./recovery-draft-review.tsx";
@@ -83,7 +83,7 @@ export function DeductionCaseWorkspace({
       ? `Line ${String(selectedLineIndex + 1)} of ${String(selectedWorklistItem.lineIds.length)}`
       : "Selected line unavailable";
   const amount = selectedWorklistItem?.amount ?? selected.draft.amount;
-  const title = selectedWorklistItem?.scenarioLabel ?? selected.draft.actionLabel;
+  const title = selectedWorklistItem?.workItemLabel ?? selected.draft.actionLabel;
   const customer = selectedWorklistItem?.customerLabel ?? "Unavailable";
   const selectedActionContext = {
     actionLabel: recommendedAction.actionLabel,
@@ -186,11 +186,12 @@ export function DeductionCaseWorkspace({
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <CaseFact label="Customer" value={customer} />
             <CaseFact label="Customer ID" value={selectedWorklistItem?.customerId ?? "Unavailable"} />
-            <CaseFact label="Scenario type" value={selectedWorklistItem?.scenarioType ?? "Unavailable"} />
+            <CaseFact label="Deduction reason" value={selectedWorklistItem?.deductionReason ?? "Unavailable"} />
             <CaseFact label="Lines" value={selectedWorklistItem?.lineCount.toString() ?? "Unavailable"} />
             <CaseFact label="Evidence" value={selectedWorklistItem?.evidenceLabel ?? "Unavailable"} />
             <CaseFact label="Confidence" value={selectedWorklistItem?.confidenceLabel ?? "Unavailable"} />
           </div>
+          {canShowBackendDetail ? <SelectedEvidenceProofStrip evidencePack={selected.evidencePack} /> : null}
         </CardHeader>
       </Card>
 

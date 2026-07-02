@@ -26,7 +26,7 @@ export default async function RunPage() {
     fetchConnectorReadinessModel(backendReadAuthHeaders)
   ]);
   const citedRecordCount = new Set(trace.events.flatMap((event) => event.recordIds)).size;
-  const selectedScenario =
+  const selectedWorkItem =
     forensics.worklist.find((item) => item.lineIds.includes(forensics.selected.lineId)) ?? forensics.worklist[0];
   const evidenceDocumentCount = forensics.selected.evidencePack.documents.length;
   const citedDecisionRecordCount = forensics.selected.evidencePack.recordIds.length;
@@ -42,23 +42,23 @@ export default async function RunPage() {
     >
       <section className="run-command-ledger" aria-label="Maya run dossier summary">
         <article>
-          <span>Scenario</span>
-          <strong>{scenarioDisplayLabel(selectedScenario)}</strong>
-          <small>{selectedScenario?.customerLabel ?? "Selected customer"}</small>
+          <span>Work item</span>
+          <strong>{workItemDisplayLabel(selectedWorkItem)}</strong>
+          <small>{selectedWorkItem?.customerLabel ?? "Selected customer"}</small>
         </article>
         <article>
           <span>Exposure</span>
-          <strong>{selectedScenario?.amount ?? "Review amount"}</strong>
-          <small>{String(selectedScenario?.lineCount ?? 1)} lines in scope</small>
+          <strong>{selectedWorkItem?.amount ?? "Review amount"}</strong>
+          <small>{String(selectedWorkItem?.lineCount ?? 1)} lines in scope</small>
         </article>
         <article>
           <span>Reason</span>
-          <strong>{scenarioReasonLabel(selectedScenario)}</strong>
-          <small>{selectedScenario?.routingLabel ?? "Reviewer queue"}</small>
+          <strong>{workItemReasonLabel(selectedWorkItem)}</strong>
+          <small>{selectedWorkItem?.routingLabel ?? "Reviewer queue"}</small>
         </article>
         <article>
           <span>Evidence</span>
-          <strong>{selectedScenario?.confidenceLabel ?? "Cited"}</strong>
+          <strong>{selectedWorkItem?.confidenceLabel ?? "Cited"}</strong>
           <small>
             {String(evidenceDocumentCount)} docs, {String(citedDecisionRecordCount)} records
           </small>
@@ -78,33 +78,33 @@ export default async function RunPage() {
       <section className="run-console-layout" aria-label="Maya recovery run workspace">
         <div className="run-workarea">
           <section className="route-grid run run-work-grid" aria-label="Deduction recovery dossier">
-            <section className="surface-panel run-scenario-panel">
+            <section className="surface-panel run-work-item-panel">
               <div className="section-heading">
                 <div>
                   <h2>
-                    <Pulse size={18} /> Scenario worklist ({String(forensics.worklist.length)})
+                    <Pulse size={18} /> Work item list ({String(forensics.worklist.length)})
                   </h2>
-                  <span>Ranked recovery scenarios with cited evidence posture.</span>
+                  <span>Ranked recovery work items with cited evidence posture.</span>
                 </div>
               </div>
-              <div className="run-scenario-table" role="table" aria-label="Run scenario worklist">
-                <div className="run-scenario-row head" role="row">
+              <div className="run-work-item-table" role="table" aria-label="Run work item list">
+                <div className="run-work-item-row head" role="row">
                   <span role="columnheader">#</span>
-                  <span role="columnheader">Scenario</span>
+                  <span role="columnheader">Work item</span>
                   <span role="columnheader">Recovery signal</span>
                 </div>
                 {forensics.worklist.map((item, index) => (
                   <div
                     aria-current={item.lineIds.includes(forensics.selected.lineId) ? "true" : undefined}
-                    className="run-scenario-row"
-                    key={item.scenarioId}
+                    className="run-work-item-row"
+                    key={item.workItemId}
                     role="row"
                   >
                     <span role="cell">{String(index + 1)}</span>
                     <div role="cell">
-                      <strong>{scenarioDisplayLabel(item)}</strong>
+                      <strong>{workItemDisplayLabel(item)}</strong>
                       <span>{item.customerLabel}</span>
-                      <small>{scenarioReasonLabel(item)}</small>
+                      <small>{workItemReasonLabel(item)}</small>
                     </div>
                     <div role="cell">
                       <span>{item.confidenceLabel}</span>
@@ -128,9 +128,9 @@ export default async function RunPage() {
               <div className="run-case-heading">
                 <div>
                   <span>Active recovery dossier</span>
-                  <h2>{scenarioDisplayLabel(selectedScenario)}</h2>
+                  <h2>{workItemDisplayLabel(selectedWorkItem)}</h2>
                   <p>
-                    {selectedScenario?.customerLabel ?? "Selected account"} / {scenarioReasonLabel(selectedScenario)}
+                    {selectedWorkItem?.customerLabel ?? "Selected account"} / {workItemReasonLabel(selectedWorkItem)}
                   </p>
                 </div>
                 <StatusPill status={forensics.selected.draft.status} />
@@ -144,25 +144,25 @@ export default async function RunPage() {
               <div className="run-dossier-summary" aria-label="Selected run dossier">
                 <div>
                   <span>Exposure</span>
-                  <strong>{selectedScenario?.amount ?? "Review amount"}</strong>
+                  <strong>{selectedWorkItem?.amount ?? "Review amount"}</strong>
                 </div>
                 <div>
                   <span>Recovery line</span>
-                  <strong>{selectedScenario?.customerLabel ?? "Selected account"}</strong>
+                  <strong>{selectedWorkItem?.customerLabel ?? "Selected account"}</strong>
                 </div>
                 <div>
                   <span>Evidence posture</span>
-                  <strong>{selectedScenario?.confidenceLabel ?? "Cited evidence"}</strong>
+                  <strong>{selectedWorkItem?.confidenceLabel ?? "Cited evidence"}</strong>
                 </div>
                 <div>
                   <span>Draft amount</span>
                   <strong>{forensics.selected.draft.amount}</strong>
                 </div>
               </div>
-              <section className="run-what-happened" aria-label="Run scenario explanation">
+              <section className="run-what-happened" aria-label="Run work item explanation">
                 <h3>What happened</h3>
                 <p>
-                  {scenarioReasonLabel(selectedScenario)} is staged for recovery review against{" "}
+                  {workItemReasonLabel(selectedWorkItem)} is staged for recovery review against{" "}
                   {String(evidenceDocumentCount)} cited source documents. Maya has a draft action ready, but the
                   action stays in human review before anything external can dispatch.
                 </p>
@@ -368,12 +368,12 @@ function auditBasisLabel(event: TraceCockpitModel["events"][number]): string {
   return event.deterministicBasis;
 }
 
-function scenarioReasonLabel(item: WorklistItem | undefined): string {
+function workItemReasonLabel(item: WorklistItem | undefined): string {
   if (item === undefined) {
     return "Deduction review";
   }
 
-  const normalized = item.scenarioType.toLowerCase();
+  const normalized = item.deductionReason.toLowerCase();
   if (normalized.includes("shortage") && normalized.includes("pod")) {
     return "Shortage claim with signed POD";
   }
@@ -402,15 +402,15 @@ function scenarioReasonLabel(item: WorklistItem | undefined): string {
     return "Duplicate deduction review";
   }
 
-  return item.scenarioType.replace(/[-_]+/gu, " ");
+  return item.deductionReason.replace(/[-_]+/gu, " ");
 }
 
-function scenarioDisplayLabel(item: WorklistItem | undefined): string {
+function workItemDisplayLabel(item: WorklistItem | undefined): string {
   if (item === undefined) {
     return "Deduction review";
   }
 
-  const reason = scenarioReasonLabel(item);
+  const reason = workItemReasonLabel(item);
   if (reason.includes("Shortage claim")) {
     return "Shortage POD review";
   }

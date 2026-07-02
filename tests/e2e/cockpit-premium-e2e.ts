@@ -49,7 +49,7 @@ interface ForensicsE2EModel {
     queueLabel: string;
     recommendedActionLabel: string;
     routingLabel: string;
-    scenarioLabel: string;
+    workItemLabel: string;
     verdict: "valid" | "invalid" | "partial";
     verdictLabel: string;
   }>;
@@ -565,7 +565,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
     });
 
     try {
-      await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+      await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
       await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
       await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview landing section");
       await expectVisibleLocator(page, '[data-testid="maya-run-kpi-strip"]', "Maya Overview KPI strip");
@@ -679,7 +679,7 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
   const page = await context.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 3 default selected row");
@@ -725,7 +725,7 @@ async function assertRecoupAgentLauncherMobilePlacement(browser: Browser): Promi
   const page = await context.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya mobile shadcn workbench");
     await assertRecoupAgentLauncherPlacement(page, "Maya mobile Recoup Agent launcher");
   } finally {
@@ -855,7 +855,7 @@ async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
     await page.getByTestId("recoup-agent-launcher").click();
     const route = await Promise.race([
@@ -920,7 +920,7 @@ async function assertMayaDetailErrorStateIsActionable(browser: Browser, errorTar
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${errorTarget.lineId}"]`).click();
     await page.getByTestId("maya-local-row-action-open").click();
@@ -971,7 +971,7 @@ async function captureMayaBeat4CaseOverviewScreenshot(browser: Browser): Promise
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 4 pre-open selected row");
@@ -1003,7 +1003,7 @@ async function captureMayaBeat5EvidenceDossierScreenshot(browser: Browser): Prom
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1035,7 +1035,7 @@ async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<v
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaOverviewSourceReadiness(page, "Maya Beat 6", { expectInitiallyHidden: true });
     await openMayaWorklistSection(page);
@@ -1095,7 +1095,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1166,7 +1166,7 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     browserRuntimeProbe = await page.evaluate(() => ({
       mediaGetUserMediaType: typeof navigator.mediaDevices.getUserMedia,
       rtcType: typeof RTCPeerConnection,
@@ -1449,7 +1449,7 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
   const page = await mayaContext.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await expectVisibleText(page, "Maya");
     await expectVisibleLocator(page, '[data-testid="maya-overview-kpi-band"]', "Maya Overview KPI band");
@@ -1515,7 +1515,7 @@ async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1553,7 +1553,7 @@ async function captureMayaBeat10HumanApprovalScreenshot(browser: Browser): Promi
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1599,7 +1599,7 @@ async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): P
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1641,7 +1641,7 @@ async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Prom
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1696,7 +1696,7 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard.png` });
 
     await page.getByRole("button", { name: /^Worklist$/u }).click();
@@ -2412,7 +2412,7 @@ async function assertBeat2RowStartsUnselected(
   assert(result.rendered, `${label} must render known backend row ${expectedRow.lineId}`);
   assert(result.ariaSelected !== "true", `${label} target row ${expectedRow.lineId} must start non-selected`);
   assert(result.text.includes(expectedRow.customerLabel), `${label} target row must show backend customer ${expectedRow.customerLabel}`);
-  assert(result.text.includes(expectedRow.scenarioLabel), `${label} target row must show backend scenario ${expectedRow.scenarioLabel}`);
+  assert(result.text.includes(expectedRow.workItemLabel), `${label} target row must show backend Work item ${expectedRow.workItemLabel}`);
 }
 
 async function assertBeat2OverviewIsNotBlank(
@@ -2529,7 +2529,7 @@ async function assertBeat2CasesRootFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-cases-selected-starter"]', `${label} Cases selected starter`);
   await page
     .locator('[data-testid="maya-case-row"]')
-    .filter({ hasText: expectedRow.scenarioLabel })
+    .filter({ hasText: expectedRow.workItemLabel })
     .getByRole("button", { name: /^Select$/u })
     .click();
 
@@ -2575,7 +2575,7 @@ async function assertBeat2CasesRootFidelity(
     `${label} Cases selected starter must fill the side pane instead of leaving a sparse column`
   );
   assert(result.selectedRowCount === 1, `${label} Cases root must expose one selected row after Select`);
-  assert(result.selectedRowText.includes(expectedRow.scenarioLabel), `${label} selected Cases row must use backend scenario`);
+  assert(result.selectedRowText.includes(expectedRow.workItemLabel), `${label} selected Cases row must use backend Work item`);
   assert(result.selectedStarterText.includes(expectedRow.customerLabel), `${label} selected starter must use backend customer`);
   assert(result.selectedStarterText.includes(expectedRow.amount), `${label} selected starter must use backend amount`);
   assert(result.rootText.includes(expectedRow.verdictLabel), `${label} Cases root must show backend verdict labels`);
@@ -2757,7 +2757,7 @@ async function assertBeat3RecommendedActionFidelity(
   assert(result.actionBadgeText.includes(expectedRow.recommendedActionLabel), `${label} must show backend recommendation label`);
   assert(result.actionBadgeText.includes("Advisory"), `${label} row recommendation must be explicitly advisory`);
   assert(result.paneText.includes(expectedRow.customerLabel), `${label} pane must summarize selected row customer`);
-  assert(result.paneText.includes(expectedRow.scenarioLabel), `${label} pane must summarize selected row scenario`);
+  assert(result.paneText.includes(expectedRow.workItemLabel), `${label} pane must summarize selected row Work item`);
   assert(result.paneText.includes(expectedRow.amount), `${label} pane must show backend amount string`);
   assert(result.paneText.includes(expectedRow.verdictLabel), `${label} pane must show backend verdict label`);
   assert(result.paneText.includes(expectedRow.queueLabel), `${label} pane must show backend queue label`);
@@ -2841,7 +2841,7 @@ async function assertBeat4CaseOverviewFidelity(
   assert(result.selectedRowCount === 1, "Beat 4 rail must expose exactly one selected row");
   assert(result.selectedDataLineId === expectedRow.lineId, `Beat 4 rail must keep ${expectedRow.lineId} selected`);
   assert(result.railWidth > 220 && result.railWidth < 390, `Beat 4 worklist rail must be narrow: ${String(result.railWidth)}px`);
-  assert(result.text.includes(expectedRow.scenarioLabel), "Beat 4 workspace must use backend scenario label");
+  assert(result.text.includes(expectedRow.workItemLabel), "Beat 4 workspace must use backend Work item label");
   assert(result.text.includes(expectedRow.customerLabel), "Beat 4 workspace must use backend customer label");
   assert(result.text.includes(expectedRow.amount), "Beat 4 workspace must use backend amount string");
   assert(result.text.includes(expectedRow.verdictLabel), "Beat 4 workspace must use backend verdict label");
@@ -3014,7 +3014,7 @@ async function assertBeat9DraftReviewFidelity(
   assert(sourceGapDetailText.includes("Approval owner and timestamps not exposed"), "Beat 9 source details must avoid fake owner/timestamp facts");
   assert(sourceGapDetailText.includes("Audit hash waits for human decision"), "Beat 9 source details must avoid fake audit hashes");
   assert(result.text.includes(selectedRow.customerLabel), "Beat 9 context rail must use the selected worklist customer label");
-  assert(result.text.includes(selectedRow.scenarioLabel), "Beat 9 context rail must use the selected worklist scenario label");
+  assert(result.text.includes(selectedRow.workItemLabel), "Beat 9 context rail must use the selected worklist Work item label");
   assert(result.text.includes(evidenceDocument.citationId), "Beat 9 evidence table must show backend citation IDs");
   assert(result.text.includes(evidenceDocument.documentId), "Beat 9 evidence table must show backend document IDs");
   assert(result.text.includes(evidenceDocument.documentType), "Beat 9 evidence table must show backend document types");
@@ -3272,7 +3272,7 @@ async function assertBeat12ReturnWorklistFidelity(
     "Beat 12 table must show work-item count only"
   );
   assert(result.pageText.includes(expectedRow.customerLabel), "Beat 12 table must use the returned work-item customer");
-  assert(result.pageText.includes(expectedRow.scenarioLabel), "Beat 12 table must use the returned work-item scenario");
+  assert(result.pageText.includes(expectedRow.workItemLabel), "Beat 12 table must use the returned work-item Work item");
   assert(result.pageText.includes(expectedRow.amount), "Beat 12 table must show source amount string");
   assert(result.pageText.includes("All work items"), "Beat 12 must render the target-style work-item tabs");
   assert(result.pageText.includes("Source fields pending"), "Beat 12 must expose missing source fields through a disclosure control");

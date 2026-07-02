@@ -10,12 +10,18 @@ import type { SourceHealthResult } from "./sourceHealth.js";
 import type { SourcePort } from "../adapters/source.js";
 import { recoupAgentRoster } from "../agents/agentRuntime.js";
 import { assessCrestlineM6Containment, type CrestlineM6ContainmentAssessment } from "../agents/containment.js";
-import { runForensicsInvestigation, type DeductionDecision, type ForensicsTraceEvent } from "../agents/forensics.js";
+import {
+  runForensicsInvestigation,
+  type DeductionDecision,
+  type ForensicsReconciliationOptions,
+  type ForensicsTraceEvent
+} from "../agents/forensics.js";
 import { recoupHandoffGraph } from "../agents/handoffGraph.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 import { serviceToolMetadata, type ServiceInvocationContext } from "./serviceLayer.js";
 import { memoryCategories, type MemoryCategory, type MemoryRecord } from "../memory/schema.js";
-import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
+import type { CanonicalEvidenceDocument } from "../types/evidence.js";
+import type { SyntheticDatasetCore } from "../types/entities.js";
 import { money, type Money } from "../types/money.js";
 import { buildCockpitDemoLoginPersonas } from "../../config/cockpitDemoProfiles.js";
 import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataProvenance.js";
@@ -29,6 +35,7 @@ export interface CockpitModelGovernanceOptions {
   approvalRecordSource?: ApprovalRecordSourceMetadata | undefined;
   approvalRecords?: readonly MemoryRecord[] | undefined;
   governedConfig: GovernedConfigValues;
+  reconciliation?: ForensicsReconciliationOptions | undefined;
   riskObservationSource?: SourcePort | undefined;
   serviceContext?: ServiceInvocationContext | undefined;
   settlementSource?: SourcePort | undefined;
@@ -43,7 +50,7 @@ interface SettlementDataset extends SyntheticDatasetCore {
   manifest: {
     eventIds: string[];
     lineIds: string[];
-    scenarioIds: Array<DeductionLine["scenarioId"]>;
+    workItemGroupIds: string[];
     seed: 42;
   };
   rollup: {
@@ -56,6 +63,16 @@ interface SettlementDataset extends SyntheticDatasetCore {
     validLines: number;
   };
   zeroMoney: Money;
+}
+
+interface DecisionRollup {
+  billingLines: number;
+  recoveryAmount: Money;
+  recoveryLines: number;
+  totalAmount: Money;
+  totalLines: number;
+  validAmount: Money;
+  validLines: number;
 }
 
 export interface LoginCockpitModel {
@@ -100,8 +117,15 @@ export interface ForensicsCockpitModel {
         description: string;
         documentId: string;
         documentType: string;
+        contentHash?: string;
+        deterministicComparisonBasis?: string;
+        evidenceId?: string;
+        evidenceProvenance?: string;
         provenance: MayaFieldProvenance;
+        receiptContentHash?: string;
+        receiptId?: string;
         relevance: string;
+        retrievedAt?: string;
         retrieval?: {
           fileName: string;
           mode: "semantic-vector";
@@ -109,7 +133,12 @@ export interface ForensicsCockpitModel {
           score: number;
           vectorStoreId: string;
         };
+        sourceFreshness?: string;
         sourceLabel: string;
+        sourceRecordId?: string;
+        sourceSystem?: string;
+        storageHref?: string;
+        storageUri?: string;
         summary: string;
         verifiedLabel: string;
       }>;
@@ -252,9 +281,9 @@ export interface WorklistItem {
   lineIds: string[];
   customerId: string;
   customerLabel: string;
-  scenarioId: string;
-  scenarioLabel: string;
-  scenarioType: string;
+  workItemId: string;
+  workItemLabel: string;
+  deductionReason: string;
   amount: string;
   verdict: string;
   verdictLabel: string;
@@ -618,7 +647,13 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
   const serviceContext = readForensicsServiceContext(options);
   const approvalRecordSource = readApprovalRecordSource(options);
   const dataset = buildSettlementDataset(settlementSource);
-  const run = runForensicsInvestigation({ governedConfig, serviceContext, source: settlementSource });
+  const run = runForensicsInvestigation({
+    governedConfig,
+    ...(options?.reconciliation === undefined ? {} : { reconciliation: options.reconciliation }),
+    serviceContext,
+    source: settlementSource
+  });
+  const decisionRollup = buildDecisionRollup(dataset, run.decisions);
   const containmentCandidate = run.containmentCandidates[0];
   if (containmentCandidate === undefined) {
     throw new Error("Forensics cockpit requires a governed containment review candidate.");
@@ -633,8 +668,12 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
     throw new Error(`Missing action for selected line ${selectedDecision.lineId}.`);
   }
   const settlementRecordIds = dataset.manifest.lineIds;
-  const recoveryRecordIds = dataset.deductionLines.filter((line) => line.routing === "recovery").map((line) => line.lineId);
-  const billingRecordIds = dataset.deductionLines.filter((line) => line.routing === "billing").map((line) => line.lineId);
+  const recoveryRecordIds = run.decisions
+    .filter((decision) => decision.routing === "recovery")
+    .map((decision) => decision.lineId);
+  const billingRecordIds = run.decisions
+    .filter((decision) => decision.routing === "billing")
+    .map((decision) => decision.lineId);
   const actionRecordIds = uniqueStrings(run.actions.flatMap((action) => action.recordIds));
   const retrievalStatus = buildRetrievalStatusRows(selectedDecision.evidenceDocuments);
   const evidenceSourceRecordIds = uniqueStrings(
@@ -645,14 +684,14 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
     surface: "forensics-analyst",
     kpiStrip: [
       {
-        label: "Open scenarios",
-        value: String(dataset.manifest.scenarioIds.length),
+        label: "Open work items",
+        value: String(dataset.manifest.workItemGroupIds.length),
         support: `${String(dataset.rollup.totalLines)} lines collapsed`,
-        provenance: businessProvenance("kpiStrip.openScenarios", {
+        provenance: businessProvenance("kpiStrip.openWorkItems", {
           sourceKind: "derived_backend",
           sourceName: "Settlement rollup read model",
           recordIds: settlementRecordIds,
-          deterministicBasis: "unique scenarioId count from buildSettlementDataset settlement source rows"
+          deterministicBasis: "unique work item group count from source line order"
         })
       },
       {
@@ -668,8 +707,8 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
       },
       {
         label: "Recovery queue",
-        value: formatMoney(dataset.rollup.recoveryAmount),
-        support: `${String(dataset.rollup.recoveryLines)} drafts`,
+        value: formatMoney(decisionRollup.recoveryAmount),
+        support: `${String(decisionRollup.recoveryLines)} drafts`,
         provenance: businessProvenance("kpiStrip.recoveryQueue", {
           sourceKind: "derived_backend",
           sourceName: "Forensics recovery action read model",
@@ -679,8 +718,8 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
       },
       {
         label: "Billing protection",
-        value: formatMoney(dataset.rollup.validAmount),
-        support: `${String(dataset.rollup.validLines)} route-to-Billing drafts`,
+        value: formatMoney(decisionRollup.validAmount),
+        support: `${String(decisionRollup.validLines)} route-to-Billing drafts`,
         provenance: businessProvenance("kpiStrip.billingProtection", {
           sourceKind: "derived_backend",
           sourceName: "Forensics Billing prevention read model",
@@ -711,12 +750,13 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
         })
       }
     ],
-    worklist: buildScenarioWorklist(dataset, run.decisions, run.actions, options?.approvalRecords),
+    worklist: buildDeductionWorklist(dataset, run.decisions, run.actions, options?.approvalRecords),
     selected: buildSelectedForensicsCase(
       selectedDecision,
       selectedAction,
       findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId),
-      approvalRecordSource
+      approvalRecordSource,
+      options?.reconciliation
     ),
     actionInbox: buildForensicsActionInbox(run.actions),
     multimodalDock: {
@@ -806,20 +846,20 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
     ],
     recoveryTracker: {
       totalExposure: formatMoney(dataset.rollup.totalAmount),
-      projectedRecovery: formatMoney(dataset.rollup.recoveryAmount),
-      projectedBilling: formatMoney(dataset.rollup.validAmount),
-      recoveryLines: dataset.rollup.recoveryLines,
-      billingLines: dataset.rollup.validLines,
+      projectedRecovery: formatMoney(decisionRollup.recoveryAmount),
+      projectedBilling: formatMoney(decisionRollup.validAmount),
+      recoveryLines: decisionRollup.recoveryLines,
+      billingLines: decisionRollup.validLines,
       provenance: businessProvenance("recoveryTracker", {
         sourceKind: "derived_backend",
         sourceName: "Settlement recovery rollup read model",
         recordIds: settlementRecordIds,
-        deterministicBasis: "buildSettlementDataset rollups from Supabase settlement source rows"
+        deterministicBasis: "runForensicsInvestigation decisions joined to Supabase settlement source amounts"
       })
     },
     retrievalStatus,
     containmentPanel: buildContainmentPanel(containmentCandidate, dataset.customers),
-    whatChanged: `${String(dataset.rollup.recoveryLines)} recovery drafts and ${String(dataset.rollup.validLines)} Billing prevention drafts are staged for human review.`,
+    whatChanged: `${String(decisionRollup.recoveryLines)} recovery drafts and ${String(decisionRollup.validLines)} Billing prevention drafts are staged for human review.`,
     aiInsight: "Every proposed amount is bound to a deterministic decision delta; live model execution remains blocked in the offline harness."
   };
 }
@@ -838,7 +878,12 @@ export function buildForensicsWorkItemDetailCockpitModel(
     throw new ForensicsWorkItemNotFoundError(lineId);
   }
 
-  const run = runForensicsInvestigation({ governedConfig, serviceContext, source: settlementSource });
+  const run = runForensicsInvestigation({
+    governedConfig,
+    ...(options?.reconciliation === undefined ? {} : { reconciliation: options.reconciliation }),
+    serviceContext,
+    source: settlementSource
+  });
   const selectedDecision = run.decisions.find((decision) => decision.lineId === lineId);
   if (selectedDecision === undefined) {
     throw new Error(`Missing Forensics decision for requested line ${lineId}.`);
@@ -852,7 +897,7 @@ export function buildForensicsWorkItemDetailCockpitModel(
     throw new Error(`Missing action for requested line ${lineId}.`);
   }
 
-  const workItem = buildScenarioWorklist(dataset, run.decisions, run.actions, options?.approvalRecords).find((item) =>
+  const workItem = buildDeductionWorklist(dataset, run.decisions, run.actions, options?.approvalRecords).find((item) =>
     item.lineIds.includes(lineId)
   );
   if (workItem === undefined) {
@@ -860,7 +905,13 @@ export function buildForensicsWorkItemDetailCockpitModel(
   }
 
   const approvalReceipt = findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId);
-  const selected = buildSelectedForensicsCase(selectedDecision, selectedAction, approvalReceipt, approvalRecordSource);
+  const selected = buildSelectedForensicsCase(
+    selectedDecision,
+    selectedAction,
+    approvalReceipt,
+    approvalRecordSource,
+    options?.reconciliation
+  );
   const actionInbox = buildForensicsActionInbox(run.actions);
   const recommendedAction = actionInbox.find((action) => action.lineId === lineId);
   if (recommendedAction === undefined) {
@@ -1147,21 +1198,31 @@ export function buildCreditCockpitModel(options: CockpitModelGovernanceOptions |
 
 export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptions | undefined): CfoSummaryCockpitModel {
   const governedConfig = readGovernedCockpitConfig(options);
-  const dataset = buildSettlementDataset(readSettlementSource(options));
+  const settlementSource = readSettlementSource(options);
+  const serviceContext = readForensicsServiceContext(options);
+  const dataset = buildSettlementDataset(settlementSource);
+  const forensicsRun = runForensicsInvestigation({
+    governedConfig,
+    ...(options?.reconciliation === undefined ? {} : { reconciliation: options.reconciliation }),
+    serviceContext,
+    source: settlementSource
+  });
+  const decisionRollup = buildDecisionRollup(dataset, forensicsRun.decisions);
   const riskRun = runRiskMeshClosedLoop({ governedConfig, source: readRiskObservationSource(options) });
   const dependencies = cfoOpenDependencies.map((dependencyId) => dependencyView(dependencyId));
   const auditHash = riskMeshAuditHashes(riskRun.auditEntries).chainHeadHash;
-  const recoveryRecordIds = dataset.deductionLines
-    .filter((line) => line.routing === "recovery")
+  const recoveryRecordIds = forensicsRun.decisions
+    .filter((decision) => decision.routing === "recovery")
     .slice(0, 3)
-    .map((line) => line.lineId);
-  const billingRecordIds = dataset.deductionLines
-    .filter((line) => line.routing === "billing")
+    .map((decision) => decision.lineId);
+  const billingRecordIds = forensicsRun.decisions
+    .filter((decision) => decision.routing === "billing")
     .slice(0, 3)
-    .map((line) => line.lineId);
+    .map((decision) => decision.lineId);
   const caseConfig = governedConfig.riskMeshCases.harbor;
   const auditRecordIds = uniqueStrings([
-    "recoup_deduction_lines",
+    "recoup_deduction_claims",
+    "recoup_reconciliation_receipts",
     ...(dataset.deductionLines[0] === undefined ? [] : [dataset.deductionLines[0].lineId]),
     caseConfig.customerId,
     caseConfig.orderId,
@@ -1175,8 +1236,8 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
   });
   const boardMetrics = [
     { label: "Gross scope", value: formatMoney(dataset.rollup.totalAmount), support: `${String(dataset.deductionLines.length)} deduction lines` },
-    { label: "Recovery queue", value: formatMoney(dataset.rollup.recoveryAmount), support: `${String(dataset.rollup.recoveryLines)} recovery drafts` },
-    { label: "Margin protected", value: formatMoney(dataset.rollup.validAmount), support: `${String(dataset.rollup.validLines)} prevention drafts` },
+    { label: "Recovery queue", value: formatMoney(decisionRollup.recoveryAmount), support: `${String(decisionRollup.recoveryLines)} recovery drafts` },
+    { label: "Margin protected", value: formatMoney(decisionRollup.validAmount), support: `${String(decisionRollup.validLines)} prevention drafts` },
     { label: "External action posture", value: "Draft-only", support: "HITL gate required" },
     { label: "Evidence sources", value: "4", support: "SAP, Docs, TPM, Bureau" },
     { label: "Open proof dependencies", value: String(dependencies.length), support: "Owner proof required" },
@@ -1188,7 +1249,7 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
   }));
   const reportMetadata = [
     { label: "Board pack", value: "Recoup v2 executive readout" },
-    { label: "Dataset", value: "Supabase recoup_deduction_lines" },
+    { label: "Dataset", value: "Supabase reconciliation receipts" },
     { label: "Currency", value: "USD" },
     { label: "Mode", value: "Read-only board draft" }
   ].map((item) => ({
@@ -1216,13 +1277,13 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
       basis: "computed recovery deltas",
       label: "Recovery draft queue",
       recordIds: recoveryRecordIds,
-      state: `${String(dataset.rollup.recoveryLines)} drafts`
+      state: `${String(decisionRollup.recoveryLines)} drafts`
     },
     {
       basis: "valid deductions routed as draft-only Billing recommendations",
       label: "Billing prevention queue",
       recordIds: billingRecordIds,
-      state: `${String(dataset.rollup.validLines)} drafts`
+      state: `${String(decisionRollup.validLines)} drafts`
     },
     {
       basis: riskMeshArbitrationReason(riskRun.arbitration),
@@ -1245,14 +1306,14 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
     {
       label: "Recovery drafts",
       posture: "Pending human review",
-      support: formatMoney(dataset.rollup.recoveryAmount),
-      value: String(dataset.rollup.recoveryLines)
+      support: formatMoney(decisionRollup.recoveryAmount),
+      value: String(decisionRollup.recoveryLines)
     },
     {
       label: "Billing prevention drafts",
       posture: "Draft route only",
-      support: formatMoney(dataset.rollup.validAmount),
-      value: String(dataset.rollup.validLines)
+      support: formatMoney(decisionRollup.validAmount),
+      value: String(decisionRollup.validLines)
     },
     {
       label: "Open proof dependencies",
@@ -1283,9 +1344,9 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
     surface: "cfo-summary",
     metrics: [
       { label: "Gross-to-net", value: `${formatMoney(dataset.rollup.totalAmount)} gross scope` },
-      { label: "Margin protected", value: `${formatMoney(dataset.rollup.validAmount)} draft-only` },
+      { label: "Margin protected", value: `${formatMoney(decisionRollup.validAmount)} draft-only` },
       { label: "DSO / CEI", value: "requires live ERP inputs" },
-      { label: "Leakage position", value: `${formatMoney(dataset.rollup.recoveryAmount)} recovery queue` }
+      { label: "Leakage position", value: `${formatMoney(decisionRollup.recoveryAmount)} recovery queue` }
     ],
     readoutStatusLabels: ["Read-only", "Draft actions only", `${String(dependencies.length)} open proofs`],
     boardMetrics,
@@ -1332,6 +1393,7 @@ export function buildCfoSummaryCockpitModel(options: CockpitModelGovernanceOptio
 export function buildForensicsSseEvents(options: CockpitModelGovernanceOptions | undefined): ForensicsSseEvent[] {
   const run = runForensicsInvestigation({
     governedConfig: readGovernedCockpitConfig(options),
+    ...(options?.reconciliation === undefined ? {} : { reconciliation: options.reconciliation }),
     serviceContext: readForensicsServiceContext(options),
     source: readSettlementSource(options)
   });
@@ -1513,7 +1575,7 @@ export function buildConnectorReadinessModel(
   };
 }
 
-function buildScenarioWorklist(
+function buildDeductionWorklist(
   dataset: SettlementDataset,
   decisions: DeductionDecision[],
   actions: ReturnType<typeof runForensicsInvestigation>["actions"],
@@ -1524,31 +1586,30 @@ function buildScenarioWorklist(
   const receiptByActionId = new Map(buildApprovalAuditReceipts(approvalRecords).map((receipt) => [receipt.actionId, receipt]));
   const customerById = new Map(dataset.customers.map((customer) => [customer.customerId, customer]));
 
-  return dataset.manifest.scenarioIds.map((scenarioId) => {
-    const lines = dataset.deductionLines.filter((line) => line.scenarioId === scenarioId);
+  return dataset.manifest.workItemGroupIds.map((workItemGroupId) => {
+    const lines = dataset.deductionLines.filter((line) => workItemGroupIdFromLineId(line.lineId) === workItemGroupId);
     const firstLine = lines[0];
     if (firstLine === undefined) {
-      throw new Error(`Missing scenario ${scenarioId}.`);
+      throw new Error(`Missing worklist group ${workItemGroupId}.`);
     }
 
-    const scenarioDecisions = lines.map((line) => decisionsByLineId.get(line.lineId)).filter((decision): decision is DeductionDecision => decision !== undefined);
-    const firstDecision = scenarioDecisions[0];
+    const groupDecisions = lines.map((line) => decisionsByLineId.get(line.lineId)).filter((decision): decision is DeductionDecision => decision !== undefined);
+    const firstDecision = groupDecisions[0];
     if (firstDecision === undefined) {
-      throw new Error(`Missing decision for scenario ${scenarioId}.`);
+      throw new Error(`Missing decision for worklist group ${workItemGroupId}.`);
     }
 
     const total = lines.reduce((sum, line) => sum.plus(line.amount), dataset.zeroMoney);
-    const recordIds = uniqueStrings(scenarioDecisions.flatMap((decision) => decision.recordIds));
-    const customer = customerById.get(firstLine.customerId);
-  const scenarioActions = lines
+    const recordIds = uniqueStrings(groupDecisions.flatMap((decision) => decision.recordIds));
+    const groupActions = lines
       .map((line) => actionByLineId.get(line.lineId))
       .filter((action): action is ReturnType<typeof runForensicsInvestigation>["actions"][number] => action !== undefined);
-    const firstAction = scenarioActions[0];
-    const scenarioApprovalReceipts = scenarioActions
+    const firstAction = groupActions[0];
+    const groupApprovalReceipts = groupActions
       .map((action) => receiptByActionId.get(action.actionId))
       .filter((receipt): receipt is ApprovalAuditReceipt => receipt !== undefined);
-    const allScenarioActionsDecided =
-      scenarioActions.length > 0 && scenarioApprovalReceipts.length === scenarioActions.length;
+    const allGroupActionsDecided = groupActions.length > 0 && groupApprovalReceipts.length === groupActions.length;
+    const customer = customerById.get(firstLine.customerId);
 
     return {
       lineId: firstLine.lineId,
@@ -1556,9 +1617,9 @@ function buildScenarioWorklist(
       lineIds: lines.map((line) => line.lineId),
       customerId: firstLine.customerId,
       customerLabel: customer?.name ?? labelFromRecordId(firstLine.customerId),
-      scenarioId,
-      scenarioLabel: `${scenarioId}-${String(lines.length)} lines`,
-      scenarioType: firstLine.scenarioType,
+      workItemId: firstLine.lineId,
+      workItemLabel: `${customer?.name ?? labelFromRecordId(firstLine.customerId)} deduction group (${String(lines.length)} lines)`,
+      deductionReason: firstLine.scenarioType,
       amount: formatMoney(total),
       verdict: firstDecision.verdict,
       verdictLabel: verdictLabel(firstDecision.verdict),
@@ -1569,14 +1630,14 @@ function buildScenarioWorklist(
       confidenceLabel: confidenceLabel(firstDecision.confidence),
       evidenceScoreLabel: String(recordIds.length),
       evidenceLabel: `${String(recordIds.length)} artifacts`,
-      provenance: businessProvenance(`worklist.${scenarioId}`, {
+      provenance: businessProvenance(`worklist.${workItemGroupId}`, {
         sourceKind: "derived_backend",
-        sourceName: "Forensics scenario worklist read model",
+        sourceName: "Forensics evidence worklist read model",
         recordIds,
-        deterministicBasis: `scenario ${scenarioId} grouped from settlement source lines and runForensicsInvestigation decisions`
+        deterministicBasis: `line-id group ${workItemGroupId} joined from settlement source and runForensicsInvestigation decisions`
       }),
-      approvalStatus: allScenarioActionsDecided ? "human_decided" : firstAction?.status ?? "pending_human",
-      approvalStatusLabel: allScenarioActionsDecided ? "Human decision recorded" : "Awaiting reviewer",
+      approvalStatus: allGroupActionsDecided ? "human_decided" : firstAction?.status ?? "pending_human",
+      approvalStatusLabel: allGroupActionsDecided ? "Human decision recorded" : "Awaiting reviewer",
       queueLabel: firstDecision.routing === "recovery" ? "Review" : "Billing"
     };
   });
@@ -1879,27 +1940,46 @@ function readApprovalRecordSource(options: CockpitModelGovernanceOptions | undef
 function buildSettlementDataset(source: SourcePort): SettlementDataset {
   const settlementRun = source.loadSettlementRun();
   const zeroMoney = money("0.00");
-  const recoveryLines = settlementRun.deductionLines.filter((line) => line.routing === "recovery");
-  const validLines = settlementRun.deductionLines.filter((line) => line.routing === "billing");
 
   return {
     ...settlementRun,
     manifest: {
-      eventIds: settlementRun.deductionLines.map((line) => line.eventId),
-      lineIds: settlementRun.deductionLines.map((line) => line.lineId),
-      scenarioIds: uniqueStrings(settlementRun.deductionLines.map((line) => line.scenarioId)) as Array<DeductionLine["scenarioId"]>,
+      eventIds: settlementRun.deductionLines.map((settlementLine) => settlementLine.eventId),
+      lineIds: settlementRun.deductionLines.map((settlementLine) => settlementLine.lineId),
+      workItemGroupIds: uniqueStrings(settlementRun.deductionLines.map((settlementLine) => workItemGroupIdFromLineId(settlementLine.lineId))),
       seed: settlementRun.seed
     },
     rollup: {
-      billingLines: validLines.length,
-      recoveryAmount: recoveryLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
-      recoveryLines: recoveryLines.length,
+      billingLines: 0,
+      recoveryAmount: zeroMoney,
+      recoveryLines: 0,
       totalAmount: settlementRun.deductionLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
       totalLines: settlementRun.deductionLines.length,
-      validAmount: validLines.reduce((total, line) => total.plus(line.amount), zeroMoney),
-      validLines: validLines.length
+      validAmount: zeroMoney,
+      validLines: 0
     },
     zeroMoney
+  };
+}
+
+function workItemGroupIdFromLineId(lineId: string): string {
+  return lineId.match(/^(S[1-8])-/u)?.[1] ?? lineId;
+}
+
+function buildDecisionRollup(dataset: SettlementDataset, decisions: readonly DeductionDecision[]): DecisionRollup {
+  const zeroMoney = dataset.zeroMoney;
+  const amountByLineId = new Map(dataset.deductionLines.map((line) => [line.lineId, line.amount]));
+  const recoveryLineIds = decisions.filter((decision) => decision.routing === "recovery").map((decision) => decision.lineId);
+  const billingLineIds = decisions.filter((decision) => decision.routing === "billing").map((decision) => decision.lineId);
+
+  return {
+    billingLines: billingLineIds.length,
+    recoveryAmount: recoveryLineIds.reduce((total, lineId) => total.plus(amountByLineId.get(lineId) ?? zeroMoney), zeroMoney),
+    recoveryLines: recoveryLineIds.length,
+    totalAmount: dataset.rollup.totalAmount,
+    totalLines: dataset.rollup.totalLines,
+    validAmount: billingLineIds.reduce((total, lineId) => total.plus(amountByLineId.get(lineId) ?? zeroMoney), zeroMoney),
+    validLines: billingLineIds.length
   };
 }
 
@@ -1922,7 +2002,8 @@ function buildSelectedForensicsCase(
   selectedDecision: DeductionDecision,
   selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number],
   approvalReceipt: ApprovalAuditReceipt | undefined,
-  approvalRecordSource: ApprovalRecordSourceMetadata
+  approvalRecordSource: ApprovalRecordSourceMetadata,
+  reconciliation: ForensicsReconciliationOptions | undefined
 ): ForensicsCockpitModel["selected"] {
   const approvalEligibility = buildApprovalEligibility(
     selectedDecision,
@@ -1930,20 +2011,12 @@ function buildSelectedForensicsCase(
     approvalReceipt,
     approvalRecordSource
   );
+  const evidencePack = buildSelectedEvidencePack(selectedDecision, reconciliation);
 
   return {
     lineId: selectedDecision.lineId,
     approvalEligibility,
-    evidencePack: {
-      provenance: businessProvenance("selected.evidencePack", {
-        sourceKind: "derived_backend",
-        sourceName: "Forensics selected decision evidence pack",
-        recordIds: selectedDecision.recordIds,
-        deterministicBasis: `requested decision ${selectedDecision.decisionId} evidenceDocuments from runForensicsInvestigation`
-      }),
-      recordIds: selectedDecision.recordIds,
-      documents: selectedDecision.evidenceDocuments.map((document, index) => evidenceDocumentView(document, index))
-    },
+    evidencePack,
     draft: {
       actionId: selectedAction.actionId,
       actionLabel: actionLabel(selectedAction.actionType),
@@ -1966,6 +2039,130 @@ function buildSelectedForensicsCase(
       { decision: "reject", label: "Reject", requiresReason: true, provenance: approvalControlProvenance("reject") }
     ]
   };
+}
+
+function buildSelectedEvidencePack(
+  selectedDecision: DeductionDecision,
+  reconciliation: ForensicsReconciliationOptions | undefined
+): ForensicsCockpitModel["selected"]["evidencePack"] {
+  const receipt = reconciliation?.receipts?.find((candidate) => candidate.lineId === selectedDecision.lineId);
+  const canonicalDocuments = canonicalEvidenceDocumentsForDecision(selectedDecision, reconciliation, receipt);
+  if (receipt !== undefined && canonicalDocuments.length > 0) {
+    const recordIds = uniqueStrings([
+      ...selectedDecision.recordIds,
+      receipt.receiptId,
+      ...receipt.evidenceIds,
+      ...canonicalDocuments.flatMap((document) => [document.evidenceId, document.sourceRecordId])
+    ]);
+
+    return {
+      provenance: businessProvenance("selected.evidencePack", {
+        sourceKind: "derived_backend",
+        sourceName: "Forensics selected decision canonical evidence pack",
+        recordIds,
+        deterministicBasis: `reconciliation receipt ${receipt.receiptId} joined to canonical evidence documents for decision ${selectedDecision.decisionId}`
+      }),
+      recordIds,
+      documents: canonicalDocuments.map((document, index) => canonicalEvidenceDocumentView(document, index, receipt))
+    };
+  }
+
+  return {
+    provenance: businessProvenance("selected.evidencePack", {
+      sourceKind: "derived_backend",
+      sourceName: "Forensics selected decision evidence pack",
+      recordIds: selectedDecision.recordIds,
+      deterministicBasis: `requested decision ${selectedDecision.decisionId} evidenceDocuments from runForensicsInvestigation`
+    }),
+    recordIds: selectedDecision.recordIds,
+    documents: selectedDecision.evidenceDocuments.map((document, index) => evidenceDocumentView(document, index))
+  };
+}
+
+function canonicalEvidenceDocumentsForDecision(
+  selectedDecision: DeductionDecision,
+  reconciliation: ForensicsReconciliationOptions | undefined,
+  receipt: NonNullable<ForensicsReconciliationOptions["receipts"]>[number] | undefined
+): CanonicalEvidenceDocument[] {
+  if (reconciliation?.evidenceDataset === undefined || receipt === undefined) {
+    return [];
+  }
+
+  const receiptEvidenceIds = new Set(receipt.evidenceIds);
+  return reconciliation.evidenceDataset.documents
+    .filter((document) => receiptEvidenceIds.has(document.evidenceId) && evidenceDocumentLineId(document) === selectedDecision.lineId)
+    .sort((left, right) => canonicalEvidenceDocumentSortKey(left).localeCompare(canonicalEvidenceDocumentSortKey(right)));
+}
+
+function canonicalEvidenceDocumentView(
+  document: CanonicalEvidenceDocument,
+  index: number,
+  receipt: NonNullable<ForensicsReconciliationOptions["receipts"]>[number]
+): ForensicsCockpitModel["selected"]["evidencePack"]["documents"][number] {
+  const sourceLabel = canonicalEvidenceSourceLabel(document);
+  const sourceName = canonicalEvidenceSourceName(document);
+  const comparisonBasis = `canonical evidence document comparison via receipt ${receipt.receiptId}; evidence ${document.evidenceId}; contentHash ${document.contentHash}`;
+  const storageUri = canonicalEvidenceStorageUri(document);
+  const storageHref = canonicalEvidenceStorageHref(storageUri, document.evidenceId);
+
+  return {
+    citationId: canonicalEvidenceCitationId(document, index),
+    contentHash: document.contentHash,
+    description: canonicalEvidenceDescription(document),
+    deterministicComparisonBasis: comparisonBasis,
+    documentId: document.evidenceId,
+    documentType: document.documentType,
+    evidenceId: document.evidenceId,
+    evidenceProvenance: document.provenance,
+    provenance: businessProvenance(`selected.evidencePack.documents.${document.evidenceId}`, {
+      sourceKind: canonicalEvidenceSourceKind(document),
+      sourceName,
+      recordIds: uniqueStrings([receipt.receiptId, document.evidenceId, document.sourceRecordId]),
+      deterministicBasis: comparisonBasis
+    }),
+    receiptContentHash: receipt.contentHash,
+    receiptId: receipt.receiptId,
+    relevance: index === 0 ? "Primary" : "Supporting",
+    retrievedAt: document.retrievedAt,
+    sourceFreshness: `retrieved at ${document.retrievedAt}`,
+    sourceLabel,
+    sourceRecordId: document.sourceRecordId,
+    sourceSystem: document.sourceSystem,
+    ...(storageHref === undefined ? {} : { storageHref }),
+    ...(storageUri === undefined ? {} : { storageUri }),
+    summary: canonicalEvidenceSummary(document),
+    verifiedLabel: "Hash verified"
+  };
+}
+
+function canonicalEvidenceStorageUri(document: CanonicalEvidenceDocument): string | undefined {
+  const configuredStorageUri = document.storageUri?.trim() ?? "";
+  if (configuredStorageUri.length > 0) {
+    return configuredStorageUri;
+  }
+  if (
+    document.provenance === "source_generated" &&
+    (document.documentType === "pod" || document.documentType === "sap_invoice" || document.documentType === "remittance_advice")
+  ) {
+    return `supabase://recoup_evidence_documents/${document.evidenceId}`;
+  }
+
+  return undefined;
+}
+
+function canonicalEvidenceStorageHref(storageUri: string | undefined, evidenceId: string): string | undefined {
+  const normalizedStorageUri = storageUri?.trim() ?? "";
+  if (normalizedStorageUri.length === 0) {
+    return undefined;
+  }
+  if (normalizedStorageUri === `supabase://recoup_evidence_documents/${evidenceId}`) {
+    return `/api/forensics/evidence-documents/${encodeURIComponent(evidenceId)}`;
+  }
+  if (/^https?:/iu.test(normalizedStorageUri)) {
+    return normalizedStorageUri;
+  }
+
+  return undefined;
 }
 
 function buildApprovalEligibility(
@@ -2222,6 +2419,107 @@ function containmentProvenance(
     recordIds: candidate.recordIds,
     deterministicBasis
   });
+}
+
+function evidenceDocumentLineId(document: CanonicalEvidenceDocument): string | undefined {
+  const value = document.payload.lineId;
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function canonicalEvidenceDocumentSortKey(document: CanonicalEvidenceDocument): string {
+  const rank = canonicalEvidenceTypeRank(document.documentType);
+
+  return `${rank.toString().padStart(2, "0")}:${document.evidenceId}`;
+}
+
+function canonicalEvidenceTypeRank(documentType: CanonicalEvidenceDocument["documentType"]): number {
+  switch (documentType) {
+    case "pod":
+      return 0;
+    case "remittance_advice":
+    case "edi_812":
+      return 1;
+    case "sap_invoice":
+    case "sap_credit_memo":
+      return 2;
+    case "contract_pricing":
+    case "contract_sla":
+      return 3;
+    case "tpm_promo":
+    case "tpm_accrual":
+      return 4;
+    case "carrier_damage_report":
+    case "carrier_photo":
+      return 5;
+    case "customer_po":
+      return 6;
+    case "bureau_alert":
+    case "payment_history":
+      return 7;
+  }
+}
+
+function canonicalEvidenceCitationId(document: CanonicalEvidenceDocument, index: number): string {
+  const prefix =
+    document.documentType === "pod"
+      ? "P"
+      : document.sourceSystem === "tpm"
+        ? "T"
+        : document.sourceSystem === "sap" || document.sourceSystem === "sap_odata"
+          ? "S"
+          : "E";
+
+  return `${prefix}${String(index + 1)}`;
+}
+
+function canonicalEvidenceDescription(document: CanonicalEvidenceDocument): string {
+  return `${canonicalEvidenceBusinessLabel(document.documentType)} ${document.evidenceId}`;
+}
+
+function canonicalEvidenceSummary(document: CanonicalEvidenceDocument): string {
+  const sourceMode = typeof document.payload.sourceMode === "string" ? ` Source mode ${document.payload.sourceMode}.` : "";
+
+  return `${canonicalEvidenceBusinessLabel(document.documentType)} record ${document.sourceRecordId}.${sourceMode}`;
+}
+
+function canonicalEvidenceBusinessLabel(documentType: CanonicalEvidenceDocument["documentType"]): string {
+  return documentType
+    .split(/[_-]+/u)
+    .filter((part) => part.length > 0)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function canonicalEvidenceSourceKind(document: CanonicalEvidenceDocument): MayaFieldProvenance["sourceKind"] {
+  return document.provenance === "sap_odata" ? "sap_odata" : "supabase";
+}
+
+function canonicalEvidenceSourceLabel(document: CanonicalEvidenceDocument): string {
+  const labels: Record<CanonicalEvidenceDocument["sourceSystem"], string> = {
+    bureau: "Bureau",
+    carrier: "Carrier",
+    contract_repo: "Contract Repo",
+    customer_po: "Customer PO",
+    payment_history: "Payment history",
+    recoup_generated: "Recoup generated",
+    remittance: "Remittance",
+    sap: "SAP",
+    sap_odata: "SAP OData",
+    three_pl: "3PL POD",
+    tpm: "TPM"
+  };
+
+  return labels[document.sourceSystem];
+}
+
+function canonicalEvidenceSourceName(document: CanonicalEvidenceDocument): string {
+  const label = canonicalEvidenceSourceLabel(document);
+  if (document.sourceSystem === "sap_odata" && document.provenance === "source_generated") {
+    return `${label} source_generated fallback`;
+  }
+
+  return label;
 }
 
 function evidenceDocumentSourceKind(document: DeductionDecision["evidenceDocuments"][number]): MayaFieldProvenance["sourceKind"] {
@@ -2901,8 +3199,8 @@ function cfoExecutiveMetadataValue(label: string, value: string): string {
     return "Supabase settlement source rows plus governed read models";
   }
 
-  if (label === "Dataset" || lowerValue.includes("recoup_deduction_lines")) {
-    return "Supabase settlement source";
+  if (label === "Dataset" || lowerValue.includes("reconciliation receipts")) {
+    return "Supabase claims and reconciliation receipts";
   }
 
   if (value.includes("HITL")) {

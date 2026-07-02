@@ -120,6 +120,58 @@ describe("supabase memory repository", () => {
     expect(sql).not.toMatch(/INSERT\s+INTO\s+recoup_src_sap/iu);
   });
 
+  it("documents canonical real-evidence claim and reconciliation tables behind service-role access", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_evidence_documents");
+    expect(sql).toContain("evidence_id text PRIMARY KEY");
+    expect(sql).toContain(
+      "document_type text NOT NULL CHECK (document_type IN ('pod', 'sap_invoice', 'sap_credit_memo', 'customer_po', 'contract_pricing', 'contract_sla', 'tpm_promo', 'tpm_accrual', 'carrier_damage_report', 'carrier_photo', 'remittance_advice', 'edi_812', 'bureau_alert', 'payment_history'))"
+    );
+    expect(sql).toContain("source_system text NOT NULL");
+    expect(sql).toContain("payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')");
+    expect(sql).toContain("content_hash text NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$')");
+    expect(sql).toContain("storage_uri text");
+    expect(sql).toContain("retrieved_at timestamptz NOT NULL");
+    expect(sql).toContain("provenance text NOT NULL CHECK (provenance IN ('sap_odata', 'source_generated', 'uploaded_document', 'provider_api'))");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_evidence_links");
+    expect(sql).toContain("record_role text NOT NULL CHECK (record_role IN ('deduction_line', 'claim', 'customer', 'invoice', 'source_record'))");
+    expect(sql).toContain("PRIMARY KEY(evidence_id, record_id, record_role)");
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_deduction_claims");
+    expect(sql).toContain("claim_id text PRIMARY KEY");
+    expect(sql).toContain("gold_scenario_id text");
+    expect(sql).toContain("claim_amount numeric(18,2) NOT NULL");
+    expect(sql).toContain("remittance_evidence_id text NOT NULL REFERENCES recoup_evidence_documents(evidence_id)");
+    expect(sql).toContain("record_ids jsonb NOT NULL CHECK (jsonb_typeof(record_ids) = 'array' AND jsonb_array_length(record_ids) > 0)");
+    expect(sql).not.toMatch(/\bscenario_id\s+text\s+not\s+null\b/iu);
+
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_reconciliation_receipts");
+    expect(sql).toContain("receipt_id text PRIMARY KEY");
+    expect(sql).toContain("derived_rule_input_json jsonb NOT NULL CHECK (jsonb_typeof(derived_rule_input_json) = 'object')");
+    expect(sql).toContain("evidence_ids jsonb NOT NULL CHECK (jsonb_typeof(evidence_ids) = 'array' AND jsonb_array_length(evidence_ids) > 0)");
+    expect(sql).toContain("deterministic_basis jsonb NOT NULL CHECK (jsonb_typeof(deterministic_basis) = 'object')");
+    expect(sql).toContain("confidence_factors jsonb NOT NULL CHECK (jsonb_typeof(confidence_factors) = 'object')");
+
+    for (const tableName of [
+      "recoup_evidence_documents",
+      "recoup_evidence_links",
+      "recoup_deduction_claims",
+      "recoup_reconciliation_receipts"
+    ]) {
+      expect(sql).toContain(`REVOKE ALL ON TABLE ${tableName} FROM anon, authenticated, service_role`);
+      expect(sql).toContain(`GRANT SELECT, INSERT, UPDATE ON TABLE ${tableName} TO service_role`);
+      expect(sql).not.toMatch(new RegExp(`GRANT\\s+[^;]*DELETE[^;]*ON TABLE ${tableName} TO service_role`, "iu"));
+      expect(sql).toContain(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`ALTER TABLE ${tableName} FORCE ROW LEVEL SECURITY`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_select`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_insert`);
+      expect(sql).toContain(`CREATE POLICY ${tableName}_service_role_update`);
+      expect(sql).not.toMatch(new RegExp(`CREATE POLICY\\s+${tableName}[\\s\\S]+TO\\s+(?:anon|authenticated)`, "iu"));
+    }
+  });
+
   it("documents a service-role-only source health snapshot table for backend connector polling", () => {
     const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
 
@@ -397,7 +449,7 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("profile text NOT NULL");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_deduction_lines");
     expect(sql).toContain("line_id text PRIMARY KEY");
-    expect(sql).toContain("scenario_id text NOT NULL CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'))");
+    expect(sql).toContain("scenario_id text CHECK (scenario_id IN ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'))");
     expect(sql).toContain("customer_id text NOT NULL REFERENCES recoup_customers(customer_id)");
     expect(sql).toContain("amount numeric NOT NULL");
     expect(sql).toContain("verdict text NOT NULL CHECK (verdict IN ('valid', 'invalid', 'partial'))");

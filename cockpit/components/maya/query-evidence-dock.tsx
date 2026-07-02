@@ -21,6 +21,8 @@ import type {
 
 const QUERY_QUESTION_CHARACTER_LIMIT = 500;
 
+type EvidenceDocument = MayaEvidencePack["documents"][number];
+
 interface QueryEvidenceDockProps {
   dock: MayaQueryPromptDockContract;
   evidencePack: MayaEvidencePack;
@@ -298,6 +300,7 @@ export function QueryEvidenceDock({
                       </Badge>
                     ))}
                   </div>
+                  <QueryEvidenceDocumentDisclosure documents={evidencePack.documents} />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -484,6 +487,53 @@ export function QueryEvidenceDock({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function QueryEvidenceDocumentDisclosure({ documents }: { documents: EvidenceDocument[] }) {
+  if (documents.length === 0) {
+    return (
+      <Badge className="w-fit" data-testid="maya-query-evidence-document" variant="outline">
+        No evidence documents
+      </Badge>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2" aria-label="Selected evidence documents">
+      {documents.map((document) => (
+        <div
+          className="grid min-w-0 gap-2 rounded-md border bg-background/70 p-2 text-xs"
+          data-testid="maya-query-evidence-document"
+          key={`${document.citationId}-${document.documentId}`}
+        >
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Badge variant="secondary">{document.citationId}</Badge>
+            {document.evidenceId === undefined ? null : <Badge variant="outline">{document.evidenceId}</Badge>}
+            {document.receiptId === undefined ? null : <Badge variant="outline">{document.receiptId}</Badge>}
+          </div>
+          <dl className="grid min-w-0 gap-1">
+            <QueryEvidenceMetadataRow label="Content hash" value={document.contentHash} />
+            <QueryEvidenceMetadataRow label="Storage URI" value={document.storageUri} />
+            <QueryEvidenceMetadataRow label="Source freshness" value={document.sourceFreshness} />
+            <QueryEvidenceMetadataRow label="Deterministic basis" value={document.deterministicComparisonBasis} />
+          </dl>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function QueryEvidenceMetadataRow({ label, value }: { label: string; value: string | undefined }) {
+  if (value === undefined || value.trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid min-w-0 grid-cols-[6.75rem_minmax(0,1fr)] gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-mono text-[11px]">{value}</dd>
+    </div>
   );
 }
 

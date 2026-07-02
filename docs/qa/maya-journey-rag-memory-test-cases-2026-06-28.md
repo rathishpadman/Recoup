@@ -8,6 +8,10 @@ Scope: Maya Deduction Forensics journey across the canonical 8 business cases an
 
 Governance rules: code computes every dollar; every decision keeps cited record IDs plus deterministic basis; every external action remains human-gated; unknown or unsafe inputs fail closed; no ERP writeback.
 
+## Historical Scope Note
+
+This 2026-06-28 production smoke is historical. It proves the Maya query and journey state for commit `47708f26da43ee92633ae7eaf208900bb9ce9b47`, but it does not prove the 2026-07-01 real-evidence cutover. The current cutover requires `npm.cmd run check:real-evidence-proof` after approved preview/post screenshots show visible `EVD-POD-S3-L1`, visible `RECON-S3-L1`, visible content hash/provenance, and loaded POD PDF/image/media proof.
+
 ## Evidence Sources
 
 | Evidence | File or command | What it proves |
@@ -16,6 +20,7 @@ Governance rules: code computes every dollar; every decision keeps cited record 
 | 20-line browser sweep | `tests/e2e/maya-real-backend-e2e.ts` | Real-backend E2E asserts S1-S8 worklist coverage and opens every canonical line detail. |
 | Production 8-query journey | `scripts/runMayaProdQa.ts` | Browser login, source readiness, query dock, 8 live Maya queries, HITL gate visibility, Render health, and API route status. |
 | Latest prod run artifact | `output/playwright/prod-qa/maya-prod-qa-results.json` | Commit `47708f26...`, 8/8 prod queries passed, connector status 200, Render health 200, 0 console errors. |
+| 2026-07-01 real-evidence proof | `npm.cmd run check:real-evidence-proof` | Current cutover gate; blocks until preview/post route screenshots, visual diff, `EVD-POD-S3-L1`, `RECON-S3-L1`, hash/provenance, and loaded POD media are proven. |
 | Memory tests | `tests/unit/memory.test.ts`, `tests/unit/cockpit-api.test.ts`, `tests/invariants/memory-contract.test.ts` | Short-term query scope and long-term governed recall are scoped, cited, safe, env-gated, and advisory-only. |
 | RAG/vector tests | `tests/unit/enterprise-connectors.test.ts`, `tests/unit/forensics.test.ts`, `tests/invariants/deduction-evidence-pack.test.ts`, `tests/invariants/runtime-config.test.ts` | Vector metadata/readiness and additive evidence seams fail closed and do not replace deterministic source evidence. |
 

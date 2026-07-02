@@ -8,7 +8,7 @@ export const cockpitHumanPrincipalByDemoRole = {
 
 export type CockpitDemoRole = keyof typeof cockpitHumanPrincipalByDemoRole;
 export type CockpitHumanPrincipal = (typeof cockpitHumanPrincipalByDemoRole)[CockpitDemoRole];
-export type CockpitHumanProxyPurpose = "admin-reset" | "approval" | "realtime";
+export type CockpitHumanProxyPurpose = "admin-reset" | "approval" | "read" | "realtime";
 
 export const cockpitHumanProxyBodyHashHeader = "x-recoup-demo-body-sha256";
 export const cockpitHumanProxyIssuedAtHeader = "x-recoup-demo-issued-at";

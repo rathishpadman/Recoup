@@ -39,7 +39,7 @@ const obviousBusinessLiteralPatterns = [
     pattern: /["'`](?:ACTION|APPROVAL|AUDIT|HASH|REBILL|RECOVERY|CUST|INV)-[A-Z0-9][A-Z0-9:_-]*["'`]/u
   },
   {
-    label: "scenario line fixture IDs",
+    label: "Work item line fixture IDs",
     pattern: /["'`]S[1-8]-L\d+["'`]/u
   }
 ] as const;
@@ -805,7 +805,7 @@ describe("Maya shadcn cockpit boundary", () => {
       "draft.actionId",
       "selectedLineId",
       "selectedWorklistItem.customerLabel",
-      "selectedWorklistItem.scenarioLabel",
+      "selectedWorklistItem.workItemLabel",
       "selectedWorklistItem.amount",
       "selectedWorklistItem.queueLabel",
       "selectedWorklistItem.routingLabel",
@@ -989,7 +989,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(table).toContain("Deduction Worklist");
     expect(table).toContain("items.length");
     expect(table).toContain("InputGroup");
-    expect(table).toContain("Search by scenario, customer, or line ID");
+    expect(table).toContain("Search by work item, customer, or line ID");
     expect(table).toContain("Source details");
     expect(table).toContain("missingOperationalFields");
     expect(table).toContain("Open investigation");

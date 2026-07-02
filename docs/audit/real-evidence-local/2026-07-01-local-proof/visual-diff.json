@@ -1,0 +1,154 @@
+[
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\00-public-landing.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\00-public-landing.png",
+    "route": "public landing",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\01-login-entry.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\01-login-entry.png",
+    "route": "login entry",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\02-maya-workspace.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\02-maya-workspace.png",
+    "route": "maya workspace",
+    "changedPixelRatio": 0.07039772727272728,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\03-forensics-worklist.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\03-forensics-worklist.png",
+    "route": "forensics worklist",
+    "changedPixelRatio": 0.08681755050505051,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\04-forensics-selected-case.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\04-forensics-selected-case.png",
+    "route": "selected case",
+    "changedPixelRatio": 0.11217866161616162,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\05-evidence-provenance-drawer.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\05-evidence-provenance-drawer.png",
+    "route": "evidence provenance drawer",
+    "changedPixelRatio": 0.11514583333333334,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\06-query-answer-panel.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\06-query-answer-panel.png",
+    "route": "query answer panel",
+    "changedPixelRatio": 0.1174040404040404,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\07-approval-audit-panel.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\07-approval-audit-panel.png",
+    "route": "approval audit panel",
+    "changedPixelRatio": 0.1205625,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\08-cfo-view-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\08-cfo-view-if-live.png",
+    "route": "cfo view if live",
+    "changedPixelRatio": 0.00043876262626262627,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\10-trace-view-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\10-trace-view-if-live.png",
+    "route": "trace view if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\11-evals-finops-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\11-evals-finops-if-live.png",
+    "route": "evals finops if live",
+    "changedPixelRatio": 0.007645393051552994,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\09-david-credit-risk-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\09-david-credit-risk-if-live.png",
+    "route": "david credit risk if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\12-forensics-classic-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\12-forensics-classic-if-live.png",
+    "route": "forensics classic if live",
+    "changedPixelRatio": 0.1312920746634027,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\13-run-workspace-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\13-run-workspace-if-live.png",
+    "route": "run workspace if live",
+    "changedPixelRatio": 0.02946333018570979,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\14-david-command-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\14-david-command-if-live.png",
+    "route": "david command if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\15-governance-overview-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\15-governance-overview-if-live.png",
+    "route": "governance overview if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\16-governance-agents-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\16-governance-agents-if-live.png",
+    "route": "governance agents if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\17-governance-connectors-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\17-governance-connectors-if-live.png",
+    "route": "governance connectors if live",
+    "changedPixelRatio": 0,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  },
+  {
+    "baselinePath": "docs\\audit\\real-evidence-baseline\\2026-07-01\\screenshots\\18-governance-memory-if-live.png",
+    "postPath": "docs\\audit\\real-evidence-local\\2026-07-01-local-proof\\screenshots\\18-governance-memory-if-live.png",
+    "route": "governance memory if live",
+    "changedPixelRatio": 0.00029103535353535353,
+    "pass": true,
+    "maxChangedPixelRatio": 0.35
+  }
+]

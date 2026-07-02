@@ -1,4 +1,4 @@
-import { FileTextIcon, InfoIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
+import { ExternalLinkIcon, FileTextIcon, InfoIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,45 @@ interface EvidenceDossierProps {
   evidencePack: MayaEvidencePack;
   onQueryEvidence?: () => void;
   sourceTiles: MayaSourceTile[];
+}
+
+export function SelectedEvidenceProofStrip({ evidencePack }: { evidencePack: MayaEvidencePack }) {
+  const evidenceIds = uniqueValues(evidencePack.documents.map((document) => document.evidenceId));
+  const receiptIds = uniqueValues(evidencePack.documents.map((document) => document.receiptId));
+  const contentHashes = uniqueValues(evidencePack.documents.map((document) => document.contentHash));
+  const provenanceTerms = uniqueValues(evidencePack.documents.map((document) => document.evidenceProvenance));
+  const podDocument = evidencePack.documents.find((document) => document.documentType.trim().toLowerCase() === "pod");
+
+  if (
+    evidenceIds.length === 0 &&
+    receiptIds.length === 0 &&
+    contentHashes.length === 0 &&
+    provenanceTerms.length === 0 &&
+    podDocument === undefined
+  ) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label="Selected evidence proof"
+      className="grid min-w-0 gap-3 rounded-lg border bg-muted/20 p-3"
+      data-testid="maya-selected-evidence-proof-strip"
+    >
+      <div className="grid min-w-0 gap-3 md:grid-cols-4">
+        <ProofColumn label="Evidence IDs" values={evidenceIds} />
+        <ProofColumn label="Receipt IDs" values={receiptIds} />
+        <ProofColumn label="Content hashes" values={contentHashes} />
+        <ProofColumn label="Provenance" values={provenanceTerms} />
+      </div>
+      {podDocument === undefined ? null : (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Badge variant="secondary">POD document</Badge>
+          <EvidenceStorageLink document={podDocument} />
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function EvidenceDossier({
@@ -188,18 +227,30 @@ function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] })
                     <span className="font-medium">{document.description}</span>
                   </div>
                   <span className="text-sm text-muted-foreground">{document.summary}</span>
+                  <EvidenceDocumentProvenance document={document} />
                 </div>
               </TableCell>
               <TableCell className="w-[21%] whitespace-normal align-top">
                 <div className="flex min-w-0 flex-col gap-1">
                   <span className="font-medium">{document.citationId}</span>
                   <span className="text-sm text-muted-foreground">{document.documentId}</span>
+                  {document.evidenceId === undefined ? null : (
+                    <Badge className="w-fit" variant="outline">
+                      {document.evidenceId}
+                    </Badge>
+                  )}
+                  {document.receiptId === undefined ? null : (
+                    <Badge className="w-fit" variant="secondary">
+                      {document.receiptId}
+                    </Badge>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="w-[23%] whitespace-normal align-top">
                 <div className="flex min-w-0 flex-col gap-1">
                   <span>{document.sourceLabel}</span>
                   <span className="text-sm text-muted-foreground">{document.verifiedLabel}</span>
+                  <EvidenceStorageLink document={document} />
                 </div>
               </TableCell>
             </TableRow>
@@ -207,6 +258,105 @@ function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] })
         </TableBody>
       </Table>
     </ScrollArea>
+  );
+}
+
+function ProofColumn({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="grid min-w-0 gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {values.length === 0 ? (
+        <Badge className="w-fit" variant="outline">
+          Unavailable
+        </Badge>
+      ) : (
+        <div className="flex min-w-0 flex-wrap gap-1">
+          {values.slice(0, 3).map((value) => (
+            <Badge className="max-w-full truncate font-mono text-[10px]" key={value} title={value} variant="outline">
+              {value}
+            </Badge>
+          ))}
+          {values.length > 3 ? <Badge variant="secondary">+{String(values.length - 3)}</Badge> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceDocumentProvenance({ document }: { document: EvidenceDocument }) {
+  const rows = [
+    { label: "Evidence ID", value: document.evidenceId },
+    { label: "Receipt ID", value: document.receiptId },
+    { label: "Content hash", value: document.contentHash },
+    { label: "Receipt hash", value: document.receiptContentHash },
+    { label: "Storage URI", value: document.storageUri },
+    { label: "Source system", value: document.sourceSystem },
+    { label: "Source record", value: document.sourceRecordId },
+    { label: "Source freshness", value: document.sourceFreshness },
+    { label: "Evidence provenance", value: document.evidenceProvenance },
+    { label: "Deterministic basis", value: document.deterministicComparisonBasis }
+  ].filter((row): row is { label: string; value: string } => row.value !== undefined && row.value.trim().length > 0);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <dl className="grid min-w-0 gap-1 rounded-md border bg-background/70 p-2 text-xs" data-testid="maya-evidence-provenance">
+      {rows.map((row) => (
+        <div className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-2" key={row.label}>
+          <dt className="text-muted-foreground">{row.label}</dt>
+          <dd className="min-w-0 break-words font-mono text-[11px]">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function EvidenceStorageLink({ document }: { document: EvidenceDocument }) {
+  if (document.storageUri === undefined || document.storageUri.trim().length === 0) {
+    return null;
+  }
+
+  const safeHref = document.storageHref?.trim();
+  const isPodDocument = document.documentType.trim().toLowerCase() === "pod";
+  if (safeHref === undefined || safeHref.length === 0) {
+    return (
+      <span
+        className="break-all font-mono text-[11px] text-muted-foreground"
+        data-testid={isPodDocument ? "pod-document-preview" : "evidence-document-preview"}
+      >
+        {document.storageUri}
+      </span>
+    );
+  }
+
+  if (isPodDocument) {
+    return (
+      <a
+        className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+        data-testid="pod-document-preview"
+        href={safeHref}
+        rel="noreferrer"
+        target="_blank"
+      >
+        <ExternalLinkIcon aria-hidden="true" className="size-3.5" />
+        Open stored evidence
+      </a>
+    );
+  }
+
+  return (
+    <a
+      className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
+      data-testid="evidence-document-preview"
+      href={safeHref}
+      rel="noreferrer"
+      target="_blank"
+    >
+      <ExternalLinkIcon aria-hidden="true" className="size-3.5" />
+      Open stored evidence
+    </a>
   );
 }
 
@@ -271,5 +421,9 @@ function getEvidenceBusinessLabel(documentType: string): string {
     .split(/[-_\s]+/u)
     .filter((part) => part.length > 0)
     .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(" ");
+      .join(" ");
+}
+
+function uniqueValues(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim() ?? "").filter((value) => value.length > 0))];
 }

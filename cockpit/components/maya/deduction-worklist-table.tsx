@@ -53,7 +53,7 @@ export function DeductionWorklistTable({
 
     return items.filter((item) =>
       [
-        item.scenarioLabel,
+        item.workItemLabel,
         item.customerLabel,
         item.verdictLabel,
         item.routingLabel,
@@ -98,7 +98,7 @@ export function DeductionWorklistTable({
                 setQuery(event.target.value);
               }}
               placeholder="Search"
-              title="Search by scenario, customer, or line ID"
+              title="Search by work item, customer, or line ID"
               value={query}
             />
           </InputGroup>
@@ -137,7 +137,7 @@ export function DeductionWorklistTable({
                         <span className="flex min-w-0 items-start justify-between gap-2">
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-medium">{item.lineId}</span>
-                            <span className="block truncate text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                            <span className="block truncate text-xs text-muted-foreground">{item.workItemLabel}</span>
                           </span>
                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                         </span>
@@ -183,7 +183,7 @@ export function DeductionWorklistTable({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <CardTitle>Deduction Worklist ({items.length})</CardTitle>
-            <CardDescription>Work items grouped by scenario and queue</CardDescription>
+            <CardDescription>Work items grouped by work item and queue</CardDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Tooltip>
@@ -216,7 +216,7 @@ export function DeductionWorklistTable({
                 setQuery(event.target.value);
               }}
               placeholder="Search worklist"
-              title="Search by scenario, customer, or line ID"
+              title="Search by work item, customer, or line ID"
               value={query}
             />
           </InputGroup>
@@ -253,7 +253,7 @@ export function DeductionWorklistTable({
                       <span className="flex min-w-0 items-start justify-between gap-3">
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">{item.lineId}</span>
-                          <span className="block line-clamp-2 text-xs text-muted-foreground">{item.scenarioLabel}</span>
+                          <span className="block line-clamp-2 text-xs text-muted-foreground">{item.workItemLabel}</span>
                         </span>
                         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                       </span>
@@ -283,11 +283,11 @@ export function DeductionWorklistTable({
                   <TableHead className="w-[4%] px-2">
                     <span className="sr-only">Local row selection</span>
                   </TableHead>
-                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
-                  <TableHead className="w-[17%] whitespace-nowrap px-2 leading-4">Scenario / Customer</TableHead>
-                  <TableHead className="w-[27%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
+                  <TableHead className="w-[10%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
+                  <TableHead className="w-[23%] whitespace-nowrap px-2 leading-4">Work item / Customer</TableHead>
+                  <TableHead className="w-[23%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
                   <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
-                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
+                  <TableHead className="w-[10%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
                   <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue / Route</TableHead>
                 </TableRow>
               </TableHeader>
@@ -324,7 +324,7 @@ export function DeductionWorklistTable({
                     >
                     <TableCell className="px-2 py-2 align-middle">
                       <Checkbox
-                        aria-label={`${item.scenarioLabel} local focus selection`}
+                        aria-label={`${item.workItemLabel} local focus selection`}
                         checked={item.lineId === selectedLineId}
                         onCheckedChange={() => {
                           onSelectItem(item);
@@ -346,8 +346,8 @@ export function DeductionWorklistTable({
                     <TableCell className="whitespace-normal px-2 py-2">
                       <div className="flex min-w-0 flex-col gap-1">
                         <div className="min-w-0">
-                          <p className="break-words font-medium leading-4" title={item.scenarioLabel}>
-                            {item.scenarioLabel}
+                          <p className="break-words font-medium leading-4" title={item.workItemLabel}>
+                            {item.workItemLabel}
                           </p>
                           <p className="break-words text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
                             {item.customerLabel}
@@ -395,7 +395,7 @@ export function DeductionWorklistTable({
                           <WorklistApprovalStatusBadge item={item} />
                         </div>
                         <Button
-                          aria-label={`Open investigation for ${item.scenarioLabel}`}
+                          aria-label={`Open investigation for ${item.workItemLabel}`}
                           className="shrink-0"
                           data-testid="maya-row-action-open"
                           onClick={(event) => {

@@ -82,6 +82,7 @@ export interface ForensicsQuerySessionInput {
   recordIds: string[];
   runForensics?: (options: RunForensicsInvestigationOptions) => ForensicsRun;
   selectedLineId: string;
+  reconciliation?: RunForensicsInvestigationOptions["reconciliation"];
   serviceContext: ServiceInvocationContext;
   source: SourcePort;
 }
@@ -132,6 +133,7 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
   const run = (input.runForensics ?? runForensicsInvestigation)({
     agentHookRecordIds: dedupeRecordIds([request.selectedLineId, ...request.recordIds]),
     governedConfig: input.governedConfig,
+    ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
     serviceContext: input.serviceContext,
     source: input.source
   });
@@ -148,7 +150,7 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
     return blockedQueryResponse();
   }
 
-  const citations = buildQueryCitations(decision, request.recordIds);
+  const citations = buildQueryCitations(decision, request.recordIds, input.reconciliation);
   if (citations.length === 0) {
     return blockedQueryResponse();
   }
@@ -221,6 +223,7 @@ export async function runForensicsQuerySessionWithLiveAgents(
     ),
     mcpServiceContext: {
       ...input.serviceContext,
+      ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
       queryAnswerScope: {
         recordIds: liveAgentRecordIds,
         selectedLineId: request.selectedLineId
@@ -349,13 +352,11 @@ function hasDeterministicDecisionBasis(decision: DeductionDecision): boolean {
 
 function buildQueryCitations(
   decision: DeductionDecision,
-  requestedRecordIds: readonly string[]
+  requestedRecordIds: readonly string[],
+  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined
 ): ForensicsQueryCitation[] {
-  const availableRecordIds = new Set([
-    decision.lineId,
-    ...decision.recordIds,
-    ...decision.evidenceDocuments.flatMap((document) => document.recordIds)
-  ]);
+  const availableCitationRecords = buildAvailableCitationRecords(decision, reconciliation);
+  const availableRecordIds = new Set(availableCitationRecords.keys());
   const submittedRecordIds = dedupeRecordIds(requestedRecordIds);
   const matchedSubmittedRecordIds = submittedRecordIds.filter((recordId) => availableRecordIds.has(recordId));
   if (matchedSubmittedRecordIds.length !== submittedRecordIds.length) {
@@ -366,7 +367,7 @@ function buildQueryCitations(
   );
 
   return selectedRecordIds.map((recordId) => {
-    const document = decision.evidenceDocuments.find((candidate) => candidate.recordIds.includes(recordId));
+    const document = availableCitationRecords.get(recordId);
     return {
       deterministicBasis: forensicsQueryDeterministicBasis,
       ...(document === undefined ? {} : { documentId: document.documentId }),
@@ -375,6 +376,70 @@ function buildQueryCitations(
       ...(document === undefined ? {} : { summary: document.summary })
     };
   });
+}
+
+function buildAvailableCitationRecords(
+  decision: DeductionDecision,
+  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined
+): Map<string, { documentId: string; source?: string; summary?: string }> {
+  const records = new Map<string, { documentId: string; source?: string; summary?: string }>();
+  records.set(decision.lineId, { documentId: decision.lineId, source: "source_backed", summary: decision.basis });
+  for (const recordId of decision.recordIds) {
+    records.set(recordId, { documentId: decision.lineId, source: recordId.startsWith("SAP-") ? "sap" : "source_backed", summary: decision.basis });
+  }
+  for (const document of decision.evidenceDocuments) {
+    for (const recordId of document.recordIds) {
+      records.set(recordId, {
+        documentId: document.documentId,
+        source: document.source,
+        summary: document.summary
+      });
+    }
+  }
+
+  const receipt = reconciliation?.receipts?.find((candidate) => candidate.lineId === decision.lineId);
+  if (receipt === undefined || reconciliation?.evidenceDataset === undefined) {
+    return records;
+  }
+
+  records.set(receipt.receiptId, {
+    documentId: receipt.receiptId,
+    source: "supabase",
+    summary: `Reconciliation receipt for ${decision.lineId}.`
+  });
+  const documentsById = new Map(reconciliation.evidenceDataset.documents.map((document) => [document.evidenceId, document]));
+  for (const evidenceId of receipt.evidenceIds) {
+    const document = documentsById.get(evidenceId);
+    if (document === undefined) {
+      records.set(evidenceId, {
+        documentId: evidenceId,
+        source: "supabase",
+        summary: `Canonical evidence ${evidenceId} cited by ${receipt.receiptId}.`
+      });
+      continue;
+    }
+
+    const citation = {
+      documentId: document.evidenceId,
+      source: canonicalEvidenceCitationSource(document),
+      summary: `${document.documentType} evidence from ${document.sourceSystem}.`
+    };
+    records.set(document.evidenceId, citation);
+    records.set(document.sourceRecordId, citation);
+  }
+
+  return records;
+}
+
+function canonicalEvidenceCitationSource(document: {
+  provenance: string;
+  sourceSystem: string;
+}): string {
+  if (document.provenance === "sap_odata" || document.sourceSystem === "sap" || document.sourceSystem === "sap_odata") {
+    return "sap";
+  }
+
+  return "supabase";
 }
 
 function buildQueryTrace(input: {
@@ -646,7 +711,7 @@ function hasSelectedEvidenceMcpQueryAnswer(
       hasSameRecordScope(receipt.toolOutputSelectedRecordIds, scopedRecordIds) &&
       receipt.toolOutputSourceReadStatus === "source_backed_selected_scope" &&
       receipt.toolOutputCanonicalModel === "EvidenceDocument" &&
-      hasSapEvidenceForSelectedScope(receipt.toolOutputSapEvidenceRecordIds, selectedLineId, scopedRecordIds)
+      hasSelectedSourceEvidenceForSelectedScope(receipt, selectedLineId, scopedRecordIds)
   );
 }
 
@@ -660,7 +725,18 @@ function hasSameRecordScope(actual: readonly string[] | undefined, expected: rea
   return actualIds.length === expectedIds.length && expectedIds.every((recordId) => actualIds.includes(recordId));
 }
 
-function hasSapEvidenceForSelectedScope(
+function hasSelectedSourceEvidenceForSelectedScope(
+  receipt: AgentHookAuditReceipt,
+  selectedLineId: string,
+  scopedRecordIds: readonly string[]
+): boolean {
+  return (
+    hasEvidenceForSelectedScope(receipt.toolOutputSelectedEvidenceRecordIds, selectedLineId, scopedRecordIds) ||
+    hasEvidenceForSelectedScope(receipt.toolOutputSapEvidenceRecordIds, selectedLineId, scopedRecordIds)
+  );
+}
+
+function hasEvidenceForSelectedScope(
   actual: readonly string[] | undefined,
   selectedLineId: string,
   scopedRecordIds: readonly string[]
@@ -716,6 +792,9 @@ function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   const toolName = normalizeLiveMcpToolName(receipt.toolName)?.toLowerCase() ?? "";
   if ((receipt.toolOutputSapEvidenceRecordIds?.length ?? 0) > 0) {
     return { retrievalSource: "sap_odata", sourceKind: "sap_odata", ...traceTransportMetadataForReceipt(receipt) };
+  }
+  if ((receipt.toolOutputSelectedEvidenceRecordIds?.length ?? 0) > 0) {
+    return { retrievalSource: "supabase", sourceKind: "supabase", ...traceTransportMetadataForReceipt(receipt) };
   }
   if (toolName.includes("sap")) {
     return { retrievalSource: "sap_odata", sourceKind: "sap_odata" };
