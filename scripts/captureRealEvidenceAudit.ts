@@ -161,7 +161,8 @@ const outputManifestPath = join(outputRoot, "manifest.json");
 const screenshotDir = join(outputRoot, "screenshots");
 const defaultViewport = { height: 1100, width: 1440 };
 const demoPassword = process.env.RECOUP_E2E_DEMO_PASSWORD ?? "Welcome#123";
-const podSelector = "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']";
+export const podSelector =
+  "[data-testid='pod-document-preview'], img[alt*='POD' i], iframe[src*='pod' i], a[href*='pod' i], a[href*='evidence-documents' i]";
 const routeCaptureTimeoutMs = readPositiveInteger(process.env.RECOUP_CAPTURE_ROUTE_TIMEOUT_MS, 60_000);
 
 async function main(): Promise<void> {
@@ -225,7 +226,7 @@ async function captureRoute(
   viewport: { height: number; width: number },
   baselineCapture: BaselineCapture
 ): Promise<RouteCapture> {
-  const page = await newCapturePage(browser, viewport);
+  const page = await newCapturePage(browser, viewport, baseUrl);
   const consoleErrors: string[] = [];
   let routeTimedOut = false;
   const routeAbort = new AbortController();
@@ -274,14 +275,40 @@ async function captureRoute(
   }
 }
 
-async function newCapturePage(browser: Browser, viewport: { height: number; width: number }): Promise<Page> {
+async function newCapturePage(browser: Browser, viewport: { height: number; width: number }, baseUrl: string): Promise<Page> {
   const page = await browser.newPage({ viewport });
-  const protectionHeaders = buildVercelProtectionHeaders();
-  if (protectionHeaders !== undefined) {
-    await page.setExtraHTTPHeaders(protectionHeaders);
-  }
+  await installVercelProtectionBypassRoute(page, baseUrl);
 
   return page;
+}
+
+async function installVercelProtectionBypassRoute(page: Page, baseUrl: string): Promise<void> {
+  const protectionHeaders = buildVercelProtectionHeaders();
+  if (protectionHeaders === undefined) {
+    return;
+  }
+  const baseOrigin = new URL(baseUrl).origin;
+  await page.route("**/*", async (route) => {
+    if (!shouldAttachVercelProtectionHeaders(route.request().url(), baseOrigin)) {
+      await route.continue();
+      return;
+    }
+
+    await route.continue({
+      headers: {
+        ...route.request().headers(),
+        ...protectionHeaders
+      }
+    });
+  });
+}
+
+export function shouldAttachVercelProtectionHeaders(requestUrl: string, baseOrigin: string): boolean {
+  try {
+    return new URL(requestUrl).origin === baseOrigin;
+  } catch {
+    return false;
+  }
 }
 
 async function captureRouteBody(

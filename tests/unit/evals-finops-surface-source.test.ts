@@ -24,4 +24,13 @@ describe("Evals FinOps KPI surface source", () => {
     expect(page).not.toContain("requireBackendReadAuthHeaders");
     expect(page).not.toContain("proxyRequest");
   });
+
+  it("route-gates the Connectors page while using server cockpit auth for the backend read", () => {
+    const page = readFileSync("cockpit/app/governance/connectors/page.tsx", "utf8");
+
+    expect(page).toContain('requireRouteAccess("/governance/connectors")');
+    expect(page).toContain("fetchConnectorReadinessModel();");
+    expect(page).not.toContain("requireBackendReadAuthHeaders");
+    expect(page).not.toContain("proxyRequest");
+  });
 });

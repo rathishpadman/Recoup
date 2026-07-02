@@ -7,10 +7,12 @@ import {
   buildRealEvidenceMediaCheckFromProbe,
   buildVercelProtectionHeaders,
   isVercelDeploymentProtectionPage,
+  podSelector,
   readCaptureKind,
   safeFetchMediaProof,
   sanitizeCaptureUrlForManifest,
-  sanitizeConsoleTextForManifest
+  sanitizeConsoleTextForManifest,
+  shouldAttachVercelProtectionHeaders
 } from "../../scripts/captureRealEvidenceAudit.js";
 
 describe("real evidence capture media proof", () => {
@@ -300,6 +302,17 @@ describe("real evidence capture media proof", () => {
         process.env.VERCEL_AUTOMATION_BYPASS_SECRET = previous;
       }
     }
+  });
+
+  it("limits Vercel bypass headers to same-origin preview requests", () => {
+    expect(shouldAttachVercelProtectionHeaders("https://preview.example.com/login", "https://preview.example.com")).toBe(true);
+    expect(shouldAttachVercelProtectionHeaders("https://fonts.gstatic.com/font.woff2", "https://preview.example.com")).toBe(false);
+    expect(shouldAttachVercelProtectionHeaders("not a url", "https://preview.example.com")).toBe(false);
+  });
+
+  it("recognizes POD safe-viewer evidence-document links as media proof candidates", () => {
+    expect(podSelector).toContain("evidence-documents");
+    expect(podSelector).toContain("a[href*='pod' i]");
   });
 
   it("sanitizes persisted capture URLs and console text before audit manifest output", () => {

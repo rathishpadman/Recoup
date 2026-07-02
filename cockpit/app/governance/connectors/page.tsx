@@ -2,7 +2,6 @@ import { CircuitryIcon as Circuitry } from "@phosphor-icons/react/dist/ssr/Circu
 import { DatabaseIcon as Database } from "@phosphor-icons/react/dist/ssr/Database";
 import { LockKeyIcon as LockKey } from "@phosphor-icons/react/dist/ssr/LockKey";
 import { ShieldCheckIcon as ShieldCheck } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
-import { requireBackendReadAuthHeaders } from "../../backend-read-auth.ts";
 import { CockpitShell, RecordStrip, StatusPill } from "../../cockpit-shell.tsx";
 import { fetchConnectorReadinessModel } from "../../cockpit-data.ts";
 import { requireRouteAccess } from "../../demo-auth.ts";
@@ -10,12 +9,7 @@ import { GovernanceNav } from "../governance-nav.tsx";
 
 export default async function ConnectorGovernancePage() {
   const session = await requireRouteAccess("/governance/connectors");
-  const backendReadAuthHeaders = await requireBackendReadAuthHeaders(["cfo"], {
-    body: "",
-    method: "GET",
-    path: "/connectors"
-  });
-  const model = await fetchConnectorReadinessModel(backendReadAuthHeaders);
+  const model = await fetchConnectorReadinessModel();
   const allowedOperations = [...new Set(model.connectors.flatMap((connector) => connector.allowedOperations))].join(", ");
 
   return (
