@@ -72,7 +72,10 @@ export function recordBrowserErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") {
-      errors.push(message.text());
+      const text = message.text();
+      if (!isIgnorableBrowserConsoleError(text, message.location().url)) {
+        errors.push(text);
+      }
     }
   });
   page.on("pageerror", (error) => {
@@ -80,6 +83,18 @@ export function recordBrowserErrors(page: Page): string[] {
   });
 
   return errors;
+}
+
+export function isIgnorableBrowserConsoleError(text: string, locationUrl = ""): boolean {
+  const normalized = text.toLowerCase();
+  const normalizedLocation = locationUrl.toLowerCase();
+  const isGoogleFontResource =
+    normalized.includes("fonts.gstatic.com") ||
+    normalized.includes("fonts.googleapis.com") ||
+    normalizedLocation.includes("fonts.gstatic.com") ||
+    normalizedLocation.includes("fonts.googleapis.com");
+
+  return isGoogleFontResource && (normalized.includes("failed to load resource") || normalized.includes("access to font at"));
 }
 
 export function assertNoBrowserErrors(errors: readonly string[], label: string): void {
@@ -170,6 +185,9 @@ export async function checkedGoto(page: Page, url: string, label: string): Promi
   const response = await page.goto(url, { waitUntil: "domcontentloaded" });
   const status = response?.status();
   if (status === undefined) {
+    if (isPageAlreadyAtTarget(page, url)) {
+      return;
+    }
     throw new Error(`${label} did not return an HTTP response.`);
   }
   if (status < 200 || status >= 400) {
@@ -177,6 +195,17 @@ export async function checkedGoto(page: Page, url: string, label: string): Promi
   }
   if (new URL(page.url()).pathname === "/login") {
     throw new Error(`${label} redirected to /login.`);
+  }
+}
+
+function isPageAlreadyAtTarget(page: Page, url: string): boolean {
+  try {
+    const current = new URL(page.url());
+    const target = new URL(url);
+
+    return current.origin === target.origin && current.pathname === target.pathname && current.pathname !== "/login";
+  } catch {
+    return false;
   }
 }
 

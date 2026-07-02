@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   assertBrowserTargetReachable,
   buildVercelProtectionHeaders,
-  formatForensicsApiDiagnostic
+  formatForensicsApiDiagnostic,
+  isIgnorableBrowserConsoleError
 } from "../e2e/real-evidence-browser-helpers.ts";
 
 describe("real evidence browser target preflight", () => {
@@ -35,6 +36,15 @@ describe("real evidence browser target preflight", () => {
         process.env.VERCEL_AUTOMATION_BYPASS_SECRET = previous;
       }
     }
+  });
+
+  it("ignores browser console noise only for failed external Google font loads", () => {
+    expect(isIgnorableBrowserConsoleError("Failed to load resource: net::ERR_FAILED", "https://fonts.gstatic.com/font.woff2")).toBe(true);
+    expect(isIgnorableBrowserConsoleError("Access to font at https://fonts.gstatic.com/font.woff2 has been blocked", "")).toBe(true);
+    expect(isIgnorableBrowserConsoleError("Failed to load resource: net::ERR_FAILED", "https://preview.example.com/fonts/app.woff2")).toBe(
+      false
+    );
+    expect(isIgnorableBrowserConsoleError("Failed to load resource: net::ERR_FAILED", "https://preview.example.com/api/forensics")).toBe(false);
   });
 
   it("fails with an actionable message when the cockpit target is unhealthy", async () => {
