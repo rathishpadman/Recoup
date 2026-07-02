@@ -448,6 +448,9 @@ describe("Realtime Next proxy routes", () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedDetail = {
       lineId: "S6-L1",
+      recoveryDraft: {
+        actionId: "ACT-S6-L1"
+      },
       selected: {
         evidencePack: {
           documents: [
@@ -468,7 +471,8 @@ describe("Realtime Next proxy routes", () => {
     };
     let sawCacheLookup = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (fetchInputUrl(input).includes("recoup_cockpit_read_models")) {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models")) {
         sawCacheLookup = true;
         expect(init).toMatchObject({ method: "GET" });
         return Promise.resolve(
@@ -485,6 +489,10 @@ describe("Realtime Next proxy routes", () => {
             }
           ])
         );
+      }
+      if (url.includes("recoup_memory_records")) {
+        expect(init).toMatchObject({ method: "GET" });
+        return Promise.resolve(Response.json([]));
       }
 
       expect(input).toBe("http://recoup-api.test/forensics/work-items/S6-L1");
@@ -508,7 +516,199 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
     expect(body).toEqual(cachedDetail);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses cached Maya work-item detail when approval memory has a newer receipt", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedDetail = {
+      lineId: "S6-L1",
+      recoveryDraft: {
+        actionId: "ACT-S6-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+    };
+    const freshBackendDetail = {
+      ...cachedDetail,
+      approvalReceipt: {
+        actionId: "ACT-S6-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "d".repeat(64),
+        decision: "reject",
+        recordIds: ["ACT-S6-L1", "S6-L1"],
+        status: "human_decided"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S6-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: cachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(
+          Response.json([
+            {
+              category: "approval_records",
+              id: "approval:ACT-S6-L1",
+              payload_json: {
+                actionId: "ACT-S6-L1",
+                approverId: "human:maya-lead",
+                auditEntryHash: "d".repeat(64),
+                decision: "reject",
+                status: "human_decided"
+              },
+              scope: "approval:ACT-S6-L1",
+              trust_level: "trusted"
+            }
+          ])
+        );
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S6-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.approvalReceipt.auditEntryHash).toBe("d".repeat(64));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("bypasses cached Maya work-item detail when a cached receipt has been reset", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedDetail = {
+      approvalReceipt: {
+        actionId: "ACT-S6-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "d".repeat(64),
+        decision: "reject",
+        recordIds: ["ACT-S6-L1", "S6-L1"],
+        status: "human_decided"
+      },
+      lineId: "S6-L1",
+      recoveryDraft: {
+        actionId: "ACT-S6-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+    };
+    const freshBackendDetail = {
+      lineId: "S6-L1",
+      recoveryDraft: {
+        actionId: "ACT-S6-L1"
+      },
+      selected: cachedDetail.selected,
+      surface: "forensics-work-item-detail",
+      workItem: cachedDetail.workItem
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S6-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: cachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S6-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S6-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S6-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail & { approvalReceipt?: unknown };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.approvalReceipt).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("bypasses stale cached Maya work-item detail when cached identity does not match the requested line", async () => {

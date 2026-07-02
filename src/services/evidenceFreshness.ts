@@ -2,6 +2,7 @@ import { sha256CanonicalJson } from "../../config/governed.js";
 import type { ReconciliationMode } from "../../config/reconciliationRollout.js";
 import type { SourcePort } from "../adapters/source.js";
 import type { ForensicsReconciliationOptions } from "../agents/forensics.js";
+import type { MemoryRecord } from "../memory/schema.js";
 import type { EvidenceDocument } from "../tools/retrieval/docs.js";
 import type { DeductionLine } from "../types/entities.js";
 import type { ServiceInvocationContext, ServiceSyntheticEvidenceConnectorName } from "./serviceLayer.js";
@@ -65,6 +66,7 @@ const freshnessFingerprintVersion = "forensics-freshness:v1";
 const syntheticEvidenceConnectors = ["docs-repo", "tpm", "bureau"] as const satisfies readonly ServiceSyntheticEvidenceConnectorName[];
 
 export function buildForensicsReadModelFreshnessRecordIds(input: {
+  approvalRecords?: readonly MemoryRecord[];
   canaryLines?: readonly string[];
   reconciliation?: ForensicsReconciliationOptions | undefined;
   reconciliationMode?: ReconciliationMode;
@@ -98,6 +100,7 @@ export function buildForensicsReadModelFreshnessRecordIds(input: {
   }
 
   addReceiptFreshnessRecordIds(recordIds, input.reconciliation?.receipts ?? []);
+  addApprovalReceiptFreshnessRecordIds(recordIds, input.approvalRecords ?? []);
   addCanonicalEvidenceDatasetFreshnessRecordIds(recordIds, input.reconciliation?.evidenceDataset);
 
   return [...recordIds].sort();
@@ -171,6 +174,40 @@ function addReceiptFreshnessRecordIds(
     recordIds.add(`receipt:${receipt.receiptId}:content:${receipt.contentHash}`);
     recordIds.add(`receipt:${receipt.receiptId}:evidence:${sha256CanonicalJson([...receipt.evidenceIds].sort())}`);
     recordIds.add(`receipt:${receipt.receiptId}:line:${receipt.lineId}`);
+  }
+}
+
+function addApprovalReceiptFreshnessRecordIds(recordIds: Set<string>, approvalRecords: readonly MemoryRecord[]): void {
+  const sortedApprovalRecords = approvalRecords
+    .filter((record) => record.category === "approval_records" && record.trustLevel === "trusted")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (sortedApprovalRecords.length === 0) {
+    recordIds.add("receipt:approval-record-set:absent");
+    return;
+  }
+
+  recordIds.add("receipt:approval-record-set:present");
+  recordIds.add(
+    `receipt:approval-record-set:${sha256CanonicalJson(
+      sortedApprovalRecords.map((record) => [
+        record.id,
+        record.scope,
+        record.payload.actionId,
+        record.payload.auditEntryHash,
+        record.payload.decision,
+        record.payload.status,
+        [...record.recordIds].sort()
+      ])
+    )}`
+  );
+  for (const record of sortedApprovalRecords) {
+    recordIds.add(
+      `receipt:approval:${record.id}:${sha256CanonicalJson({
+        payload: record.payload,
+        recordIds: [...record.recordIds].sort(),
+        scope: record.scope
+      })}`
+    );
   }
 }
 

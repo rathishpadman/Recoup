@@ -787,11 +787,6 @@ export function MayaForensicsSurface({
                                       <span className="truncate text-xs text-muted-foreground" title={item.workItemLabel}>
                                         {item.workItemLabel}
                                       </span>
-                                      {isSelected ? (
-                                        <Badge className="mt-1 w-fit" variant="outline">
-                                          Local focus
-                                        </Badge>
-                                      ) : null}
                                     </div>
                                   </TableCell>
                                   <TableCell>

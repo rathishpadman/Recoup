@@ -283,11 +283,11 @@ export function DeductionWorklistTable({
                   <TableHead className="w-[4%] px-2">
                     <span className="sr-only">Local row selection</span>
                   </TableHead>
-                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
-                  <TableHead className="w-[17%] whitespace-nowrap px-2 leading-4">Work item / Customer</TableHead>
-                  <TableHead className="w-[27%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
+                  <TableHead className="w-[10%] whitespace-nowrap px-2 leading-4">Work item</TableHead>
+                  <TableHead className="w-[23%] whitespace-nowrap px-2 leading-4">Work item / Customer</TableHead>
+                  <TableHead className="w-[23%] whitespace-nowrap px-2 leading-4">Verdict / Action</TableHead>
                   <TableHead className="w-[12%] whitespace-nowrap px-2 leading-4">Amount</TableHead>
-                  <TableHead className="w-[11%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
+                  <TableHead className="w-[10%] whitespace-nowrap px-2 leading-4">Evidence</TableHead>
                   <TableHead className="w-[18%] whitespace-nowrap px-2 leading-4">Queue / Route</TableHead>
                 </TableRow>
               </TableHeader>

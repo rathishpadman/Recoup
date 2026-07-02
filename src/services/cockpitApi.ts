@@ -445,7 +445,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
     const { governedConfig, reconciliation, serviceContext, source } = runContext;
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
     const sourceRecordIds = buildForensicsReadModelFreshnessRecordIds({
+      approvalRecords: approvalRecordsSnapshot.records,
       canaryLines: [...readCanaryLines(runtimeEnv)].sort(),
       reconciliation,
       reconciliationMode: readReconciliationMode(runtimeEnv),
@@ -457,11 +462,6 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       response.setHeader(readModelCacheHeader, "hit");
       setForensicsReadModelHashHeaders(response, sourceRecordIds);
       response.json(cachedReadModel.payload);
-      return;
-    }
-
-    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
-    if (approvalRecordsSnapshot === undefined) {
       return;
     }
 
@@ -550,6 +550,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       settlementSource: source
     });
     const sourceRecordIds = buildForensicsReadModelFreshnessRecordIds({
+      approvalRecords: approvalRecordsSnapshot.records,
       canaryLines: [...readCanaryLines(runtimeEnv)].sort(),
       reconciliation,
       reconciliationMode: readReconciliationMode(runtimeEnv),

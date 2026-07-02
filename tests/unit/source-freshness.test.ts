@@ -6,6 +6,7 @@ import {
 } from "../../src/services/evidenceFreshness.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { sourcePortFromSupabaseSnapshots } from "../../src/adapters/supabaseSyntheticSource.js";
+import type { MemoryRecord } from "../../src/memory/schema.js";
 import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
 
 describe("evidence freshness metadata", () => {
@@ -169,6 +170,46 @@ describe("evidence freshness metadata", () => {
       sourceTableIdentity: ["recoup_src_sap"]
     });
 
+    expect(isForensicsReadModelFresh(first, second)).toBe(false);
+  });
+
+  it("tracks approval receipt memory in the receipt-side Forensics cache fingerprint", () => {
+    const settlementRun = buildSyntheticDataset({ seed: 42 });
+    const source = sourcePortFromSupabaseSnapshots({ settlementRun });
+    const baseApprovalRecord: MemoryRecord = {
+      category: "approval_records",
+      createdAt: "2026-07-02T00:00:00.000Z",
+      id: "approval:draft-rebill:S3-L1",
+      payload: {
+        actionId: "draft-rebill:S3-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      recordIds: ["draft-rebill:S3-L1", "S3-L1"],
+      scope: "approval:draft-rebill:S3-L1",
+      trustLevel: "trusted"
+    };
+    const first = buildForensicsReadModelFreshnessRecordIds({
+      approvalRecords: [baseApprovalRecord],
+      source
+    });
+    const second = buildForensicsReadModelFreshnessRecordIds({
+      approvalRecords: [
+        {
+          ...baseApprovalRecord,
+          payload: {
+            ...baseApprovalRecord.payload,
+            auditEntryHash: "b".repeat(64)
+          }
+        }
+      ],
+      source
+    });
+
+    expect(first).toEqual(expect.arrayContaining(["receipt:approval-record-set:present"]));
+    expect(first.some((recordId) => recordId.startsWith("receipt:approval:approval:draft-rebill:S3-L1:"))).toBe(true);
     expect(isForensicsReadModelFresh(first, second)).toBe(false);
   });
 });

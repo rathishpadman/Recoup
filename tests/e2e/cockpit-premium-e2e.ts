@@ -565,7 +565,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
     });
 
     try {
-      await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+      await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
       await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
       await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview landing section");
       await expectVisibleLocator(page, '[data-testid="maya-run-kpi-strip"]', "Maya Overview KPI strip");
@@ -679,7 +679,7 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
   const page = await context.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 3 default selected row");
@@ -725,7 +725,7 @@ async function assertRecoupAgentLauncherMobilePlacement(browser: Browser): Promi
   const page = await context.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya mobile shadcn workbench");
     await assertRecoupAgentLauncherPlacement(page, "Maya mobile Recoup Agent launcher");
   } finally {
@@ -855,7 +855,7 @@ async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
     await page.getByTestId("recoup-agent-launcher").click();
     const route = await Promise.race([
@@ -920,7 +920,7 @@ async function assertMayaDetailErrorStateIsActionable(browser: Browser, errorTar
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${errorTarget.lineId}"]`).click();
     await page.getByTestId("maya-local-row-action-open").click();
@@ -971,7 +971,7 @@ async function captureMayaBeat4CaseOverviewScreenshot(browser: Browser): Promise
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 4 pre-open selected row");
@@ -1003,7 +1003,7 @@ async function captureMayaBeat5EvidenceDossierScreenshot(browser: Browser): Prom
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1035,7 +1035,7 @@ async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<v
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaOverviewSourceReadiness(page, "Maya Beat 6", { expectInitiallyHidden: true });
     await openMayaWorklistSection(page);
@@ -1095,7 +1095,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1166,7 +1166,7 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     browserRuntimeProbe = await page.evaluate(() => ({
       mediaGetUserMediaType: typeof navigator.mediaDevices.getUserMedia,
       rtcType: typeof RTCPeerConnection,
@@ -1449,7 +1449,7 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
   const page = await mayaContext.newPage();
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await expectVisibleText(page, "Maya");
     await expectVisibleLocator(page, '[data-testid="maya-overview-kpi-band"]', "Maya Overview KPI band");
@@ -1515,7 +1515,7 @@ async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1553,7 +1553,7 @@ async function captureMayaBeat10HumanApprovalScreenshot(browser: Browser): Promi
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1599,7 +1599,7 @@ async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): P
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1641,7 +1641,7 @@ async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Prom
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
@@ -1696,7 +1696,7 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
   });
 
   try {
-    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "networkidle" });
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-02-dashboard.png` });
 
     await page.getByRole("button", { name: /^Worklist$/u }).click();

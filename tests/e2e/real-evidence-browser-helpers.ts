@@ -139,7 +139,11 @@ export async function openMayaEvidenceDossier(page: Page, baseUrl: string, lineI
   await page.getByRole("tab", { name: /^Evidence$/u }).click();
   await page.locator('[data-testid="maya-evidence-dossier"]').waitFor({ state: "visible", timeout: 30_000 });
   await waitForVisibleTextWithin(page, '[data-testid="maya-evidence-dossier"]', "EVD-POD-S3-L1", 30_000);
-  await page.getByTestId("pod-document-preview").waitFor({ state: "visible", timeout: 30_000 });
+  await page
+    .locator('[data-testid="maya-evidence-dossier"]')
+    .getByTestId("pod-document-preview")
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
 }
 
 export async function checkedGoto(page: Page, url: string, label: string): Promise<void> {

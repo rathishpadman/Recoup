@@ -127,7 +127,11 @@ function summarizeLaunchError(error: unknown): string {
 async function assertEvidenceUiAccessible(page: Page, label: string): Promise<void> {
   await page.getByTestId("maya-evidence-dossier").waitFor({ state: "visible", timeout: 30_000 });
   await waitForAnyVisible(page, '[data-testid="maya-evidence-provenance"]', "Maya evidence provenance", 30_000);
-  await page.getByTestId("pod-document-preview").waitFor({ state: "visible", timeout: 30_000 });
+  await page
+    .locator('[data-testid="maya-evidence-dossier"]')
+    .getByTestId("pod-document-preview")
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
 
   const unlabeledButtons = await page.locator("button").evaluateAll((buttons) =>
     buttons
@@ -169,117 +173,128 @@ async function assertEvidenceUiAccessible(page: Page, label: string): Promise<vo
     );
   }
 
-  const lowContrastNodes = await page.locator('[data-testid="maya-evidence-dossier"] *').evaluateAll((nodes): LowContrastNode[] => {
-    function directText(node: HTMLElement): string {
-      return [...node.childNodes]
-        .filter((child) => child.nodeType === Node.TEXT_NODE)
-        .map((child) => child.textContent ?? "")
-        .join(" ");
+  const lowContrastNodes = await page.locator('[data-testid="maya-evidence-dossier"] *').evaluateAll(
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- static browser-context script avoids TSX helper injection in Playwright evaluateAll.
+    new Function(
+      "nodes",
+      String.raw`
+function directText(node) {
+  return Array.from(node.childNodes)
+    .filter((child) => child.nodeType === Node.TEXT_NODE)
+    .map((child) => child.textContent || "")
+    .join(" ");
+}
+
+function parseCssRgb(value) {
+  const match = value.match(/rgba?\(([^)]+)\)/u);
+  const rawBody = match && match[1];
+  if (rawBody == null) {
+    return undefined;
+  }
+
+  const slashParts = rawBody.split("/").map((part) => part.trim());
+  const colorPart = slashParts[0];
+  if (colorPart === undefined) {
+    return undefined;
+  }
+
+  const rawParts = colorPart.includes(",")
+    ? colorPart.split(",").map((part) => part.trim())
+    : colorPart.split(/\s+/u).map((part) => part.trim());
+  if (rawParts.length < 3) {
+    return undefined;
+  }
+
+  const rawRed = rawParts[0];
+  const rawGreen = rawParts[1];
+  const rawBlue = rawParts[2];
+  const rawInlineAlpha = rawParts[3];
+  if (rawRed === undefined || rawGreen === undefined || rawBlue === undefined) {
+    return undefined;
+  }
+
+  const red = Number(rawRed);
+  const green = Number(rawGreen);
+  const blue = Number(rawBlue);
+  const rawAlpha = slashParts[1] || rawInlineAlpha;
+  const alpha = rawAlpha === undefined ? 1 : Number(rawAlpha);
+  if (![red, green, blue, alpha].every(Number.isFinite)) {
+    return undefined;
+  }
+
+  return { alpha, blue, green, red };
+}
+
+function effectiveBackground(node) {
+  let current = node;
+  while (current !== null) {
+    const background = getComputedStyle(current).backgroundColor;
+    const parsed = parseCssRgb(background);
+    if (parsed !== undefined && parsed.alpha > 0.05) {
+      return background;
     }
+    current = current.parentElement;
+  }
 
-    function parseCssRgb(value: string): { alpha: number; blue: number; green: number; red: number } | undefined {
-      const match = value.match(/rgba?\(([^)]+)\)/u);
-      const rawBody = match?.[1];
-      if (rawBody === undefined) {
-        return undefined;
-      }
+  return "rgb(255, 255, 255)";
+}
 
-      const slashParts = rawBody.split("/").map((part) => part.trim());
-      const colorPart = slashParts[0];
-      if (colorPart === undefined) {
-        return undefined;
-      }
+function relativeLuminance(rgb) {
+  const channels = [rgb.red, rgb.green, rgb.blue].map((value) => {
+    const normalized = value / 255;
 
-      const rawParts = colorPart.includes(",")
-        ? colorPart.split(",").map((part) => part.trim())
-        : colorPart.split(/\s+/u).map((part) => part.trim());
-      if (rawParts.length < 3) {
-        return undefined;
-      }
-
-      const [rawRed, rawGreen, rawBlue, rawInlineAlpha] = rawParts;
-      if (rawRed === undefined || rawGreen === undefined || rawBlue === undefined) {
-        return undefined;
-      }
-
-      const red = Number(rawRed);
-      const green = Number(rawGreen);
-      const blue = Number(rawBlue);
-      const rawAlpha = slashParts[1] ?? rawInlineAlpha;
-      const alpha = rawAlpha === undefined ? 1 : Number(rawAlpha);
-      if (![red, green, blue, alpha].every(Number.isFinite)) {
-        return undefined;
-      }
-
-      return { alpha, blue, green, red };
-    }
-
-    function effectiveBackground(node: HTMLElement): string {
-      let current: HTMLElement | null = node;
-      while (current !== null) {
-        const background = getComputedStyle(current).backgroundColor;
-        const parsed = parseCssRgb(background);
-        if (parsed !== undefined && parsed.alpha > 0.05) {
-          return background;
-        }
-        current = current.parentElement;
-      }
-
-      return "rgb(255, 255, 255)";
-    }
-
-    function relativeLuminance(rgb: { blue: number; green: number; red: number }): number {
-      const channels = [rgb.red, rgb.green, rgb.blue].map((value) => {
-        const normalized = value / 255;
-
-        return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-      }) as [number, number, number];
-      const [red, green, blue] = channels;
-
-      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-    }
-
-    function contrastRatio(left: number, right: number): number {
-      return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
-    }
-
-    return nodes.flatMap((node) => {
-      if (!(node instanceof HTMLElement) || node.closest("[aria-hidden='true']") !== null) {
-        return [];
-      }
-      if (node.getClientRects().length === 0) {
-        return [];
-      }
-      const text = directText(node).replace(/\s+/gu, " ").trim();
-      if (text.length < 2) {
-        return [];
-      }
-      const style = getComputedStyle(node);
-      if (style.display === "none" || style.visibility === "hidden" || Number.parseFloat(style.fontSize) < 10) {
-        return [];
-      }
-
-      const foreground = parseCssRgb(style.color);
-      const backgroundText = effectiveBackground(node);
-      const background = parseCssRgb(backgroundText);
-      if (foreground === undefined || background === undefined) {
-        return [];
-      }
-
-      const ratio = contrastRatio(relativeLuminance(foreground), relativeLuminance(background));
-
-      return ratio < 4.5
-        ? [
-            {
-              background: backgroundText,
-              color: style.color,
-              ratio,
-              text: text.slice(0, 80)
-            }
-          ]
-        : [];
-    });
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
   });
+  const red = channels[0];
+  const green = channels[1];
+  const blue = channels[2];
+
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(left, right) {
+  return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
+}
+
+return Array.from(nodes).flatMap((node) => {
+  if (!(node instanceof HTMLElement) || node.closest("[aria-hidden='true']") !== null) {
+    return [];
+  }
+  if (node.getClientRects().length === 0) {
+    return [];
+  }
+  const text = directText(node).replace(/\s+/gu, " ").trim();
+  if (text.length < 2) {
+    return [];
+  }
+  const style = getComputedStyle(node);
+  if (style.display === "none" || style.visibility === "hidden" || Number.parseFloat(style.fontSize) < 10) {
+    return [];
+  }
+
+  const foreground = parseCssRgb(style.color);
+  const backgroundText = effectiveBackground(node);
+  const background = parseCssRgb(backgroundText);
+  if (foreground === undefined || background === undefined) {
+    return [];
+  }
+
+  const ratio = contrastRatio(relativeLuminance(foreground), relativeLuminance(background));
+
+  return ratio < 4.5
+    ? [
+        {
+          background: backgroundText,
+          color: style.color,
+          ratio,
+          text: text.slice(0, 80)
+        }
+      ]
+    : [];
+});
+`
+    ) as (nodes: Element[]) => LowContrastNode[]
+  );
   if (lowContrastNodes.length > 0) {
     throw new Error(
       `${label}: ${lowContrastNodes.length.toString()} evidence/provenance text node(s) are below 4.5 contrast: ${lowContrastNodes
