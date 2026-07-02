@@ -1,0 +1,725 @@
+{
+  "baselineManifest": "docs\\audit\\real-evidence-baseline\\2026-07-01\\manifest.json",
+  "baseUrl": "http://127.0.0.1:3000",
+  "browser": "chromium",
+  "capturedAt": "2026-07-02T03:26:23.534Z",
+  "captureKind": "post-implementation",
+  "captures": [
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "public landing",
+      "persona": "public",
+      "screenshot": "00-public-landing.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "login entry",
+      "persona": "public",
+      "screenshot": "01-login-entry.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/login",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "maya workspace",
+      "persona": "Maya",
+      "screenshot": "02-maya-workspace.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "forensics worklist",
+      "persona": "Maya",
+      "screenshot": "03-forensics-worklist.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "selected case",
+      "persona": "Maya",
+      "screenshot": "04-forensics-selected-case.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "evidence provenance drawer",
+      "persona": "Maya",
+      "screenshot": "05-evidence-provenance-drawer.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "query answer panel",
+      "persona": "Maya",
+      "screenshot": "06-query-answer-panel.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "approval audit panel",
+      "persona": "Maya",
+      "screenshot": "07-approval-audit-panel.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics/shadcn",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "cfo view if live",
+      "persona": "CFO",
+      "screenshot": "08-cfo-view-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/cfo",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "trace view if live",
+      "persona": "CFO",
+      "screenshot": "10-trace-view-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/trace",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "evals finops if live",
+      "persona": "CFO",
+      "screenshot": "11-evals-finops-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/evals-finops",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "david credit risk if live",
+      "persona": "david",
+      "screenshot": "09-david-credit-risk-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/credit",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "forensics classic if live",
+      "persona": "Maya",
+      "requestedPath": "/forensics",
+      "screenshot": "12-forensics-classic-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/forensics",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "run workspace if live",
+      "persona": "Maya",
+      "requestedPath": "/run",
+      "screenshot": "13-run-workspace-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/run",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "david command if live",
+      "persona": "david",
+      "requestedPath": "/credit/command",
+      "screenshot": "14-david-command-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/credit/command",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "governance overview if live",
+      "persona": "CFO",
+      "requestedPath": "/governance",
+      "screenshot": "15-governance-overview-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/agents",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "governance agents if live",
+      "persona": "CFO",
+      "requestedPath": "/governance/agents",
+      "screenshot": "16-governance-agents-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/agents",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "%o\n\n%s CockpitDataFetchError: Verified human cockpit auth required.\n    at fetchJson (about://React/Server/C:%5CRathish%5CRoot%20Folder%5CCFO%5CHackathon%5CRecoup1%5CRecoup%5Ccockpit%5C.next%5Cdev%5Cserver%5Cchunks%5Cssr%5C%5Broot-of-the-server%5D__14q9fvb._.js?0:1130:15)\n    at  ConnectorGovernancePage (about://React/Server/C:%5CRathish%5CRoot%20Folder%5CCFO%5CHackathon%5CRecoup1%5CRecoup%5Ccockpit%5C.next%5Cdev%5Cserver%5Cchunks%5Cssr%5C%5Broot-of-the-server%5D__113n8xd._.js?1:1628:19)\n    at ",
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "governance connectors if live",
+      "persona": "CFO",
+      "requestedPath": "/governance/connectors",
+      "screenshot": "17-governance-connectors-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/connectors",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    },
+    {
+      "cacheHeader": null,
+      "captureError": "Capture timed out after 20000ms.",
+      "consoleErrors": [
+        "Capture timed out after 20000ms."
+      ],
+      "liveRoute": true,
+      "mediaChecks": [
+        {
+          "byteLength": null,
+          "complete": null,
+          "contentType": null,
+          "label": "POD document/media",
+          "loaded": false,
+          "naturalHeight": null,
+          "naturalWidth": null,
+          "note": "Route capture did not complete.",
+          "present": false,
+          "responseStatus": null,
+          "selector": "[data-testid='pod-document-preview'], img[alt*='POD'], iframe[src*='pod'], a[href*='pod']",
+          "tagName": null,
+          "urlHost": null,
+          "urlPath": null,
+          "visible": false
+        }
+      ],
+      "name": "governance memory if live",
+      "persona": "CFO",
+      "requestedPath": "/governance/memory",
+      "screenshot": "18-governance-memory-if-live.png",
+      "status": null,
+      "title": "",
+      "url": "http://127.0.0.1:3000/governance/memory",
+      "visibleContentHashes": [],
+      "visibleEvidenceIds": [],
+      "visibleProvenanceTerms": [],
+      "visibleReceiptIds": []
+    }
+  ],
+  "routeInventorySource": "docs\\audit\\real-evidence-baseline\\2026-07-01\\manifest.json",
+  "viewport": {
+    "height": 1100,
+    "width": 1440
+  }
+}
