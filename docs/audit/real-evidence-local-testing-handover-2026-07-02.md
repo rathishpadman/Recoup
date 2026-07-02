@@ -1,66 +1,67 @@
-# Real Evidence Local Testing Handover - 2026-07-02
+# Real Evidence Local And Preview Handover - 2026-07-02
 
-Status: local verification paused for independent audit.
+Status: ready for independent audit and user manual testing. Do not merge to `main` or deploy Production until the user signs off.
 
 ## Branch And Deployment Safety
 
 - Current branch: `codex/real-evidence-phased-plan-execution`.
-- `main` and `origin/main` are aligned at `e3e4a55 Fix Vercel connector cache freshness`.
-- Current branch is 16 commits ahead of `origin/main`.
-- Today's local fixes are uncommitted working-tree changes.
-- No merge to `main` was performed.
-- No Vercel production deploy or alias promotion was performed.
-- Vercel read-only check showed latest Production deployment `dpl_GmRnve57izaS1GndBn2N1WBjTxRv`, created 2026-07-01 07:16:10 IST. The 2026-07-02 deployment observed was Preview, not Production.
+- Current pushed HEAD: `430565d Use server auth for connector governance reads`.
+- `codex/real-evidence-phased-plan-execution` is aligned with `origin/codex/real-evidence-phased-plan-execution`.
+- `main` and `origin/main` are aligned; no merge to `main` was performed.
+- No Vercel Production deploy or alias promotion was performed.
+- Vercel Preview env was populated for Preview only with the required runtime key names; Production env was not changed.
+- Final protected Preview tested: `https://recoup-hetylxq9o-hackathonopenai.vercel.app`.
 
-## Local Runtime For Manual Test
+## Commits Added In This Continuation
 
-- API: `http://127.0.0.1:4317`
-- Cockpit: `http://127.0.0.1:3000`
-- Health check at pause: API `/healthz` returned `200`; cockpit `/login` returned `200`.
-- Runtime mode: `RECOUP_RECONCILIATION_MODE=canary`, `RECOUP_RECONCILIATION_CANARY_LINES=S3-L1`.
-- Logs: `tmp/local-test-logs/`.
-
-## Fixes Completed In This Pass
-
-- Fixed stale work-item detail cache after human approval changes by validating cached approval receipts against current approval memory before using the Next route cache.
-- Included approval receipt memory in Forensics source/freshness fingerprints so `/api/forensics/refresh` and SSE-visible page hashes change after real approval writes.
-- Updated SSE live-update E2E to perform a real approval reset/write and verify visible receipt-hash/model-version update in the open Maya page.
-- Scoped POD preview locators to the Maya evidence dossier where duplicate POD links are valid.
-- Rebalanced Maya Worklist table widths so real work item/customer labels stay compact at 1280px.
-- Removed the `Local focus` badge from the Overview Case Concentration row only. The selected row remains stateful; Audit-return local-focus copy remains for the return-worklist flow.
-- Hardened the Chromium evidence UI accessibility script for duplicate POD links and TSX helper leakage in Playwright browser evaluation.
+- `dd50752 Harden Maya real evidence local proof`
+- `9a03843 Support protected Vercel preview proof`
+- `61e9f18 Tighten protected preview proof helpers`
+- `09bf31b Stabilize preview evals auth path`
+- `38e44e0 Harden preview governance capture proof`
+- `430565d Use server auth for connector governance reads`
 
 ## Local Verification Passed
 
 | Gate | Result |
 | --- | --- |
-| `npm.cmd run verify` | PASS: lint, typecheck, 124 Vitest files / 1041 tests, dependency-cruiser, release readiness |
-| `npm.cmd run test -- tests/unit/realtime-next-routes.test.ts tests/unit/source-freshness.test.ts tests/unit/cockpit-api.test.ts` | PASS: 3 files / 170 tests |
-| `npm.cmd run test:reconciliation:matrix` | PASS: 5 files / 18 tests |
-| `npm.cmd run test:e2e -- --maya-shadcn-only` | PASS: Maya Beat 1-12 screenshots regenerated |
-| `npm.cmd run test:e2e:maya-real` | PASS: 20 line items, 8 work items, 5 query work items, 50 backend trace rows |
-| `npm.cmd run test:e2e:maya-approval-lifecycle` | PASS: approve, modify, reject, duplicate 409, relogin persistence, admin reset |
-| `npm.cmd run test:e2e:maya-stale-state` | PASS |
-| `npm.cmd run test:e2e:forensics-sse-live-update` | PASS |
-| `npm.cmd run test:e2e:shared-surfaces` | PASS |
-| `npm.cmd run verify:real-evidence-a11y -- --browsers=chromium` | PASS; cross-browser intentionally skipped per user instruction |
+| `npm.cmd run verify` at `430565d` | PASS: lint, typecheck, 124 Vitest files / 1050 tests, dependency-cruiser, release readiness |
+| `npm.cmd run test -- tests/unit/cockpit-data.test.ts tests/unit/evals-finops-surface-source.test.ts tests/unit/real-evidence-capture-media-proof.test.ts` | PASS: 3 files / 17 tests |
+| Earlier local Maya browser suite | PASS: `test:e2e:maya-real`, `test:e2e:maya-approval-lifecycle`, `test:e2e:maya-stale-state`, `test:e2e:forensics-sse-live-update`, `test:e2e:shared-surfaces` |
+| Chromium a11y | PASS: `npm.cmd run verify:real-evidence-a11y -- --browsers=chromium`; cross-browser intentionally skipped per user instruction |
+
+## Preview Verification Passed
+
+| Gate | Result |
+| --- | --- |
+| Protected Vercel Preview deploy | PASS: `430565d`, Preview only, no Production alias |
+| `npm.cmd run test:e2e:shared-surfaces` against final Preview | PASS |
+| `npm.cmd run capture:real-evidence-audit` against final Preview | PASS |
+
+Final preview capture artifact:
+
+- Manifest: `docs/audit/real-evidence-preview/2026-07-02-430565d/manifest.json`
+- Screenshots: `docs/audit/real-evidence-preview/2026-07-02-430565d/screenshots/`
+- Capture summary: 19 captures, 19 HTTP 200 statuses, 19 screenshots, 0 capture errors, 0 console-error routes.
+- POD proof: `selected case`, `evidence provenance drawer`, `query answer panel`, and `approval audit panel` each show `EVD-POD-S3-L1`, `RECON-S3-L1`, and a visible same-origin PDF link at `/api/forensics/evidence-documents/EVD-POD-S3-L1` with HTTP 200, `application/pdf`, and positive byte length.
 
 ## Evidence Observed
 
-- Maya real-backend query cited `EVD-POD-S3-L1`, `EVD-REMIT-S3-L1`, `DOC-S3-L1`, `RECON-S3-L1`, `POD-S3-L1`, and `REMIT-S3-L1`.
-- SAP source health is currently degraded as expected from the temporary SAP outage: `SAP OData` showed `Probe failed`.
-- Non-SAP sources in the Maya real-backend run were ready: TPM, 3PL POD, Bureau, Remittance / EDI, Contract Repo, and MCP.
-- The Overview row for S3-L1 no longer shows `Local focus` in local browser verification.
+- Maya preview evidence shows real evidence IDs including `EVD-POD-S3-L1` and `EVD-REMIT-S3-L1`.
+- Maya preview evidence shows receipt `RECON-S3-L1`.
+- POD is not just a numeric row: the final manifest records a visible PDF evidence-document link and load proof.
+- SAP source health is still degraded because SAP access is temporarily down; non-SAP proof remains available through the Preview/Supabase-backed evidence path.
 
-## Still Blocked Or Pending
+## Still Pending Before Production
 
-- `npm.cmd run verify:real-evidence-visual` is still blocked/failing because the post-implementation manifest and approved full visual capture are not complete; the generated report is `docs/audit/real-evidence-comparison/2026-07-01-visual-diff.json`.
-- `npm.cmd run check:real-evidence-proof` is still blocked by missing `RECOUP_REAL_EVIDENCE_REFRESH_APPROVED`, missing `RECOUP_PREVIEW_URL`, missing post-implementation manifest, and failed visual-diff/POD-media release proof routes.
-- Full cross-browser a11y was skipped per user instruction; only Chromium was verified.
-- Production/preview proof is still pending. Do not promote to Vercel Production until user manual testing and explicit approval are complete.
+- User manual testing of the final Preview.
+- Independent audit of the committed branch and preview artifact.
+- Explicit approval to merge `codex/real-evidence-phased-plan-execution` into `main`.
+- Explicit approval to deploy Vercel Production after merge.
+- Post-production public-alias capture and `check:real-evidence-proof` after Production deploy. Current clean proof is Preview proof, not Production proof.
 
 ## Working Tree Notes
 
-- Modified screenshots were regenerated under `docs/audit/real-evidence-post-implementation/2026-07-01/screenshots/`.
-- Untracked `mockups/SaaS-Landing/` remains present and should be reviewed before staging.
-- Current changes should be audited before commit/push.
+- Final preview artifact is currently untracked and ready for audit review: `docs/audit/real-evidence-preview/2026-07-02-430565d/`.
+- Generated post-implementation screenshots under `docs/audit/real-evidence-post-implementation/2026-07-01/screenshots/` remain modified from local/preview smoke runs and were not staged.
+- Untracked `mockups/SaaS-Landing/` remains present and was not staged.
