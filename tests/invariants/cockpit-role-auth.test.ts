@@ -2,6 +2,19 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { cockpitHumanPrincipalByDemoRole } from "../../config/cockpitHumanPrincipals.js";
 
+function readLandingSources(): string {
+  return [
+    "cockpit/app/page.tsx",
+    "cockpit/components/landing/landing-content.ts",
+    "cockpit/components/landing/landing-header.tsx",
+    "cockpit/components/landing/landing-hero.tsx",
+    "cockpit/components/landing/demo-panel.tsx",
+    "cockpit/components/landing/cta-band.tsx"
+  ]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+}
+
 describe("cockpit role-based demo auth", () => {
   it("adds a login route and server-only demo auth boundary", () => {
     expect(existsSync("cockpit/app/login/page.tsx")).toBe(true);
@@ -76,7 +89,7 @@ describe("cockpit role-based demo auth", () => {
   });
 
   it("prefills landing persona login IDs without bypassing credential auth", () => {
-    const landing = readFileSync("cockpit/app/page.tsx", "utf8");
+    const landing = readLandingSources();
     const loginPage = readFileSync("cockpit/app/login/page.tsx", "utf8");
     const loginForm = readFileSync("cockpit/app/login/login-form.tsx", "utf8");
 

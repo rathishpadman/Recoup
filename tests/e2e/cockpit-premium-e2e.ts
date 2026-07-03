@@ -355,11 +355,15 @@ async function assertLandingPage(browser: Browser): Promise<void> {
   try {
     await page.goto(`${appUrl}/`, { waitUntil: "networkidle" });
     await expectVisibleLocator(page, '[data-testid="recoup-landing-page"]', "Recoup landing page");
-    await expectVisibleLocator(page, '[data-testid="recoup-landing-shell"]', "Recoup single-viewport landing shell");
+    await expectVisibleLocator(page, '[data-testid="recoup-landing-shell"]', "Recoup scrollable landing shell");
     await expectVisibleLocator(page, '[data-testid="recoup-landing-hero"]', "Recoup landing hero");
-    await expectVisibleText(page, "CPG manufacturers lose 2–5% of gross revenue to retailer deductions.");
+    await expectVisibleText(page, "CPG manufacturers lose");
+    await expectVisibleText(page, "2–5% of gross revenue");
+    await expectVisibleText(page, "retailer deductions");
     await expectVisibleText(page, "Recoup is an agentic Order-to-Cash recovery cockpit");
-    await expectVisibleText(page, "Code computes.");
+    await expectVisibleText(page, "Every decision cites evidence");
+    await expectVisibleText(page, "Code computes every dollar");
+    await expectVisibleText(page, "Humans approve");
     const heroCopy = await page.getByTestId("recoup-landing-hero").innerText();
     assert(!heroCopy.includes("McKinsey"), "Landing hero must not show the reference strip below the persona CTAs");
     assert(!heroCopy.includes("RVCF"), "Landing hero must not show the reference strip below the persona CTAs");
@@ -388,12 +392,13 @@ async function assertLandingPage(browser: Browser): Promise<void> {
     await expectVisibleText(page, "Recovery actions need control");
 
     await page.getByRole("tab", { name: "Solution" }).click();
-    await expectVisibleText(page, "Deduction Forensics & Recovery");
-    await expectVisibleText(page, "Credit Risk Sentinel");
-    await expectVisibleText(page, "Evidence packet");
-    await expectVisibleText(page, "Human-approved recovery");
-    await expectVisibleText(page, "Exposure signals");
-    await expectVisibleText(page, "Human-approved action");
+    await expectVisibleText(page, "Ingest");
+    await expectVisibleText(page, "Investigate");
+    await expectVisibleText(page, "Decide");
+    await expectVisibleText(page, "Act (draft-only)");
+    await expectVisibleText(page, "Audit & Govern");
+    await expectVisibleText(page, "Governed end to end");
+    await expectVisibleText(page, "28 machine-verifiable invariants enforced in CI");
     await expectVisibleText(page, "Code computes dollars and risk math");
     await expectVisibleText(page, "Tamper-evident audit trail");
 
@@ -435,22 +440,10 @@ async function assertLandingPage(browser: Browser): Promise<void> {
         initialArchitectureImage.height > 0,
       `architecture diagram must render a decoded image, received ${JSON.stringify(initialArchitectureImage)}`
     );
-    await expectVisibleText(page, "100%");
-    await page.getByLabel("Zoom architecture diagram in").click();
-    await expectVisibleText(page, "125%");
-    const zoomedArchitectureImage = await architectureImage.evaluate((image) => {
-      const rect = image.getBoundingClientRect();
-      return {
-        height: rect.height,
-        width: rect.width
-      };
-    });
-    assert(
-      zoomedArchitectureImage.width > initialArchitectureImage.width + 1,
-      `architecture diagram zoom must increase rendered width from ${String(initialArchitectureImage.width)}px; received ${String(
-        zoomedArchitectureImage.width
-      )}px`
-    );
+    await expectVisibleText(page, "No ERP write-back");
+    await expectVisibleText(page, "Deterministic basis");
+    await expectVisibleText(page, "Citations required");
+    await expectVisibleText(page, "GPT-5.5, GPT-4.1, GPT Realtime");
 
     await page.getByRole("tab", { name: "How We Built It" }).click();
     await expectVisibleText(page, "OpenAI Agents SDK orchestration");
@@ -463,8 +456,8 @@ async function assertLandingPage(browser: Browser): Promise<void> {
       scrollHeight: document.documentElement.scrollHeight
     }));
     assert(
-      viewportFit.scrollHeight <= viewportFit.innerHeight + 4,
-      `landing page must fit one desktop viewport, received ${JSON.stringify(viewportFit)}`
+      viewportFit.scrollHeight > viewportFit.innerHeight + 4,
+      `landing page must be a normal scrollable document, received ${JSON.stringify(viewportFit)}`
     );
 
     await page.getByRole("tab", { name: "Demo" }).click();
@@ -1482,7 +1475,8 @@ async function captureResponsiveScreenshots(browser: Browser): Promise<void> {
             })
           : await newRoleContext(browser, target.role, breakpoint.width, breakpoint.height);
       const page = await context.newPage();
-      await page.goto(`${appUrl}${target.path}`, { waitUntil: "networkidle" });
+      const waitUntil = target.name === "maya-shadcn-forensics" ? "domcontentloaded" : "networkidle";
+      await page.goto(`${appUrl}${target.path}`, { waitUntil });
       if (target.name === "landing") {
         await expectVisibleLocator(page, '[data-testid="recoup-landing-page"]', "Recoup landing screenshot page");
       }
@@ -4584,8 +4578,8 @@ function fixtureSupabaseFetcher(url: string): Promise<Response> {
   }
 
   if (isSyntheticEvidenceSourceTable(tableName)) {
-    const customerId = parsedUrl.searchParams.get("customer_id")?.replace(/^eq\./u, "");
-    return Promise.resolve(new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerId)), { status: 200 }));
+    const customerIds = customerIdsFromPostgrestFilter(parsedUrl.searchParams.get("customer_id"));
+    return Promise.resolve(new Response(JSON.stringify(toPostgrestSyntheticEvidenceRows(tableName, customerIds)), { status: 200 }));
   }
 
   if (tableName === "customers") {
@@ -4702,9 +4696,36 @@ function toPostgrestSettlementRows(tableName: string): unknown[] {
   }));
 }
 
-function toPostgrestSyntheticEvidenceRows(tableName: string, customerId: string | undefined): unknown[] {
+function customerIdsFromPostgrestFilter(filter: string | null): readonly string[] | undefined {
+  const normalized = filter?.trim();
+  if (normalized === undefined || normalized.length === 0) {
+    return undefined;
+  }
+
+  if (normalized.startsWith("eq.")) {
+    return [normalized.slice("eq.".length)];
+  }
+
+  const inMatch = /^in\.\((.*)\)$/u.exec(normalized);
+  if (inMatch === null) {
+    return undefined;
+  }
+
+  const inFilterBody = inMatch[1];
+  if (inFilterBody === undefined) {
+    return undefined;
+  }
+
+  return inFilterBody
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/u)
+    .map((value) => value.trim().replace(/^"|"$/gu, "").replace(/\\"/gu, '"'))
+    .filter((value) => value.length > 0);
+}
+
+function toPostgrestSyntheticEvidenceRows(tableName: string, customerIds: readonly string[] | undefined): unknown[] {
   const dataset = buildSyntheticDataset({ seed: 42 });
-  const lines = dataset.deductionLines.filter((line) => customerId === undefined || line.customerId === customerId);
+  const customerIdSet = customerIds === undefined ? undefined : new Set(customerIds);
+  const lines = dataset.deductionLines.filter((line) => customerIdSet === undefined || customerIdSet.has(line.customerId));
 
   if (tableName === "recoup_src_docs") {
     return lines
@@ -4746,7 +4767,7 @@ function toPostgrestSyntheticEvidenceRows(tableName: string, customerId: string 
         window_end: "2026-06-30",
         window_start: "2026-06-01"
       }
-    ].filter((row) => customerId === undefined || row.customer_id === customerId);
+    ].filter((row) => customerIdSet === undefined || customerIdSet.has(row.customer_id));
   }
 
   if (tableName === "recoup_src_bureau") {

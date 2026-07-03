@@ -29,6 +29,10 @@ function readTree(root: string, extensions: string[], excludedPaths: string[] = 
   return read(files.sort());
 }
 
+function readLandingSources(): string {
+  return read(["cockpit/app/page.tsx"]) + "\n" + readTree("cockpit/components/landing", [".ts", ".tsx"]);
+}
+
 function cssBlock(styles: string, selector: string): string {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "u").exec(styles);
@@ -62,27 +66,32 @@ describe("S5 cockpit business-logic boundary", () => {
 
   it("keeps the public landing page editorial and outside backend computation", () => {
     const root = readFileSync("cockpit/app/page.tsx", "utf8");
+    const landingSources = readLandingSources();
 
-    expect(root).toContain('data-testid="recoup-landing-page"');
-    expect(root).toContain('data-testid="recoup-landing-shell"');
-    expect(root).toContain("max-w-[1424px]");
-    expect(root).toContain("@/components/ui/tabs");
-    expect(root).toContain("@/components/ui/button");
-    expect(root).toContain("@/components/ui/badge");
-    expect(root).toContain("@/components/ui/card");
-    expect(root).toContain("@/components/ui/table");
-    expect(root).not.toContain('from "decimal.js"');
-    expect(root).not.toContain("src/core");
-    expect(root).not.toContain("src/services");
-    expect(root).not.toContain("RECOUP_API_URL");
-    expect(root).not.toContain("localRuntimeEnv");
-    expect(root).not.toContain("fetch(");
+    expect(root).toContain("LandingShell");
+    expect(landingSources).toContain('data-testid="recoup-landing-page"');
+    expect(landingSources).toContain('data-testid="recoup-landing-shell"');
+    expect(landingSources).toContain("max-w-[1680px]");
+    expect(landingSources).toContain("@/components/ui/tabs");
+    expect(landingSources).toContain("@/components/ui/button");
+    expect(landingSources).toContain("@/components/ui/badge");
+    expect(landingSources).toContain("@/components/ui/card");
+    expect(landingSources).toContain("@/components/ui/table");
+    expect(landingSources).not.toContain('from "decimal.js"');
+    expect(landingSources).not.toContain("src/core");
+    expect(landingSources).not.toContain("src/services");
+    expect(landingSources).not.toContain("RECOUP_API_URL");
+    expect(landingSources).not.toContain("localRuntimeEnv");
+    expect(landingSources).not.toContain("fetch(");
+    expect(landingSources).not.toContain("#2d8793");
   });
 
   it("keeps the approved SaaS landing mockup content in the public page", () => {
-    const root = readFileSync("cockpit/app/page.tsx", "utf8");
+    const root = readLandingSources();
 
-    expect(root).toContain("CPG manufacturers lose 2–5% of gross revenue to retailer deductions.");
+    expect(root).toContain("CPG manufacturers lose");
+    expect(root).toContain("2–5% of gross revenue");
+    expect(root).toContain("retailer deductions");
     expect(root).toContain("65–80%");
     expect(root).toContain("O2C leakages amount to 3–5% of EBITDA.");
     expect(root).toContain("GPT-5.5, GPT-4.1, GPT Realtime");
@@ -801,17 +810,19 @@ describe("S5 cockpit business-logic boundary", () => {
 
   it("keeps cockpit navigation as accessible real routes", () => {
     const root = readFileSync("cockpit/app/page.tsx", "utf8");
+    const landingSources = readLandingSources();
     const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
     const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
 
-    expect(root).toContain('data-testid="recoup-landing-page"');
-    expect(root).toContain('value={activeTab}');
-    expect(root).toContain("onValueChange");
-    expect(root).toContain("Solution");
-    expect(root).toContain("Demo");
-    expect(root).toContain("Tech");
-    expect(root).toContain("How We Built It");
-    expect(root).toContain("About");
+    expect(root).toContain("LandingShell");
+    expect(landingSources).toContain('data-testid="recoup-landing-page"');
+    expect(landingSources).toContain('value={activeTab}');
+    expect(landingSources).toContain("onValueChange");
+    expect(landingSources).toContain("Solution");
+    expect(landingSources).toContain("Demo");
+    expect(landingSources).toContain("Tech");
+    expect(landingSources).toContain("How We Built It");
+    expect(landingSources).toContain("About");
     expect(root).not.toContain("requireDemoSession");
     expect(root).not.toContain("redirect(");
     expect(forensics).toContain("requireRouteAccess");
