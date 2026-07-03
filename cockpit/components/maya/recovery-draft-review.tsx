@@ -16,7 +16,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
+import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type {
   ApprovalGateResponse,
@@ -89,7 +91,7 @@ export function RecoveryDraftReview({
       </Alert>
 
       <div className="grid min-w-0 items-start gap-3 pb-24 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <Card className="rounded-lg shadow-none" data-testid="maya-draft-packet-panel" size="sm">
+        <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-draft-packet-panel" size="sm">
           <CardHeader className="gap-3">
             <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="grid min-w-0 gap-1">
@@ -128,7 +130,7 @@ export function RecoveryDraftReview({
                   <div
                     aria-label="Read-only draft amount"
                     aria-readonly="true"
-                    className="grid min-w-0 gap-2 rounded-lg border bg-muted/30 p-4"
+                    className={cn("grid min-w-0 gap-2 rounded-lg border p-4", mayaAccent.proofPanel)}
                     data-testid="maya-draft-readonly-amount"
                   >
                     <div className="flex flex-wrap items-center gap-2">
@@ -140,7 +142,7 @@ export function RecoveryDraftReview({
                       Displayed from the selected draft source. Calculation detail remains source-owned.
                     </p>
                   </div>
-                  <div className="grid min-w-0 gap-3 rounded-lg border bg-muted/20 p-3">
+                  <div className={cn("grid min-w-0 gap-3 rounded-lg border p-3", mayaAccent.proofMutedPanel)}>
                     <SectionKicker>Draft status</SectionKicker>
                     <Badge className="w-fit" variant="secondary">
                       {draft.statusLabel}
@@ -219,7 +221,7 @@ export function RecoveryDraftReview({
           </CardContent>
         </Card>
 
-        <Card className="rounded-lg shadow-none" data-testid="maya-draft-context-rail" size="sm">
+        <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-draft-context-rail" size="sm">
           <CardHeader>
             <CardTitle>Case context</CardTitle>
             <CardDescription>Facts for the opened work item</CardDescription>
@@ -279,7 +281,7 @@ export function RecoveryDraftReview({
                 <div className="grid min-w-0 gap-2">
                   {approvalActions.map((action) => (
                     <div
-                      className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5"
+                      className={cn("flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border px-2 py-1.5", mayaAccent.proofMutedPanel)}
                       key={action.decision}
                     >
                       <span className="text-sm font-medium">{humanDecisionLabel(action.decision)}</span>
@@ -317,7 +319,7 @@ export function RecoveryDraftReview({
       </div>
 
       <Card
-        className="sticky bottom-0 rounded-lg shadow-none"
+        className={cn("sticky bottom-0 rounded-lg shadow-none", mayaAccent.subtleCard)}
         data-testid="maya-draft-command-bar"
         size="sm"
       >
@@ -428,7 +430,7 @@ function EvidenceTable({ evidencePack }: { evidencePack: MayaEvidencePack }) {
 
 function HeaderFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-2">
+    <div className={cn("grid min-w-0 gap-1 rounded-md border p-2", mayaAccent.proofMutedPanel)}>
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="truncate text-sm font-medium" title={value}>
         {value}
@@ -469,7 +471,7 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Backend record IDs">
       {recordIds.map((recordId) => (
-        <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+        <Badge className={cn("max-w-full truncate", mayaAccent.pill)} key={recordId} title={recordId} variant="secondary">
           {recordId}
         </Badge>
       ))}
@@ -489,7 +491,7 @@ function SourceRecordDetails({
   return (
     <Collapsible className="grid min-w-0 gap-2" data-testid={testId}>
       <CollapsibleTrigger asChild>
-        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+        <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} size="sm" type="button" variant="outline">
           <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
           {title}
         </Button>

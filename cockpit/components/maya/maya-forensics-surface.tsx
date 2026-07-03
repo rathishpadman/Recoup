@@ -38,6 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import {
   beginWorkItemDetailRequest,
   cancelWorkItemDetailRequest,
@@ -50,6 +51,7 @@ import type {
   MayaWorkItemDetail,
   MayaWorklistItem
 } from "./types.ts";
+import { mayaAccent } from "./maya-accent.ts";
 
 const missingBeatTwelveFields = [
   "Priority",
@@ -589,7 +591,10 @@ export function MayaForensicsSurface({
                   <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
                   <Button
                     aria-expanded={overviewSourceReadinessOpen}
-                    className="h-auto min-h-[68px] justify-between rounded-md border bg-muted/20 p-3 text-left font-normal shadow-none hover:bg-muted/35"
+                    className={cn(
+                      "h-auto min-h-[68px] justify-between rounded-md border p-3 text-left font-normal shadow-none",
+                      mayaAccent.proofMutedPanel
+                    )}
                     data-state={overviewSourceReadinessOpen ? "open" : "closed"}
                     data-testid="maya-overview-source-readiness-toggle"
                     onClick={() => {
@@ -615,7 +620,7 @@ export function MayaForensicsSurface({
               </section>
 
               <section className="grid min-w-0 gap-3" data-testid="maya-overview-concentration-band">
-                <Card className="rounded-lg shadow-none" size="sm">
+                <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
                   <CardHeader className="gap-3">
                     <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="grid min-w-0 gap-1.5">
@@ -626,7 +631,7 @@ export function MayaForensicsSurface({
                           Filter and sort the backend worklist by case ID, customer, work item text, line count, and displayed exposure.
                         </CardDescription>
                       </div>
-                      <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 px-3 py-2 lg:min-w-48">
+                      <div className={cn("grid min-w-0 gap-1 rounded-md border px-3 py-2 lg:min-w-48", mayaAccent.proofMutedPanel)}>
                         <span className="text-xs text-muted-foreground">Total exposure</span>
                         <span className="truncate text-sm font-medium tabular-nums" title={model.recoveryTracker.totalExposure}>
                           {model.recoveryTracker.totalExposure}
@@ -765,7 +770,10 @@ export function MayaForensicsSurface({
                               return (
                                 <TableRow
                                   aria-selected={isSelected}
-                                  className="cursor-pointer outline-none data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                                  className={cn(
+                                    "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                                    "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                                  )}
                                   data-line-id={item.lineId}
                                   data-selected={isSelected ? "true" : undefined}
                                   data-testid="maya-overview-case-concentration-row"
@@ -825,7 +833,7 @@ export function MayaForensicsSurface({
             className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
             data-testid="maya-root-section-evidence"
           >
-            <Card className="rounded-lg shadow-none" size="sm">
+            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
               <CardHeader>
                 <CardTitle className="text-base">Selected evidence</CardTitle>
                 <CardDescription>
@@ -871,14 +879,14 @@ export function MayaForensicsSurface({
                 )}
               </CardContent>
             </Card>
-            <Card className="rounded-lg shadow-none" data-testid="maya-evidence-source-readiness-group" size="sm">
+            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-evidence-source-readiness-group" size="sm">
               <CardHeader>
                 <CardTitle className="text-base">Source readiness</CardTitle>
                 <CardDescription>{connectors.lastRefreshedLabel}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-2">
                 {connectors.sourceTiles.map((source) => (
-                  <div className="grid gap-1 rounded-md border bg-muted/20 p-3" data-status-tone={source.statusTone} key={source.key}>
+                  <div className={cn("grid gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)} data-status-tone={source.statusTone} key={source.key}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{source.label}</span>
                       <Badge variant="outline">{source.stateLabel}</Badge>
@@ -893,7 +901,7 @@ export function MayaForensicsSurface({
       case "approvals":
         return (
           <section className="min-w-0" data-testid="maya-root-section-approvals">
-            <Card className="rounded-lg shadow-none" size="sm">
+            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
               <CardHeader>
                 <CardTitle className="text-base">Action inbox</CardTitle>
                 <CardDescription>Approval posture from action queue.</CardDescription>
@@ -951,7 +959,7 @@ export function MayaForensicsSurface({
           />
         </section>
         <aside className="min-w-0" aria-label="Work item starter">
-          <Card className="min-h-[568px] rounded-lg shadow-none" data-testid="maya-work-item-pane" size="sm">
+          <Card className={cn("min-h-[568px] rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-work-item-pane" size="sm">
             {visibleSelectedWorklistItem === undefined ? (
               <CardContent className="flex min-h-[568px] flex-col items-center justify-center px-8">
                 {backendSelectionUnavailable && model.worklist.length > 0 ? (
@@ -1045,7 +1053,7 @@ export function MayaForensicsSurface({
                     <Separator />
                     <div className="grid gap-3">
                       <div
-                        className="grid gap-2 rounded-lg border bg-muted/35 p-3"
+                        className={cn("grid gap-2 rounded-lg border p-3", mayaAccent.proofPanel)}
                         data-testid="maya-selected-advisory-callout"
                       >
                         <div className="flex items-center gap-2">
@@ -1106,7 +1114,7 @@ export function MayaForensicsSurface({
         className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
         data-testid="maya-root-section-cases"
       >
-        <Card className="rounded-lg shadow-none" data-testid="maya-cases-fetched-rows" size="sm">
+        <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-cases-fetched-rows" size="sm">
           <CardHeader>
             <CardTitle className="text-base">Cases</CardTitle>
             <CardDescription>{model.worklist.length.toString()} work items in the current queue.</CardDescription>
@@ -1137,7 +1145,7 @@ export function MayaForensicsSurface({
                     return (
                       <TableRow
                         aria-selected={isSelected}
-                        className="data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)]"
+                        className="data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
                         data-selected={isSelected ? "true" : undefined}
                         data-testid="maya-case-row"
                         key={`case-${item.lineId}`}
@@ -1179,7 +1187,7 @@ export function MayaForensicsSurface({
           </CardContent>
         </Card>
         <aside className="min-w-0" aria-label="Selected case starter">
-          <Card className="min-h-[420px] rounded-lg shadow-none" data-testid="maya-cases-selected-starter" size="sm">
+          <Card className={cn("min-h-[420px] rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-cases-selected-starter" size="sm">
             <CardHeader>
               <CardTitle className="text-base">Selected case</CardTitle>
               <CardDescription>
@@ -1462,7 +1470,7 @@ function WorkItemDetailStatePanel({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {isLoading ? (
-            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3" data-testid="maya-work-item-detail-loading-skeleton">
+            <div className={cn("grid gap-3 rounded-lg border p-3", mayaAccent.proofMutedPanel)} data-testid="maya-work-item-detail-loading-skeleton">
               <Skeleton className="h-4 w-44" data-testid="maya-work-item-detail-skeleton-line" />
               <Skeleton className="h-4 w-full" data-testid="maya-work-item-detail-skeleton-line" />
               <Skeleton className="h-4 w-3/4" data-testid="maya-work-item-detail-skeleton-line" />
@@ -1482,7 +1490,7 @@ function WorkItemDetailStatePanel({
             </AlertDescription>
           </Alert>
           {loadState.state === "error" ? (
-            <Collapsible className="rounded-lg border bg-muted/20 p-3" data-testid="maya-work-item-detail-error-details">
+            <Collapsible className={cn("rounded-lg border p-3", mayaAccent.proofMutedPanel)} data-testid="maya-work-item-detail-error-details">
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="grid min-w-0 gap-1">
                   <p className="text-sm font-medium">Detail request details</p>
@@ -1528,7 +1536,7 @@ function WorkItemDetailStatePanel({
 
 function DetailStateFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3">
+    <div className={cn("grid min-w-0 gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)}>
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="truncate text-sm font-medium" title={value}>
         {value}
@@ -1640,7 +1648,7 @@ function BeatTwelveReturnedWorklist({
       </div>
       <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-5">
         {metricCards.map((item) => (
-          <Card className="min-h-[112px] rounded-lg shadow-none" key={`${item.label}-${item.value}`} size="sm">
+          <Card className={cn("min-h-[112px] rounded-lg shadow-none", mayaAccent.subtleCard)} key={`${item.label}-${item.value}`} size="sm">
             <CardHeader className="gap-2 pb-1">
               <CardDescription>{item.label}</CardDescription>
               <CardTitle className="truncate text-2xl tabular-nums">{item.value}</CardTitle>
@@ -1652,7 +1660,7 @@ function BeatTwelveReturnedWorklist({
         ))}
       </div>
 
-      <Card className="rounded-lg py-0 shadow-none" data-testid="maya-beat-12-source-readiness" size="sm">
+      <Card className={cn("rounded-lg py-0 shadow-none", mayaAccent.subtleCard)} data-testid="maya-beat-12-source-readiness" size="sm">
         <CardContent className="grid min-h-[62px] min-w-0 items-center gap-3 px-4 py-2 xl:grid-cols-[190px_repeat(7,minmax(0,1fr))]">
           <div className="flex min-w-0 items-center gap-2" data-status-tone={sourceReadinessTone}>
             <span className={beatTwelveSourceReadinessClass(sourceReadinessTone)}>
@@ -1664,7 +1672,7 @@ function BeatTwelveReturnedWorklist({
             </div>
           </div>
           {connectors.sourceTiles.map((source) => (
-            <div className="grid min-w-0 gap-0.5 border-l pl-3" data-status-tone={source.statusTone} key={`beat-12-${source.key}`}>
+            <div className="grid min-w-0 gap-0.5 border-l border-l-primary/20 pl-3" data-status-tone={source.statusTone} key={`beat-12-${source.key}`}>
               <p className="truncate text-xs font-medium">{source.label}</p>
               <div
                 className={
@@ -1689,7 +1697,7 @@ function BeatTwelveReturnedWorklist({
         </CardContent>
       </Card>
 
-      <Card className="min-h-0 rounded-lg shadow-none" data-testid="maya-beat-12-deduction-cases" size="sm">
+      <Card className={cn("min-h-0 rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-beat-12-deduction-cases" size="sm">
         <CardHeader className="gap-3 border-b pb-0">
           <Tabs defaultValue="all">
             <TabsList className="h-10">
@@ -1728,7 +1736,10 @@ function BeatTwelveReturnedWorklist({
                 return (
                   <TableRow
                     aria-selected={isSelected}
-                    className="cursor-pointer outline-none data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                    className={cn(
+                      "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                      "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                    )}
                     data-line-id={item.lineId}
                     data-selected={isSelected ? "true" : undefined}
                     data-testid="maya-worklist-row"
@@ -1750,7 +1761,7 @@ function BeatTwelveReturnedWorklist({
                         aria-hidden="true"
                         className={
                           isSelected
-                            ? "block size-2.5 rounded-full bg-muted-foreground"
+                            ? "block size-2.5 rounded-full bg-primary"
                             : "block size-2.5 rounded-full border border-muted-foreground/35"
                         }
                       />

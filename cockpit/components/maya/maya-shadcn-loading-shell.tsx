@@ -1,25 +1,27 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 
 export function MayaShadcnLoadingShell() {
   return (
     <main
       aria-busy="true"
       aria-label="Connecting Maya forensics workspace"
-      className="min-h-svh bg-background text-foreground"
+      className={cn("min-h-svh bg-background text-foreground", mayaAccent.appFrame)}
       data-testid="maya-shadcn-loading-shell"
     >
       <div className="grid min-h-svh grid-cols-[15rem_minmax(0,1fr)]">
-        <aside className="hidden border-r bg-sidebar p-4 text-sidebar-foreground md:flex md:flex-col md:gap-6">
+        <aside className={cn("hidden border-r bg-sidebar p-4 text-sidebar-foreground md:flex md:flex-col md:gap-6", mayaAccent.sidebar)}>
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-md border border-sidebar-border bg-sidebar-accent/40" />
+            <div className={cn("size-10 rounded-md border", mayaAccent.iconBubble)} />
             <div className="grid gap-2">
               <Skeleton className="h-5 w-24 bg-sidebar-accent/60" />
               <Skeleton className="h-3 w-28 bg-sidebar-accent/40" />
             </div>
           </div>
           <div className="grid gap-2">
-            <Skeleton className="h-9 rounded-md bg-sidebar-accent/50" />
-            <Skeleton className="h-8 rounded-md bg-sidebar-accent/30" />
+            <Skeleton className="h-9 rounded-md bg-primary/15" />
+            <Skeleton className="h-8 rounded-md bg-primary/10" />
             <Skeleton className="h-8 rounded-md bg-sidebar-accent/30" />
             <Skeleton className="h-8 rounded-md bg-sidebar-accent/30" />
           </div>

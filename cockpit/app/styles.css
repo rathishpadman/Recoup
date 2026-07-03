@@ -1622,6 +1622,23 @@ h3 {
   overflow-y: auto;
 }
 
+.shell[data-active-route="forensics"] .worklist,
+.shell[data-active-route="forensics"] .decision-console,
+.shell[data-active-route="forensics"] .agent-sidecar {
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 16%, var(--border-subtle));
+}
+
+.shell[data-active-route="forensics"] .agent-sidecar .audit-verify-chip,
+.shell[data-active-route="forensics"] .multimodal-dock,
+.shell[data-active-route="forensics"] .evidence-source,
+.shell[data-active-route="forensics"] .case-detail,
+.shell[data-active-route="run"] .run-scenario-panel,
+.shell[data-active-route="run"] .run-trace-panel,
+.shell[data-active-route="run"] .run-sidecar-panel {
+  border-color: color-mix(in srgb, var(--color-primary) 14%, var(--border-default));
+}
+
 .route-grid.run,
 .route-grid.resolve,
 .route-grid.executive {
@@ -3306,7 +3323,8 @@ code {
 }
 
 .run-scenario-row[aria-current="true"] {
-  background: color-mix(in srgb, var(--bg-subtle) 74%, var(--bg-surface));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--border-default));
 }
 
 .run-scenario-row.head {

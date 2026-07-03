@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import type { MayaEvidenceDocument, MayaEvidencePack, QueryEvidenceResponse } from "./types.ts";
 
 interface CitedAnswerCardProps {
@@ -54,7 +56,7 @@ function hasBackendCitationMetadata(citation: BackendCitation): boolean {
 export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps) {
   if (!hasCitedAnswer(response)) {
     return (
-      <Card data-testid="maya-cited-answer" size="sm">
+      <Card className={mayaAccent.subtleCard} data-testid="maya-cited-answer" size="sm">
         <CardHeader>
           <CardTitle>Cited answer</CardTitle>
           <CardDescription>Blocked unless a response includes citations and deterministic basis</CardDescription>
@@ -97,7 +99,7 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
   }));
 
   return (
-    <Card data-testid="maya-cited-answer" size="sm">
+    <Card className={mayaAccent.subtleCard} data-testid="maya-cited-answer" size="sm">
       <CardHeader>
         <CardTitle className="flex min-w-0 items-center gap-2">
           <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
@@ -105,14 +107,14 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
         </CardTitle>
         <CardDescription>Citations and deterministic basis for the current answer.</CardDescription>
         <CardAction>
-          <Badge variant="secondary">Answered</Badge>
+          <Badge className={mayaAccent.pill} variant="secondary">Answered</Badge>
         </CardAction>
       </CardHeader>
       <CardContent className="grid min-w-0 gap-4">
         <div className="flex min-w-0 flex-col gap-3">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">Answer summary</Badge>
+              <Badge className={mayaAccent.pill} variant="secondary">Answer summary</Badge>
               <Badge variant="outline">{`${response.recordIds.length.toString()} cited records`}</Badge>
               <Badge variant="outline">{`${evidencePack.documents.length.toString()} loaded documents`}</Badge>
             </div>
@@ -163,7 +165,7 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
                           key={`${citation.recordId}-${index.toString()}`}
                         >
                           <TableCell className="w-[34%] whitespace-normal align-top">
-                            <Badge className="max-w-full truncate" title={citation.recordId} variant="secondary">
+                            <Badge className={cn("max-w-full truncate", mayaAccent.pill)} title={citation.recordId} variant="secondary">
                               {citation.recordId}
                             </Badge>
                           </TableCell>
@@ -176,7 +178,7 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
                                     <span className="font-medium">{metadata.description}</span>
                                   </div>
                                   <div className="flex flex-wrap gap-1.5">
-                                    <Badge variant="secondary">{metadata.citationId}</Badge>
+                                    <Badge className={mayaAccent.pill} variant="secondary">{metadata.citationId}</Badge>
                                     <Badge variant="outline">{metadata.documentId}</Badge>
                                     <Badge variant="outline">{metadata.documentType}</Badge>
                                     <Badge variant="outline">{metadata.relevance}</Badge>
@@ -194,7 +196,7 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
                                     <span className="font-medium">{citation.documentId ?? citation.recordId}</span>
                                   </div>
                                   <div className="flex flex-wrap gap-1.5">
-                                    {citation.documentId === undefined ? null : <Badge variant="secondary">{citation.documentId}</Badge>}
+                                    {citation.documentId === undefined ? null : <Badge className={mayaAccent.pill} variant="secondary">{citation.documentId}</Badge>}
                                     {citation.source === undefined ? null : <Badge variant="outline">{citation.source}</Badge>}
                                   </div>
                                   {citation.summary === undefined ? null : (
@@ -212,7 +214,7 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
                                   </span>
                                 </>
                               )}
-                              <div className="flex min-w-0 flex-col gap-1 rounded-md border bg-muted/25 p-2">
+                              <div className={cn("flex min-w-0 flex-col gap-1 rounded-md border p-2", mayaAccent.proofPanel)}>
                                 <span className="text-xs font-medium">Citation basis</span>
                                 <span className="text-sm text-muted-foreground" data-testid="maya-cited-record-basis">
                                   {citation.deterministicBasis}

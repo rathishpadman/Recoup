@@ -20,9 +20,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { AuditConfirmationPanel } from "./audit-confirmation-panel.tsx";
 import { EvidenceDossier, SelectedEvidenceProofStrip } from "./evidence-dossier.tsx";
+import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { RecoveryDraftReview } from "./recovery-draft-review.tsx";
@@ -119,12 +121,12 @@ export function DeductionCaseWorkspace({
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-case-workspace">
-      <Card className="rounded-lg shadow-[var(--shadow-sm)]" size="sm">
+      <Card className={cn("rounded-lg shadow-[var(--shadow-sm)]", mayaAccent.subtleCard)} size="sm">
         <CardHeader className="gap-4">
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="grid min-w-0 gap-2">
               <Button
-                className="w-fit"
+                className={cn("w-fit", mayaAccent.outlineButton)}
                 data-testid="maya-case-return-to-worklist"
                 onClick={onReturnToWorklist}
                 size="sm"
@@ -165,12 +167,12 @@ export function DeductionCaseWorkspace({
             <div
               aria-label="Read-only amount"
               aria-readonly="true"
-              className="grid min-w-56 gap-1 rounded-lg border bg-muted/30 p-3 text-right"
+              className={cn("grid min-w-56 gap-1 rounded-lg border p-3 text-right", mayaAccent.proofPanel)}
               data-testid="maya-case-overview-readonly-amount"
             >
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button aria-label="Amount source details" className="ml-auto" size="icon-sm" type="button" variant="outline">
+                  <Button aria-label="Amount source details" className={cn("ml-auto", mayaAccent.outlineButton)} size="icon-sm" type="button" variant="outline">
                     <LockIcon aria-hidden="true" data-icon="inline-start" />
                   </Button>
                 </TooltipTrigger>
@@ -195,7 +197,7 @@ export function DeductionCaseWorkspace({
         </CardHeader>
       </Card>
 
-      <Card className="rounded-lg shadow-none" size="sm">
+      <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
         <CardContent className="flex flex-col gap-3 p-4">
           <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="grid min-w-0 gap-1">
@@ -246,7 +248,7 @@ export function DeductionCaseWorkspace({
         <TabsContent className="mt-3" data-testid="maya-case-overview" value="overview">
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
             <div className="flex min-w-0 flex-col gap-3">
-              <Card className="rounded-lg shadow-none" size="sm">
+              <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
@@ -277,7 +279,7 @@ export function DeductionCaseWorkspace({
                   )}
                 </CardContent>
               </Card>
-              <Card className="rounded-lg shadow-none" size="sm">
+              <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <ClipboardListIcon aria-hidden="true" data-icon="inline-start" />
@@ -302,7 +304,7 @@ export function DeductionCaseWorkspace({
                     : "This work item is selected, but evidence detail is not available for this line."}
                 </AlertDescription>
               </Alert>
-              <Card className="rounded-lg shadow-none" size="sm">
+              <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <FileLockIcon aria-hidden="true" data-icon="inline-start" />
@@ -331,7 +333,7 @@ export function DeductionCaseWorkspace({
                   </div>
                 </CardContent>
               </Card>
-              <Card className="rounded-lg shadow-none" size="sm">
+              <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
                 <CardHeader>
                   <CardTitle className="text-base">Case timeline</CardTitle>
                   <CardDescription>Read-only Maya journey rows</CardDescription>
@@ -341,7 +343,7 @@ export function DeductionCaseWorkspace({
                     <MayaEmptyState description="The Maya journey has no timeline rows." title="Timeline unavailable" />
                   ) : (
                     journey.map((item) => (
-                      <div className="grid gap-1 border-l pl-3" key={`${item.timestamp}-${item.label}`}>
+                      <div className="grid gap-1 border-l border-l-primary/30 pl-3" key={`${item.timestamp}-${item.label}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-sm font-medium">{item.label}</span>
                           <Badge variant="outline">{item.status}</Badge>
@@ -427,7 +429,7 @@ export function DeductionCaseWorkspace({
 
 function CaseFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3">
+    <div className={cn("grid min-w-0 gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)}>
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="truncate text-sm font-medium" title={value}>
         {value}
@@ -453,7 +455,7 @@ function StaticStatusBadge({
 }: React.ComponentProps<"span"> & { variant?: VerdictBadgeVariant }) {
   const variantClassName =
     variant === undefined
-      ? "border-border bg-background text-muted-foreground"
+      ? mayaAccent.pill
       : staticStatusBadgeClassByVariant[variant];
 
   return (
@@ -477,7 +479,7 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Backend record IDs">
       {recordIds.map((recordId) => (
-        <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+        <Badge className={cn("max-w-full truncate", mayaAccent.pill)} key={recordId} title={recordId} variant="secondary">
           {recordId}
         </Badge>
       ))}
@@ -497,7 +499,7 @@ function SourceRecordDetails({
   return (
     <Collapsible className="grid min-w-0 gap-2" data-testid={testId}>
       <CollapsibleTrigger asChild>
-        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+        <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} size="sm" type="button" variant="outline">
           <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
           {title}
         </Button>
@@ -523,7 +525,7 @@ function CaseContractGap() {
 
 function DetailGapCard({ title }: { title: string }) {
   return (
-    <Card className="rounded-lg shadow-none" size="sm">
+    <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>Source detail pending</CardDescription>

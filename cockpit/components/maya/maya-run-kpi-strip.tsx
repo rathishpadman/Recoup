@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type { MayaActionInboxItem, MayaKpiItem, MayaRecoveryTracker } from "./types.ts";
 
@@ -49,7 +50,7 @@ function kpiIconTone(index: number): string {
   }
 
   if (index === 2) {
-    return "border-border bg-muted/20 text-muted-foreground";
+    return mayaAccent.iconBubble;
   }
 
   if (index === 3) {
@@ -81,7 +82,7 @@ export function MayaRunKpiStrip({ items }: MayaRunKpiStripProps) {
       {items.map((item, index) => {
         return (
           <Card
-            className="min-h-[166px] justify-between rounded-lg border-border/80 bg-card shadow-[var(--shadow-sm)]"
+            className={cn("min-h-[166px] justify-between rounded-lg shadow-[var(--shadow-sm)]", mayaAccent.subtleCard)}
             data-kpi-label={item.label}
             data-testid="maya-kpi-card"
             key={item.label}

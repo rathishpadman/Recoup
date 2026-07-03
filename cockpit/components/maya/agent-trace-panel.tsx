@@ -4,6 +4,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import type { MayaEvidencePack, QueryEvidenceResponse } from "./types.ts";
 
 type QueryTraceEvent = QueryEvidenceResponse["trace"][number];
@@ -56,7 +58,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
   const processNodes = buildAgentProcessNodes({ evidencePack, recordIds, response, selectedLine });
 
   return (
-    <Card data-testid="maya-agent-trace" size="sm">
+    <Card className={mayaAccent.subtleCard} data-testid="maya-agent-trace" size="sm">
       <CardHeader>
         <CardTitle>Trace rail</CardTitle>
         <CardDescription>Process map with trace details on demand.</CardDescription>
@@ -126,7 +128,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
           <section className="grid min-w-0 gap-2" aria-label="Selected evidence context">
             {evidencePack.documents.map((document) => (
               <div
-                className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3"
+                className={cn("grid min-w-0 gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)}
                 data-testid="maya-static-context-row"
                 key={`static-context-${document.documentId}`}
               >
@@ -150,7 +152,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
 
               return (
                 <li
-                  className="grid min-w-0 content-start gap-2 rounded-md border bg-background p-3 shadow-none"
+                  className={cn("grid min-w-0 content-start gap-2 rounded-md border p-3 shadow-none", mayaAccent.proofMutedPanel)}
                   data-agent-node={isBackendTrace ? node.agentName : undefined}
                   data-citation-count={node.citations.length}
                   data-deterministic-basis={isBackendTrace ? node.deterministicBasis : undefined}
@@ -172,11 +174,11 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                   <div className="flex min-w-0 items-start justify-between gap-2">
                     <span
                       aria-hidden="true"
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full border bg-muted/20 text-xs font-semibold text-muted-foreground"
+                      className={cn("flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold", mayaAccent.iconBubble)}
                     >
                       {index + 1}
                     </span>
-                    <Badge className="shrink-0" variant="secondary">
+                    <Badge className={cn("shrink-0", mayaAccent.pill)} variant="secondary">
                       {formatPrimaryProcessNodePhaseLabel(node)}
                     </Badge>
                   </div>
@@ -202,7 +204,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
               <div className="flex min-w-0 flex-col gap-3">
                 {response?.modelExecution === undefined ? null : (
                   <section
-                    className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3"
+                    className={cn("grid min-w-0 gap-2 rounded-md border p-3", mayaAccent.proofPanel)}
                     data-testid="maya-agent-model-execution-details"
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
@@ -210,11 +212,11 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                         <span className="font-medium">Model execution proof</span>
                         <span className="text-sm text-muted-foreground">Live agent run receipts preserved for review.</span>
                       </div>
-                      <Badge variant="secondary">{response.modelExecution.mode}</Badge>
+                      <Badge className={mayaAccent.pill} variant="secondary">{response.modelExecution.mode}</Badge>
                     </div>
                     <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                       {modelExecutionDetailRows(response.modelExecution).map((row) => (
-                        <div className="grid min-w-0 gap-1 rounded-md border bg-background p-2" key={`model-execution-${row.label}`}>
+                        <div className={cn("grid min-w-0 gap-1 rounded-md border p-2", mayaAccent.proofMutedPanel)} key={`model-execution-${row.label}`}>
                           <span className="text-xs text-muted-foreground">{row.label}</span>
                           <span className="break-words text-sm">{row.value}</span>
                         </div>
@@ -229,7 +231,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                     const sourceTransportLabel = isBackendTrace ? formatTraceTransportLabel(node) : undefined;
 
                     return (
-                      <div className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3" key={`detail-${node.key}`}>
+                      <div className={cn("grid min-w-0 gap-2 rounded-md border p-3", mayaAccent.proofPanel)} key={`detail-${node.key}`}>
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="grid min-w-0 gap-1">
                             <span className="truncate font-medium" title={node.label}>
@@ -237,7 +239,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                             </span>
                             <span className="text-sm text-muted-foreground">{node.sourceLabel}</span>
                           </div>
-                          <Badge variant="secondary">{isBackendTrace ? node.hook : formatProcessNodeKind(node.nodeKind)}</Badge>
+                          <Badge className={mayaAccent.pill} variant="secondary">{isBackendTrace ? node.hook : formatProcessNodeKind(node.nodeKind)}</Badge>
                         </div>
                         <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} source and technical receipt details`}>
                           <Badge variant="outline">{node.sourceLabel}</Badge>

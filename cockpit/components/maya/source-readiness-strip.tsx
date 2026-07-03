@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/c
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ConnectorReadinessCockpitModel, MayaFieldProvenance, SourceHealthResult } from "../../app/cockpit-data.ts";
+import { mayaAccent } from "./maya-accent.ts";
 import type { MayaSourceTile } from "./types.ts";
 
 interface SourceReadinessStripProps {
@@ -37,7 +38,7 @@ function sourceTileClass(statusTone: MayaSourceTile["statusTone"]): string {
     return "border-destructive/35 bg-destructive/10 text-foreground";
   }
 
-  return "border-border bg-muted/30 text-foreground";
+  return "border-primary/15 bg-primary/5 text-foreground";
 }
 
 function sourceStatusClass(statusTone: MayaSourceTile["statusTone"]): string {
@@ -149,7 +150,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
   const checkedAtLabel = displayCheckedAt(currentConnectors.checkedAtIso);
 
   return (
-    <Card className="rounded-lg py-0 shadow-[var(--shadow-sm)]" size="sm">
+    <Card className={cn("rounded-lg py-0 shadow-[var(--shadow-sm)]", mayaAccent.subtleCard)} size="sm">
       <CardContent
         aria-label={`${checkedAtLabel}; ${currentConnectors.lastRefreshedLabel}`}
         className="grid min-h-[58px] min-w-0 items-center gap-3 px-3 py-1.5 lg:grid-cols-[190px_minmax(0,1fr)]"
@@ -170,7 +171,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
         <div className="grid min-w-0 gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
             <CardTitle>Source Readiness</CardTitle>
-            <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+            <Badge className={cn("h-5 px-1.5 text-[10px]", mayaAccent.pill)} variant="outline">
               {currentConnectors.sourceTiles.length.toString()} sources
             </Badge>
           </div>
@@ -194,7 +195,7 @@ export function SourceReadinessStrip({ connectors }: SourceReadinessStripProps) 
                     data-status-tone={source.statusTone}
                     data-testid="maya-source-tile"
                   >
-                    <div className="flex size-6 items-center justify-center rounded-md border bg-background/70 text-xs font-semibold text-muted-foreground">
+                    <div className={cn("flex size-6 items-center justify-center rounded-md border text-xs font-semibold", mayaAccent.iconBubble)}>
                       {source.mark}
                     </div>
                     <div className="grid min-w-0 gap-0.5">

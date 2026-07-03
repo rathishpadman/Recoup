@@ -17,6 +17,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import type { ApprovalGateResponse } from "./types.ts";
 
 const AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u;
@@ -68,7 +70,7 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
   }
 
   return (
-    <Card className="rounded-lg shadow-none" data-testid="maya-audit-confirmation" size="sm">
+    <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-audit-confirmation" size="sm">
       <CardHeader className="gap-3">
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="grid min-w-0 gap-1">
@@ -86,7 +88,7 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
         </div>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
-        <Alert data-testid="maya-audit-confirmation-state">
+        <Alert className={mayaAccent.proofPanel} data-testid="maya-audit-confirmation-state">
           {confirmedResponse === undefined ? (
             <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
           ) : (
@@ -103,7 +105,7 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
         </Alert>
 
         <section
-          className="grid min-w-0 gap-3 rounded-lg border border-border bg-background/80 p-3"
+          className={cn("grid min-w-0 gap-3 rounded-lg border p-3", mayaAccent.proofMutedPanel)}
           data-testid="maya-audit-summary-panel"
         >
           <div className="grid min-w-0 gap-3 md:grid-cols-3">
@@ -132,13 +134,13 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
           open={receiptDetailsOpen}
         >
           <CollapsibleTrigger asChild>
-            <Button className="w-fit justify-start" type="button" variant="outline">
+            <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} type="button" variant="outline">
               <ChevronDownIcon aria-hidden="true" className={receiptDetailsOpen ? "rotate-180" : undefined} data-icon="inline-start" />
               Audit receipt details
             </Button>
           </CollapsibleTrigger>
           {receiptDetailsOpen ? (
-            <CollapsibleContent className="min-w-0 overflow-x-auto rounded-lg border border-border bg-background">
+            <CollapsibleContent className={cn("min-w-0 overflow-x-auto rounded-lg border", mayaAccent.proofMutedPanel)}>
               <div className="border-b px-3 py-2 text-sm text-muted-foreground">
                 {waitingCount === 0 ? "No unavailable receipt fields" : `${String(waitingCount)} unavailable receipt fields`}
               </div>
@@ -181,7 +183,7 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
         </section>
       </CardContent>
       <CardFooter className="flex flex-wrap justify-end gap-2">
-        <Button onClick={onReturnToWorklist} type="button" variant="outline">
+        <Button className={mayaAccent.outlineButton} onClick={onReturnToWorklist} type="button" variant="outline">
           <ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
           Return to worklist
         </Button>
@@ -420,7 +422,7 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Selected action citations">
       {recordIds.map((recordId) => (
-        <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+        <Badge className={cn("max-w-full truncate", mayaAccent.pill)} key={recordId} title={recordId} variant="secondary">
           {recordId}
         </Badge>
       ))}
@@ -432,7 +434,7 @@ function SelectedActionSourceDetails({ recordIds }: { recordIds: string[] }) {
   return (
     <Collapsible className="grid min-w-0 gap-2" data-testid="maya-audit-selected-action-source-details">
       <CollapsibleTrigger asChild>
-        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+        <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} size="sm" type="button" variant="outline">
           <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
           Selected action source details
         </Button>

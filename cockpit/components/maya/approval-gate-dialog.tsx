@@ -18,6 +18,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import type { ApprovalGateResponse, MayaApprovalAction, MayaSelectedCase } from "./types.ts";
 
 const NOTE_CHARACTER_LIMIT = 500;
@@ -151,10 +153,10 @@ export function ApprovalGateDialog({
   return (
     <AlertDialog onOpenChange={handleOpenChange} open={open}>
       <AlertDialogContent
-        className="grid max-h-[calc(100vh-2rem)] grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        className="grid max-h-[calc(100vh-2rem)] grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-primary/15 p-0 sm:max-w-2xl"
         data-testid="maya-approval-gate-dialog"
       >
-        <div className="flex items-start justify-between gap-4 p-4">
+        <div className="flex items-start justify-between gap-4 border-b border-primary/10 bg-primary/5 p-4">
           <AlertDialogHeader className="place-items-start gap-1.5 text-left">
             <div className="flex items-start gap-3">
               <TriangleAlertIcon aria-hidden="true" className="mt-0.5" data-icon="inline-start" />
@@ -177,7 +179,7 @@ export function ApprovalGateDialog({
 
         <div className="flex min-w-0 flex-col gap-3 overflow-y-auto p-4">
           {approvalEligibilityUnavailable ? (
-            <Alert data-testid="maya-approval-eligibility-alert">
+            <Alert className={mayaAccent.proofPanel} data-testid="maya-approval-eligibility-alert">
               <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
               <AlertTitle>Approval unavailable</AlertTitle>
               <AlertDescription>
@@ -189,7 +191,7 @@ export function ApprovalGateDialog({
               </AlertDescription>
             </Alert>
           ) : (
-            <Alert data-testid="maya-approval-eligibility-alert">
+            <Alert className={mayaAccent.proofPanel} data-testid="maya-approval-eligibility-alert">
               <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
               <AlertTitle>{eligibilityStatusLabel}</AlertTitle>
               <AlertDescription>
@@ -210,7 +212,7 @@ export function ApprovalGateDialog({
               <AlertTitle>Approval response recorded</AlertTitle>
               <AlertDescription className="flex flex-wrap items-center gap-2">
                 <span>Committed receipt returned by the approval service.</span>
-                {success.status === undefined ? null : <Badge variant="secondary">{success.status}</Badge>}
+                {success.status === undefined ? null : <Badge className={mayaAccent.pill} variant="secondary">{success.status}</Badge>}
               </AlertDescription>
             </Alert>
           )}
@@ -229,7 +231,7 @@ export function ApprovalGateDialog({
             </ApprovalFactRow>
             <Separator />
             <ApprovalFactRow label="Status">
-              <Badge className="w-fit" variant="secondary">
+              <Badge className={cn("w-fit", mayaAccent.pill)} variant="secondary">
                 {draft.statusLabel}
               </Badge>
               <span className="text-muted-foreground">External action remains blocked.</span>
@@ -276,7 +278,7 @@ export function ApprovalGateDialog({
           </FieldGroup>
         </div>
 
-        <AlertDialogFooter className="flex-col items-stretch justify-start gap-3 sm:flex-col sm:justify-start">
+        <AlertDialogFooter className="flex-col items-stretch justify-start gap-3 border-primary/10 sm:flex-col sm:justify-start">
           <div className="flex flex-wrap gap-2">
             {orderedActions.map((action) => (
               <Button
@@ -294,7 +296,7 @@ export function ApprovalGateDialog({
               </Button>
             ))}
             <AlertDialogCancel asChild disabled={submitting}>
-              <Button disabled={submitting} type="button" variant="outline">
+              <Button className={mayaAccent.outlineButton} disabled={submitting} type="button" variant="outline">
                 Cancel
               </Button>
             </AlertDialogCancel>
@@ -333,7 +335,7 @@ function ApprovalSourceDetails({ recordIds }: { recordIds: string[] }) {
   return (
     <Collapsible className="grid min-w-0 gap-2" data-testid="maya-approval-source-details">
       <CollapsibleTrigger asChild>
-        <Button className="w-fit justify-start" size="sm" type="button" variant="outline">
+        <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} size="sm" type="button" variant="outline">
           <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
           Approval source details
         </Button>
@@ -344,7 +346,7 @@ function ApprovalSourceDetails({ recordIds }: { recordIds: string[] }) {
             <Badge variant="outline">No record IDs</Badge>
           ) : (
             recordIds.map((recordId) => (
-              <Badge className="max-w-full truncate" key={recordId} title={recordId} variant="secondary">
+              <Badge className={cn("max-w-full truncate", mayaAccent.pill)} key={recordId} title={recordId} variant="secondary">
                 {recordId}
               </Badge>
             ))

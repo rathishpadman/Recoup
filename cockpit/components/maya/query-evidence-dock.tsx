@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { AgentTracePanel } from "./agent-trace-panel.tsx";
 import { CitedAnswerCard } from "./cited-answer-card.tsx";
+import { mayaAccent } from "./maya-accent.ts";
 import type {
   MayaEvidencePack,
   MayaMultimodalDock,
@@ -238,7 +240,7 @@ export function QueryEvidenceDock({
           } as React.CSSProperties
         }
       >
-        <SheetHeader className="gap-3">
+        <SheetHeader className={cn("gap-3 border-b", mayaAccent.proofMutedPanel)}>
           <SheetTitle>{canShowCitedAnswer ? "Cited response" : "Query Evidence"}</SheetTitle>
           <SheetDescription>
             {canShowCitedAnswer
@@ -246,19 +248,19 @@ export function QueryEvidenceDock({
               : "Ask from the current evidence packet."}
           </SheetDescription>
           <div className="flex flex-wrap gap-2" aria-label="Query policy">
-            <Badge variant="secondary">Selected evidence context</Badge>
-            <Badge variant="secondary">Read-only query</Badge>
+            <Badge className={mayaAccent.pill} variant="secondary">Selected evidence context</Badge>
+            <Badge className={mayaAccent.pill} variant="secondary">Read-only query</Badge>
           </div>
         </SheetHeader>
         <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
-          <Alert aria-label="Client-selected case context" data-testid="maya-selected-evidence-context">
+          <Alert aria-label="Client-selected case context" className={mayaAccent.proofPanel} data-testid="maya-selected-evidence-context">
             <FileTextIcon aria-hidden="true" data-icon="inline-start" />
             <AlertTitle>Selected evidence packet</AlertTitle>
             <AlertDescription>
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span>Client-selected case context</span>
-                  <Badge data-testid="maya-query-selected-line" variant="secondary">
+                  <Badge className={mayaAccent.pill} data-testid="maya-query-selected-line" variant="secondary">
                     {selectedLine}
                   </Badge>
                   <Badge variant="outline">{`${recordIds.length.toString()} records`}</Badge>
@@ -292,7 +294,7 @@ export function QueryEvidenceDock({
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Query source policy and modes">
-                    <Badge variant="secondary">Selected evidence context</Badge>
+                    <Badge className={mayaAccent.pill} variant="secondary">Selected evidence context</Badge>
                     <Badge variant="outline">{dock.policyLabel}</Badge>
                     {dock.modeOptions.map((mode) => (
                       <Badge key={mode} variant="outline">
@@ -313,6 +315,7 @@ export function QueryEvidenceDock({
                 <React.Fragment key={buildPromptSuggestionKey(prompt)}>
                   <Button
                     aria-describedby={promptChipDescriptionId}
+                    className={mayaAccent.outlineButton}
                     data-testid="maya-query-prompt-chip"
                     disabled={isRunning}
                     onClick={() => {
@@ -363,7 +366,7 @@ export function QueryEvidenceDock({
           >
             {submittedQuestion.length > 0 ? (
               <div
-                className="ml-auto grid max-w-[88%] min-w-0 gap-1 rounded-lg border bg-muted/25 p-3"
+                className={cn("ml-auto grid max-w-[88%] min-w-0 gap-1 rounded-lg border p-3", mayaAccent.proofPanel)}
                 data-testid="maya-submitted-query"
               >
                 <span className="text-sm font-medium">You</span>
@@ -375,13 +378,13 @@ export function QueryEvidenceDock({
             <div id={statusId} aria-live="polite">
               {canShowCitedAnswer ? (
                 <div className="grid min-w-0 gap-3">
-                  <div className="grid min-w-0 gap-2 rounded-lg border bg-background p-3" data-testid="maya-query-assistant-message">
+                  <div className={cn("grid min-w-0 gap-2 rounded-lg border p-3", mayaAccent.proofMutedPanel)} data-testid="maya-query-assistant-message">
                     <span className="text-sm font-medium">Maya</span>
                     <p className="text-sm leading-6 text-muted-foreground" data-testid="maya-query-assistant-answer">
                       {displayAnswerWithoutInlineRecordIds(snapshot.answer ?? "", snapshot.recordIds)}
                     </p>
                     <div className="flex flex-wrap gap-1.5" aria-label="Assistant citation summary">
-                      <Badge variant="secondary">{`${snapshot.citations.length.toString()} citations`}</Badge>
+                      <Badge className={mayaAccent.pill} variant="secondary">{`${snapshot.citations.length.toString()} citations`}</Badge>
                       <Badge variant="outline">{`${snapshot.recordIds.length.toString()} record IDs`}</Badge>
                       <Badge variant="outline">Basis available in trace details</Badge>
                     </div>
@@ -394,7 +397,7 @@ export function QueryEvidenceDock({
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               ) : snapshot === undefined ? (
-                <Alert data-testid="maya-query-readiness-preview">
+                <Alert className={mayaAccent.proofPanel} data-testid="maya-query-readiness-preview">
                   <AlertTitle>Ready for an evidence-backed question</AlertTitle>
                   <AlertDescription>
                     <div className="flex flex-col gap-2">
@@ -421,7 +424,7 @@ export function QueryEvidenceDock({
                   <span className="text-sm font-medium">Maya</span>
                   <p className="text-sm leading-6 text-muted-foreground">Maya is checking evidence.</p>
                   <div className="flex flex-wrap gap-1.5" aria-label="Assistant running summary">
-                    <Badge variant="secondary">Checking citations</Badge>
+                  <Badge className={mayaAccent.pill} variant="secondary">Checking citations</Badge>
                     <Badge variant="outline">{`${snapshot.recordIds.length.toString()} records`}</Badge>
                   </div>
                 </div>
@@ -430,7 +433,7 @@ export function QueryEvidenceDock({
                   <AlertTitle>{snapshot.message}</AlertTitle>
                   <AlertDescription>
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary">{`${snapshot.recordIds.length.toString()} records`}</Badge>
+                  <Badge className={mayaAccent.pill} variant="secondary">{`${snapshot.recordIds.length.toString()} records`}</Badge>
                     </div>
                   </AlertDescription>
                 </Alert>
@@ -459,10 +462,10 @@ export function QueryEvidenceDock({
             </AccordionItem>
           </Accordion>
         </div>
-        <SheetFooter className="border-t sm:flex-row sm:items-center sm:justify-between">
+        <SheetFooter className="border-t border-primary/10 sm:flex-row sm:items-center sm:justify-between">
           {isRunning ? (
             <Button
-              className="sm:w-auto"
+              className={cn("sm:w-auto", mayaAccent.outlineButton)}
               onClick={() => {
                 closeActiveSession({ resetComposer: false, resetParentTrace: true });
               }}
@@ -503,12 +506,12 @@ function QueryEvidenceDocumentDisclosure({ documents }: { documents: EvidenceDoc
     <div className="grid min-w-0 gap-2" aria-label="Selected evidence documents">
       {documents.map((document) => (
         <div
-          className="grid min-w-0 gap-2 rounded-md border bg-background/70 p-2 text-xs"
+          className={cn("grid min-w-0 gap-2 rounded-md border p-2 text-xs", mayaAccent.proofMutedPanel)}
           data-testid="maya-query-evidence-document"
           key={`${document.citationId}-${document.documentId}`}
         >
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <Badge variant="secondary">{document.citationId}</Badge>
+            <Badge className={mayaAccent.pill} variant="secondary">{document.citationId}</Badge>
             {document.evidenceId === undefined ? null : <Badge variant="outline">{document.evidenceId}</Badge>}
             {document.receiptId === undefined ? null : <Badge variant="outline">{document.receiptId}</Badge>}
           </div>

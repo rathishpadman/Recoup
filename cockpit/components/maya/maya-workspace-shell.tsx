@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "../../app/logout-button.tsx";
 import type { DemoSession } from "../../app/demo-auth.ts";
+import { mayaAccent } from "./maya-accent.ts";
 import type { MayaSurfaceSection } from "./types.ts";
 
 interface MayaWorkspaceShellProps {
@@ -61,7 +62,7 @@ const navItems = [
 
 function RecoupBrandMark() {
   return (
-    <svg aria-hidden="true" className="size-10 shrink-0 text-sidebar-foreground" viewBox="0 0 40 40">
+    <svg aria-hidden="true" className="size-10 shrink-0 text-primary" viewBox="0 0 40 40">
       <path
         d="M29.2 12.4A12.2 12.2 0 1 0 31 25.6"
         fill="none"
@@ -107,11 +108,14 @@ export function MayaWorkspaceShell({
 
   return (
     <SidebarProvider
-      className="min-h-svh items-stretch bg-background [&_[data-slot=sidebar-container]]:!absolute [&_[data-slot=sidebar-container]]:!h-full [&_[data-slot=sidebar-container]]:!min-h-full [&_[data-slot=sidebar-gap]]:min-h-full [&_[data-slot=sidebar-gap]]:bg-sidebar [&_[data-slot=sidebar]]:relative [&_[data-slot=sidebar]]:min-h-full [&_[data-slot=sidebar]]:self-stretch"
+      className={cn(
+        "min-h-svh items-stretch bg-background [&_[data-slot=sidebar-container]]:!absolute [&_[data-slot=sidebar-container]]:!h-full [&_[data-slot=sidebar-container]]:!min-h-full [&_[data-slot=sidebar-gap]]:min-h-full [&_[data-slot=sidebar-gap]]:bg-sidebar [&_[data-slot=sidebar]]:relative [&_[data-slot=sidebar]]:min-h-full [&_[data-slot=sidebar]]:self-stretch",
+        mayaAccent.appFrame
+      )}
       defaultOpen
       style={{ "--sidebar-width": "15rem", "--sidebar-width-icon": "4.5rem" } as CSSProperties}
     >
-      <Sidebar className="min-h-svh border-sidebar-border bg-sidebar" collapsible="icon" data-testid="maya-sidebar">
+      <Sidebar className={cn("min-h-svh border-sidebar-border bg-sidebar", mayaAccent.sidebar)} collapsible="icon" data-testid="maya-sidebar">
         <SidebarHeader className="gap-4 p-4 pb-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:p-3">
           <div className="flex min-h-16 min-w-0 items-center justify-between gap-2" data-testid="maya-sidebar-brand">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -127,7 +131,10 @@ export function MayaWorkspaceShell({
             />
           </div>
           <div
-            className="flex h-9 items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/30 px-3 text-sm font-medium text-sidebar-foreground group-data-[collapsible=icon]:hidden"
+            className={cn(
+              "flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium group-data-[collapsible=icon]:hidden",
+              mayaAccent.sidebarSurfaceLabel
+            )}
             data-testid="maya-sidebar-surface-label"
           >
             <span className="inline-flex min-w-0 items-center gap-2 truncate">
@@ -154,8 +161,8 @@ export function MayaWorkspaceShell({
                       <SidebarMenuButton
                         aria-current={item.section === activeSection ? "page" : undefined}
                         className={cn(
-                          "h-9 px-3",
-                          "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:shadow-sm"
+                          "h-9 border border-transparent px-3",
+                          mayaAccent.sidebarActiveItem
                         )}
                         disabled={onSectionChange === undefined}
                         isActive={item.section === activeSection}
@@ -170,7 +177,7 @@ export function MayaWorkspaceShell({
                       </SidebarMenuButton>
                       {count === undefined ? null : (
                         <SidebarMenuBadge
-                          className="right-2 rounded-full bg-sidebar-accent px-2 text-sidebar-accent-foreground"
+                          className={cn("right-2 rounded-full px-2", mayaAccent.sidebarBadge)}
                           data-testid="maya-sidebar-badge"
                         >
                           {count}
@@ -186,7 +193,7 @@ export function MayaWorkspaceShell({
         <SidebarSeparator />
         <SidebarFooter className="mt-auto gap-3 p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-3" data-testid="maya-sidebar-footer">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full border border-sidebar-border bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground">
+            <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-full border text-sm font-medium", mayaAccent.iconBubble)}>
               {session.displayName.charAt(0)}
             </div>
             <div className="grid min-w-0 gap-0.5 group-data-[collapsible=icon]:hidden">
@@ -256,7 +263,7 @@ export function MayaWorkspaceShell({
                   <Button
                     aria-busy={isRefreshing}
                     aria-label={isRefreshing ? "Source update in progress" : "Update source-backed work items"}
-                    className="size-8"
+                    className={cn("size-8", mayaAccent.outlineButton)}
                     data-testid="maya-source-force-refresh"
                     disabled={isRefreshing}
                     onClick={() => {

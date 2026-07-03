@@ -8,6 +8,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import type { MayaEvidencePack, MayaSourceTile } from "./types.ts";
 
@@ -47,7 +49,7 @@ export function SelectedEvidenceProofStrip({ evidencePack }: { evidencePack: May
   return (
     <section
       aria-label="Selected evidence proof"
-      className="grid min-w-0 gap-3 rounded-lg border bg-muted/20 p-3"
+      className={cn("grid min-w-0 gap-3 rounded-lg border p-3", mayaAccent.proofPanel)}
       data-testid="maya-selected-evidence-proof-strip"
     >
       <div className="grid min-w-0 gap-3 md:grid-cols-4">
@@ -58,7 +60,7 @@ export function SelectedEvidenceProofStrip({ evidencePack }: { evidencePack: May
       </div>
       {podDocument === undefined ? null : (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Badge variant="secondary">POD document</Badge>
+          <Badge className={mayaAccent.pill} variant="secondary">POD document</Badge>
           <EvidenceStorageLink document={podDocument} />
         </div>
       )}
@@ -78,7 +80,7 @@ export function EvidenceDossier({
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="maya-evidence-dossier">
       <div className="grid min-w-0 items-start gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="rounded-lg shadow-none" size="sm">
+        <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
           <CardHeader>
             <div className="grid min-w-0 gap-1">
               <CardTitle>Evidence dossier</CardTitle>
@@ -103,7 +105,7 @@ export function EvidenceDossier({
                     <AccordionTrigger>
                       <span className="flex min-w-0 flex-wrap items-center gap-2 text-left">
                         <span>{group.label}</span>
-                        <Badge variant="secondary">{group.documents.length.toString()} documents</Badge>
+                        <Badge className={mayaAccent.pill} variant="secondary">{group.documents.length.toString()} documents</Badge>
                       </span>
                     </AccordionTrigger>
                     <AccordionContent>
@@ -113,7 +115,7 @@ export function EvidenceDossier({
                 ))}
               </Accordion>
             )}
-            <Collapsible className="rounded-lg border bg-muted/20 p-3" data-testid="maya-evidence-source-details">
+            <Collapsible className={cn("rounded-lg border p-3", mayaAccent.proofPanel)} data-testid="maya-evidence-source-details">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="grid gap-0.5">
                   <span className="text-sm font-medium">Source details</span>
@@ -133,7 +135,7 @@ export function EvidenceDossier({
         </Card>
 
         <div className="flex min-w-0 flex-col gap-3">
-          <Card className="rounded-lg shadow-none" data-testid="maya-deterministic-basis-rail" size="sm">
+          <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-deterministic-basis-rail" size="sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
@@ -157,7 +159,7 @@ export function EvidenceDossier({
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg shadow-none" data-testid="maya-source-provenance-rail" size="sm">
+          <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-source-provenance-rail" size="sm">
             <CardHeader>
               <CardTitle>Source provenance</CardTitle>
               <CardDescription>Connector readiness labels from governed sources</CardDescription>
@@ -177,7 +179,7 @@ export function EvidenceDossier({
                         <div className="grid min-w-0 gap-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <span className="font-medium">{source.label}</span>
-                            <Badge variant={source.statusTone === "synthetic" ? "outline" : "secondary"}>{source.stateLabel}</Badge>
+                            <Badge className={source.statusTone === "synthetic" ? undefined : mayaAccent.pill} variant={source.statusTone === "synthetic" ? "outline" : "secondary"}>{source.stateLabel}</Badge>
                           </div>
                           <span className="text-sm text-muted-foreground">{source.summary}</span>
                         </div>
@@ -223,7 +225,7 @@ function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] })
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline">{getEvidenceBusinessLabel(document.documentType)}</Badge>
-                    <Badge variant="secondary">{document.relevance}</Badge>
+                    <Badge className={mayaAccent.pill} variant="secondary">{document.relevance}</Badge>
                     <span className="font-medium">{document.description}</span>
                   </div>
                   <span className="text-sm text-muted-foreground">{document.summary}</span>
@@ -240,7 +242,7 @@ function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] })
                     </Badge>
                   )}
                   {document.receiptId === undefined ? null : (
-                    <Badge className="w-fit" variant="secondary">
+                    <Badge className={cn("w-fit", mayaAccent.pill)} variant="secondary">
                       {document.receiptId}
                     </Badge>
                   )}
@@ -272,11 +274,11 @@ function ProofColumn({ label, values }: { label: string; values: string[] }) {
       ) : (
         <div className="flex min-w-0 flex-wrap gap-1">
           {values.slice(0, 3).map((value) => (
-            <Badge className="max-w-full truncate font-mono text-[10px]" key={value} title={value} variant="outline">
+            <Badge className={cn("max-w-full truncate font-mono text-[10px]", mayaAccent.pill)} key={value} title={value} variant="outline">
               {value}
             </Badge>
           ))}
-          {values.length > 3 ? <Badge variant="secondary">+{String(values.length - 3)}</Badge> : null}
+          {values.length > 3 ? <Badge className={mayaAccent.pill} variant="secondary">+{String(values.length - 3)}</Badge> : null}
         </div>
       )}
     </div>
@@ -302,7 +304,7 @@ function EvidenceDocumentProvenance({ document }: { document: EvidenceDocument }
   }
 
   return (
-    <dl className="grid min-w-0 gap-1 rounded-md border bg-background/70 p-2 text-xs" data-testid="maya-evidence-provenance">
+    <dl className={cn("grid min-w-0 gap-1 rounded-md border p-2 text-xs", mayaAccent.proofMutedPanel)} data-testid="maya-evidence-provenance">
       {rows.map((row) => (
         <div className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-2" key={row.label}>
           <dt className="text-muted-foreground">{row.label}</dt>
@@ -372,7 +374,7 @@ function RecordIdStrip({ recordIds }: { recordIds: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Selected record IDs">
       {recordIds.map((recordId) => (
-        <Badge className="max-w-full truncate" data-testid="maya-evidence-record-id" key={recordId} title={recordId} variant="secondary">
+        <Badge className={cn("max-w-full truncate", mayaAccent.pill)} data-testid="maya-evidence-record-id" key={recordId} title={recordId} variant="secondary">
           {recordId}
         </Badge>
       ))}

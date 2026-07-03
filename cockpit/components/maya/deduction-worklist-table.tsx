@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
@@ -70,7 +71,7 @@ export function DeductionWorklistTable({
 
   if (variant === "rail") {
     return (
-      <Card className="min-h-[calc(100vh-2rem)] rounded-lg shadow-none" size="sm">
+      <Card className={cn("min-h-[calc(100vh-2rem)] rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
         <CardHeader className="gap-2">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <div className="grid min-w-0 gap-1">
@@ -79,7 +80,7 @@ export function DeductionWorklistTable({
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button aria-label="Worklist source fields" size="icon-sm" type="button" variant="outline">
+                <Button aria-label="Worklist source fields" className={mayaAccent.outlineButton} size="icon-sm" type="button" variant="outline">
                   <CircleHelpIcon aria-hidden="true" data-icon="button-icon" />
                 </Button>
               </TooltipTrigger>
@@ -168,7 +169,7 @@ export function DeductionWorklistTable({
             <p className="truncate text-xs text-muted-foreground">
               {filteredItems.length.toString()} of {items.length.toString()}
             </p>
-            <Badge className="h-6 px-2 text-[11px]" variant="outline">
+            <Badge className={cn("h-6 px-2 text-[11px]", mayaAccent.pill)} variant="outline">
               Local focus
             </Badge>
           </CardFooter>
@@ -178,7 +179,7 @@ export function DeductionWorklistTable({
   }
 
   return (
-    <Card className="min-h-0 rounded-lg shadow-none" size="sm">
+    <Card className={cn("min-h-0 rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
       <CardHeader className="gap-3">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="grid min-w-0 gap-1">
@@ -189,7 +190,7 @@ export function DeductionWorklistTable({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  className="hidden h-8 gap-1.5 px-2 text-[11px] md:inline-flex"
+                  className={cn("hidden h-8 gap-1.5 px-2 text-[11px] md:inline-flex", mayaAccent.outlineButton)}
                   data-testid="maya-worklist-contract-gap"
                   size="sm"
                   type="button"
@@ -236,7 +237,10 @@ export function DeductionWorklistTable({
                 return (
                   <Button
                     aria-selected={item.lineId === selectedLineId}
-                    className="h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:shadow-[var(--shadow-sm)]"
+                    className={cn(
+                      "h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal",
+                      "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                    )}
                     data-line-id={item.lineId}
                     data-selected={item.lineId === selectedLineId ? "true" : undefined}
                     data-state={item.lineId === selectedLineId ? "selected" : undefined}
@@ -396,7 +400,7 @@ export function DeductionWorklistTable({
                         </div>
                         <Button
                           aria-label={`Open investigation for ${item.workItemLabel}`}
-                          className="shrink-0"
+                          className={cn("shrink-0", mayaAccent.outlineButton)}
                           data-testid="maya-row-action-open"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -424,7 +428,7 @@ export function DeductionWorklistTable({
           <p className="truncate text-xs text-muted-foreground">
             Showing {filteredItems.length.toString()} of {items.length.toString()} work items
           </p>
-          <Badge className="h-6 px-2 text-[11px]" variant="outline">
+          <Badge className={cn("h-6 px-2 text-[11px]", mayaAccent.pill)} variant="outline">
             Current queue
           </Badge>
         </CardFooter>
