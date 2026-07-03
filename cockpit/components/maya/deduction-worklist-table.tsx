@@ -31,6 +31,8 @@ interface DeductionWorklistTableProps {
 }
 
 const missingOperationalFields = ["Priority", "Work type", "Source", "Age", "Owner"] as const;
+const mayaSelectedRowClass =
+  "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
 
 function isInteractiveDescendantEvent(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
@@ -120,7 +122,7 @@ export function DeductionWorklistTable({
                       aria-selected={item.lineId === selectedLineId}
                       className={cn(
                         "h-auto min-h-[104px] w-full justify-start rounded-md border px-3 py-3 text-left font-normal",
-                        "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                        mayaSelectedRowClass
                       )}
                       data-line-id={item.lineId}
                       data-selected={item.lineId === selectedLineId ? "true" : undefined}
@@ -239,7 +241,7 @@ export function DeductionWorklistTable({
                     aria-selected={item.lineId === selectedLineId}
                     className={cn(
                       "h-auto min-h-[108px] w-full justify-start rounded-md border bg-background px-3 py-3 text-left font-normal",
-                      "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                      mayaSelectedRowClass
                     )}
                     data-line-id={item.lineId}
                     data-selected={item.lineId === selectedLineId ? "true" : undefined}
@@ -304,7 +306,7 @@ export function DeductionWorklistTable({
                       aria-selected={item.lineId === selectedLineId}
                       className={cn(
                         "cursor-pointer align-top outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                        "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                        mayaSelectedRowClass
                       )}
                       data-line-id={item.lineId}
                       data-selected={item.lineId === selectedLineId ? "true" : undefined}

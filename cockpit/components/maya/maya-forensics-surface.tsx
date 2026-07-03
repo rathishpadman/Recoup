@@ -62,6 +62,8 @@ const missingBeatTwelveFields = [
   "Audit receipt",
   "Next-case ranking"
 ] as const;
+const mayaSelectedRowClass =
+  "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
 
 interface BeatTwelveMetricCard {
   label: string;
@@ -772,7 +774,7 @@ export function MayaForensicsSurface({
                                   aria-selected={isSelected}
                                   className={cn(
                                     "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                                    "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                                    mayaSelectedRowClass
                                   )}
                                   data-line-id={item.lineId}
                                   data-selected={isSelected ? "true" : undefined}
@@ -1145,7 +1147,7 @@ export function MayaForensicsSurface({
                     return (
                       <TableRow
                         aria-selected={isSelected}
-                        className="data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                        className={mayaSelectedRowClass}
                         data-selected={isSelected ? "true" : undefined}
                         data-testid="maya-case-row"
                         key={`case-${item.lineId}`}
@@ -1389,12 +1391,12 @@ function ForensicsBusinessFreshnessBanner({
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="forensics-business-freshness">
         {businessFreshness.sourceHash === undefined ? null : (
-          <Badge data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
+          <Badge className={mayaAccent.pill} data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
             {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
           </Badge>
         )}
         {businessFreshness.receiptHash === undefined ? null : (
-          <Badge data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
+          <Badge className={mayaAccent.pill} data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
             {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
           </Badge>
         )}
@@ -1410,12 +1412,12 @@ function ForensicsBusinessFreshnessBanner({
         <div className="flex flex-wrap gap-2">
           <span>{businessFreshness.message ?? "Displayed business data may be stale until the stream reconnects."}</span>
           {businessFreshness.sourceHash === undefined ? null : (
-            <Badge data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
+            <Badge className={mayaAccent.pill} data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
               {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
             </Badge>
           )}
           {businessFreshness.receiptHash === undefined ? null : (
-            <Badge data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
+            <Badge className={mayaAccent.pill} data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
               {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
             </Badge>
           )}
@@ -1738,7 +1740,7 @@ function BeatTwelveReturnedWorklist({
                     aria-selected={isSelected}
                     className={cn(
                       "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                      "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-muted/35 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-border/70"
+                      mayaSelectedRowClass
                     )}
                     data-line-id={item.lineId}
                     data-selected={isSelected ? "true" : undefined}

@@ -12,6 +12,7 @@
   --color-primary-subtle: #E4E4E7;
   --color-primary-tint:   #F4F4F5;
   --color-accent:         #C2410C; /* high-priority/risk emphasis only */
+  --persona-maya-accent:  #0c6e6b;
 
   /* ---- Neutrals: zinc operations ramp ---- */
   --neutral-900: #18181B;

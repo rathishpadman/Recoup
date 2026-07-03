@@ -119,6 +119,24 @@
   }
 }
 
+@layer components {
+  .maya-accent-root {
+    --maya-accent: var(--persona-maya-accent);
+    --maya-accent-strong: color-mix(in srgb, var(--maya-accent) 72%, var(--foreground));
+    --maya-accent-light: color-mix(in srgb, var(--white) 92%, var(--maya-accent));
+    --maya-accent-sidebar-muted: color-mix(in srgb, var(--white) 74%, var(--maya-accent));
+    --maya-accent-border: color-mix(in srgb, var(--maya-accent) 28%, var(--border));
+    --maya-accent-ring: color-mix(in srgb, var(--maya-accent) 42%, transparent);
+    --maya-accent-selection: color-mix(in srgb, var(--maya-accent) 78%, var(--foreground));
+    --maya-accent-surface: color-mix(in srgb, var(--maya-accent) 9%, var(--card));
+    --maya-accent-surface-muted: color-mix(in srgb, var(--maya-accent) 4%, var(--card));
+    --maya-accent-surface-strong: color-mix(in srgb, var(--maya-accent) 11%, var(--card));
+    --maya-accent-sidebar: var(--maya-accent);
+    --maya-accent-sidebar-active: color-mix(in srgb, var(--white) 14%, var(--maya-accent));
+    --maya-accent-sidebar-border: color-mix(in srgb, var(--white) 18%, var(--maya-accent));
+  }
+}
+
 * {
   box-sizing: border-box;
 }

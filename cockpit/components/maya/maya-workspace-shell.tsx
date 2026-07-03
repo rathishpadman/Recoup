@@ -62,7 +62,7 @@ const navItems = [
 
 function RecoupBrandMark() {
   return (
-    <svg aria-hidden="true" className="size-10 shrink-0 text-primary" viewBox="0 0 40 40">
+    <svg aria-hidden="true" className="size-10 shrink-0 text-[color:var(--maya-accent-light)]" viewBox="0 0 40 40">
       <path
         d="M29.2 12.4A12.2 12.2 0 1 0 31 25.6"
         fill="none"
@@ -109,7 +109,7 @@ export function MayaWorkspaceShell({
   return (
     <SidebarProvider
       className={cn(
-        "min-h-svh items-stretch bg-background [&_[data-slot=sidebar-container]]:!absolute [&_[data-slot=sidebar-container]]:!h-full [&_[data-slot=sidebar-container]]:!min-h-full [&_[data-slot=sidebar-gap]]:min-h-full [&_[data-slot=sidebar-gap]]:bg-sidebar [&_[data-slot=sidebar]]:relative [&_[data-slot=sidebar]]:min-h-full [&_[data-slot=sidebar]]:self-stretch",
+        "min-h-svh items-stretch bg-background [&_[data-mobile=true]]:bg-[color:var(--maya-accent-sidebar)] [&_[data-slot=sidebar-container]]:!absolute [&_[data-slot=sidebar-container]]:!h-full [&_[data-slot=sidebar-container]]:!min-h-full [&_[data-slot=sidebar-gap]]:min-h-full [&_[data-slot=sidebar-gap]]:bg-[color:var(--maya-accent-sidebar)] [&_[data-slot=sidebar-inner]]:bg-[color:var(--maya-accent-sidebar)] [&_[data-slot=sidebar]]:relative [&_[data-slot=sidebar]]:min-h-full [&_[data-slot=sidebar]]:self-stretch",
         mayaAccent.appFrame
       )}
       defaultOpen
@@ -122,12 +122,12 @@ export function MayaWorkspaceShell({
               <RecoupBrandMark />
               <div className="grid min-w-0 gap-1.5 group-data-[collapsible=icon]:hidden">
                 <strong className="truncate text-[22px] font-semibold leading-none">Recoup</strong>
-                <span className="truncate text-xs font-medium text-sidebar-foreground/75">Deduction Forensics</span>
+                <span className="truncate text-xs font-medium text-[color:var(--maya-accent-sidebar-muted)]">Deduction Forensics</span>
               </div>
             </div>
             <SidebarTrigger
               aria-label="Collapse Maya navigation"
-              className="hidden text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:inline-flex group-data-[collapsible=icon]:hidden"
+              className="hidden text-[color:var(--maya-accent-sidebar-muted)] hover:bg-[color:var(--maya-accent-sidebar-active)] hover:text-white md:inline-flex group-data-[collapsible=icon]:hidden"
             />
           </div>
           <div
@@ -190,7 +190,7 @@ export function MayaWorkspaceShell({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarSeparator />
+        <SidebarSeparator className="bg-[color:var(--maya-accent-sidebar-border)]" />
         <SidebarFooter className="mt-auto gap-3 p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-3" data-testid="maya-sidebar-footer">
           <div className="flex min-w-0 items-center gap-3">
             <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-full border text-sm font-medium", mayaAccent.iconBubble)}>
@@ -198,12 +198,12 @@ export function MayaWorkspaceShell({
             </div>
             <div className="grid min-w-0 gap-0.5 group-data-[collapsible=icon]:hidden">
               <strong className="truncate text-sm">{session.displayName}</strong>
-              <span className="truncate text-xs text-sidebar-foreground/70">Forensics analyst</span>
+              <span className="truncate text-xs text-[color:var(--maya-accent-sidebar-muted)]">Forensics analyst</span>
             </div>
           </div>
-          <div className="flex items-center justify-between gap-2 text-xs text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden">
+          <div className="flex items-center justify-between gap-2 text-xs text-[color:var(--maya-accent-sidebar-muted)] group-data-[collapsible=icon]:hidden">
             <span>Read-only demo access</span>
-            <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+            <Badge className={cn("h-5 px-1.5 text-[10px]", mayaAccent.sidebarBadge)} variant="outline">
               {pendingActionCount.toString()} HITL
             </Badge>
           </div>
@@ -302,7 +302,7 @@ export function MayaWorkspaceShell({
               className="relative inline-flex size-8 items-center justify-center text-muted-foreground"
             >
               <BellIcon aria-hidden="true" data-icon="header-notification" />
-              <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">
+              <span className="absolute -right-1 -top-1 rounded-full bg-[color:var(--maya-accent)] px-1.5 text-[10px] font-semibold leading-4 text-white tabular-nums">
                 {pendingActionCount}
               </span>
             </span>

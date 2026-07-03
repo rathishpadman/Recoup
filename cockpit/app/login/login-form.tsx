@@ -266,7 +266,11 @@ export function LoginForm({ hasInvalidSession, initialLoginId, personas }: Login
         </div>
       </FieldGroup>
 
-      <Button className="h-14 w-full text-base font-semibold shadow-md shadow-primary/20" disabled={submitting} type="submit">
+      <Button
+        className="h-14 w-full bg-[color:var(--persona-maya-accent)] text-base font-semibold text-white shadow-md shadow-primary/20 hover:bg-[color:var(--persona-maya-accent)] hover:brightness-95 focus-visible:ring-[color:var(--persona-maya-accent)]"
+        disabled={submitting}
+        type="submit"
+      >
         <ShieldCheckIcon data-icon="inline-start" />
         {submitting ? "Opening Forensics Workspace" : "Open Forensics Workspace"}
       </Button>

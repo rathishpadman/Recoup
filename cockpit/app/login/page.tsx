@@ -33,8 +33,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <div className="flex items-center justify-center gap-6" aria-label="Recoup Deduction Forensics">
               <RecoupAngularMark />
               <div className="text-left">
-                <div className="text-[2.5rem] font-semibold leading-none">RECOUP</div>
-                <div className="mt-2 text-sm font-medium text-primary">Deduction Forensics</div>
+                <div className="text-[2.5rem] font-semibold leading-none text-[color:var(--persona-maya-accent)]">RECOUP</div>
+                <div className="mt-2 text-sm font-medium text-[color:var(--persona-maya-accent)]">Deduction Forensics</div>
               </div>
             </div>
           </CardHeader>
@@ -55,13 +55,13 @@ function RecoupAngularMark() {
   return (
     <svg
       aria-hidden="true"
-      className="size-20 text-primary drop-shadow-sm"
+      className="size-20 text-[color:var(--persona-maya-accent)] drop-shadow-sm"
       fill="none"
       viewBox="0 0 96 96"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path className="fill-primary" d="M17 18h41l21 20v19L61 75H45L29 59v18H17V31l12 12v1l27-1 7-7-8-7H28v17L17 35V18Z" />
-      <path className="fill-primary/80" d="M31 47h22l21 28H58L42 58H31V47Z" />
+      <path className="fill-[color:var(--persona-maya-accent)]" d="M17 18h41l21 20v19L61 75H45L29 59v18H17V31l12 12v1l27-1 7-7-8-7H28v17L17 35V18Z" />
+      <path className="fill-[color:var(--persona-maya-accent)]" d="M31 47h22l21 28H58L42 58H31V47Z" />
       <path className="fill-background" d="M29 29h26l8 7-7 7H31l-2-2V29Z" />
       <path className="fill-background" d="M29 59V43l16 16H29Z" />
     </svg>

@@ -1,16 +1,22 @@
 export const mayaAccent = {
-  appFrame: "selection:bg-primary/20 selection:text-primary-foreground",
-  iconBubble: "border-primary/20 bg-primary/10 text-primary",
-  outlineButton: "border-primary/20 text-primary hover:bg-primary/10 hover:text-primary",
-  pill: "border-primary/20 bg-primary/10 text-primary",
-  proofMutedPanel: "border-primary/15 bg-[color:color-mix(in_srgb,var(--primary)_5%,var(--background))]",
-  proofPanel: "border-primary/20 bg-[color:color-mix(in_srgb,var(--primary)_8%,var(--background))]",
+  appFrame: "maya-accent-root selection:bg-[color:var(--maya-accent-selection)] selection:text-white",
+  iconBubble:
+    "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)] text-[color:var(--maya-accent-strong)]",
+  outlineButton:
+    "border-[color:var(--maya-accent-border)] text-[color:var(--maya-accent-strong)] hover:border-[color:var(--maya-accent)] hover:bg-[color:var(--maya-accent-surface)] hover:text-[color:var(--maya-accent-strong)]",
+  pill:
+    "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)] text-[color:var(--maya-accent-strong)]",
+  proofMutedPanel: "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface-muted)]",
+  proofPanel: "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)]",
   selectedRow:
-    "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-primary data-[selected=true]:bg-primary/5 data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-primary/20",
-  sidebar: "border-primary/15 bg-[color:color-mix(in_srgb,var(--primary)_4%,var(--sidebar))]",
+    "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]",
+  sidebar:
+    "border-[color:var(--maya-accent-sidebar-border)] bg-[color:var(--maya-accent-sidebar)] text-[color:var(--maya-accent-light)]",
   sidebarActiveItem:
-    "data-[active=true]:border-primary/20 data-[active=true]:bg-primary/10 data-[active=true]:text-primary data-[active=true]:shadow-sm",
-  sidebarBadge: "border border-primary/20 bg-primary/10 text-primary",
-  sidebarSurfaceLabel: "border-primary/20 bg-primary/10 text-sidebar-foreground",
-  subtleCard: "border-primary/15 bg-[color:color-mix(in_srgb,var(--primary)_4%,var(--card))]"
+    "hover:bg-[color:var(--maya-accent-sidebar-active)] hover:text-white data-[active=true]:border-transparent data-[active=true]:bg-[color:var(--maya-accent-sidebar-active)] data-[active=true]:text-white data-[active=true]:shadow-none",
+  sidebarBadge:
+    "border border-[color:var(--maya-accent-sidebar-border)] bg-[color:var(--maya-accent-sidebar-active)] text-white",
+  sidebarSurfaceLabel:
+    "border-transparent bg-[color:var(--maya-accent-sidebar-active)] text-white shadow-none",
+  subtleCard: "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface-muted)]"
 } as const;
