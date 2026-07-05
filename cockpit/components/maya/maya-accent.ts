@@ -9,7 +9,7 @@ export const mayaAccent = {
   proofMutedPanel: "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface-muted)]",
   proofPanel: "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)]",
   selectedRow:
-    "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]",
+    "data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]",
   sidebar:
     "border-[color:var(--maya-accent-sidebar-border)] bg-[color:var(--maya-accent-sidebar)] text-[color:var(--maya-accent-light)]",
   sidebarActiveItem:

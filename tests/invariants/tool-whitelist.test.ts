@@ -22,6 +22,8 @@ describe("I-15 whitelisted typed tools", () => {
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
+      "email.sendApproved",
+      "email.status",
       "query.answer",
       "retrieval.bureau",
       "retrieval.docs",

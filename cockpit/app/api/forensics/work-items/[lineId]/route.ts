@@ -38,6 +38,7 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
   if (
     cached !== undefined &&
     cachedWorkItemDetailMatchesLine(cached.payload, lineId) &&
+    cachedWorkItemDetailHasDisplayReason(cached.payload) &&
     (await cachedWorkItemDetailApprovalStateIsFresh(runtimeEnv, cached.payload))
   ) {
     refreshReadModelAfterResponse(runtimeEnv, authHeaders, {
@@ -123,6 +124,15 @@ function cachedWorkItemDetailMatchesLine(payload: Record<string, unknown>, lineI
     workItem.workItemId === lineId &&
     lineIds.includes(lineId) &&
     cachedWorkItemDetailHasCanonicalEvidenceProof(selected)
+  );
+}
+
+function cachedWorkItemDetailHasDisplayReason(payload: Record<string, unknown>): boolean {
+  const workItem = readRecord(payload.workItem);
+  return (
+    readNonEmptyString(workItem?.reason) !== undefined ||
+    readNonEmptyString(workItem?.reasonNarrative) !== undefined ||
+    readNonEmptyString(workItem?.reason_narrative) !== undefined
   );
 }
 

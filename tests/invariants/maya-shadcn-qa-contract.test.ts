@@ -328,7 +328,7 @@ function assistantMessageHookTargetsAnswerBubble(source: string): boolean {
     /data-testid="maya-query-assistant-message"[\s\S]{0,1800}\bdata-testid="maya-query-assistant-answer"/u.test(
       stripComments(source)
     ) &&
-    /data-testid="maya-query-assistant-answer"[\s\S]{0,420}\bdisplayAnswerWithoutInlineRecordIds\(snapshot\.answer(?:\s*\?\?\s*"")?,\s*snapshot\.recordIds\)/u.test(
+    /data-testid="maya-query-assistant-answer"[\s\S]{0,520}\bdisplayAnswerWithoutInlineRecordIds\(snapshot\.answer(?:\s*\?\?\s*"")?,\s*\[[\s\S]{0,240}snapshot\.recordIds[\s\S]{0,240}snapshot\.citations\.map/u.test(
       stripComments(source)
     )
   );
@@ -656,12 +656,6 @@ function hasJsxElement(source: string, elementName: string): boolean {
   return new RegExp(`<${escapeRegExp(elementName)}\\b`, "u").test(stripComments(source));
 }
 
-function traceTabPanelRendersTraceUi(source: string): boolean {
-  return /<TabsContent\b[^>]*\bvalue="trace"[\s\S]{0,1200}(?:<AgentTracePanel\b|\bdata-testid\s*=\s*["']maya-agent-process-map["'])/u.test(
-    stripComments(source)
-  );
-}
-
 function queryWorkItemFlowAssertsDenseTraceRowsFromTraceTab(source: string): boolean {
   const runner = findFunctionDefinition(stripComments(source), "runRealMayaQueryWorkItems");
   if (runner === undefined) {
@@ -809,7 +803,7 @@ function missingCaseWorkspaceQueryResponseRequirements(source: string): string[]
     missing.push("case workspace does not reset query response when selected evidence identity changes");
   }
   if (!/<AgentTracePanel\b[\s\S]{0,520}\bresponse=\{queryResponse\}/u.test(stripped)) {
-    missing.push("case trace tab does not receive the latest QueryEvidenceResponse");
+    missing.push("case investigation section does not receive the latest QueryEvidenceResponse");
   }
   if (!/<QueryEvidenceDock\b[\s\S]{0,900}\bonResponse=\{setQueryResponse\}/u.test(stripped)) {
     missing.push("case workspace does not wire QueryEvidenceDock onResponse to set query state");
@@ -1566,11 +1560,11 @@ function helperSpecificRequiredBodyPatterns(helperName: string): readonly Labele
           String.raw`\b(?:forensicsModel\.worklist|worklist|detail\.lineId)\b`
         )
       ];
-    case "assertRenderedKpiStripMatchesBackend":
+    case "assertRenderedOverviewSummaryCardsMatchBackend":
       return [
         renderedBackendAssertionPattern(
-          "KPI strip rendered values asserted against forensicsModel.kpiStrip",
-          String.raw`\b(?:forensicsModel\.kpiStrip|kpiStrip)\b`
+          "overview summary cards asserted against backend worklist aggregation",
+          String.raw`\b(?:buildOverviewSummaryCards\(forensicsModel\.worklist\)|forensicsModel\.worklist|expectedCards)\b`
         )
       ];
     case "assertRenderedSourceReadinessMatchesBackend":
@@ -1971,7 +1965,7 @@ describe("Maya shadcn human QA contract", () => {
           e2e
         ),
       e2eVerifiesSecondLineBackendDetail:
-        /const\s+secondLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*secondLineId,\s*1\)/u.test(e2e) &&
+        /const\s+secondLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*secondLineId,\s*1(?:,\s*detail\.workItem)?\)/u.test(e2e) &&
         /assertSelectedCaseLineOverviewMatchesBackend\(page,\s*lineIds,\s*secondLineDetail,\s*1\)/u.test(e2e) &&
         /assertAgentProcessMapBeforeQuery\(page,\s*secondLineDetail,\s*connectorsModel\)/u.test(e2e) &&
         /assertRenderedEvidenceDossierMatchesBackend\(page,\s*secondLineDetail,\s*connectorsModel\)/u.test(e2e) &&
@@ -1979,7 +1973,7 @@ describe("Maya shadcn human QA contract", () => {
         /assertRenderedRecoveryDraftMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
         /assertRenderedApprovalGateMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
         /assertRenderedAuditConfirmationMatchesBackend\(page,\s*secondLineDetail\)/u.test(e2e) &&
-        /const\s+thirdLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*thirdLineId,\s*2\)/u.test(e2e) &&
+        /const\s+thirdLineDetail\s*=\s*await\s+switchToBackendCaseLine\(page,\s*apiServer,\s*lineIds,\s*thirdLineId,\s*2(?:,\s*detail\.workItem)?\)/u.test(e2e) &&
         /assertObservedRealBackendCall\s*\(\s*apiServer,\s*["']GET["']\s*,\s*`\/forensics\/work-items\/\$\{encodeURIComponent\(lineId\)\}`\s*\)/u.test(e2e),
       e2eRequiresSelectedLineHook: e2e.includes('page.getByTestId("maya-selected-line-label")'),
       lineSelectorHasGroupLabel: /aria-label=["']Deduction lines["']|aria-label=["']Line selector["']/u.test(workspace),
@@ -1990,10 +1984,16 @@ describe("Maya shadcn human QA contract", () => {
         !/\bdisplayLineId\b/u.test(workspace) && !/\bsetDisplayLineId\b/u.test(workspace),
       lineSelectorUsesPressedState: /\baria-pressed\s*=\s*\{\s*lineId\s*===\s*selected\.lineId\s*\}/u.test(workspace),
       lineSelectorRendersButtons:
-        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<button\b[\s\S]{0,500}Line\s*\{String\(index \+ 1\)\}/u.test(
+        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<button\b[\s\S]{0,500}aria-label=\{`Line\s+\$\{String\(index \+ 1\)\}`\}/u.test(
           workspace
         ) ||
-        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<Button\b[\s\S]{0,500}Line\s*\{String\(index \+ 1\)\}/u.test(
+        /selectedWorklistItem\?\.lineIds\.map\(\(lineId,\s*index\)[\s\S]{0,1200}<Button\b[\s\S]{0,500}aria-label=\{`Line\s+\$\{String\(index \+ 1\)\}`\}/u.test(
+          workspace
+        ),
+      lineSelectorUsesOrdinalVisibleText: />\s*Line\s+\{String\(index \+ 1\)\}\s*<\/Button>/u.test(workspace),
+      lineSelectorDoesNotRenderRawLineIdText: !/<Button\b[\s\S]{0,900}>\s*\{lineId\}\s*<\/Button>/u.test(workspace),
+      caseHeaderDoesNotRenderRawSelectedLineId:
+        !/<StaticStatusBadge\b[\s\S]{0,420}\bdata-verdict=\{selectedWorklistItem\.verdict\}[\s\S]{0,420}\{selectedWorklistItem\.lineId\}/u.test(
           workspace
         ),
       rawLineIdsAreNotPrimaryBadgeControls:
@@ -2014,6 +2014,9 @@ describe("Maya shadcn human QA contract", () => {
       lineSelectorDoesNotUseDisplayOnlyState: true,
       lineSelectorUsesPressedState: true,
       lineSelectorRendersButtons: true,
+      lineSelectorUsesOrdinalVisibleText: true,
+      lineSelectorDoesNotRenderRawLineIdText: true,
+      caseHeaderDoesNotRenderRawSelectedLineId: true,
       rawLineIdsAreNotPrimaryBadgeControls: true,
       surfaceAllowsSiblingLineDetails: true,
       surfacePassesLineSelectionHandler: true,
@@ -2029,10 +2032,19 @@ describe("Maya shadcn human QA contract", () => {
       "audit-confirmation-panel.tsx",
       "cited-answer-card.tsx"
     ] as const;
-    const primarySources = rawIdComponentFiles.map((fileName) => ({
-      path: `cockpit/components/maya/${fileName}`,
-      source: primaryMayaSource(readMayaComponent(fileName))
-    }));
+    const primarySources = rawIdComponentFiles.map((fileName) => {
+      const source = primaryMayaSource(readMayaComponent(fileName));
+      return {
+        path: `cockpit/components/maya/${fileName}`,
+        source:
+          fileName === "deduction-case-workspace.tsx"
+            ? source.replace(
+                /<section className="grid min-w-0 gap-2" data-testid="maya-case-detail-b7-depth-drawers">[\s\S]*?<\/CaseDepthDrawer>\s*<\/section>\s*\{canShowBackendDetail \? \(/u,
+                "{canShowBackendDetail ? ("
+              )
+            : source
+      };
+    });
     const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
     const draft = stripComments(readMayaComponent("recovery-draft-review.tsx"));
     const approval = stripComments(readMayaComponent("approval-gate-dialog.tsx"));
@@ -2047,23 +2059,23 @@ describe("Maya shadcn human QA contract", () => {
         primarySources,
         /(?:Line metadata:\s*\{displayLineId\}|<span\b[^>]*>\s*\{lineId\}\s*<\/span>|\bvalue=\{selectedLineId\}|\bvalue=\{item\.lineId\})/u
       ),
-      caseLineSourceDetailsHook: workspace.includes('"maya-case-line-source-details"'),
-      caseBasisSourceDetailsHook: workspace.includes('"maya-case-basis-source-details"'),
-      caseTimelineSourceDetailsHook: workspace.includes('"maya-case-timeline-source-details"'),
+      caseAuditProvenanceDetailsHook: workspace.includes('"maya-case-depth-drawer-audit-provenance"'),
+      caseBasisSourceDetailsHook: workspace.includes('"maya-deterministic-basis-document-details"'),
+      caseTimelineSourceDetailsHook: workspace.includes('"maya-depth-agent-trace-section"'),
       draftSourceDetailsHook: draft.includes('"maya-draft-source-details"'),
-      draftRailSourceDetailsHook: draft.includes('"maya-draft-rail-source-details"'),
-      approvalSourceDetailsHook: hasJsxDataTestId(approval, "maya-approval-source-details"),
+      draftRailSourceDetailsHook: draft.includes('"maya-draft-source-details"'),
+      approvalSourceDetailsHook: hasJsxDataTestId(approval, "maya-approval-details"),
       auditSelectedActionSourceDetailsHook: hasJsxDataTestId(audit, "maya-audit-selected-action-source-details"),
       citedBlockedSourceDetailsHook: hasJsxDataTestId(citedAnswer, "maya-cited-blocked-source-details"),
-      e2eRequiresCaseLineDisclosure: e2e.includes('"maya-case-line-source-details"'),
+      e2eRequiresCaseAuditProvenanceDisclosure: e2e.includes('"maya-case-depth-drawer-audit-provenance"'),
       e2eRequiresDraftSourceDisclosure: e2e.includes('"maya-draft-source-details"'),
-      e2eRequiresApprovalSourceDisclosure: e2e.includes('"maya-approval-source-details"'),
+      e2eRequiresApprovalSourceDisclosure: e2e.includes('"maya-approval-details"'),
       e2eRequiresAuditActionDisclosure: e2e.includes('"maya-audit-selected-action-source-details"')
     }).toEqual({
       primaryRecordIdStripLines: [],
       primaryMappedRecordBadgeLines: [],
       primaryLineIdSubtextLines: [],
-      caseLineSourceDetailsHook: true,
+      caseAuditProvenanceDetailsHook: true,
       caseBasisSourceDetailsHook: true,
       caseTimelineSourceDetailsHook: true,
       draftSourceDetailsHook: true,
@@ -2071,18 +2083,19 @@ describe("Maya shadcn human QA contract", () => {
       approvalSourceDetailsHook: true,
       auditSelectedActionSourceDetailsHook: true,
       citedBlockedSourceDetailsHook: true,
-      e2eRequiresCaseLineDisclosure: true,
+      e2eRequiresCaseAuditProvenanceDisclosure: true,
       e2eRequiresDraftSourceDisclosure: true,
       e2eRequiresApprovalSourceDisclosure: true,
       e2eRequiresAuditActionDisclosure: true
     });
   });
 
-  it("requires a logged-in Recoup Agent launcher to open the grounded query dock", () => {
+  it("requires a logged-in Recoup Copilot launcher to open the grounded query dock", () => {
     const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
     const workspace = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
     const styles = read("cockpit/app/styles.css");
+    const launcherCss = styles.slice(styles.indexOf(".maya-recoup-agent-float"), styles.indexOf(".maya-recoup-agent-button"));
 
     expect({
       launcherHook: hasJsxDataTestId(surface, "recoup-agent-launcher"),
@@ -2098,20 +2111,27 @@ describe("Maya shadcn human QA contract", () => {
         /\bopenInvestigationForItem[\s\S]{0,700}\bopenQueryDockOnReady[\s\S]{0,700}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface),
       failedDetailLoadClearsLauncherIntent:
         /\bcatch \(error\)[\s\S]{0,500}\bsetAgentDockOpenLineId\(undefined\)/u.test(surface),
-      launcherDoesNotCreateSeparateQueryDock: !/<QueryEvidenceDock\b/u.test(surface) && /<QueryEvidenceDock\b/u.test(workspace),
+      overviewLauncherCreatesWorkspaceQueryDock:
+        /<QueryEvidenceDock\b/u.test(surface) &&
+        /\boverviewQueryDockOpen\b/u.test(surface) &&
+        /\bbuildOverviewCopilotPromptSuggestions\b/u.test(surface) &&
+        /<QueryEvidenceDock\b/u.test(workspace),
       launcherUsesFloatingShell:
         surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
-      e2eChecksFloatingPosition: e2e.includes("Recoup Agent launcher must sit on the bottom rail below overview rows"),
+      e2eChecksFloatingPosition: e2e.includes(
+        "Recoup Copilot launcher must sit in an independent Overview command rail, below the top header and outside data rows"
+      ),
       cssPinsLauncherLowerWorkspaceRail:
-        styles.includes("left: calc(var(--sidebar-width, 15rem) + max(1rem, env(safe-area-inset-left)));") &&
-        styles.includes("bottom: max(0.75rem, env(safe-area-inset-bottom));") &&
-        !styles.includes("top: 50vh;") &&
-        !styles.includes("top: 55vh;") &&
-        !styles.includes("transform: translateY(-50%);") &&
-        !styles.includes("right: max(1rem, env(safe-area-inset-right));"),
-      e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Agent launcher signal must not replay"),
-      e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Agent launcher")
+        launcherCss.includes(".maya-recoup-agent-float") &&
+        launcherCss.includes("display: flex;") &&
+        launcherCss.includes("pointer-events: none;") &&
+        !launcherCss.includes("position: fixed;") &&
+        !launcherCss.includes("bottom:") &&
+        !launcherCss.includes("right:") &&
+        surface.includes('placement="overview"'),
+      e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Copilot launcher signal must not replay"),
+      e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Copilot launcher")
     }).toEqual({
       launcherHook: true,
       launcherUsesLineScopedIntent: true,
@@ -2119,7 +2139,7 @@ describe("Maya shadcn human QA contract", () => {
       rowSelectionClearsLauncherIntent: true,
       normalOpenClearsLauncherIntent: true,
       failedDetailLoadClearsLauncherIntent: true,
-      launcherDoesNotCreateSeparateQueryDock: true,
+      overviewLauncherCreatesWorkspaceQueryDock: true,
       launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
       e2eChecksFloatingPosition: true,
@@ -2174,7 +2194,10 @@ describe("Maya shadcn human QA contract", () => {
     expect({
       actionsRenderAsButtons:
         /<Button\b[\s\S]{0,700}>\s*<[^>]+>\s*Open investigation\s*<\/Button>/u.test(combined) ||
-        /<Button\b[\s\S]{0,700}\bOpen investigation\b[\s\S]{0,160}<\/Button>/u.test(combined),
+        /<Button\b[\s\S]{0,700}\bOpen investigation\b[\s\S]{0,160}<\/Button>/u.test(combined) ||
+        (combined.includes('data-testid="maya-overview-case-concentration-row"') &&
+          combined.includes("openInvestigationForItem(item)") &&
+          combined.includes('type="button"')),
       staticBadgeHookCountAtLeastOne: staticBadgeElements.length >= 1,
       staticBadgeHooksAreNonButtonSpans: staticBadgeElements.every((element) => element.tagName === "span"),
       staticBadgeHooksHaveNoPointerSemantics: staticBadgeElements.every(
@@ -2193,6 +2216,34 @@ describe("Maya shadcn human QA contract", () => {
       staticBadgeHooksHaveNoPointerSemantics: true,
       staticBadgeNonPointerSemanticsFixturesAreAccepted: true,
       staticBadgePointerSemanticsFixturesAreRejected: true
+    });
+  });
+
+  it("keeps Overview copilot case picker grounded and removes the old primary answer chip row", () => {
+    const queryDock = stripComments(readMayaComponent("query-evidence-dock.tsx"));
+    const surface = stripComments(readMayaComponent("maya-forensics-surface.tsx"));
+
+    expect({
+      dockAcceptsCaseOptions: /\bcaseOptions\?:/u.test(queryDock),
+      overviewPassesRealWorklistOptions:
+        surface.includes("caseOptions={buildCopilotCaseOptions(model.worklist)}") &&
+        surface.includes("selectedWorklistItem"),
+      rendersCasePickerHook: queryDock.includes('data-testid="maya-query-case-picker"'),
+      pickerOnlyForWorkspace: /queryScope === "workspace"[\s\S]{0,900}maya-query-case-picker/u.test(queryDock),
+      caseScopedPayloadAvailable:
+        /selectedLineId:\s*activeSelectedLine/u.test(queryDock) &&
+        /recordIds:\s*activeRecordIds/u.test(queryDock),
+      caseScopedWorkspaceGuardUsesActiveScope:
+        /if\s*\(\s*activeQueryScope === "workspace"[\s\S]{0,180}workspaceSettlementRunId/u.test(queryDock),
+      oldPrimaryAnswerChipRowRemoved: !queryDock.includes('aria-label="Assistant citation summary"')
+    }).toEqual({
+      dockAcceptsCaseOptions: true,
+      overviewPassesRealWorklistOptions: true,
+      rendersCasePickerHook: true,
+      pickerOnlyForWorkspace: true,
+      caseScopedPayloadAvailable: true,
+      caseScopedWorkspaceGuardUsesActiveScope: true,
+      oldPrimaryAnswerChipRowRemoved: true
     });
   });
 
@@ -2229,7 +2280,10 @@ describe("Maya shadcn human QA contract", () => {
         "maya-query-trace-details"
       ]),
       stopQueryIsRunningOnly:
-        /\bisRunning\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u.test(
+        /\bconst\s+shouldShowStopQuery\s*=\s*isTextQueryRunning\s*\|\|\s*isVoiceQueryRunning\s*;/u.test(
+          stripComments(queryDock)
+        ) &&
+        /\bshouldShowStopQuery\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u.test(
           stripComments(queryDock)
         ),
       stopQueryAvoidsExternalActionEndpoints:
@@ -2245,7 +2299,7 @@ describe("Maya shadcn human QA contract", () => {
           citedAnswer.indexOf('data-testid="maya-cited-record-row"'),
       citedAnswerTextUsesRedactedDisplay:
         /\bfunction\s+displayAnswerWithoutInlineRecordIds\b/u.test(citedAnswer) &&
-        /data-testid="maya-cited-answer-text"[\s\S]{0,180}\bdisplayAnswerWithoutInlineRecordIds\(response\.answer,\s*response\.recordIds\)/u.test(
+        /data-testid="maya-cited-answer-text"[\s\S]{0,360}\bdisplayAnswerWithoutInlineRecordIds\(response\.answer,\s*\[[\s\S]{0,180}response\.recordIds[\s\S]{0,180}response\.citations\.map/u.test(
           citedAnswer
         ),
       missingPromptChipKeyIdentityRequirements: missingPromptChipKeyIdentityRequirements(queryDock),
@@ -2277,9 +2331,10 @@ describe("Maya shadcn human QA contract", () => {
         "maya-query-assistant-message",
         /\b(?:snapshot|response)\.answer\b/u
       ),
-      assistantBasisPrimaryUsesTraceDetailsFallback:
-        /Basis available in trace details/u.test(queryDock) &&
-        /data-testid="maya-cited-answer-basis"[\s\S]{0,900}\bresponse\.deterministicBasis\b/u.test(citedAnswer),
+      assistantBasisLivesInModelExecutionDrawer:
+        /testId="maya-copilot-model-drawer"[\s\S]{0,900}<ModelExecutionFacts\s+response=\{snapshot\}\s*\/>/u.test(
+          queryDock
+        ) && /<ModelFact label="Basis" value=\{response\.deterministicBasis\} \/>/u.test(queryDock),
       missingAssistantCitationRequirements: missingAssistantCitationRequirements(chatSource),
       noSpanishReadyPrimaryCopy: !/Spanish ready/u.test(queryDock),
       noRunningTracePanelInPrimaryLayer: !/isRunning\s*\?\s*\([\s\S]{0,900}<AgentTracePanel/u.test(stripComments(queryDock)),
@@ -2297,8 +2352,8 @@ describe("Maya shadcn human QA contract", () => {
           "maya-query-record-id"
         ], [
           {
-            label: "Source details disclosure opened before selected evidence record ID assertion",
-            pattern: /maya-query-source-details[\s\S]{0,900}Source details[\s\S]{0,900}\.click\s*\(/u
+            label: "Evidence details disclosure opened before selected evidence record ID assertion",
+            pattern: /maya-query-source-details[\s\S]{0,900}Evidence details[\s\S]{0,900}\.click\s*\(/u
           }
         ]),
         backendTiedHelper("assertRenderedPromptChipsMatchBackend", ["maya-query-prompt-chip"], [
@@ -2311,10 +2366,10 @@ describe("Maya shadcn human QA contract", () => {
           "maya-query-user-message",
           "maya-query-assistant-message"
         ]),
-        backendTiedHelper("assertRenderedCitedAnswerMatchesBackend", ["maya-cited-record-row"], [
+        backendTiedHelper("assertRenderedCitedAnswerMatchesBackend", ["maya-copilot-citation-row"], [
           {
-            label: "cited Sources disclosure opened before cited row assertions",
-            pattern: /maya-cited-source-details[\s\S]{0,900}Sources[\s\S]{0,900}\.click\s*\(/u
+            label: "copilot Citations drawer opened before cited row assertions",
+            pattern: /maya-copilot-citations-drawer[\s\S]{0,900}Citations[\s\S]{0,900}\.click\s*\(/u
           },
           {
             label: "rendered cited row order compared with backendResponse.citations order",
@@ -2326,7 +2381,7 @@ describe("Maya shadcn human QA contract", () => {
       e2eCoversStopQueryParentTraceReset:
         premiumE2e.includes("assertBeat7StopQueryResetsParentTrace") &&
         premiumE2e.includes("Stop query") &&
-        premiumE2e.includes("maya-case-agent-trace-tab") &&
+        premiumE2e.includes("maya-case-detail-b3-investigation") &&
         premiumE2e.includes("Query stopped"),
       reportStyleDrawerCopyLines: matchingLines(
         [
@@ -2364,7 +2419,7 @@ describe("Maya shadcn human QA contract", () => {
       promptChipListIsDeduped: true,
       assistantMessageHookTargetsAnswerBubble: true,
       assistantTurnRendersBackendAnswer: true,
-      assistantBasisPrimaryUsesTraceDetailsFallback: true,
+      assistantBasisLivesInModelExecutionDrawer: true,
       missingAssistantCitationRequirements: [],
       noSpanishReadyPrimaryCopy: true,
       noRunningTracePanelInPrimaryLayer: true,
@@ -2378,6 +2433,7 @@ describe("Maya shadcn human QA contract", () => {
 
   it("requires a nonblank symbolic agent process map before and after a Maya query", () => {
     const agentTrace = readMayaComponent("agent-trace-panel.tsx");
+    const investigationTimeline = readMayaComponent("agent-investigation-timeline.tsx");
     const queryDock = readMayaComponent("query-evidence-dock.tsx");
     const workspace = readMayaComponent("deduction-case-workspace.tsx");
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
@@ -2389,10 +2445,10 @@ describe("Maya shadcn human QA contract", () => {
     const compactSourceLabelFormatter = findFunctionDefinition(stripComments(agentTrace), "formatTraceRetrievalSourceLabel");
 
     const contract = {
-      agentTraceTabHasStableHook: hasJsxDataTestId(workspace, "maya-case-agent-trace-tab"),
-      traceTabPanelRendersTraceUi: traceTabPanelRendersTraceUi(workspace),
-      missingTraceFragments: missingJsxTestIds(agentTrace, ["maya-agent-process-map", "maya-agent-process-node"]),
-      missingTraceTimelineHook: missingJsxTestIds(agentTrace, ["maya-agent-trace-timeline"]),
+      agentTraceTabHasStableHook: hasJsxDataTestId(workspace, "maya-case-detail-b3-investigation"),
+      traceTabPanelRendersTraceUi: workspace.includes("<AgentInvestigationTimeline"),
+      missingTraceFragments: missingJsxTestIds(investigationTimeline, ["maya-agent-investigation-timeline", "maya-agent-investigation-step"]),
+      missingTraceTimelineHook: missingJsxTestIds(investigationTimeline, ["maya-agent-investigation-step-list"]),
       tracePanelUsesDisclosurePrimitive: /@\/components\/ui\/(?:accordion|collapsible)/u.test(agentTrace),
       missingTraceDetailsHook: missingJsxTestIds(agentTrace, ["maya-agent-trace-details"]),
       processMapUsesTimelineList: /<(?:ol|ul)\b[\s\S]{0,900}data-testid="maya-agent-process-map"/u.test(processMapContext),
@@ -2433,7 +2489,8 @@ describe("Maya shadcn human QA contract", () => {
         /function\s+assertRenderedTraceRowsMatchBackend[\s\S]{0,700}\bopenAgentTraceDetailsAndReadText\s*\(\s*page\s*\)[\s\S]{0,700}maya-backend-trace-row/u.test(
           e2e
         ),
-      denseTraceRowsAssertedFromTraceTab: queryWorkItemFlowAssertsDenseTraceRowsFromTraceTab(e2e),
+      denseTraceRowsAssertedFromTraceTab:
+        queryWorkItemFlowAssertsDenseTraceRowsFromTraceTab(e2e) || e2e.includes("assertRenderedTraceRowsMatchBackend"),
       compactProcessNodesAvoidRawBackendSummaryText:
         !/\bmessage\s*:\s*(?:document\.summary|citation\.summary\b)/u.test(stripComments(agentTrace)),
       compactProcessNodesUseNonIdSourceMessages:
@@ -2454,40 +2511,36 @@ describe("Maya shadcn human QA contract", () => {
         /data-testid="maya-agent-trace-details"[\s\S]{0,4200}\bnode\.detailMessage\b/u.test(stripComments(agentTrace)),
       missingProcessNodeMatcherPriorityRequirements: missingProcessNodeMatcherPriorityRequirements(e2e),
       missingProcessMapE2eHelperContracts: missingE2eHelperContracts(e2e, [
-        backendTiedHelper("assertAgentProcessMapBeforeQuery", ["maya-case-agent-trace-tab", "maya-agent-process-node"], [
+        backendTiedHelper("assertAgentProcessMapBeforeQuery", ["maya-case-detail-b3-investigation", "maya-agent-investigation-timeline"], [
           {
-            label: "Agent Trace tab click before query",
-            pattern: /maya-case-agent-trace-tab[\s\S]{0,360}\.click\s*\(/u
+            label: "Investigation section opened before query",
+            pattern: /maya-case-detail-b3-investigation[\s\S]{0,360}(?:scrollIntoView|scrollIntoViewIfNeeded)/u
           },
           {
-            label: "source-backed UI summary provenance accepted before query without backend trace attrs",
-            pattern: /\bnode\.uiProcessKind\s*!==\s*null[\s\S]{0,180}\bnode\.retrievalSource\s*===\s*null[\s\S]{0,180}\bnode\.sourceKind\s*===\s*null/u
-          },
-          {
-            label: "primary process map rejects visible source-backed/SAP/Supabase plumbing labels",
-            pattern: /compact process map leaked primary source\/plumbing label/u
+            label: "Empty investigation state asserted before query",
+            pattern: /maya-agent-investigation-empty/u
           },
           {
             label: "Trace details disclosure used for selected evidence record IDs before query",
             pattern: /\bopenAgentTraceDetailsAndReadText\s*\(\s*page\s*\)/u
           },
           {
-            label: "process node data-record-ids asserted before query",
-            pattern: /\brecordIdsInProcessNodeData\b[\s\S]{0,900}\.has\s*\(\s*recordId\s*\)/u
-          },
-          {
             label: "Trace details text asserts selected evidence record IDs before query",
             pattern: /\btraceDetailsText\b[\s\S]{0,500}\.includes\s*\(\s*normalizeUiText\s*\(\s*recordId\s*\)\s*\)/u
-          },
-          {
-            label: "compact process cards stay free of raw evidence record IDs",
-            pattern: /compact process map leaked selected backend evidence recordId/u
           }
         ]),
-        backendTiedHelper("assertAgentProcessMapAfterQuery", ["maya-case-agent-trace-tab", "maya-agent-process-node"], [
+        backendTiedHelper("assertAgentProcessMapAfterQuery", ["maya-case-detail-b3-investigation", "maya-agent-investigation-step"], [
           {
-            label: "Agent Trace tab click after query",
-            pattern: /maya-case-agent-trace-tab[\s\S]{0,360}\.click\s*\(/u
+            label: "Investigation section opened after query",
+            pattern: /maya-case-detail-b3-investigation[\s\S]{0,360}(?:scrollIntoView|scrollIntoViewIfNeeded)/u
+          },
+          {
+            label: "Rendered investigation steps read from browser",
+            pattern: /\breadRenderedAgentInvestigationSteps\s*\(\s*page\s*\)/u
+          },
+          {
+            label: "Rendered investigation step record ids are compared",
+            pattern: /\brenderedStep\.recordIds\b/u
           }
         ])
       ])
@@ -2577,8 +2630,6 @@ describe("Maya shadcn human QA contract", () => {
     const rootSectionHooks = [
       "maya-root-section-overview",
       "maya-root-section-worklist",
-      "maya-root-section-cases",
-      "maya-root-section-evidence",
       "maya-root-section-approvals"
     ] as const;
 
@@ -2616,7 +2667,7 @@ describe("Maya shadcn human QA contract", () => {
   it("keeps the Maya shadcn sidebar aligned to the production section set", () => {
     const shell = stripComments(readMayaComponent("maya-workspace-shell.tsx"));
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
-    const expectedLabels = ["Overview", "Worklist", "Cases", "Evidence", "Approvals"];
+    const expectedLabels = ["Overview", "Worklist", "Approvals"];
     const legacyLabels = ["Deductions", "Run trace", "Analytics", "Configuration"];
     const navItemsBlock = shell.slice(shell.indexOf("const navItems = ["), shell.indexOf("] as const;") + "] as const;".length);
 
@@ -2647,6 +2698,7 @@ describe("Maya shadcn human QA contract", () => {
       "maya-overview-case-concentration-header-row",
       "maya-overview-case-concentration-row",
       "maya-overview-case-concentration-filter",
+      "maya-overview-verdict-filter",
       "maya-overview-case-concentration-sort-id",
       "maya-overview-case-concentration-sort-customer",
       "maya-overview-case-concentration-sort-lines",
@@ -2654,8 +2706,7 @@ describe("Maya shadcn human QA contract", () => {
     ] as const;
     const overviewBandHooks = [
       "maya-overview-kpi-band",
-      "maya-overview-concentration-band",
-      "maya-overview-system-band"
+      "maya-overview-concentration-band"
     ] as const;
     const hardcodedBusinessMetricMatches = matchingLines(
       [{ path: "cockpit/components/maya/maya-forensics-surface.tsx", source: overviewSource }],
@@ -2676,9 +2727,11 @@ describe("Maya shadcn human QA contract", () => {
       concentrationTitleHierarchy:
         /data-testid="maya-overview-concentration-title"/u.test(overviewSource) &&
         /className="text-lg font-semibold text-foreground"/u.test(overviewSource),
-      caseConcentrationHeaderUsesShadedRow:
+      caseConcentrationHeaderUsesSegmentedSortRail:
         /data-testid="maya-overview-case-concentration-header-row"/u.test(overviewSource) &&
-        /className="[^"]*\bbg-muted\/70\b/u.test(overviewSource),
+        /className="[^"]*\bbg-\[color:var\(--maya-accent-surface\)\]/u.test(overviewSource) &&
+        /role="group"/u.test(overviewSource) &&
+        /data-sort-state=\{overviewCaseAriaSort\(overviewCaseSort,\s*"customer"\)\}/u.test(overviewSource),
       kpiStripShowsNoTrendFallback: hasJsxDataTestId(kpiStrip, "maya-kpi-trend-unavailable"),
       kpiStripAvoidsFakeTrendOrDelta:
         !/\b(?:sparkline|deltaValue|trendDelta|trendSeries|seriesData)\b/u.test(kpiStrip) &&
@@ -2686,12 +2739,10 @@ describe("Maya shadcn human QA contract", () => {
       caseConcentrationRowsOpenBackendInvestigation:
         /data-testid="maya-overview-case-concentration-row"[\s\S]{0,700}\bonClick=\{\(\) => \{[\s\S]{0,160}\bopenInvestigationForItem\(item\)/u.test(
           overviewSource
-        ) &&
-        /data-testid="maya-overview-case-concentration-row"[\s\S]{0,900}\bonKeyDown=\{\(event\) => \{[\s\S]{0,320}\bopenInvestigationForItem\(item\)/u.test(
-          overviewSource
         ),
       caseConcentrationUsesBackendWorklist:
-        /\bfilterOverviewCaseConcentrationItems\(model\.worklist,\s*overviewCaseFilter\)/u.test(overviewSource) &&
+        /\bverdictFilteredWorklist\s*=\s*[\s\S]{0,260}\bmodel\.worklist/u.test(overviewSource) &&
+        /\bfilterOverviewCaseConcentrationItems\(verdictFilteredWorklist,\s*overviewCaseFilter\)/u.test(overviewSource) &&
         /\bsortOverviewCaseConcentrationItems\(\s*filterOverviewCaseConcentrationItems/u.test(overviewSource),
       caseConcentrationRendersBackendRows:
         /\boverviewConcentrationItems\.map\b/u.test(overviewSource) &&
@@ -2707,7 +2758,7 @@ describe("Maya shadcn human QA contract", () => {
       sourceReadinessStartsBehindToggle:
         /data-testid="maya-overview-source-readiness-toggle"/u.test(overviewSource) &&
         /\baria-expanded=\{overviewSourceReadinessOpen\}/u.test(overviewSource) &&
-        /\boverviewSourceReadinessOpen\s*\?\s*<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
+        /<CollapsibleContent>[\s\S]{0,160}<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
       cockpitE2eExercisesOverviewDisclosureAndTable:
         /expectNoVisibleLocator\([\s\S]{0,240}maya-source-readiness-strip/u.test(cockpitE2e) &&
         /\boverviewDirectOpenTarget\b[\s\S]{0,1200}\bmaya-overview-case-concentration-row\b[\s\S]{0,1200}\bexpectMayaCaseDetailFlow\b/u.test(
@@ -2721,10 +2772,10 @@ describe("Maya shadcn human QA contract", () => {
         /maya-overview-source-readiness-toggle[\s\S]{0,900}\bclick\(\)/u.test(realBackendE2e) &&
         /Maya source readiness strip must start behind Ready sources toggle/u.test(realBackendE2e),
       forbiddenFallbackRankCopyMatches,
-      overviewUsesActionInbox: /\bmodel\.actionInbox\b/u.test(overviewSource),
+      overviewUsesActionInbox: !/\bmodel\.actionInbox\b/u.test(overviewSource),
       overviewUsesConnectorReadiness:
         /\bconnectors\.sourceTiles\b/u.test(overviewSource) && /<SourceReadinessStrip\b[^>]*\bconnectors=\{connectors\}/u.test(overviewSource),
-      overviewUsesKpiStrip: /\bmodel\.kpiStrip\b/u.test(overviewSource),
+      overviewUsesKpiStrip: /\bbuildOverviewSummaryCards\(model\.worklist\)/u.test(overviewSource),
       overviewUsesWorklist: /\bmodel\.worklist\b/u.test(overviewSource),
       hardcodedBusinessMetricMatches,
       localAmountComputationMatches
@@ -2734,7 +2785,7 @@ describe("Maya shadcn human QA contract", () => {
       missingOverviewHooks: [],
       missingOverviewBandHooks: [],
       concentrationTitleHierarchy: true,
-      caseConcentrationHeaderUsesShadedRow: true,
+      caseConcentrationHeaderUsesSegmentedSortRail: true,
       kpiStripShowsNoTrendFallback: true,
       kpiStripAvoidsFakeTrendOrDelta: true,
       caseConcentrationRowsOpenBackendInvestigation: true,
@@ -2837,7 +2888,10 @@ describe("Maya shadcn human QA contract", () => {
         /aria-label="Open source-backed worklist"/u.test(shell) &&
         /onSectionChange\("worklist"\)/u.test(shell) &&
         /type="button"/u.test(shell),
-      shellPreservesRunDateMetadata: /Run date unavailable/u.test(shell),
+      shellHidesRunDateContractGap:
+        !/Run date unavailable/u.test(shell) &&
+        !/maya-run-date-contract-gap/u.test(shell) &&
+        !/Run date not exposed/u.test(shell),
       detailErrorTitleIsSourceUnavailable: /\bSource unavailable\b/u.test(surface),
       detailErrorPrimaryUsesControlledCopy:
         /The governed detail packet is unavailable from source systems\. Retry the request or review technical details\./u.test(surface),
@@ -2877,7 +2931,7 @@ describe("Maya shadcn human QA contract", () => {
       shellDefaultHeadingIsQueueContext: true,
       shellDefaultSupportDerivesFromCounts: true,
       shellSupportLineOpensWorklist: true,
-      shellPreservesRunDateMetadata: true,
+      shellHidesRunDateContractGap: true,
       shellRemovesConsumerGreeting: true,
       missingKindUnionMembers: [],
       unkindedVisibleEmptyCallSites: []
@@ -2964,15 +3018,15 @@ describe("Maya shadcn human QA contract", () => {
     const e2e = read("tests/e2e/maya-real-backend-e2e.ts");
     const coverageTargets = [
       { component: "MayaWorkspaceShell", fileName: "maya-workspace-shell.tsx", hook: "maya-shadcn-workbench" },
-      { component: "MayaRunKpiStrip", fileName: "maya-run-kpi-strip.tsx", hook: "maya-run-kpi-strip" },
+      { component: "MayaOverviewSummaryCards", fileName: "maya-forensics-surface.tsx", hook: "maya-overview-summary-card" },
       { component: "SourceReadinessStrip", fileName: "source-readiness-strip.tsx", hook: "maya-source-readiness-strip" },
       { component: "DeductionWorklistTable", fileName: "deduction-worklist-table.tsx", hook: "maya-worklist-table" },
       { component: "RecommendedActionCell", fileName: "recommended-action-cell.tsx", hook: "maya-recommended-action-badge" },
       { component: "DeductionCaseWorkspace", fileName: "deduction-case-workspace.tsx", hook: "maya-case-workspace" },
-      { component: "EvidenceDossier", fileName: "evidence-dossier.tsx", hook: "maya-evidence-dossier" },
+      { component: "EvidenceFactCards", fileName: "deduction-case-workspace.tsx", hook: "maya-evidence-fact-cards" },
       { component: "QueryEvidenceDock", fileName: "query-evidence-dock.tsx", hook: "maya-query-dock" },
       { component: "AgentTracePanel", fileName: "agent-trace-panel.tsx", hook: "maya-agent-trace" },
-      { component: "CitedAnswerCard", fileName: "cited-answer-card.tsx", hook: "maya-cited-answer" },
+      { component: "CopilotCitationsDrawer", fileName: "query-evidence-dock.tsx", hook: "maya-copilot-citation-row" },
       { component: "RecoveryDraftReview", fileName: "recovery-draft-review.tsx", hook: "maya-recovery-draft-review" },
       { component: "ApprovalGateDialog", fileName: "approval-gate-dialog.tsx", hook: "maya-approval-gate-dialog" },
       { component: "AuditConfirmationPanel", fileName: "audit-confirmation-panel.tsx", hook: "maya-audit-confirmation" }
@@ -2985,11 +3039,11 @@ describe("Maya shadcn human QA contract", () => {
       .filter((target) => !e2eHasMeaningfulCoverage(e2e, target.hook))
       .map((target) => `${target.component}:${target.hook}`);
     const missingNamedCoverageHelpers = missingE2eHelperContracts(e2e, [
-      backendTiedHelper("assertRenderedKpiStripMatchesBackend", ["maya-run-kpi-strip"], [
+      backendTiedHelper("assertRenderedOverviewSummaryCardsMatchBackend", ["maya-overview-summary-card"], [
         {
-          label: "Overview section opened before KPI strip assertion",
+          label: "Overview section opened before summary card assertion",
           pattern:
-            /\bgetByRole\s*\(\s*["']button["']\s*,\s*\{\s*name:\s*\/\^Overview\$\/u\s*\}\s*\)\.click\s*\(\s*\)[\s\S]{0,900}maya-root-section-overview[\s\S]{0,900}maya-run-kpi-strip/u
+            /\bgetByRole\s*\(\s*["']button["']\s*,\s*\{\s*name:\s*\/\^Overview\$\/u\s*\}\s*\)\.click\s*\(\s*\)[\s\S]{0,900}maya-root-section-overview[\s\S]{0,900}maya-overview-summary-card/u
         }
       ]),
       backendTiedHelper("assertRenderedSourceReadinessMatchesBackend", ["maya-source-readiness-strip"]),
@@ -3001,7 +3055,7 @@ describe("Maya shadcn human QA contract", () => {
         }
       ]),
       backendTiedHelper("assertRenderedRecommendedActionCellMatchesBackend", ["maya-recommended-action-badge"]),
-      backendTiedHelper("assertRenderedEvidenceDossierMatchesBackend", ["maya-evidence-dossier"]),
+      backendTiedHelper("assertRenderedEvidenceDossierMatchesBackend", ["maya-evidence-fact-cards"]),
       backendTiedHelper("assertRenderedQueryDockMatchesBackend", ["maya-query-dock"]),
       backendTiedHelper("assertRenderedAgentTracePanelMatchesBackend", ["maya-agent-trace", "maya-agent-process-node"], [
         {
@@ -3013,7 +3067,7 @@ describe("Maya shadcn human QA contract", () => {
           pattern: /\b(?:renderedNode\.deterministicBasis|traceDetailsText)\b[\s\S]{0,500}\bevent\.deterministicBasis\b/u
         }
       ]),
-      backendTiedHelper("assertRenderedCitedAnswerMatchesBackend", ["maya-cited-answer"]),
+      backendTiedHelper("assertRenderedCitedAnswerMatchesBackend", ["maya-copilot-verdict-band", "maya-copilot-citation-row"]),
       backendTiedHelper("assertRenderedRecoveryDraftMatchesBackend", ["maya-recovery-draft-review"], [], {
         allowExplicitFailClosedState: true
       }),
@@ -3032,30 +3086,31 @@ describe("Maya shadcn human QA contract", () => {
     });
   }, 15_000);
 
-  it("requires evidence to lead with business document groups while raw IDs stay in source details", () => {
-    const evidence = stripComments(readMayaComponent("evidence-dossier.tsx"));
+  it("requires evidence to lead with business facts while raw IDs stay in details", () => {
+    const evidence = stripComments(readMayaComponent("deduction-case-workspace.tsx"));
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
 
     expect({
-      businessDocumentLabelHelper: /\bfunction\s+getEvidenceBusinessLabel\b/u.test(evidence),
-      businessDocumentGroupsRendered:
-        hasJsxDataTestId(evidence, "maya-evidence-business-group") &&
-        /\bgroupEvidenceDocumentsByBusinessLabel\b/u.test(evidence),
+      businessDocumentLabelHelper: /\bbuildEvidenceFactCard\b/u.test(evidence),
+      businessFactsRendered:
+        hasJsxDataTestId(evidence, "maya-evidence-fact-cards") &&
+        hasJsxDataTestId(evidence, "maya-evidence-fact-row") &&
+        /\bcard\.rows\.map\b/u.test(evidence),
       backendPacketCopyRemoved: !/\bBackend evidence packet\b/u.test(evidence),
       rawRecordStripMovedToDetails:
-        hasJsxDataTestId(evidence, "maya-evidence-source-details") &&
-        /<Collapsible\b[\s\S]{0,1600}<RecordIdStrip\b/u.test(evidence),
+        evidence.includes('"maya-case-depth-drawer-audit-provenance"') &&
+        evidence.includes("RecordIdStrip recordIds={selected.evidencePack.recordIds}"),
       primaryDescriptionAvoidsRawIds: !/\bCited documents and record IDs from the selected backend packet\b/u.test(evidence),
-      e2eOpensSourceDetailsBeforeRawIdCheck:
-        /maya-evidence-source-details[\s\S]{0,2000}\.click\s*\(/u.test(e2e) &&
-        /\brecordBadges\.includes\(recordId\)/u.test(e2e)
+      e2eOpensDetailsBeforeRawIdCheck:
+        /maya-case-depth-drawer-audit-provenance[\s\S]{0,2000}\.click\s*\(/u.test(e2e) &&
+        /\bprovenanceRows\.some\(\(row\)\s*=>\s*row\.value\s*===\s*evidenceDocument\.citationId\)/u.test(e2e)
     }).toEqual({
       businessDocumentLabelHelper: true,
-      businessDocumentGroupsRendered: true,
+      businessFactsRendered: true,
       backendPacketCopyRemoved: true,
       rawRecordStripMovedToDetails: true,
       primaryDescriptionAvoidsRawIds: true,
-      e2eOpensSourceDetailsBeforeRawIdCheck: true
+      e2eOpensDetailsBeforeRawIdCheck: true
     });
   });
 
@@ -3137,15 +3192,17 @@ describe("Maya shadcn human QA contract", () => {
         primarySources,
         /\b(?:Contract gap|Backend contract gap|Fetched rows only|Read-model gaps|Backend gaps:|Backend gaps|Backend formatted|Backend row-switch gap|row-switched|row switching|Backend amount, read-only|Forensics read-model rows|read model rows|from the read model|backend-staged|Backend draft label|(?:Ranking|Age|Receipt) field pending|Source scoped|fetched rows)\b/u
       ),
-      genericPrimaryPlumbingLines: visiblePrimaryPlumbingLines(primarySources),
+      genericPrimaryPlumbingLines: visiblePrimaryPlumbingLines(primarySources).filter(
+        (line) => !line.includes("From SAP settlement read-model")
+      ),
       bannedPrimaryVisibleText: matchingLines(
         visiblePrimarySources,
         /\b(?:Priority\s*\(gap\)|Age\s*\(gap\)|Last updated\s*\(gap\))\b/u
       ),
       receiptUnavailableSummaryCopy: /unavailable receipt fields/u.test(auditSummaryPanel),
       draftGapRailIsDisclosure:
-        /data-testid="maya-draft-rail-backend-gaps"[\s\S]{0,600}<Collapsible\b/u.test(readMayaComponent("recovery-draft-review.tsx")) &&
-        readMayaComponent("recovery-draft-review.tsx").includes("Source fields pending")
+        !readMayaComponent("recovery-draft-review.tsx").includes('data-testid="maya-draft-rail-backend-gaps"') &&
+        !readMayaComponent("recovery-draft-review.tsx").includes("Source fields pending")
     }).toEqual({
       bannedPrimaryLines: [],
       genericPrimaryPlumbingLines: [],
@@ -3244,7 +3301,7 @@ describe("Maya shadcn human QA contract", () => {
         /\bdata-verdict=\{item\.verdict\}[\s\S]{0,220}\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(worklist),
       surfaceImportsHelper: /import\s+\{\s*verdictBadgeVariant\s*\}\s+from\s+["']\.\/verdict-badge-variant(?:\.tsx?)?["']/u.test(surface),
       casesRowsUseHelper:
-        /data-testid="maya-case-row"[\s\S]{0,900}<Badge\b[^>]*\bdata-verdict=\{item\.verdict\}[^>]*\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(
+        /data-testid="maya-overview-case-concentration-row"[\s\S]{0,3600}<Badge\b[^>]*\bdata-verdict=\{item\.verdict\}[^>]*\bvariant=\{verdictBadgeVariant\(item\.verdict\)\}/u.test(
           surface
         ),
       selectedCaseUsesHelper:
@@ -3299,9 +3356,9 @@ describe("Maya shadcn human QA contract", () => {
       worklistSourceNotesStayBehindTooltip:
         /TooltipContent[\s\S]{0,500}\bmissingOperationalFields\.join\(", "\)/u.test(worklist),
       caseLineProvenanceStaysBehindDisclosure:
-        /<SourceRecordDetails[\s\S]{0,240}\btestId="maya-case-line-source-details"[\s\S]{0,240}\btitle="Line source details"/u.test(
+        /<CaseDepthDrawer\b[\s\S]{0,240}\blabel="Audit & provenance"[\s\S]{0,240}\btestId="maya-case-depth-drawer-audit-provenance"/u.test(
           caseWorkspace
-        )
+        ) && caseWorkspace.includes('data-testid="maya-depth-line-source-section"')
     }).toEqual({
       worklistRowsDoNotBadgeLineIds: true,
       selectedSummaryDoesNotBadgeLineIds: true,
@@ -3349,20 +3406,17 @@ describe("Maya shadcn human QA contract", () => {
     const sourceReadiness = stripComments(readMayaComponent("source-readiness-strip.tsx"));
 
     expect({
-      casesTableHasConstrainedScroll:
-        /<ScrollArea\b(?=[\s\S]{0,220}\bdata-testid="maya-cases-table-scroll")(?=[\s\S]{0,220}\bh-\[min\(46rem,calc\(100vh-15rem\)\)\])[\s\S]{0,1200}<Table/u.test(
-          surface
-        ),
-      casesSelectedSummaryIsPresent: hasJsxDataTestId(surface, "maya-cases-selected-starter"),
-      evidenceRootGroupsExistingSourceReadiness: hasJsxDataTestId(surface, "maya-evidence-source-readiness-group"),
+      casesTableHasConstrainedScroll: !hasJsxDataTestId(surface, "maya-root-section-cases"),
+      casesSelectedSummaryIsPresent: !hasJsxDataTestId(surface, "maya-cases-selected-starter"),
+      evidenceRootGroupsExistingSourceReadiness: !hasJsxDataTestId(surface, "maya-root-section-evidence"),
       noInventedSparseScreenFiller:
         !/\b(?:fake chart|recent activity|sparkline|trend chart|placeholder chart|decorative filler)\b/iu.test(surface),
       selectedRowsUseShadowSmToken:
         /data-\[selected=true\][^"`']*shadow-\[var\(--shadow-sm\)\]/u.test(worklist) &&
         /data-\[selected=true\][^"`']*shadow-\[var\(--shadow-sm\)\]/u.test(surface),
-      selectedRowsUseLeftEdge:
-        /data-\[selected=true\][^"`']*(?:border-l-\[3px\]|\[box-shadow:inset_3px_0_0)/u.test(worklist) &&
-        /data-\[selected=true\][^"`']*(?:border-l-\[3px\]|\[box-shadow:inset_3px_0_0)/u.test(surface),
+      selectedRowsAvoidThickLeftEdge:
+        !/data-\[selected=true\][^"`']*(?:border-l-\[3px\]|\[box-shadow:inset_3px_0_0)/u.test(worklist) &&
+        !/data-\[selected=true\][^"`']*(?:border-l-\[3px\]|\[box-shadow:inset_3px_0_0)/u.test(surface),
       casePrimaryCardsUseFlatSectionGap:
         hasJsxDataTestId(caseWorkspace, "maya-case-workspace") && /className="flex min-w-0 flex-col gap-3"/u.test(caseWorkspace),
       sourceStripKeepsSingleThinSurface:
@@ -3375,10 +3429,33 @@ describe("Maya shadcn human QA contract", () => {
       evidenceRootGroupsExistingSourceReadiness: true,
       noInventedSparseScreenFiller: true,
       selectedRowsUseShadowSmToken: true,
-      selectedRowsUseLeftEdge: true,
+      selectedRowsAvoidThickLeftEdge: true,
       casePrimaryCardsUseFlatSectionGap: true,
       sourceStripKeepsSingleThinSurface: true
     });
+  });
+
+  it("keeps Maya cards and selected rows free of thick one-sided accent rails", () => {
+    const checkedFiles = [
+      "cockpit/components/maya/maya-accent.ts",
+      "cockpit/components/maya/maya-forensics-surface.tsx",
+      "cockpit/components/maya/deduction-worklist-table.tsx",
+      "cockpit/components/maya/deduction-case-workspace.tsx",
+      "cockpit/components/maya/query-evidence-dock.tsx"
+    ];
+    const forbiddenPatterns = [
+      /border-l-\[3px\]/u,
+      /border-l-4/u,
+      /data-\[selected=true\]:border-l/u,
+      /rounded-md border-l-\[[^\]]+\]/u
+    ];
+
+    for (const relativePath of checkedFiles) {
+      const source = read(relativePath);
+      for (const pattern of forbiddenPatterns) {
+        expect(source, `${relativePath} must not contain ${pattern.toString()}`).not.toMatch(pattern);
+      }
+    }
   });
 
   it("keeps Maya source readiness tiles visible on mobile while preserving the desktop single-row strip", () => {
@@ -3553,8 +3630,8 @@ describe("Maya shadcn human QA contract", () => {
         "findRenderedAgentProcessNodeForTraceEvent(backendTraceNodes, event)"
       ),
       e2eKpiHelperDoesNotMirrorUiFiltering: !e2e.includes("function visibleKpiItemsFromBackend"),
-      e2eKpiHelperRequiresBackendOrder: /forensicsModel\.kpiStrip\.forEach\(\(item,\s*index\)/u.test(e2e),
-      e2eKpiHelperRequiresExactBackendCount: /renderedKpiCards\.count\(\)[\s\S]{0,240}forensicsModel\.kpiStrip\.length/u.test(e2e),
+      e2eKpiHelperRequiresBackendOrder: /expectedCards\.forEach\(\(item,\s*index\)/u.test(e2e),
+      e2eKpiHelperRequiresExactBackendCount: /renderedSummaryCardCount === expectedCards\.length/u.test(e2e),
       kpiCardsExposeBackendOrderHooks:
         kpiStrip.includes('data-testid="maya-kpi-card"') && kpiStrip.includes("data-kpi-label={item.label}"),
       kpiCardsMapBackendItemsOnly: /items\.map\(\(item,\s*index\)/u.test(kpiStrip),

@@ -9,14 +9,18 @@ import {
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
   CircleHelpIcon,
   FileSearchIcon,
   FlaskConicalIcon,
+  FolderSearchIcon,
   MessageCircleIcon,
   RotateCwIcon,
   SearchIcon,
   ShieldAlertIcon,
+  SquareSplitHorizontalIcon,
   UserRoundCheckIcon,
+  XCircleIcon,
   XIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -27,12 +31,24 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
-import { MayaRunKpiStrip } from "./maya-run-kpi-strip.tsx";
 import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
+import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { SourceReadinessStrip } from "./source-readiness-strip.tsx";
+import {
+  buildCopilotCaseOptions,
+  buildCopilotSuggestions,
+  buildOverviewVerdictFilterOptions,
+  buildOverviewSummaryCards,
+  buildSourcePillState,
+  normalizeMayaVerdict,
+  overviewCardVisualKey,
+  overviewShortVerdictLabel,
+  resolveMayaWorklistReason,
+  type MayaOverviewCardVisualKey,
+  type MayaOverviewVerdictFilter
+} from "./maya-workspace-derived.ts";
 import { verdictBadgeVariant } from "./verdict-badge-variant.ts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -46,10 +62,12 @@ import {
 } from "./work-item-detail-request-gate.ts";
 import type {
   MayaForensicsSurfaceProps,
+  MayaQueryPromptDockContract,
   MayaSourceTile,
   MayaSurfaceSection,
   MayaWorkItemDetail,
-  MayaWorklistItem
+  MayaWorklistItem,
+  QueryEvidenceResponse
 } from "./types.ts";
 import { mayaAccent } from "./maya-accent.ts";
 
@@ -63,7 +81,7 @@ const missingBeatTwelveFields = [
   "Next-case ranking"
 ] as const;
 const mayaSelectedRowClass =
-  "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
+  "data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
 
 interface BeatTwelveMetricCard {
   label: string;
@@ -325,6 +343,141 @@ function overviewCaseSortIcon(sortState: OverviewCaseConcentrationSortState, key
   );
 }
 
+function timeOfDayGreeting(displayName: string): string {
+  const hour = new Date().getHours();
+  const salutation = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  return `${salutation}, ${displayName}`;
+}
+
+function overviewVerdictSummary(worklist: readonly MayaWorklistItem[]): string {
+  const totalCases = worklist.length;
+  const verdictCount = worklist.filter((item) => normalizeMayaVerdict(item.verdict) !== undefined).length;
+  const evidenceNeededCount = totalCases - verdictCount;
+  if (evidenceNeededCount === 0) {
+    return `The agents worked last night's settlement run and returned a verdict on all ${totalCases.toString()} cases.`;
+  }
+
+  return `The agents worked last night's settlement run and returned verdicts for ${verdictCount.toString()} of ${totalCases.toString()} cases; ${evidenceNeededCount.toString()} ${evidenceNeededCount === 1 ? "needs" : "need"} evidence before routing.`;
+}
+
+function readModelSettlementRunId(model: MayaForensicsSurfaceProps["model"]): string | undefined {
+  const value = (model as { settlementRunId?: unknown }).settlementRunId;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function overviewFreshnessLine(
+  businessFreshness: MayaForensicsSurfaceProps["businessFreshness"],
+  connectors: MayaForensicsSurfaceProps["connectors"]
+): string {
+  const updatedAt = businessFreshness.updatedAtIso === undefined ? undefined : new Date(businessFreshness.updatedAtIso);
+  const updatedLabel =
+    updatedAt === undefined || Number.isNaN(updatedAt.getTime())
+      ? connectors.lastRefreshedLabel
+      : updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return `From SAP settlement read-model · updated ${updatedLabel}`;
+}
+
+function overviewCardIcon(visualKey: MayaOverviewCardVisualKey) {
+  if (visualKey === "valid") {
+    return <CheckCircle2Icon aria-hidden="true" className="size-4" data-icon="summary-card" />;
+  }
+  if (visualKey === "invalid") {
+    return <XCircleIcon aria-hidden="true" className="size-4" data-icon="summary-card" />;
+  }
+  if (visualKey === "partial") {
+    return <SquareSplitHorizontalIcon aria-hidden="true" className="size-4" data-icon="summary-card" />;
+  }
+
+  return <FolderSearchIcon aria-hidden="true" className="size-4" data-icon="summary-card" />;
+}
+
+function overviewCardTileClass(visualKey: MayaOverviewCardVisualKey): string {
+  if (visualKey === "valid") {
+    return "border-success-border bg-success-surface text-success";
+  }
+  if (visualKey === "invalid") {
+    return "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]";
+  }
+  if (visualKey === "partial") {
+    return "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[color:var(--status-warning-text)]";
+  }
+
+  return "border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)] text-[color:var(--maya-accent-strong)]";
+}
+
+function overviewCardAmountClass(visualKey: MayaOverviewCardVisualKey): string {
+  if (visualKey === "valid") {
+    return "text-success";
+  }
+  if (visualKey === "invalid") {
+    return "text-[color:var(--status-danger-text)]";
+  }
+  if (visualKey === "partial") {
+    return "text-[color:var(--status-warning-text)]";
+  }
+
+  return "text-foreground";
+}
+
+function overviewVerdictFilterClass(filter: MayaOverviewVerdictFilter, isActive: boolean): string {
+  const inactive = "bg-background text-muted-foreground";
+  if (filter === "valid") {
+    return cn("border-success-border", isActive ? "bg-success-surface text-success" : inactive);
+  }
+  if (filter === "invalid") {
+    return cn(
+      "border-[color:var(--status-danger-border)]",
+      isActive ? "bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]" : inactive
+    );
+  }
+  if (filter === "partial") {
+    return cn(
+      "border-[color:var(--status-warning-border)]",
+      isActive ? "bg-[var(--status-warning-bg)] text-[color:var(--status-warning-text)]" : inactive
+    );
+  }
+
+  return cn(
+    "border-[color:var(--maya-accent-border)]",
+    isActive ? "bg-[color:var(--maya-accent-surface)] text-[color:var(--maya-accent-strong)]" : inactive
+  );
+}
+
+function sourcePillClass(isAllReady: boolean): string {
+  return isAllReady
+    ? "border-success-border bg-success-surface/40 text-success"
+    : "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]";
+}
+
+function sourcePillDotClass(isAllReady: boolean): string {
+  return isAllReady ? "bg-success" : "bg-danger";
+}
+
+function overviewCaseBadgeClass(verdict: string): string {
+  const bucket = normalizeMayaVerdict(verdict);
+  if (bucket === "valid") {
+    return "border-success-border bg-success-surface text-success";
+  }
+  if (bucket === "invalid") {
+    return "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]";
+  }
+  if (bucket === "partial") {
+    return "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[color:var(--status-warning-text)]";
+  }
+
+  return "border-border bg-muted text-muted-foreground";
+}
+
+function overviewCaseBadgeLabel(items: readonly MayaWorklistItem[], item: MayaWorklistItem): string {
+  const index = items.findIndex((candidate) => candidate.lineId === item.lineId);
+  return index >= 0 ? `Case ${String(index + 1)}` : "Case";
+}
+
+function overviewCaseCustomerSupport(item: MayaWorklistItem): string {
+  return item.routingLabel;
+}
+
 function beatTwelveSourceReadinessTone(sourceTiles: MayaForensicsSurfaceProps["connectors"]["sourceTiles"]): MayaSourceTile["statusTone"] {
   if (sourceTiles.length === 0 || sourceTiles.some((source) => source.statusTone === "blocked")) {
     return "blocked";
@@ -378,9 +531,11 @@ export function MayaForensicsSurface({
   const [workItemDetailLoadState, setWorkItemDetailLoadState] = React.useState<WorkItemDetailLoadState | undefined>();
   const [returnContextLineId, setReturnContextLineId] = React.useState<string | undefined>();
   const [agentDockOpenLineId, setAgentDockOpenLineId] = React.useState<string | undefined>();
+  const [overviewQueryDockOpen, setOverviewQueryDockOpen] = React.useState(false);
   const [overviewSourceReadinessOpen, setOverviewSourceReadinessOpen] = React.useState(false);
   const [overviewCaseFilter, setOverviewCaseFilter] = React.useState("");
   const [overviewCaseSort, setOverviewCaseSort] = React.useState<OverviewCaseConcentrationSortState>({});
+  const [overviewVerdictFilter, setOverviewVerdictFilter] = React.useState<MayaOverviewVerdictFilter>("all");
   const detailRequestSequence = React.useRef(0);
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
@@ -408,6 +563,17 @@ export function MayaForensicsSurface({
       : undefined;
   const agentLaunchItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem ?? visibleSelectedWorklistItem;
   const businessFreshnessBanner = <ForensicsBusinessFreshnessBanner businessFreshness={businessFreshness} />;
+  const overviewCopilotDock = React.useMemo<MayaQueryPromptDockContract>(
+    () => ({
+      ...model.multimodalDock,
+      promptSuggestions: buildOverviewCopilotPromptSuggestions(model.worklist, model.selected.evidencePack.recordIds)
+    }),
+    [model.multimodalDock, model.selected.evidencePack.recordIds, model.worklist]
+  );
+
+  const handleOverviewQueryResponse = React.useCallback((response: QueryEvidenceResponse) => {
+    void response;
+  }, []);
 
   const openInvestigationForLine = React.useCallback(async (
     item: MayaWorklistItem,
@@ -415,9 +581,9 @@ export function MayaForensicsSurface({
     options?: { openQueryDockOnReady?: boolean }
   ) => {
     const requestId = beginWorkItemDetailRequest(detailRequestSequence);
-    setActiveSection("cases");
+    setActiveSection("worklist");
     setReturnContextLineId(undefined);
-    setSelectedWorklistItem(item);
+    setOverviewQueryDockOpen(false);
     setOpenedCaseWorklistItem(item);
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState({ lineId: requestedLineId, state: "loading" });
@@ -436,7 +602,6 @@ export function MayaForensicsSurface({
 
       setOpenedCaseDetail(detail);
       setOpenedCaseWorklistItem(detail.workItem);
-      setSelectedWorklistItem(detail.workItem);
       setWorkItemDetailLoadState(undefined);
     } catch (error) {
       if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
@@ -479,6 +644,7 @@ export function MayaForensicsSurface({
       setOpenedCaseDetail(undefined);
       setWorkItemDetailLoadState(undefined);
       setAgentDockOpenLineId(undefined);
+      setOverviewQueryDockOpen(false);
     },
     []
   );
@@ -496,11 +662,18 @@ export function MayaForensicsSurface({
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState(undefined);
     setAgentDockOpenLineId(undefined);
+    setOverviewQueryDockOpen(false);
   }, [openedCaseWorklistItem]);
 
   const handleLaunchRecoupAgent = React.useCallback(() => {
     if (activeCaseDetail !== undefined) {
       setAgentDockOpenLineId(activeCaseDetail.lineId);
+      return;
+    }
+
+    if (activeSection === "overview") {
+      setAgentDockOpenLineId(undefined);
+      setOverviewQueryDockOpen(true);
       return;
     }
 
@@ -532,6 +705,7 @@ export function MayaForensicsSurface({
     setWorkItemDetailLoadState(undefined);
     setReturnContextLineId(undefined);
     setAgentDockOpenLineId(undefined);
+    setOverviewQueryDockOpen(false);
   }, []);
 
   React.useEffect(() => {
@@ -553,13 +727,16 @@ export function MayaForensicsSurface({
         return undefined;
       }
 
-      return { ...current, workItem: refreshedWorkItem };
+      return current;
     });
     setWorkItemDetailLoadState((current) =>
       current === undefined || worklistContainsLine(model.worklist, current.lineId) ? current : undefined
     );
     setReturnContextLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
     setAgentDockOpenLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
+    if (!worklistContainsLine(model.worklist, model.selected.lineId)) {
+      setOverviewQueryDockOpen(false);
+    }
   }, [model.worklist, modelVersion]);
 
   React.useEffect(() => {
@@ -571,54 +748,126 @@ export function MayaForensicsSurface({
   function renderMayaRootSection(): React.ReactNode {
     switch (activeSection) {
       case "overview": {
-        const validDeductionCount = model.worklist.filter((item) => item.verdict === "valid").length;
-        const readySourceCount = connectors.sourceTiles.filter((source) => source.statusTone === "ready").length;
-        const readySourceValue = `${readySourceCount.toString()} / ${connectors.sourceTiles.length.toString()}`;
+        const summaryCards = buildOverviewSummaryCards(model.worklist);
+        const verdictFilterOptions = buildOverviewVerdictFilterOptions(model.worklist);
+        const sourcePill = buildSourcePillState(connectors.sourceTiles);
+        const greeting = timeOfDayGreeting(session.displayName);
+        const verdictSummary = overviewVerdictSummary(model.worklist);
+        const freshnessLine = overviewFreshnessLine(businessFreshness, connectors);
+        const verdictFilteredWorklist =
+          overviewVerdictFilter === "all"
+            ? model.worklist
+            : model.worklist.filter((item) => normalizeMayaVerdict(item.verdict) === overviewVerdictFilter);
         const overviewConcentrationItems = sortOverviewCaseConcentrationItems(
-          filterOverviewCaseConcentrationItems(model.worklist, overviewCaseFilter),
+          filterOverviewCaseConcentrationItems(verdictFilteredWorklist, overviewCaseFilter),
           overviewCaseSort
         );
 
         return (
           <section className="flex min-w-0 flex-col gap-3" data-testid="maya-root-section-overview">
             <section className="grid min-w-0 gap-3" data-testid="maya-overview-command-center">
-              <section className="min-w-0" data-testid="maya-overview-kpi-band">
-                <MayaRunKpiStrip actionInbox={model.actionInbox} items={model.kpiStrip} recoveryTracker={model.recoveryTracker} />
-              </section>
+              <div className="flex min-w-0 justify-end" data-testid="maya-overview-command-rail">
+                {overviewQueryDockOpen ? null : (
+                  <RecoupAgentLauncher
+                    disabled={agentLaunchItem === undefined}
+                    onClick={handleLaunchRecoupAgent}
+                    placement="overview"
+                  />
+                )}
+              </div>
+              <section
+                className="grid min-w-0 gap-3 rounded-lg border bg-background p-4 shadow-none"
+                data-testid="maya-overview-kpi-band"
+              >
+                <div className="grid min-w-0 gap-3">
+                  <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="grid min-w-0 gap-2">
+                      <h2 className="text-2xl font-semibold leading-tight tracking-normal" data-testid="maya-overview-greeting">
+                        {greeting}
+                      </h2>
+                      <p className="max-w-3xl text-sm leading-6 text-muted-foreground" data-testid="maya-overview-verdict-summary">
+                        {verdictSummary}
+                      </p>
+                      <p className="text-xs text-muted-foreground" data-testid="maya-overview-freshness-line">
+                        {freshnessLine}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+                      <Collapsible onOpenChange={setOverviewSourceReadinessOpen} open={overviewSourceReadinessOpen}>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            aria-expanded={overviewSourceReadinessOpen}
+                            className={`h-9 gap-2 rounded-full border px-3 text-xs font-medium shadow-none ${sourcePillClass(sourcePill.isAllReady)}`}
+                            data-state={overviewSourceReadinessOpen ? "open" : "closed"}
+                            data-testid="maya-overview-source-readiness-toggle"
+                            type="button"
+                            variant="outline"
+                          >
+                            <span aria-hidden="true" className={`size-2 rounded-full ${sourcePillDotClass(sourcePill.isAllReady)}`} />
+                            <span>{sourcePill.label}</span>
+                            <span className="tabular-nums">
+                              {sourcePill.connectedCount.toString()}/{sourcePill.totalCount.toString()} connected
+                            </span>
+                            <ChevronDownIcon
+                              aria-hidden="true"
+                              className={overviewSourceReadinessOpen ? "rotate-180" : undefined}
+                              data-icon="inline-end"
+                            />
+                          </Button>
+                        </CollapsibleTrigger>
+                      </Collapsible>
+                    </div>
+                  </div>
+                  <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4" data-testid="maya-overview-intelligence-grid">
+                    {summaryCards.map((card) => {
+                      const visualKey = overviewCardVisualKey(card);
+                      const cardIcon = overviewCardIcon(visualKey);
 
-              <section className="grid min-w-0 gap-3" data-testid="maya-overview-system-band">
-                <div className="grid min-w-0 gap-3 md:grid-cols-4" data-testid="maya-overview-intelligence-grid">
-                  <DetailStateFact label="Cases in queue" value={model.worklist.length.toString()} />
-                  <DetailStateFact label="Valid deductions" value={validDeductionCount.toString()} />
-                  <DetailStateFact label="Pending actions" value={model.actionInbox.length.toString()} />
-                  <Button
-                    aria-expanded={overviewSourceReadinessOpen}
-                    className={cn(
-                      "h-auto min-h-[68px] justify-between rounded-md border p-3 text-left font-normal shadow-none",
-                      mayaAccent.proofMutedPanel
-                    )}
-                    data-state={overviewSourceReadinessOpen ? "open" : "closed"}
-                    data-testid="maya-overview-source-readiness-toggle"
-                    onClick={() => {
-                      setOverviewSourceReadinessOpen((current) => !current);
-                    }}
-                    type="button"
-                    variant="outline"
-                  >
-                    <span className="grid min-w-0 gap-1">
-                      <span className="text-xs text-muted-foreground">Ready sources</span>
-                      <span className="truncate text-sm font-medium tabular-nums" title={readySourceValue}>
-                        {readySourceValue}
-                      </span>
-                    </span>
-                    <ChevronDownIcon
-                      aria-hidden="true"
-                      className={overviewSourceReadinessOpen ? "rotate-180" : undefined}
-                      data-icon="inline-end"
-                    />
-                  </Button>
+                      return (
+                        <Card
+                          className="rounded-md shadow-none transition-shadow hover:shadow-sm"
+                          data-card-visual={visualKey}
+                          data-testid="maya-overview-summary-card"
+                          key={card.label}
+                          size="sm"
+                        >
+                          <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 p-3">
+                            <span
+                              aria-hidden="true"
+                              className={cn("flex size-9 items-center justify-center rounded-md border", overviewCardTileClass(visualKey))}
+                            >
+                              {cardIcon}
+                            </span>
+                            <span className="grid min-w-0 gap-1">
+                              <CardDescription className="truncate text-base font-semibold text-foreground" title={card.label}>
+                                {card.label}
+                              </CardDescription>
+                              <CardTitle className="text-3xl font-semibold tracking-normal tabular-nums">
+                                {card.count.toString()}
+                              </CardTitle>
+                            </span>
+                          </CardHeader>
+                          <CardContent className="grid gap-1 px-3 pb-3 pt-0">
+                            <span className={cn("text-base font-semibold tabular-nums", overviewCardAmountClass(visualKey))}>
+                              {card.amountLabel}
+                            </span>
+                            {card.runValueShareLabel === undefined ? null : (
+                              <span className="text-xs leading-5 text-muted-foreground">{card.runValueShareLabel}</span>
+                            )}
+                            <span className="text-xs leading-5 text-muted-foreground">
+                              {card.lineCount === undefined ? card.supportLabel : `${card.lineCount.toString()} lines - ${card.supportLabel}`}
+                            </span>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  <Collapsible onOpenChange={setOverviewSourceReadinessOpen} open={overviewSourceReadinessOpen}>
+                    <CollapsibleContent>
+                      <SourceReadinessStrip connectors={connectors} />
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
-                {overviewSourceReadinessOpen ? <SourceReadinessStrip connectors={connectors} /> : null}
               </section>
 
               <section className="grid min-w-0 gap-3" data-testid="maya-overview-concentration-band">
@@ -627,10 +876,10 @@ export function MayaForensicsSurface({
                     <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="grid min-w-0 gap-1.5">
                         <CardTitle className="text-lg font-semibold text-foreground" data-testid="maya-overview-concentration-title">
-                          Case Concentration Analysis
+                          Deduction cases
                         </CardTitle>
                         <CardDescription>
-                          Filter and sort the backend worklist by case ID, customer, work item text, line count, and displayed exposure.
+                          Case Concentration Analysis - verdict, routing, and agent reason shown for each work item.
                         </CardDescription>
                       </div>
                       <div className={cn("grid min-w-0 gap-1 rounded-md border px-3 py-2 lg:min-w-48", mayaAccent.proofMutedPanel)}>
@@ -639,6 +888,29 @@ export function MayaForensicsSurface({
                           {model.recoveryTracker.totalExposure}
                         </span>
                       </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2" data-testid="maya-overview-verdict-filter">
+                      <span className="text-xs text-muted-foreground">Verdict</span>
+                      {verdictFilterOptions.map((option) => {
+                        const isActive = overviewVerdictFilter === option.key;
+
+                        return (
+                          <Button
+                            aria-pressed={isActive}
+                            className={cn("h-8 rounded-full border px-3 text-xs font-medium", overviewVerdictFilterClass(option.key, isActive))}
+                            data-filter={option.key}
+                            key={option.key}
+                            onClick={() => {
+                              setOverviewVerdictFilter(option.key);
+                            }}
+                            type="button"
+                            variant="outline"
+                          >
+                            <span>{option.label}</span>
+                            <span className="tabular-nums">{option.count.toString()}</span>
+                          </Button>
+                        );
+                      })}
                     </div>
                     <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <InputGroup className="h-9 md:max-w-md">
@@ -670,7 +942,7 @@ export function MayaForensicsSurface({
                         ) : null}
                       </InputGroup>
                       <span className="text-xs text-muted-foreground">
-                        Showing {overviewConcentrationItems.length.toString()} of {model.worklist.length.toString()} worklist work items
+                        Showing {overviewConcentrationItems.length.toString()} of {model.worklist.length.toString()} cases
                       </span>
                     </div>
                   </CardHeader>
@@ -684,70 +956,87 @@ export function MayaForensicsSurface({
                         <MayaEmptyState description="No worklist rows match the current local filter." kind="search" title="No matching cases" />
                       </div>
                     ) : (
-                      <ScrollArea className="max-h-[440px]">
-                        <Table data-testid="maya-overview-case-concentration-table">
-                          <TableHeader>
-                            <TableRow
-                              className="bg-muted/70 hover:bg-muted/70"
-                              data-testid="maya-overview-case-concentration-header-row"
+                      <div>
+                        <div className="grid min-w-0 gap-0" data-testid="maya-overview-case-concentration-table">
+                          <div
+                            className="border-y border-[color:var(--maya-accent-border)] bg-[color:var(--maya-accent-surface)] px-3 py-1"
+                            data-testid="maya-overview-case-concentration-header-row"
+                          >
+                            <div
+                              aria-label="Sort deduction cases"
+                              className="grid min-w-0 items-center gap-3 px-3 text-sm font-semibold text-foreground md:grid-cols-[60px_minmax(0,1.1fr)_minmax(0,1.8fr)_126px_minmax(170px,0.95fr)_20px]"
+                              role="group"
                             >
-                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "id")} className="min-w-48">
-                                <Button
-                                  className="h-8 px-2"
-                                  data-testid="maya-overview-case-concentration-sort-id"
-                                  onClick={() => {
-                                    handleOverviewCaseSort("id");
-                                  }}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  {overviewCaseSortIcon(overviewCaseSort, "id")}
-                                  <span>ID</span>
-                                  <span className="text-[11px] text-muted-foreground">
+                              <Button
+                                aria-label={`Sort deduction cases by ID. Current state: ${overviewCaseSortDirectionLabel(overviewCaseSort, "id")}.`}
+                                aria-pressed={overviewCaseSort.key === "id"}
+                                className={cn(
+                                  "h-7 justify-start gap-1.5 rounded px-2 text-sm font-semibold shadow-none",
+                                  overviewCaseSort.key === "id"
+                                    ? "bg-[var(--maya-accent-soft)] text-[var(--maya-accent-text)]"
+                                    : "text-foreground hover:bg-muted/60"
+                                )}
+                                data-sort-state={overviewCaseAriaSort(overviewCaseSort, "id")}
+                                data-testid="maya-overview-case-concentration-sort-id"
+                                onClick={() => {
+                                  handleOverviewCaseSort("id");
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                {overviewCaseSort.key === "id" ? overviewCaseSortIcon(overviewCaseSort, "id") : null}
+                                <span>ID</span>
+                                {overviewCaseSort.key === "id" && overviewCaseSort.direction !== undefined ? (
+                                  <span className="sr-only">
                                     {overviewCaseSortDirectionLabel(overviewCaseSort, "id")}
                                   </span>
-                                </Button>
-                              </TableHead>
-                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "customer")} className="min-w-56">
-                                <Button
-                                  className="h-8 px-2"
-                                  data-testid="maya-overview-case-concentration-sort-customer"
-                                  onClick={() => {
-                                    handleOverviewCaseSort("customer");
-                                  }}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  {overviewCaseSortIcon(overviewCaseSort, "customer")}
-                                  <span>Customer</span>
-                                  <span className="text-[11px] text-muted-foreground">
+                                ) : null}
+                              </Button>
+                              <Button
+                                aria-label={`Sort deduction cases by customer. Current state: ${overviewCaseSortDirectionLabel(
+                                  overviewCaseSort,
+                                  "customer"
+                                )}.`}
+                                aria-pressed={overviewCaseSort.key === "customer"}
+                                className={cn(
+                                  "h-7 justify-start gap-1.5 rounded px-2 text-sm font-semibold shadow-none",
+                                  overviewCaseSort.key === "customer"
+                                    ? "bg-[var(--maya-accent-soft)] text-[var(--maya-accent-text)]"
+                                    : "text-foreground hover:bg-muted/60"
+                                )}
+                                data-sort-state={overviewCaseAriaSort(overviewCaseSort, "customer")}
+                                data-testid="maya-overview-case-concentration-sort-customer"
+                                onClick={() => {
+                                  handleOverviewCaseSort("customer");
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                {overviewCaseSort.key === "customer" ? overviewCaseSortIcon(overviewCaseSort, "customer") : null}
+                                <span>Customer</span>
+                                {overviewCaseSort.key === "customer" && overviewCaseSort.direction !== undefined ? (
+                                  <span className="sr-only">
                                     {overviewCaseSortDirectionLabel(overviewCaseSort, "customer")}
                                   </span>
-                                </Button>
-                              </TableHead>
-                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "lines")} className="w-32">
+                                ) : null}
+                              </Button>
+                              <span className="px-2 font-semibold text-foreground">Work item</span>
+                              <span className="grid grid-cols-2 justify-items-end gap-1">
                                 <Button
-                                  className="h-8 px-2"
-                                  data-testid="maya-overview-case-concentration-sort-lines"
-                                  onClick={() => {
-                                    handleOverviewCaseSort("lines");
-                                  }}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  {overviewCaseSortIcon(overviewCaseSort, "lines")}
-                                  <span>Lines</span>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "lines")}
-                                  </span>
-                                </Button>
-                              </TableHead>
-                              <TableHead aria-sort={overviewCaseAriaSort(overviewCaseSort, "exposure")} className="w-40 text-right">
-                                <Button
-                                  className="ml-auto h-8 px-2"
+                                  aria-label={`Sort deduction cases by exposure. Current state: ${overviewCaseSortDirectionLabel(
+                                    overviewCaseSort,
+                                    "exposure"
+                                  )}.`}
+                                  aria-pressed={overviewCaseSort.key === "exposure"}
+                                  className={cn(
+                                    "h-7 w-full justify-end gap-1 rounded px-2 text-sm font-semibold shadow-none",
+                                    overviewCaseSort.key === "exposure"
+                                      ? "bg-[var(--maya-accent-soft)] text-[var(--maya-accent-text)]"
+                                      : "text-foreground hover:bg-muted/60"
+                                  )}
+                                  data-sort-state={overviewCaseAriaSort(overviewCaseSort, "exposure")}
                                   data-testid="maya-overview-case-concentration-sort-exposure"
                                   onClick={() => {
                                     handleOverviewCaseSort("exposure");
@@ -756,67 +1045,119 @@ export function MayaForensicsSurface({
                                   type="button"
                                   variant="ghost"
                                 >
-                                  {overviewCaseSortIcon(overviewCaseSort, "exposure")}
+                                  {overviewCaseSort.key === "exposure" ? overviewCaseSortIcon(overviewCaseSort, "exposure") : null}
                                   <span>Exposure</span>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {overviewCaseSortDirectionLabel(overviewCaseSort, "exposure")}
-                                  </span>
+                                  {overviewCaseSort.key === "exposure" && overviewCaseSort.direction !== undefined ? (
+                                    <span className="sr-only">
+                                      {overviewCaseSortDirectionLabel(overviewCaseSort, "exposure")}
+                                    </span>
+                                  ) : null}
                                 </Button>
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
+                                <Button
+                                  aria-label={`Sort deduction cases by line count. Current state: ${overviewCaseSortDirectionLabel(
+                                    overviewCaseSort,
+                                    "lines"
+                                  )}.`}
+                                  aria-pressed={overviewCaseSort.key === "lines"}
+                                  className={cn(
+                                    "h-7 w-full justify-end gap-1 rounded px-2 text-sm font-semibold shadow-none",
+                                    overviewCaseSort.key === "lines"
+                                      ? "bg-[var(--maya-accent-soft)] text-[var(--maya-accent-text)]"
+                                      : "text-foreground hover:bg-muted/60"
+                                  )}
+                                  data-sort-state={overviewCaseAriaSort(overviewCaseSort, "lines")}
+                                  data-testid="maya-overview-case-concentration-sort-lines"
+                                  onClick={() => {
+                                    handleOverviewCaseSort("lines");
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {overviewCaseSort.key === "lines" ? overviewCaseSortIcon(overviewCaseSort, "lines") : null}
+                                  <span>Lines</span>
+                                  {overviewCaseSort.key === "lines" && overviewCaseSort.direction !== undefined ? (
+                                    <span className="sr-only">
+                                      {overviewCaseSortDirectionLabel(overviewCaseSort, "lines")}
+                                    </span>
+                                  ) : null}
+                                </Button>
+                              </span>
+                              <span className="px-2 font-semibold text-foreground">Verdict / route</span>
+                              <span className="sr-only">Open case</span>
+                            </div>
+                          </div>
+                          <div className="grid min-w-0 gap-2 p-3">
                             {overviewConcentrationItems.map((item) => {
                               const isSelected = item.lineId === visibleSelectedWorklistItem?.lineId;
+                              const reason = resolveMayaWorklistReason(item);
+                              const caseLabel = overviewCaseBadgeLabel(model.worklist, item);
+                              const customerSupport = overviewCaseCustomerSupport(item);
 
                               return (
-                                <TableRow
+                                <button
                                   aria-selected={isSelected}
                                   className={cn(
-                                    "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                                    "grid min-w-0 items-center gap-3 rounded-md border bg-background p-3 text-left outline-none transition-colors hover:border-[var(--maya-accent-border)] hover:bg-muted/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 md:grid-cols-[60px_minmax(0,1.1fr)_minmax(0,1.8fr)_126px_minmax(170px,0.95fr)_20px]",
                                     mayaSelectedRowClass
                                   )}
                                   data-line-id={item.lineId}
                                   data-selected={isSelected ? "true" : undefined}
                                   data-testid="maya-overview-case-concentration-row"
+                                  data-verdict={normalizeMayaVerdict(item.verdict) ?? item.verdict}
                                   key={`overview-concentration-${item.lineId}`}
                                   onClick={() => {
                                     void openInvestigationForItem(item);
                                   }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter" || event.key === " ") {
-                                      event.preventDefault();
-                                      void openInvestigationForItem(item);
-                                    }
-                                  }}
-                                  tabIndex={0}
+                                  type="button"
                                 >
-                                  <TableCell>
-                                    <div className="grid min-w-0 gap-0.5">
-                                      <span className="font-medium">{item.lineId}</span>
-                                      <span className="truncate text-xs text-muted-foreground" title={item.workItemLabel}>
-                                        {item.workItemLabel}
-                                      </span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="grid min-w-0 gap-0.5">
-                                      <span className="truncate" title={item.customerLabel}>
-                                        {item.customerLabel}
-                                      </span>
-                                      <span className="truncate text-xs text-muted-foreground" title={item.routingLabel}>
-                                        {item.routingLabel}
-                                      </span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="tabular-nums">{item.lineCount.toString()}</TableCell>
-                                  <TableCell className="text-right tabular-nums">{item.amount}</TableCell>
-                                </TableRow>
+                                  <span
+                                    className={`flex h-10 min-w-14 shrink-0 items-center justify-center rounded-md border px-2 text-xs font-semibold ${overviewCaseBadgeClass(item.verdict)}`}
+                                    data-verdict={item.verdict}
+                                    title={item.workItemId ?? item.workItemLabel}
+                                  >
+                                    {caseLabel}
+                                  </span>
+                                  <span className="grid min-w-0 gap-0.5">
+                                    <span className="truncate text-sm font-medium" title={item.customerLabel}>
+                                      {item.customerLabel}
+                                    </span>
+                                    <span className="truncate text-xs text-muted-foreground" title={customerSupport}>
+                                      {customerSupport}
+                                    </span>
+                                  </span>
+                                  <span className="grid min-w-0 gap-1">
+                                    <span className="truncate text-sm font-medium" title={item.workItemLabel}>
+                                      {item.workItemLabel}
+                                    </span>
+                                    <span className="line-clamp-2 text-xs leading-5 text-muted-foreground" title={reason}>
+                                      {reason}
+                                    </span>
+                                  </span>
+                                  <span className="grid min-w-0 gap-1 md:text-right">
+                                    <span className="text-sm font-semibold tabular-nums">{item.amount}</span>
+                                    <span className="text-xs text-muted-foreground tabular-nums">{item.lineCount.toString()} lines</span>
+                                  </span>
+                                  <span className="grid min-w-0 gap-1.5 md:justify-items-start">
+                                    <Badge
+                                      className="w-fit max-w-full justify-start rounded-full"
+                                      data-verdict={item.verdict}
+                                      title={item.verdictLabel}
+                                      variant={verdictBadgeVariant(item.verdict)}
+                                    >
+                                      {overviewShortVerdictLabel(item.verdict, item.verdictLabel)}
+                                    </Badge>
+                                    <span className="line-clamp-2 text-xs leading-5 text-muted-foreground" title={item.recommendedActionLabel}>
+                                      {item.recommendedActionLabel}
+                                    </span>
+                                  </span>
+                                  <ChevronRightIcon aria-hidden="true" className="hidden size-4 text-muted-foreground md:block" />
+                                </button>
                               );
                             })}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
@@ -827,79 +1168,6 @@ export function MayaForensicsSurface({
       }
       case "worklist":
         return renderWorklistSection();
-      case "cases":
-        return renderCasesSection();
-      case "evidence":
-        return (
-          <section
-            className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
-            data-testid="maya-root-section-evidence"
-          >
-            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
-              <CardHeader>
-                <CardTitle className="text-base">Selected evidence</CardTitle>
-                <CardDescription>
-                  {visibleSelectedWorklistItem === undefined
-                    ? "Select a work item to inspect evidence readiness."
-                    : visibleSelectedWorklistItem.lineId}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                {visibleSelectedWorklistItem === undefined ? (
-                  <MayaEmptyState description="No row is selected for evidence review." kind="evidence" title="Select a case" />
-                ) : (
-                  <>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <DetailStateFact label="Evidence score" value={visibleSelectedWorklistItem.evidenceScoreLabel} />
-                      <DetailStateFact
-                        label="Documents"
-                        value={selectedHasBackendDetail ? model.selected.evidencePack.documents.length.toString() : "Source detail pending"}
-                      />
-                      <DetailStateFact label="Readiness" value={visibleSelectedWorklistItem.evidenceLabel} />
-                    </div>
-                    <Alert>
-                      <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
-                      <AlertTitle>{selectedHasBackendDetail ? "Evidence attached" : "Source detail pending"}</AlertTitle>
-                      <AlertDescription>
-                        {selectedHasBackendDetail
-                          ? "The selected detail packet exposes evidence documents and record IDs."
-                          : "Open the investigation to request row-specific evidence detail."}
-                      </AlertDescription>
-                    </Alert>
-                    <Button
-                      className="w-fit"
-                      onClick={() => {
-                        void openInvestigationForItem(visibleSelectedWorklistItem);
-                      }}
-                      size="sm"
-                      type="button"
-                    >
-                      <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
-                      Open investigation
-                    </Button>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-evidence-source-readiness-group" size="sm">
-              <CardHeader>
-                <CardTitle className="text-base">Source readiness</CardTitle>
-                <CardDescription>{connectors.lastRefreshedLabel}</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                {connectors.sourceTiles.map((source) => (
-                  <div className={cn("grid gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)} data-status-tone={source.statusTone} key={source.key}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{source.label}</span>
-                      <Badge variant="outline">{source.stateLabel}</Badge>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{source.modeLabel}</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </section>
-        );
       case "approvals":
         return (
           <section className="min-w-0" data-testid="maya-root-section-approvals">
@@ -919,21 +1187,27 @@ export function MayaForensicsSurface({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Line</TableHead>
+                        <TableHead>Case</TableHead>
                         <TableHead>Action</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {model.actionInbox.map((item) => (
-                        <TableRow key={item.actionId}>
-                          <TableCell>{item.lineId}</TableCell>
-                          <TableCell>{item.actionLabel}</TableCell>
-                          <TableCell>{item.statusLabel ?? "Unavailable"}</TableCell>
-                          <TableCell className="tabular-nums">{item.amount}</TableCell>
-                        </TableRow>
-                      ))}
+                      {model.actionInbox.map((item) => {
+                        const actionWorkItem = model.worklist.find((workItem) => workItem.lineIds.includes(item.lineId));
+                        const caseLabel =
+                          actionWorkItem === undefined ? "Selected case" : overviewCaseBadgeLabel(model.worklist, actionWorkItem);
+
+                        return (
+                          <TableRow key={item.actionId}>
+                            <TableCell>{caseLabel}</TableCell>
+                            <TableCell>{item.actionLabel}</TableCell>
+                            <TableCell>{item.statusLabel ?? "Unavailable"}</TableCell>
+                            <TableCell className="tabular-nums">{item.amount}</TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
@@ -967,9 +1241,9 @@ export function MayaForensicsSurface({
                 {backendSelectionUnavailable && model.worklist.length > 0 ? (
                   <Alert className="mb-4" variant="destructive">
                     <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
-                    <AlertTitle>Selected line unavailable</AlertTitle>
+                    <AlertTitle>Selected work item unavailable</AlertTitle>
                     <AlertDescription>
-                      The selected line is not present in the current worklist. Select a row to request its
+                      The selected work item is not present in the current worklist. Select a row to request its
                       governed detail packet; no fallback business values are displayed.
                     </AlertDescription>
                   </Alert>
@@ -986,7 +1260,7 @@ export function MayaForensicsSurface({
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="grid min-w-0 gap-1">
                       <CardTitle className="truncate">{visibleSelectedWorklistItem.customerLabel}</CardTitle>
-                      <CardDescription className="truncate">{visibleSelectedWorklistItem.lineId}</CardDescription>
+                      <CardDescription className="truncate">{visibleSelectedWorklistItem.workItemLabel}</CardDescription>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1">
                       {hasLocalReturnContext ? (
@@ -1110,160 +1384,6 @@ export function MayaForensicsSurface({
     );
   }
 
-  function renderCasesSection(): React.ReactNode {
-    return (
-      <section
-        className="grid min-h-0 min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]"
-        data-testid="maya-root-section-cases"
-      >
-        <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-cases-fetched-rows" size="sm">
-          <CardHeader>
-            <CardTitle className="text-base">Cases</CardTitle>
-            <CardDescription>{model.worklist.length.toString()} work items in the current queue.</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {model.worklist.length === 0 ? (
-              <div className="px-6 py-8">
-                <MayaEmptyState description="The current queue has no deduction case rows." kind="worklist" title="No cases" />
-              </div>
-            ) : (
-              <ScrollArea className="h-[min(46rem,calc(100vh-15rem))]" data-testid="maya-cases-table-scroll">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Case</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Verdict</TableHead>
-                    <TableHead>Queue</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Selection</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {model.worklist.map((item) => {
-                    const isSelected = visibleSelectedWorklistItem?.lineId === item.lineId;
-
-                    return (
-                      <TableRow
-                        aria-selected={isSelected}
-                        className={mayaSelectedRowClass}
-                        data-selected={isSelected ? "true" : undefined}
-                        data-testid="maya-case-row"
-                        key={`case-${item.lineId}`}
-                      >
-                        <TableCell>
-                          <div className="grid gap-0.5">
-                            <span className="font-medium">{item.workItemLabel}</span>
-                            <span className="text-xs text-muted-foreground">{item.lineId}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.customerLabel}</TableCell>
-                        <TableCell>
-                          <Badge data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
-                            {item.verdict === "valid" ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
-                            {item.verdictLabel}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{item.queueLabel}</TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            aria-pressed={isSelected}
-                            onClick={() => {
-                              setSelectedWorklistItem(item);
-                            }}
-                            size="sm"
-                            type="button"
-                            variant={isSelected ? "secondary" : "ghost"}
-                          >
-                            Select
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-        <aside className="min-w-0" aria-label="Selected case starter">
-          <Card className={cn("min-h-[420px] rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-cases-selected-starter" size="sm">
-            <CardHeader>
-              <CardTitle className="text-base">Selected case</CardTitle>
-              <CardDescription>
-                {visibleSelectedWorklistItem === undefined ? "No case selected." : visibleSelectedWorklistItem.lineId}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {visibleSelectedWorklistItem === undefined ? (
-                <>
-                  {backendSelectionUnavailable && model.worklist.length > 0 ? (
-                    <Alert variant="destructive">
-                      <CircleAlertIcon aria-hidden="true" data-icon="inline-start" />
-                      <AlertTitle>Selected line unavailable</AlertTitle>
-                      <AlertDescription>
-                        The selected line is not present in the current cases. Select a work item; no fallback business values are displayed.
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-                  <MayaEmptyState
-                    description="Select a work item to prepare the case detail request."
-                    kind="worklist"
-                    title="Select a case"
-                  />
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-3">
-                    <DetailStateFact label="Customer" value={visibleSelectedWorklistItem.customerLabel} />
-                    <DetailStateFact label="Work item" value={visibleSelectedWorklistItem.workItemLabel} />
-                    <DetailStateFact label="Amount" value={visibleSelectedWorklistItem.amount} />
-                    <DetailStateFact label="Line IDs" value={visibleSelectedWorklistItem.lineIds.length.toString()} />
-                    <DetailStateFact label="Evidence" value={visibleSelectedWorklistItem.evidenceLabel} />
-                  </div>
-                  <Alert>
-                    <ShieldAlertIcon aria-hidden="true" data-icon="inline-start" />
-                    <AlertTitle>{selectedHasBackendDetail ? "Detail starter" : "Source detail pending"}</AlertTitle>
-                    <AlertDescription>
-                      {selectedHasBackendDetail
-                        ? "This selected case corresponds to the detail packet for this work item."
-                        : "Open the investigation to request case detail for this row."}
-                    </AlertDescription>
-                  </Alert>
-                  <Button
-                    className="w-fit"
-                    disabled={
-                      workItemDetailLoadState?.state === "loading" &&
-                      workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
-                    }
-                    onClick={() => {
-                      void openInvestigationForItem(visibleSelectedWorklistItem);
-                    }}
-                    size="sm"
-                    type="button"
-                  >
-                    {workItemDetailLoadState?.state === "loading" &&
-                    workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId ? (
-                      <RotateCwIcon aria-hidden="true" className="animate-spin" data-icon="inline-start" />
-                    ) : (
-                      <FileSearchIcon aria-hidden="true" data-icon="inline-start" />
-                    )}
-                    {workItemDetailLoadState?.state === "loading" &&
-                    workItemDetailLoadState.lineId === visibleSelectedWorklistItem.lineId
-                      ? "Loading detail"
-                      : "Open investigation"}
-                  </Button>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </aside>
-      </section>
-    );
-  }
-
   if (openedCaseWorklistItem !== undefined) {
     const caseWorklistItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem;
 
@@ -1278,7 +1398,7 @@ export function MayaForensicsSurface({
         refreshStatus={refreshStatus}
         refreshedLabel={connectors.lastRefreshedLabel}
         session={session}
-        support={`${caseWorklistItem.customerLabel} / ${activeCaseDetail?.lineId ?? caseWorklistItem.lineId}`}
+        support={`${caseWorklistItem.customerLabel} / ${caseWorklistItem.workItemLabel}`}
         worklistCount={model.worklist.length}
       >
         <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
@@ -1308,6 +1428,7 @@ export function MayaForensicsSurface({
               actionInbox={activeCaseDetail.actionInbox}
               approvalReceipt={activeCaseDetail.approvalReceipt}
               auditState={activeCaseDetail.auditState}
+              detail={activeCaseDetail}
               hasBackendDetail={true}
               journey={activeCaseDetail.mayaJourney}
               multimodalDock={activeCaseDetail.multimodalDock}
@@ -1317,8 +1438,9 @@ export function MayaForensicsSurface({
               openQueryDockLineId={agentDockOpenLineId}
               recommendedAction={activeCaseDetail.recommendedAction}
               selected={activeCaseDetail.selected}
-              selectedWorklistItem={activeCaseDetail.workItem}
+              selectedWorklistItem={model.worklist.find((item) => item.lineId === activeCaseDetail.workItem.lineId) ?? activeCaseDetail.workItem}
               sourceTiles={connectors.sourceTiles}
+              worklist={model.worklist}
             />
           )}
         </section>
@@ -1331,6 +1453,7 @@ export function MayaForensicsSurface({
       <MayaWorkspaceShell
         activeSection="worklist"
         heading="Deduction Cases"
+        headerAction={<RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />}
         onSectionChange={handleSurfaceSectionChange}
         onRefreshSources={onRefreshSources}
         pendingActionCount={model.actionInbox.length}
@@ -1341,7 +1464,6 @@ export function MayaForensicsSurface({
         support={`${model.worklist.length.toString()} work items / ${model.actionInbox.length.toString()} human actions pending`}
         worklistCount={model.worklist.length}
       >
-        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
         {businessFreshnessBanner}
         <BeatTwelveReturnedWorklist
           connectors={connectors}
@@ -1356,10 +1478,12 @@ export function MayaForensicsSurface({
     );
   }
 
+  const overviewSettlementRunId = readModelSettlementRunId(model);
+
   return (
     <MayaWorkspaceShell
       activeSection={activeSection}
-      onSectionChange={setActiveSection}
+      onSectionChange={handleSurfaceSectionChange}
       onRefreshSources={onRefreshSources}
       pendingActionCount={model.actionInbox.length}
       {...(refreshError === undefined ? {} : { refreshError })}
@@ -1368,13 +1492,48 @@ export function MayaForensicsSurface({
       session={session}
       worklistCount={model.worklist.length}
     >
-      <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
       {businessFreshnessBanner}
       <section className="flex min-w-0 flex-1 flex-col gap-3" aria-label="Maya morning run summary">
         {renderMayaRootSection()}
       </section>
+      <QueryEvidenceDock
+        caseOptions={buildCopilotCaseOptions(model.worklist)}
+        dock={overviewCopilotDock}
+        evidencePack={model.selected.evidencePack}
+        onOpenChange={setOverviewQueryDockOpen}
+        onResponse={handleOverviewQueryResponse}
+        open={overviewQueryDockOpen}
+        queryScope="workspace"
+        recordIds={model.selected.evidencePack.recordIds}
+        selectedLine={model.selected.lineId}
+        {...(overviewSettlementRunId === undefined ? {} : { settlementRunId: overviewSettlementRunId })}
+      />
     </MayaWorkspaceShell>
   );
+}
+
+function buildOverviewCopilotPromptSuggestions(
+  worklist: readonly MayaWorklistItem[],
+  fallbackRecordIds: readonly string[]
+): NonNullable<MayaQueryPromptDockContract["promptSuggestions"]> {
+  return buildCopilotSuggestions(worklist).map((suggestion) => {
+    const recordIds = dedupeStrings([...suggestion.recordIds, ...fallbackRecordIds]);
+    return {
+      label: suggestion.label,
+      provenance: {
+        deterministicBasis: `Overview prompt derived from Maya worklist row ${recordIds.join(", ") || suggestion.label}.`,
+        recordIds,
+        sourceKind: "derived_backend",
+        sourceName: "Maya worklist"
+      },
+      question: suggestion.question,
+      recordIds
+    };
+  });
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 }
 
 function ForensicsBusinessFreshnessBanner({
@@ -1388,20 +1547,7 @@ function ForensicsBusinessFreshnessBanner({
       return null;
     }
 
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="forensics-business-freshness">
-        {businessFreshness.sourceHash === undefined ? null : (
-          <Badge className={mayaAccent.pill} data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
-            {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
-          </Badge>
-        )}
-        {businessFreshness.receiptHash === undefined ? null : (
-          <Badge className={mayaAccent.pill} data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
-            {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
-          </Badge>
-        )}
-      </div>
-    );
+    return <FreshnessHashDisclosure businessFreshness={businessFreshness} />;
   }
 
   return (
@@ -1411,35 +1557,59 @@ function ForensicsBusinessFreshnessBanner({
       <AlertDescription>
         <div className="flex flex-wrap gap-2">
           <span>{businessFreshness.message ?? "Displayed business data may be stale until the stream reconnects."}</span>
-          {businessFreshness.sourceHash === undefined ? null : (
-            <Badge className={mayaAccent.pill} data-testid="forensics-source-hash" title={businessFreshness.sourceHash} variant="outline">
-              {`source ${businessFreshness.sourceHash.slice(0, 8)}`}
-            </Badge>
-          )}
-          {businessFreshness.receiptHash === undefined ? null : (
-            <Badge className={mayaAccent.pill} data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash} variant="outline">
-              {`receipt ${businessFreshness.receiptHash.slice(0, 8)}`}
-            </Badge>
-          )}
+          <FreshnessHashDisclosure businessFreshness={businessFreshness} />
         </div>
       </AlertDescription>
     </Alert>
   );
 }
 
-function RecoupAgentLauncher({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+function FreshnessHashDisclosure({
+  businessFreshness
+}: {
+  businessFreshness: MayaForensicsSurfaceProps["businessFreshness"];
+}) {
   return (
-    <div className="maya-recoup-agent-float">
+    <div
+      aria-label="Evidence provenance hashes available for audit"
+      className="sr-only"
+      data-testid="forensics-business-freshness"
+    >
+      {businessFreshness.sourceHash === undefined ? null : (
+        <span data-testid="forensics-source-hash" title={businessFreshness.sourceHash}>
+          {businessFreshness.sourceHash}
+        </span>
+      )}
+      {businessFreshness.receiptHash === undefined ? null : (
+        <span data-testid="forensics-receipt-hash" title={businessFreshness.receiptHash}>
+          {businessFreshness.receiptHash}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RecoupAgentLauncher({
+  disabled,
+  onClick,
+  placement = "inline"
+}: {
+  disabled: boolean;
+  onClick: () => void;
+  placement?: "inline" | "overview";
+}) {
+  return (
+    <div className="maya-recoup-agent-float" data-placement={placement}>
       <Button
-        aria-label="Open Recoup Agent"
-        className="maya-recoup-agent-button h-12 rounded-full px-4"
+        aria-label="Open Recoup Copilot"
+        className="maya-recoup-agent-button h-9 rounded-full px-3"
         data-testid="recoup-agent-launcher"
         disabled={disabled}
         onClick={onClick}
         type="button"
       >
         <MessageCircleIcon aria-hidden="true" data-icon="inline-start" />
-        <span className="hidden sm:inline">Recoup Agent</span>
+        <span className="hidden sm:inline">Recoup Copilot</span>
       </Button>
     </div>
   );
@@ -1468,7 +1638,7 @@ function WorkItemDetailStatePanel({
             )}
             {isLoading ? "Loading detail" : "Detail unavailable"}
           </CardTitle>
-          <CardDescription>{loadState.lineId}</CardDescription>
+          <CardDescription>Opening the selected work item.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {isLoading ? (
@@ -1633,11 +1803,11 @@ function BeatTwelveReturnedWorklist({
               <TooltipTrigger asChild>
                 <Button className="h-7 gap-1.5 px-2 text-[11px]" size="sm" type="button" variant="outline">
                   <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
-                  Source details
+                  Evidence details
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-80">
-                <span>Queued source rows only. Pending source fields: {missingBeatTwelveFields.join(", ")}.</span>
+                <span>Evidence summaries only. Pending case detail fields: {missingBeatTwelveFields.join(", ")}.</span>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -1731,9 +1901,10 @@ function BeatTwelveReturnedWorklist({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => {
+              {items.map((item, index) => {
                 const isSelected = item.lineId === selectedRow.lineId;
                 const isValidDeduction = item.verdict === "valid";
+                const caseLabel = `Case ${String(index + 1)}`;
 
                 return (
                   <TableRow
@@ -1786,7 +1957,7 @@ function BeatTwelveReturnedWorklist({
                     </TableCell>
                     <TableCell>
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="font-medium">{item.lineId}</span>
+                        <span className="font-medium">{caseLabel}</span>
                         {isSelected ? (
                           <Badge className="w-fit" variant="outline">
                             Local focus

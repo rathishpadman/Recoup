@@ -170,6 +170,11 @@ export interface ForensicsQueryResponse {
   answer?: string;
   citations: ForensicsQueryCitation[];
   deterministicBasis?: string;
+  memoryRecall?: {
+    memoryRecordCount: number;
+    recordCount: number;
+    scopeCount: number;
+  };
   modelExecution?: ForensicsQueryModelExecution;
   trace: ForensicsQueryTraceEvent[];
 }

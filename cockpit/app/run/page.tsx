@@ -196,7 +196,7 @@ export default async function RunPage() {
                   <div className="run-evidence-row" key={document.documentId} role="row">
                     <div role="cell">
                       <strong>{document.documentType}</strong>
-                    <span>{evidenceSummaryLabel(document.summary)}</span>
+                      <span>{evidenceSummaryLabel(document.summary)}</span>
                     </div>
                     <span role="cell">{document.sourceLabel}</span>
                     <code role="cell">{document.citationId}</code>
@@ -261,7 +261,7 @@ export default async function RunPage() {
           <div className="section-heading">
             <div>
               <h2>
-                <Database size={18} /> MultimodalDock
+                <Database size={18} /> Investigation checklist
               </h2>
               <span>Evidence agents and reviewer state.</span>
             </div>
@@ -309,15 +309,18 @@ export default async function RunPage() {
               <strong>Cited answers</strong>
             </div>
           </div>
-          <div className="section-heading">
-            <div>
-              <h2>
-                <Database size={18} /> Realtime evidence query
-              </h2>
+          <details className="run-copilot-drawer" data-testid="run-copilot-drawer">
+            <summary>
+              <span>
+                <Database size={18} /> Recoup Copilot
+              </span>
+              <strong>Open evidence query</strong>
+            </summary>
+            <div className="run-copilot-body">
               <span>Answers stay tied to cited records.</span>
+              <RealtimeQueryControls />
             </div>
-          </div>
-          <RealtimeQueryControls />
+          </details>
           <div className="run-sidecar-audit" aria-label="Sidecar audit checkpoint">
             <div>
               <strong>Audit checkpoint</strong>

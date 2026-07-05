@@ -5,7 +5,14 @@ import { createServer, type Server } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type Page, type Response as PlaywrightResponse } from "playwright";
+import {
+  chromium,
+  type Browser,
+  type Page,
+  type Request as PlaywrightRequest,
+  type Response as PlaywrightResponse,
+  type Route as PlaywrightRoute
+} from "playwright";
 import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/localRuntimeEnv.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 
@@ -86,6 +93,7 @@ const adminPrincipal = "human:cfo-lead";
 const mayaPrincipal = "human:maya-lead";
 const demoPassword = readEnvValue("RECOUP_E2E_DEMO_PASSWORD", "Welcome#123");
 const humanToken = readEnvValue("RECOUP_COCKPIT_AUTH_TOKEN", "recoup-local-e2e-human-token");
+const liveEmailE2E = readEnvValue("RECOUP_E2E_LIVE_EMAIL", "disabled") === "enabled";
 const modifyReason = "Request corrected billing support before any recovery routing.";
 const rejectReason = "Reject this draft until the evidence packet is rebuilt for review.";
 
@@ -177,6 +185,14 @@ async function main(): Promise<void> {
       return { detail: `${targets.approve.lineId}; hash ${receipt.auditEntryHash.slice(0, 8)}` };
     });
 
+    await timedStep("send approved email and read delivery status", async () => {
+      if (!liveEmailE2E) {
+        return { detail: "Live email disabled; no mocked email sent." };
+      }
+      const result = await assertEmailDeliveryStatusReadback(page, targets.approve);
+      return { detail: `${result.providerEmailId}; ${result.lastEvent}` };
+    });
+
     await timedStep("logout and relogin", async () => {
       await logout(page);
       await loginAsMaya(page, appUrl);
@@ -206,6 +222,15 @@ async function main(): Promise<void> {
       assert(detail.approvalState.status === "pending_human", "Reset state did not survive relogin.");
       assert(detail.selected.approvalEligibility.available, "Approval eligibility did not reopen after reset.");
       return { detail: `${detail.approvalState.statusLabel}; ${detail.selected.approvalEligibility.statusLabel}` };
+    });
+
+    await timedStep("browser duplicate conflict becomes terminal", async () => {
+      await openWorkItemDraft(page, appUrl, targets.approve.lineId);
+      await assertBrowserDuplicateConflictBecomesTerminal(page, "approve");
+      const detail = await fetchDetail(readApiUrl, targets.approve.lineId);
+      assert(detail.approvalState.status === "pending_human", "Intercepted duplicate conflict mutated backend approval state.");
+      assert(detail.approvalReceipt === undefined, "Intercepted duplicate conflict created a backend receipt.");
+      return { detail: `${targets.approve.lineId}; browser 409 disabled decisions without a receipt.` };
     });
 
     await timedStep("modify requires reason in browser", async () => {
@@ -259,13 +284,13 @@ async function main(): Promise<void> {
 
     await timedStep("duplicate approval fails closed", async () => {
       const before = assertCommittedReceipt(await fetchDetail(readApiUrl, targets.reject.lineId), targets.reject, "reject", rejectReason);
-      const duplicateResponse = await submitDuplicateApprovalFromOpenDialog(page);
-      assert(duplicateResponse.status() === 409, `Expected duplicate approval 409, got ${duplicateResponse.status().toString()}.`);
-      await page.getByText("Approval service rejected the human decision.").waitFor({ state: "visible", timeout: 30_000 });
+      await assertOpenDialogIsTerminal(page, before);
+      const duplicateResponse = await submitDuplicateApprovalDirect(readApiUrl, targets.reject, "reject", rejectReason);
+      assert(duplicateResponse.status === 409, `Expected duplicate approval 409, got ${duplicateResponse.status.toString()}.`);
       await closeApprovalDialog(page);
       const after = assertCommittedReceipt(await fetchDetail(readApiUrl, targets.reject.lineId), targets.reject, "reject", rejectReason);
       assert(after.auditEntryHash === before.auditEntryHash, "Duplicate decision replaced the committed reject receipt.");
-      return { detail: `${targets.reject.lineId}; duplicate status ${duplicateResponse.status().toString()}` };
+      return { detail: `${targets.reject.lineId}; duplicate status ${duplicateResponse.status.toString()}` };
     });
 
     await timedStep("relogin persistence after reject", async () => {
@@ -543,7 +568,7 @@ async function openWorkItemDraft(page: Page, appUrl: string, targetLineId: strin
   await row.waitFor({ state: "visible", timeout: 30_000 });
   await row.locator('[data-testid="maya-row-action-open"]').click();
   await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 30_000 });
-  await page.getByRole("tab", { name: /^Draft$/u }).click();
+  await page.locator('[data-testid="maya-case-detail-b6-outcome"]').scrollIntoViewIfNeeded();
   await page.locator('[data-testid="maya-recovery-draft-review"]').waitFor({ state: "visible", timeout: 30_000 });
 }
 
@@ -583,15 +608,204 @@ async function submitBrowserDecision(
   return response;
 }
 
-async function submitDuplicateApprovalFromOpenDialog(page: Page): Promise<PlaywrightResponse> {
+async function assertBrowserDuplicateConflictBecomesTerminal(
+  page: Page,
+  decision: ApprovalDecision,
+  reason?: string
+): Promise<void> {
+  await openApprovalDialog(page);
+  const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
+  const routeHandler = async (route: PlaywrightRoute): Promise<void> => {
+    const request = route.request();
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/approval") {
+      await route.fulfill({
+        body: JSON.stringify({ error: "Action already has a human decision." }),
+        contentType: "application/json",
+        status: 409
+      });
+      return;
+    }
+    await route.continue();
+  };
+  await page.route("**/api/approval", routeHandler);
+  try {
+    if (reason !== undefined) {
+      await dialog.getByLabel("Note / reason").fill(reason);
+    }
+    const button = decisionButton(dialog, decision);
+    await button.waitFor({ state: "visible", timeout: 10_000 });
+    assert(!(await button.isDisabled()), `${decisionButtonLabel(decision)} button is disabled before duplicate conflict.`);
+    await button.click();
+    await dialog.getByText("Decision already recorded", { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
+    const remainingDecisionButtons = await dialog.getByRole("button", { name: /^(Approve|Request changes|Reject)/u }).count();
+    assert(remainingDecisionButtons === 0, "Decision buttons remained visible after browser duplicate conflict.");
+    await dialog.getByRole("button", { name: /^Close$/u }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 30_000 });
+  } finally {
+    await page.unroute("**/api/approval", routeHandler);
+  }
+}
+
+async function assertEmailDeliveryStatusReadback(
+  page: Page,
+  target: DecisionTarget
+): Promise<{ lastEvent: string; providerEmailId: string }> {
+  let sendRequestBody: Record<string, unknown> | undefined;
+  let statusReadUrl: URL | undefined;
+  let statusReadHeaders: Record<string, string> | undefined;
+  const apiEmailRequestListener = (request: PlaywrightRequest) => {
+    const url = new URL(request.url());
+    if (url.pathname !== "/api/email") {
+      return;
+    }
+    if (request.method() === "POST") {
+      sendRequestBody = parseOptionalJsonRecord(request.postData());
+      return;
+    }
+    if (request.method() === "GET") {
+      statusReadUrl = url;
+      statusReadHeaders = request.headers();
+    }
+  };
+
+  page.on("request", apiEmailRequestListener);
+  try {
+    const emailAction = page.getByTestId("maya-email-draft-action").first();
+    await emailAction.scrollIntoViewIfNeeded();
+    assert(!(await emailAction.isDisabled()), "Approved email action stayed disabled after human approval.");
+    await emailAction.click();
+
+    const dialog = page.getByTestId("maya-email-draft-dialog");
+    await dialog.waitFor({ state: "visible", timeout: 30_000 });
+    const visibleSubject = await dialog.getByLabel("Subject").inputValue();
+    const visibleBody = await dialog.getByLabel("Body").inputValue();
+    assert(visibleSubject.trim().length > 0, "Email draft dialog subject was blank before send.");
+    assert(!visibleSubject.includes(target.lineId), "Email draft dialog subject exposed the raw opened work item line id.");
+    assert(visibleBody.trim().length > 0, "Email draft dialog body was blank before send.");
+    assert(!visibleBody.includes(target.lineId), "Email draft dialog body exposed the raw opened work item line id.");
+    for (const requiredFragment of ["Case lines:", "Verdict:", "Recommended action:", "Cited records:"]) {
+      assert(visibleBody.includes(requiredFragment), `Email draft dialog body omitted required draft fact: ${requiredFragment}`);
+    }
+    const sendResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/email" && response.request().method() === "POST"
+    );
+    await page.getByTestId("maya-email-send").click();
+    const sendResponse = await sendResponsePromise;
+    assert(sendResponse.ok(), `Email send POST failed ${sendResponse.status().toString()}: ${await sendResponse.text()}`);
+    await page.getByTestId("maya-email-sent-status").waitFor({ state: "visible", timeout: 30_000 });
+    const sentLabel = await page.getByTestId("maya-email-sent-label").innerText();
+    const sentProviderEmailId = parseProviderEmailIdFromSentLabel(sentLabel);
+    assert(sentProviderEmailId !== undefined, `Email sent banner did not show a provider email id: ${sentLabel}`);
+    assert(sendRequestBody !== undefined, "Email send did not POST through /api/email.");
+    assert(sendRequestBody["actionId"] === target.actionId, "Email send actionId did not match the approved draft action.");
+    assert(sendRequestBody["lineId"] === target.lineId, "Email send lineId did not match the opened work item.");
+    const postedSubject = readRequiredString(sendRequestBody, "subject");
+    const postedBody = readRequiredString(sendRequestBody, "body");
+    assert(postedSubject.trim().length > 0, "Email send subject was blank.");
+    assert(!postedSubject.includes(target.lineId), "Email send subject exposed the raw opened work item line id.");
+    assert(postedBody.trim().length > 0, "Email send body was blank.");
+    assert(!postedBody.includes(target.lineId), "Email send body exposed the raw opened work item line id.");
+    for (const requiredFragment of ["Case lines:", "Verdict:", "Recommended action:", "Cited records:"]) {
+      assert(postedBody.includes(requiredFragment), `Email send body omitted required draft fact: ${requiredFragment}`);
+    }
+    assert(!JSON.stringify(sendRequestBody).includes("RESEND_API_KEY"), "Browser email payload leaked a provider secret key.");
+
+    const statusResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/email" && response.request().method() === "GET"
+    );
+    await page.getByTestId("maya-email-check-delivery-status").click();
+    const statusResponse = await statusResponsePromise;
+    assert(statusResponse.ok(), `Email status GET failed ${statusResponse.status().toString()}: ${await statusResponse.text()}`);
+    await page.getByTestId("maya-email-delivery-status").waitFor({ state: "visible", timeout: 30_000 });
+    const statusText = await page.getByTestId("maya-email-delivery-status").innerText();
+    assert(statusReadUrl !== undefined, "Email delivery status did not GET /api/email.");
+    assert(statusReadUrl.searchParams.get("actionId") === target.actionId, "Email status read actionId did not match the sent receipt.");
+    assert(statusReadUrl.searchParams.get("lineId") === target.lineId, "Email status read lineId did not match the sent receipt.");
+    assert(
+      statusReadUrl.searchParams.get("providerEmailId") === sentProviderEmailId,
+      "Email status read provider id did not match send receipt."
+    );
+    assert(statusReadUrl.searchParams.get("statusToken") === null, "Email status read must not put the signed status token in the URL.");
+    assert(
+      statusReadUrl.searchParams.toString().includes(sentProviderEmailId),
+      "Email status read URL did not include the safe provider metadata."
+    );
+    assert(
+      statusReadHeaders?.["x-recoup-email-status-token"] !== undefined &&
+        statusReadHeaders["x-recoup-email-status-token"].trim().length > 20,
+      "Email status read did not send the signed status token in a request header."
+    );
+    assert(statusText.includes("Provider event"), "Email delivery status omitted the provider event.");
+    assert(statusText.includes("Provider ID") && statusText.includes(sentProviderEmailId), "Email delivery status omitted the provider email id.");
+    assert(statusText.includes("Text hash"), "Email delivery status omitted the approved body text hash.");
+    assert(statusText.includes("HTML hash"), "Email delivery status omitted the approved body HTML hash.");
+    assert(statusText.includes("Created"), "Email delivery status omitted created timestamp.");
+    await dialog.getByRole("button", { name: /^Close$/u }).evaluate((button: HTMLButtonElement) => {
+      button.click();
+    });
+    await dialog.waitFor({ state: "hidden", timeout: 30_000 });
+    return { lastEvent: parseProviderEventFromStatusText(statusText) ?? "status-rendered", providerEmailId: sentProviderEmailId };
+  } finally {
+    page.off("request", apiEmailRequestListener);
+  }
+}
+
+function parseProviderEmailIdFromSentLabel(sentLabel: string): string | undefined {
+  const [, providerEmailId] = /(?:^|\s)-\s*([A-Za-z0-9_-]+)\s*$/u.exec(sentLabel) ?? [];
+  return providerEmailId === undefined || providerEmailId === "provider" ? undefined : providerEmailId;
+}
+
+function parseProviderEventFromStatusText(statusText: string): string | undefined {
+  const normalized = statusText.replace(/\s+/gu, " ").trim();
+  const [, providerEvent] = /\bProvider event\s+([A-Za-z0-9_-]+)/u.exec(normalized) ?? [];
+  return providerEvent;
+}
+
+function parseOptionalJsonRecord(value: string | null): Record<string, unknown> | undefined {
+  if (value === null || value.trim().length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readRequiredString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  assert(typeof value === "string", `Expected ${key} to be a string.`);
+  return value;
+}
+
+async function assertOpenDialogIsTerminal(page: Page, receipt: WorkItemDetailResponse["approvalReceipt"]): Promise<void> {
+  assert(receipt !== undefined, "Expected committed receipt before terminal dialog assertion.");
   const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
   await dialog.waitFor({ state: "visible", timeout: 30_000 });
-  const approve = decisionButton(dialog, "approve");
-  await approve.waitFor({ state: "visible", timeout: 10_000 });
-  assert(!(await approve.isDisabled()), "Approve button is disabled before duplicate approval attempt.");
-  const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/approval") && response.request().method() === "POST");
-  await approve.click();
-  return responsePromise;
+  const remainingDecisionButtons = await dialog.getByRole("button", { name: /^(Approve|Request changes|Reject)/u }).count();
+  assert(remainingDecisionButtons === 0, "Decision buttons remained visible after a committed approval receipt.");
+  await dialog.getByText(`Receipt ${receipt.auditEntryHash.slice(0, 8)} recorded.`).waitFor({ state: "visible", timeout: 30_000 });
+}
+
+async function submitDuplicateApprovalDirect(
+  apiUrl: string,
+  target: DecisionTarget,
+  decision: ApprovalDecision,
+  reason: string
+): Promise<Response> {
+  return fetch(`${apiUrl}/approval`, {
+    body: JSON.stringify({
+      actionId: target.actionId,
+      decision,
+      reason
+    }),
+    headers: {
+      "content-type": "application/json",
+      ...humanReadHeaders()
+    },
+    method: "POST"
+  });
 }
 
 function decisionButton(dialog: ReturnType<Page["locator"]>, decision: ApprovalDecision): ReturnType<Page["getByRole"]> {
@@ -632,20 +846,28 @@ function reasonForDecision(decision: ApprovalDecision): string {
 }
 
 async function openApprovalDialog(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /^Open approval$/u }).click();
+  const reviewToggle = page.locator('[data-testid="maya-evidence-reviewed-toggle"]');
+  if (await reviewToggle.isVisible()) {
+    await reviewToggle.check();
+  }
+  const openApproval = page.getByRole("button", { name: /^Open approval$/u });
+  assert(!(await openApproval.isDisabled()), "Open approval button stayed disabled after evidence review was marked.");
+  await openApproval.click();
   const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
   await dialog.waitFor({ state: "visible", timeout: 30_000 });
 }
 
 async function closeApprovalDialog(page: Page): Promise<void> {
   const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
-  await page.getByRole("button", { name: /^Close human approval dialog$/u }).click();
+  await page.getByRole("button", { name: /^Close approval dialog$/u }).click();
   await dialog.waitFor({ state: "hidden", timeout: 30_000 });
 }
 
 async function assertAuditUiState(page: Page, expectedStateText: string): Promise<void> {
-  await page.getByRole("tab", { name: /^Audit$/u }).click();
-  const auditState = page.locator('[data-testid="maya-audit-confirmation-state"]');
+  const auditDrawer = page.locator('[data-testid="maya-case-depth-drawer-audit-provenance"]');
+  await auditDrawer.scrollIntoViewIfNeeded();
+  await auditDrawer.getByTestId("maya-case-depth-drawer-trigger").click();
+  const auditState = auditDrawer.locator('[data-testid="maya-audit-confirmation-state"]');
   await auditState.waitFor({ state: "visible", timeout: 30_000 });
   await auditState.getByText(expectedStateText, { exact: true }).waitFor({ state: "visible", timeout: 30_000 });
 }

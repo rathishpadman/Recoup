@@ -9,8 +9,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
-  type Request as PlaywrightRequest,
-  type Route
+  type Request as PlaywrightRequest
 } from "playwright";
 import { governedConfigSeedRows } from "../../config/governed.js";
 import { releaseOwnerInputSeedRows } from "../../config/releaseOwnerInputs.js";
@@ -35,6 +34,7 @@ interface ForensicsE2EModel {
   kpiStrip: Array<{
     label: string;
   }>;
+  settlementRunId: string;
   recoveryTracker: {
     billingLines: number;
     recoveryLines: number;
@@ -48,6 +48,7 @@ interface ForensicsE2EModel {
     lineIds: string[];
     queueLabel: string;
     recommendedActionLabel: string;
+    reason: string;
     routingLabel: string;
     workItemLabel: string;
     verdict: "valid" | "invalid" | "partial";
@@ -92,6 +93,7 @@ interface ForensicsE2EModel {
 }
 
 type ForensicsE2EWorklistItem = ForensicsE2EModel["worklist"][number];
+type ForensicsSelectedEvidenceContext = Pick<ForensicsE2EModel, "selected">;
 
 interface ConnectorE2EModel {
   checkedAtIso: string;
@@ -111,6 +113,7 @@ interface ForensicsWorkItemDetailE2EModel {
   auditState: {
     statusLabel: string;
   };
+  selected: ForensicsE2EModel["selected"];
 }
 
 interface ManagedProcess {
@@ -498,7 +501,7 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
     mayaNavLabels.push((await mayaNavItem.innerText()).replace(/\s+/gu, " ").trim());
   }
   assert(
-    JSON.stringify(mayaNavLabels) === JSON.stringify(["Overview", "Worklist 8", "Cases", "Evidence", "Approvals 20"]),
+    JSON.stringify(mayaNavLabels) === JSON.stringify(["Overview", "Worklist 8", "Approvals 20"]),
     `Maya shadcn sidebar must match the production sidebar, received ${JSON.stringify(mayaNavLabels)}`
   );
   for (const legacyLabel of ["Configuration", "Run trace", "Analytics", "Deductions"]) {
@@ -561,7 +564,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
       await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
       await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview landing section");
-      await expectVisibleLocator(page, '[data-testid="maya-run-kpi-strip"]', "Maya Overview KPI strip");
+      await expectVisibleLocator(page, '[data-testid="maya-overview-summary-card"]', "Maya Overview summary cards");
       await openMayaOverviewSourceReadiness(page, `Maya Beat 2 ${String(target.width)}px`, { expectInitiallyHidden: true });
       await expectVisibleLocator(page, '[data-testid="maya-overview-command-center"]', "Maya Overview command center");
       await expectVisibleLocator(page, '[data-testid="maya-overview-intelligence-grid"]', "Maya Overview intelligence grid");
@@ -573,6 +576,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', "Maya Overview concentration customer sort");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-lines"]', "Maya Overview concentration lines sort");
       await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-exposure"]', "Maya Overview concentration exposure sort");
+      await assertOverviewSortControlsFidelity(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertRecoupAgentLauncherPlacement(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertRecoupAgentLauncherAvoidsOverviewData(page, `Maya Beat 2 ${String(target.width)}px`);
       await assertNoHorizontalOverflow(page, `Maya Beat 2 ${String(target.width)}px`);
@@ -601,14 +605,10 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
       await page.getByRole("button", { name: /^Overview$/u }).click();
       await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview after header work-items link return");
       if (target.label === "") {
-        await assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(browser, backendSelectedRow, beat2RowOpenTarget);
+        await assertRecoupAgentLauncherDoesNotReplayAfterOverviewDockOpen(browser, beat2RowOpenTarget);
         await assertMayaDetailErrorStateIsActionable(browser, beat2RowOpenTarget);
-        await assertRecoupAgentLauncherOpensGroundedDock(page);
+        await assertRecoupAgentLauncherOpensGroundedDock(page, model);
       }
-      await page.getByRole("button", { name: /^Cases$/u }).click();
-      await assertBeat2CasesRootFidelity(page, model, backendSelectedRow, `Maya Beat 2 ${String(target.width)}px`);
-      await page.getByRole("button", { name: /^Evidence$/u }).click();
-      await assertBeat2EvidenceRootFidelity(page, connectors, `Maya Beat 2 ${String(target.width)}px`);
       await page.getByRole("button", { name: /^Worklist$/u }).click();
       await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist section");
       await expectVisibleText(page, "Deduction Worklist");
@@ -643,7 +643,7 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
         await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "hidden", timeout: 5_000 });
         assert(
           (await page.locator('[data-testid="maya-query-dock"]').count()) === 0,
-          "Recoup Agent launcher signal must not replay when opening an investigation normally"
+          "Recoup Copilot launcher signal must not replay when opening an investigation normally"
         );
       }
       assert(
@@ -687,8 +687,8 @@ async function captureMayaBeat3RecommendedActionScreenshot(browser: Browser): Pr
   }
 }
 
-async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<void> {
-  const launcherRect = await assertRecoupAgentLauncherPlacement(page, "Maya Recoup Agent query dock");
+async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: ForensicsE2EModel): Promise<void> {
+  const launcherRect = await assertRecoupAgentLauncherPlacement(page, "Maya Recoup Copilot query dock");
   const launcherStyle = await page.getByTestId("recoup-agent-launcher").evaluate((element) => {
     const style = window.getComputedStyle(element);
     return {
@@ -700,17 +700,183 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page): Promise<v
     launcherStyle.backgroundColor !== "" &&
       launcherStyle.backgroundColor !== "rgba(0, 0, 0, 0)" &&
       launcherStyle.backgroundColor !== "transparent",
-    `Recoup Agent launcher must use the distinct floating chat treatment; background=${launcherStyle.backgroundColor}`
+    `Recoup Copilot launcher must use the distinct floating chat treatment; background=${launcherStyle.backgroundColor}`
   );
-  assert(launcherStyle.color !== "", "Recoup Agent launcher must expose readable foreground color");
-  await page.getByTestId("recoup-agent-launcher").click();
-  await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "visible", timeout: 15_000 });
-  await page.locator('[data-testid="maya-selected-evidence-context"]').waitFor({ state: "visible", timeout: 15_000 });
-  await assertRecoupAgentLauncherDoesNotObstructQueryDock(page, launcherRect);
-  const dockText = await page.getByTestId("maya-query-dock").innerText();
-  assert(dockText.includes("Selected evidence packet"), "Recoup Agent launcher must open the selected evidence packet context");
-  assert(dockText.includes("Client-selected case context"), "Recoup Agent launcher must keep honest selected-case query context");
-  await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+  assert(launcherStyle.color !== "", "Recoup Copilot launcher must expose readable foreground color");
+  const casePickerTarget =
+    model.worklist.find((item) => !item.lineIds.includes(model.selected.lineId)) ??
+    firstItem(model.worklist, "Overview copilot case picker options");
+  const caseScopedAnswer = `E2E Overview case-scoped cited answer for ${casePickerTarget.lineId}.`;
+  const workspaceAnswer = "E2E Overview workspace cited answer from the backend query route.";
+  let workspaceQueryBody: Record<string, unknown> | undefined;
+  let caseQueryBody: Record<string, unknown> | undefined;
+  let markWorkspaceQueryStarted: (() => void) | undefined;
+  let markCaseQueryStarted: (() => void) | undefined;
+  const workspaceQueryStarted = new Promise<void>((resolve) => {
+    markWorkspaceQueryStarted = resolve;
+  });
+  const caseQueryStarted = new Promise<void>((resolve) => {
+    markCaseQueryStarted = resolve;
+  });
+  await page.route("**/api/forensics/query", async (route) => {
+    const requestBody = parseOptionalJsonRecord(route.request().postData());
+    if (requestBody?.["scope"] === "workspace") {
+      workspaceQueryBody = requestBody;
+      markWorkspaceQueryStarted?.();
+      await route.fulfill({
+        body: JSON.stringify(
+          buildE2EForensicsQueryResponse(
+            model,
+            workspaceAnswer,
+            "E2E deterministic basis from the Overview workspace backend query response.",
+            {
+              memoryRecall: {
+                memoryRecordCount: 0,
+                recordCount: 0,
+                scopeCount: 0
+              }
+            }
+          )
+        ),
+        contentType: "application/json",
+        status: 200
+      });
+      return;
+    } else {
+      caseQueryBody = requestBody;
+      markCaseQueryStarted?.();
+    }
+    await route.fulfill({
+      body: JSON.stringify(
+        buildE2EForensicsQueryResponse(
+          selectedEvidenceContextForWorklistItem(model, casePickerTarget),
+          caseScopedAnswer,
+          `E2E deterministic basis from the Overview case-scoped backend query response for ${casePickerTarget.lineId}.`,
+          {
+            memoryRecall: {
+              memoryRecordCount: 2,
+              recordCount: 4,
+              scopeCount: 1,
+              payload_json: { body: "Do not expose remembered body text." },
+              selectedRecordIds: [casePickerTarget.lineId],
+              sessionId: "maya-session-42"
+            }
+          }
+        )
+      ),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+  try {
+    await page.getByTestId("recoup-agent-launcher").click();
+    await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "visible", timeout: 15_000 });
+    await page.locator('[data-testid="maya-selected-evidence-context"]').waitFor({ state: "visible", timeout: 15_000 });
+    await assertRecoupAgentLauncherDoesNotObstructQueryDock(page, launcherRect);
+    const dockText = await page.getByTestId("maya-query-dock").innerText();
+    assert(dockText.includes("Settlement run packet"), "Recoup Copilot launcher must open the workspace evidence packet context");
+    assert(dockText.includes("Workspace evidence context"), "Recoup Copilot launcher must keep honest workspace evidence context");
+    assert(!dockText.includes("Client-selected case context"), "Recoup Copilot launcher must not expose developer-facing selected-case copy");
+    await expectVisibleLocator(page, '[data-testid="maya-query-case-picker"]', "Maya Overview copilot case picker");
+    await expectVisibleLocator(page, 'button[aria-label="Ask by voice"]', "Maya Overview Recoup Copilot idle voice button");
+    await page.getByRole("combobox", { name: /^Choose copilot case focus$/u }).click();
+    for (const item of model.worklist) {
+      await page
+        .getByRole("option", { name: new RegExp(`^${escapeRegExp(item.customerLabel)} - ${escapeRegExp(item.workItemLabel)}`, "u") })
+        .waitFor({ state: "visible", timeout: 5_000 });
+    }
+    await page
+      .getByRole("option", {
+        name: new RegExp(`^${escapeRegExp(casePickerTarget.customerLabel)} - ${escapeRegExp(casePickerTarget.workItemLabel)}`, "u")
+      })
+      .click();
+    await page.getByTestId("maya-query-selected-line").waitFor({ state: "visible", timeout: 5_000 });
+    const selectedCaseLabel = await page.getByTestId("maya-query-selected-line").innerText();
+    assert(
+      selectedCaseLabel.includes("Selected case"),
+      `Overview Recoup Copilot case picker must show business selected-case copy for ${casePickerTarget.lineId}`
+    );
+    await page.getByTestId("maya-query-input").fill(`What evidence supports ${casePickerTarget.lineId}?`);
+    await page.getByRole("button", { name: /^Run query$/u }).click();
+    await Promise.race([
+      caseQueryStarted,
+      delay(5_000).then(() => {
+        throw new Error("Overview Recoup Copilot case-scoped query request did not start.");
+      })
+    ]);
+    assert(caseQueryBody !== undefined, "Overview Recoup Copilot case-scoped query body must be JSON.");
+    assert(caseQueryBody["selectedLineId"] === casePickerTarget.lineId, "Overview Recoup Copilot case picker must submit selectedLineId.");
+    assert(Array.isArray(caseQueryBody["recordIds"]), "Overview Recoup Copilot case picker must submit case record IDs.");
+    assert(
+      (caseQueryBody["recordIds"] as unknown[]).includes(casePickerTarget.lineId),
+      "Overview Recoup Copilot case picker record IDs must include the selected line."
+    );
+    for (const lineId of casePickerTarget.lineIds) {
+      assert(
+        (caseQueryBody["recordIds"] as unknown[]).includes(lineId),
+        `Overview Recoup Copilot case picker record IDs must include picked case line ${lineId}.`
+      );
+    }
+    await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Overview case-scoped Copilot verdict band");
+    await expectVisibleLocator(page, '[data-testid="maya-query-memory-chip"]', "Overview case-scoped memory recall chip");
+    const memoryChipText = await page.getByTestId("maya-query-memory-chip").innerText();
+    assert(memoryChipText.trim() === "Case memory · 2 records", `Memory recall chip text mismatch: ${memoryChipText}`);
+    const pickedCaseStory = await page.getByTestId("maya-query-dock").innerText();
+    assert(
+      pickedCaseStory.includes(casePickerTarget.verdictLabel) &&
+        pickedCaseStory.includes(casePickerTarget.recommendedActionLabel) &&
+        pickedCaseStory.includes(casePickerTarget.amount) &&
+        pickedCaseStory.includes(casePickerTarget.reason),
+      `Overview case-scoped Copilot story must render the picked case verdict/action/amount/reason for ${casePickerTarget.lineId}.`
+    );
+    await page.getByTestId("maya-copilot-citations-drawer").getByRole("button", { name: /^Citations/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-query-citation-record"]', "Overview case-scoped Copilot citation records");
+    const pickedCaseCitations = await page.getByTestId("maya-copilot-citation-records").innerText();
+    for (const lineId of casePickerTarget.lineIds) {
+      assert(pickedCaseCitations.includes(lineId), `Overview case-scoped Copilot citation drawer must include ${lineId}.`);
+    }
+    if (!casePickerTarget.lineIds.includes(model.selected.lineId)) {
+      assert(
+        !pickedCaseCitations.includes(model.selected.lineId),
+        `Overview case-scoped Copilot citation drawer must not leak default selected line ${model.selected.lineId}.`
+      );
+    }
+    assert(!pickedCaseStory.includes("Do not expose remembered body text."), "Overview case-scoped Copilot rendered memory body text.");
+
+    await page.getByRole("combobox", { name: /^Choose copilot case focus$/u }).click();
+    await page.getByRole("option", { name: /^Workspace$/u }).click();
+    await page.getByTestId("maya-query-input").fill("What did the agents conclude across the settlement run?");
+    await page.waitForFunction(() => {
+      const selectedLine = document.querySelector<HTMLElement>('[data-testid="maya-query-selected-line"]')?.innerText ?? "";
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="maya-query-input"]');
+      return selectedLine.includes("Workspace") && input?.value === "What did the agents conclude across the settlement run?";
+    });
+    await page.getByRole("button", { name: /^Run query$/u }).click();
+    await Promise.race([
+      workspaceQueryStarted,
+      delay(5_000).then(() => {
+        throw new Error("Overview Recoup Copilot workspace query request did not start.");
+      })
+    ]);
+    assert(workspaceQueryBody !== undefined, "Overview Recoup Copilot workspace query body must be JSON.");
+    assert(workspaceQueryBody["scope"] === "workspace", "Overview Recoup Copilot must submit workspace query scope.");
+    assert(
+      workspaceQueryBody["settlementRunId"] === model.settlementRunId,
+      "Overview Recoup Copilot must submit the backend settlementRunId."
+    );
+    assert(
+      workspaceQueryBody["recordIds"] === undefined && workspaceQueryBody["selectedLineId"] === undefined,
+      "Overview Recoup Copilot workspace query must not fall back to selected-line payload fields."
+    );
+    await page.waitForFunction((answer) => {
+      const assistantText = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]')?.innerText ?? "";
+      return assistantText.includes(answer);
+    }, workspaceAnswer);
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="maya-query-memory-chip"]').length === 0);
+    await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+  } finally {
+    await page.unroute("**/api/forensics/query").catch(() => undefined);
+  }
 }
 
 async function assertRecoupAgentLauncherMobilePlacement(browser: Browser): Promise<void> {
@@ -720,7 +886,7 @@ async function assertRecoupAgentLauncherMobilePlacement(browser: Browser): Promi
   try {
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya mobile shadcn workbench");
-    await assertRecoupAgentLauncherPlacement(page, "Maya mobile Recoup Agent launcher");
+    await assertRecoupAgentLauncherPlacement(page, "Maya mobile Recoup Copilot launcher");
   } finally {
     await context.close();
   }
@@ -734,22 +900,23 @@ interface RectLike {
 }
 
 async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Promise<RectLike> {
-  await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
+  await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Copilot launcher");
   const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
   const viewportSize = page.viewportSize();
-  assert(launcherRect !== null, `${label} Recoup Agent launcher must expose a measurable viewport rect`);
-  assert(viewportSize !== null, `${label} Recoup Agent launcher viewport check requires a viewport`);
+  assert(launcherRect !== null, `${label} Recoup Copilot launcher must expose a measurable viewport rect`);
+  assert(viewportSize !== null, `${label} Recoup Copilot launcher viewport check requires a viewport`);
   const bottomInset = viewportSize.height - (launcherRect.y + launcherRect.height);
   assert(
     launcherRect.x >= 0 &&
       launcherRect.x + launcherRect.width <= viewportSize.width &&
       launcherRect.y >= 0 &&
       launcherRect.y + launcherRect.height <= viewportSize.height,
-    `${label} Recoup Agent launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
+    `${label} Recoup Copilot launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
   );
+  const desktopPlacement = viewportSize.width >= 768 ? launcherRect.x > viewportSize.width / 2 : launcherRect.x >= 0;
   assert(
-    launcherRect.y >= viewportSize.height - 96 && bottomInset <= 32,
-    `${label} Recoup Agent launcher must sit on the bottom rail below overview rows; rect=${JSON.stringify(
+    launcherRect.y >= 96 && bottomInset > viewportSize.height / 2 && desktopPlacement,
+    `${label} Recoup Copilot launcher must sit in an independent Overview command rail, below the top header and outside data rows; rect=${JSON.stringify(
       launcherRect
     )} viewport=${JSON.stringify(viewportSize)}`
   );
@@ -757,9 +924,16 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
   return launcherRect;
 }
 
+async function openRecoupCopilotDock(page: Page, label: string): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Copilot launcher");
+  await page.getByTestId("recoup-agent-launcher").click();
+  await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', label);
+  await expectVisibleLocator(page, '[data-testid="maya-query-input"]', `${label} input`);
+}
+
 async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: string): Promise<void> {
   const launcherRect = await page.getByTestId("recoup-agent-launcher").boundingBox();
-  assert(launcherRect !== null, `${label} Recoup Agent launcher overlap check requires a launcher rect`);
+  assert(launcherRect !== null, `${label} Recoup Copilot launcher overlap check requires a launcher rect`);
   const checkedSelectors = [
     '[data-testid="maya-overview-case-concentration-header-row"]',
     '[data-testid="maya-overview-case-concentration-row"]',
@@ -779,7 +953,7 @@ async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: st
     for (const box of guardedBoxes) {
       assert(
         !rectsIntersect(launcherRect, box),
-        `${label} Recoup Agent launcher must not overlap the concentration header or first rows (${selector}); launcher=${JSON.stringify(
+        `${label} Recoup Copilot launcher must not overlap the concentration header or first rows (${selector}); launcher=${JSON.stringify(
           launcherRect
         )} data=${JSON.stringify(box)}`
       );
@@ -787,9 +961,112 @@ async function assertRecoupAgentLauncherAvoidsOverviewData(page: Page, label: st
   }
 }
 
+async function assertOverviewSortControlsFidelity(page: Page, label: string): Promise<void> {
+  const result = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>('[data-testid="maya-overview-case-concentration-header-row"]');
+    const firstRow = document.querySelector<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]');
+    const buttonKeys = [
+      ["id", "maya-overview-case-concentration-sort-id"],
+      ["customer", "maya-overview-case-concentration-sort-customer"],
+      ["lines", "maya-overview-case-concentration-sort-lines"],
+      ["exposure", "maya-overview-case-concentration-sort-exposure"]
+    ] as const;
+    const buttons = buttonKeys
+      .map(([key, testId]) => {
+        const button = document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+        return button !== null && button.offsetParent !== null ? { button, key } : undefined;
+      })
+      .filter((entry): entry is { button: HTMLButtonElement; key: (typeof buttonKeys)[number][0] } => entry !== undefined);
+    const rects = buttons.map(({ button, key }) => {
+      const rect = button.getBoundingClientRect();
+      const visibleSpans = [...button.querySelectorAll<HTMLElement>("span")]
+        .filter((span) => {
+          const style = window.getComputedStyle(span);
+          const spanRect = span.getBoundingClientRect();
+
+          return style.position !== "absolute" && spanRect.width > 0 && spanRect.height > 0;
+        })
+        .map((span) => span.innerText.trim())
+        .filter((text) => text.length > 0);
+
+      return {
+        height: rect.height,
+        key,
+        text: visibleSpans.join(" "),
+        width: rect.width,
+        x: rect.x,
+        y: rect.y
+      };
+    });
+    const rowCells = firstRow === null
+      ? []
+      : [...firstRow.children].map((cell) => {
+          const rect = cell.getBoundingClientRect();
+          return { height: rect.height, width: rect.width, x: rect.x, y: rect.y };
+        });
+    const overlaps = rects.flatMap((left, leftIndex) =>
+      rects.slice(leftIndex + 1).flatMap((right, rightOffset) => {
+        const rightIndex = leftIndex + rightOffset + 1;
+        const intersects =
+          left.x < right.x + right.width &&
+          left.x + left.width > right.x &&
+          left.y < right.y + right.height &&
+          left.y + left.height > right.y;
+
+        return intersects ? [`${leftIndex.toString()}-${rightIndex.toString()}`] : [];
+      })
+    );
+
+    return {
+      buttonCount: buttons.length,
+      headerText: header?.innerText.trim() ?? "",
+      rowCells,
+      overlaps,
+      rects
+    };
+  });
+
+  assert(result.buttonCount === 4, `${label} Overview sort controls must render four controls`);
+  assert(result.overlaps.length === 0, `${label} Overview sort controls must not overlap: ${JSON.stringify(result)}`);
+  assert(
+    !/\bSort by\b|\b(?:ID|Customer|Lines|Exposure)\s+Sort\b/u.test(result.headerText),
+    `${label} Overview sort controls must read as an aligned header, not a combined Sort by toolbar: ${result.headerText}`
+  );
+  assert(result.rowCells.length >= 5, `${label} Overview sort alignment requires first row cell rects: ${JSON.stringify(result)}`);
+  const sortRectByKey = Object.fromEntries(result.rects.map((rect) => [rect.key, rect]));
+  const anchoredAlignmentPairs = [
+    ["id", 0],
+    ["customer", 1]
+  ] as const;
+  for (const [key, rowCellIndex] of anchoredAlignmentPairs) {
+    const sortRect = sortRectByKey[key];
+    const rowCell = result.rowCells[rowCellIndex];
+    assert(sortRect !== undefined && rowCell !== undefined, `${label} Overview sort ${key} alignment data missing: ${JSON.stringify(result)}`);
+    assert(
+      Math.abs(sortRect.x - rowCell.x) <= 12,
+      `${label} Overview sort ${key} must align with row column ${rowCellIndex.toString()}: ${JSON.stringify({ rowCell, sortRect })}`
+    );
+  }
+  const amountCell = result.rowCells[3];
+  assert(amountCell !== undefined, `${label} Overview sort amount/lines alignment data missing: ${JSON.stringify(result)}`);
+  for (const key of ["exposure", "lines"] as const) {
+    const sortRect = sortRectByKey[key];
+    assert(sortRect !== undefined, `${label} Overview sort ${key} alignment data missing: ${JSON.stringify(result)}`);
+    assert(
+      sortRect.x >= amountCell.x - 12 && sortRect.x + sortRect.width <= amountCell.x + amountCell.width + 12,
+      `${label} Overview sort ${key} must stay inside the exposure/lines row column: ${JSON.stringify({ amountCell, sortRect })}`
+    );
+  }
+  for (const rect of result.rects) {
+    assert(rect.width >= 52, `${label} Overview sort control must have scan-friendly width: ${JSON.stringify(rect)}`);
+    assert(rect.height <= 36, `${label} Overview sort control must stay compact: ${JSON.stringify(rect)}`);
+    assert(!/\bSort\b/u.test(rect.text), `${label} inactive Overview sort control must hide the visible Sort helper: ${rect.text}`);
+  }
+}
+
 async function assertRecoupAgentLauncherDoesNotObstructQueryDock(page: Page, launcherRect: RectLike): Promise<void> {
   const dockRect = await page.getByTestId("maya-query-dock").boundingBox();
-  assert(dockRect !== null, "Recoup Agent launcher query-dock overlap check requires a dock rect");
+  assert(dockRect !== null, "Recoup Copilot launcher query-dock overlap check requires a dock rect");
   if (!rectsIntersect(launcherRect, dockRect)) {
     return;
   }
@@ -800,7 +1077,7 @@ async function assertRecoupAgentLauncherDoesNotObstructQueryDock(page: Page, lau
   }, centerOfRect(launcherRect));
   assert(
     topTestId !== "recoup-agent-launcher",
-    `Recoup Agent launcher must not sit above the right-side query dock when the dock is open; topTestId=${topTestId}`
+    `Recoup Copilot launcher must not sit above the right-side query dock when the dock is open; topTestId=${topTestId}`
   );
 }
 
@@ -820,28 +1097,19 @@ function centerOfRect(rect: RectLike): { x: number; y: number } {
   };
 }
 
-async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(
+async function assertRecoupAgentLauncherDoesNotReplayAfterOverviewDockOpen(
   browser: Browser,
-  launchItem: ForensicsE2EWorklistItem,
   normalOpenItem: ForensicsE2EWorklistItem
 ): Promise<void> {
   const context = await newRoleContext(browser, "maya", 1440, 900);
   const page = await context.newPage();
   const routePattern = "**/api/forensics/work-items/**";
-  let heldRoute: Route | undefined;
-  let resolveHeldRoute: ((route: Route) => void) | undefined;
-  const heldRoutePromise = new Promise<Route>((resolve) => {
-    resolveHeldRoute = resolve;
-  });
+  let detailRequestCount = 0;
 
   await page.route(routePattern, async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
-    const expectedPath = `/api/forensics/work-items/${encodeURIComponent(launchItem.lineId)}`;
-    if (request.method() === "GET" && pathname.endsWith(expectedPath) && heldRoute === undefined) {
-      heldRoute = route;
-      resolveHeldRoute?.(route);
-      return;
+    if (request.method() === "GET") {
+      detailRequestCount += 1;
     }
 
     await route.continue();
@@ -849,35 +1117,25 @@ async function assertRecoupAgentLauncherDoesNotReplayAfterCanceledDetailLoad(
 
   try {
     await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
-    await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Agent launcher");
+    await expectVisibleLocator(page, '[data-testid="recoup-agent-launcher"]', "Recoup Copilot launcher");
     await page.getByTestId("recoup-agent-launcher").click();
-    const route = await Promise.race([
-      heldRoutePromise,
-      delay(5_000).then(() => {
-        throw new Error("Recoup Agent canceled-load test did not intercept the launcher detail request.");
-      })
-    ]);
-    await expectVisibleLocator(page, '[data-testid="maya-work-item-detail-state"]', "Maya work item detail loading state");
-    await expectVisibleLocator(
-      page,
-      '[data-testid="maya-work-item-detail-loading-skeleton"]',
-      "Maya work item detail loading skeleton"
+    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Overview Recoup Copilot dock");
+    await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview remains mounted after Copilot dock open");
+    await expectNoVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace after Overview Copilot dock open");
+    assert(
+      detailRequestCount === 0,
+      `Overview Recoup Copilot launcher must not request a case detail packet before backend workspace query support; received ${detailRequestCount.toString()} requests`
     );
+    await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
     await page.getByRole("button", { name: /^Worklist$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist section after canceled launcher load");
-    await route.fulfill({
-      body: JSON.stringify({ error: "Canceled launcher detail load held by E2E." }),
-      contentType: "application/json",
-      status: 503
-    });
-    await page.unroute(routePattern);
+    await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist section after Overview dock close");
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${normalOpenItem.lineId}"]`).scrollIntoViewIfNeeded();
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${normalOpenItem.lineId}"]`).click();
     await page.getByTestId("maya-local-row-action-open").click();
     await page.locator('[data-testid="maya-query-dock"]').waitFor({ state: "hidden", timeout: 5_000 });
     assert(
       (await page.locator('[data-testid="maya-query-dock"]').count()) === 0,
-      "Recoup Agent launcher signal must not replay after canceled detail loading"
+      "Recoup Copilot launcher signal must not replay after Overview dock close"
     );
   } finally {
     await page.unroute(routePattern).catch(() => undefined);
@@ -897,6 +1155,7 @@ async function assertMayaDetailErrorStateIsActionable(browser: Browser, errorTar
     const pathname = new URL(request.url()).pathname;
     if (request.method() === "GET" && pathname.endsWith(expectedDetailPath) && !failedOnce) {
       failedOnce = true;
+      await delay(150);
       await route.fulfill({
         body: JSON.stringify({
           correlationId: "maya-task-9-detail-error-e2e",
@@ -917,7 +1176,13 @@ async function assertMayaDetailErrorStateIsActionable(browser: Browser, errorTar
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${errorTarget.lineId}"]`).click();
     await page.getByTestId("maya-local-row-action-open").click();
+    await expectVisibleLocator(
+      page,
+      '[data-testid="maya-work-item-detail-loading-skeleton"]',
+      "Maya detail loading skeleton before fail-closed error"
+    );
     await expectVisibleLocator(page, '[data-testid="maya-work-item-detail-state"]', "Maya detail error state");
+    await page.waitForFunction(() => document.body.innerText.includes("Source unavailable"), undefined, { timeout: 10_000 });
     await expectVisibleText(page, "Source unavailable");
     await expectVisibleText(page, "Retry");
     await expectVisibleText(page, "Return to worklist");
@@ -968,11 +1233,11 @@ async function captureMayaBeat4CaseOverviewScreenshot(browser: Browser): Promise
     await expectVisibleLocator(page, '[data-testid="maya-shadcn-workbench"]', "Maya shadcn workbench");
     await openMayaWorklistSection(page);
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 4 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Draft/u }).click();
-    await assertBeat4DraftTabFidelity(page, model, forbiddenRequests);
-    await page.getByRole("tab", { name: /Overview/u }).click();
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaDraftReviewSection(page);
+    await assertBeat4DraftTabFidelity(page, detailModel, forbiddenRequests);
+    await scrollToMayaCaseSection(page, "maya-case-detail-b2-dossier-head", "Maya Beat 4 dossier head restored");
     await expectVisibleLocator(page, '[data-testid="maya-case-overview"]', "Maya Beat 4 overview tab restored");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
   } finally {
@@ -1001,10 +1266,10 @@ async function captureMayaBeat5EvidenceDossierScreenshot(browser: Browser): Prom
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 5 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Evidence/u }).click();
-    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaEvidenceSection(page);
+    await assertBeat5EvidenceDossierFidelity(page, detailModel, connectors, forbiddenRequests);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-05-evidence-dossier.png` });
   } finally {
     await context.close();
@@ -1035,14 +1300,13 @@ async function captureMayaBeat6QueryStartScreenshot(browser: Browser): Promise<v
     await expectVisibleText(page, "Deduction Worklist");
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 6 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Evidence/u }).click();
-    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
-    await page.getByRole("button", { name: /^Query evidence$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 6 query dock");
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaEvidenceSection(page);
+    await assertBeat5EvidenceDossierFidelity(page, detailModel, connectors, forbiddenRequests);
+    await openRecoupCopilotDock(page, "Maya Beat 6 query dock");
     await page.getByTestId("maya-query-input").fill(localQuestion);
-    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await assertBeat6QueryStartFidelity(page, detailModel, localQuestion, forbiddenRequests);
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-06-query-start.png` });
   } finally {
     await context.close();
@@ -1060,6 +1324,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
   const localQuestion = "Which selected evidence records support this deduction review?";
   const heldAnswer = "E2E held cited answer from the backend query route.";
   const heldBasis = "E2E deterministic basis from the held backend query response.";
+  let queryEvidenceContext: ForensicsSelectedEvidenceContext = model;
   let releaseForensicsQueryRequest: (() => void) | undefined;
   let backendQueryRequestCount = 0;
   const backendQueryRequestStarted = new Promise<void>((resolve) => {
@@ -1070,7 +1335,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
         releaseForensicsQueryRequest = release;
       });
       await route.fulfill({
-        body: JSON.stringify(buildE2EForensicsQueryResponse(model, heldAnswer, heldBasis)),
+        body: JSON.stringify(buildE2EForensicsQueryResponse(queryEvidenceContext, heldAnswer, heldBasis)),
         contentType: "application/json",
         status: 200
       }).catch((error: unknown) => {
@@ -1093,14 +1358,14 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 7 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Evidence/u }).click();
-    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
-    await page.getByRole("button", { name: /^Query evidence$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 7 query dock");
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    queryEvidenceContext = detailModel;
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaEvidenceSection(page);
+    await assertBeat5EvidenceDossierFidelity(page, detailModel, connectors, forbiddenRequests);
+    await openRecoupCopilotDock(page, "Maya Beat 7 query dock");
     await page.getByTestId("maya-query-input").fill(localQuestion);
-    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await assertBeat6QueryStartFidelity(page, detailModel, localQuestion, forbiddenRequests);
     await page.getByRole("button", { name: /^Run query$/u }).click();
     await Promise.race([
       backendQueryRequestStarted,
@@ -1108,7 +1373,7 @@ async function captureMayaBeat7AgentTraceScreenshot(browser: Browser): Promise<v
         throw new Error("Beat 7 backend forensics query request did not start.");
       })
     ]);
-    await assertBeat7AgentTraceInProgressFidelity(page, model, localQuestion, forbiddenRequests, backendQueryRequestCount);
+    await assertBeat7AgentTraceInProgressFidelity(page, detailModel, localQuestion, forbiddenRequests, backendQueryRequestCount);
     await assertBeat7StopQueryResetsParentTrace(page);
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-07-agent-trace.png` });
   } finally {
@@ -1131,6 +1396,7 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
   const acceptedAnswer = "E2E accepted cited answer from the backend query route.";
   const acceptedBasis = "E2E deterministic basis from the backend query response.";
   let backendQueryRequestCount = 0;
+  let queryEvidenceContext: ForensicsSelectedEvidenceContext = model;
   let browserRuntimeProbe: unknown;
   const browserErrors: string[] = [];
   const browserWarnings: string[] = [];
@@ -1138,7 +1404,7 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
   await page.route("**/api/forensics/query", async (route) => {
     backendQueryRequestCount += 1;
     await route.fulfill({
-      body: JSON.stringify(buildE2EForensicsQueryResponse(model, acceptedAnswer, acceptedBasis)),
+      body: JSON.stringify(buildE2EForensicsQueryResponse(queryEvidenceContext, acceptedAnswer, acceptedBasis)),
       contentType: "application/json",
       status: 200
     });
@@ -1169,17 +1435,17 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 8 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Evidence/u }).click();
-    await assertBeat5EvidenceDossierFidelity(page, model, connectors, forbiddenRequests);
-    await page.getByRole("button", { name: /^Query evidence$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 8 query dock");
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    queryEvidenceContext = detailModel;
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaEvidenceSection(page);
+    await assertBeat5EvidenceDossierFidelity(page, detailModel, connectors, forbiddenRequests);
+    await openRecoupCopilotDock(page, "Maya Beat 8 query dock");
     await page.getByTestId("maya-query-input").fill(localQuestion);
-    await assertBeat6QueryStartFidelity(page, model, localQuestion, forbiddenRequests);
+    await assertBeat6QueryStartFidelity(page, detailModel, localQuestion, forbiddenRequests);
     await page.getByRole("button", { name: /^Run query$/u }).click();
     try {
-      await page.locator('[data-testid="maya-cited-answer"]').waitFor({ state: "visible", timeout: 15_000 });
+      await page.locator('[data-testid="maya-copilot-verdict-band"]').waitFor({ state: "visible", timeout: 15_000 });
     } catch (error) {
       const beat8State = await page.evaluate(() => {
         const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
@@ -1208,8 +1474,8 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
       );
       throw error;
     }
-    await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', "Maya Beat 8 cited answer");
-    await assertBeat8CitedAnswerFidelity(page, model, {
+    await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Maya Beat 8 Copilot verdict band");
+    await assertBeat8CitedAnswerFidelity(page, detailModel, {
       acceptedAnswer,
       acceptedBasis,
       backendQueryRequestCount,
@@ -1217,8 +1483,9 @@ async function captureMayaBeat8CitedAnswerScreenshot(browser: Browser): Promise<
       localQuestion,
     });
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-08-cited-answer.png` });
+    await assertBeat8VoiceQueryFidelity(page, detailModel, localQuestion);
   } finally {
-    await page.unroute("https://api.openai.com/v1/realtime/calls");
+    await page.unroute("https://api.openai.com/v1/realtime/calls").catch(() => undefined);
     await page.unroute("**/api/forensics/query");
     await context.close();
   }
@@ -1228,14 +1495,26 @@ async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void>
   await context.addInitScript({
     content: String.raw`
 (() => {
+  const runtimeState = {
+    denyMedia: false,
+    mediaTrackStops: 0,
+    peerConnections: []
+  };
+  Object.defineProperty(window, "__recoupE2ERealtime", {
+    configurable: true,
+    value: runtimeState
+  });
+
   class E2EDataChannel extends EventTarget {
     constructor() {
       super();
+      this.closed = false;
       this.sentMessages = [];
       this.sentResponseCreate = false;
     }
 
     close() {
+      this.closed = true;
       this.dispatchEvent(new Event("close"));
     }
 
@@ -1278,13 +1557,18 @@ async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void>
   class E2EPeerConnection extends EventTarget {
     constructor() {
       super();
+      this.closed = false;
       this.dataChannel = new E2EDataChannel();
       this.ontrack = null;
+      runtimeState.peerConnections.push(this);
     }
 
     addTrack() {}
 
-    close() {}
+    close() {
+      this.closed = true;
+      this.dataChannel.close();
+    }
 
     createDataChannel() {
       return this.dataChannel;
@@ -1309,14 +1593,21 @@ async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void>
   }
 
   const mediaDevices = {
-    getUserMedia: () =>
-      Promise.resolve({
+    getUserMedia: () => {
+      if (runtimeState.denyMedia) {
+        return Promise.reject(new DOMException("Microphone permission denied in E2E", "NotAllowedError"));
+      }
+
+      return Promise.resolve({
         getTracks: () => [
           {
-            stop: () => undefined
+            stop: () => {
+              runtimeState.mediaTrackStops += 1;
+            }
           }
         ]
-      })
+      });
+    }
   };
 
   Object.defineProperty(window.navigator, "mediaDevices", {
@@ -1343,14 +1634,18 @@ async function assertPremiumSurfaces(browser: Browser): Promise<void> {
   await expectText(forensics, "Contract-Reader");
   await expectText(forensics, "TPM-Matcher");
   await expectText(forensics, "voice/text citation parity");
-  await expectText(forensics, "ToolStatusRail");
-  await expectText(forensics, "MultimodalDoc");
+  await expectVisibleText(forensics, "Source readiness");
+  await expectVisibleText(forensics, "Investigation checklist");
 
   const run = await mayaContext.newPage();
   await run.goto(`${appUrl}/run`, { waitUntil: "networkidle" });
   await expectLocator(run, ".agent-trace-visualizer", "Run AgentTraceVisualizer");
   await expectText(run, "Trace lanes");
-  await expectText(run, "Realtime evidence query");
+  await expectVisibleText(run, "Recoup Copilot");
+  const runCopilot = run.getByTestId("run-copilot-drawer");
+  assert(!(await runCopilot.locator(".query-box").isVisible()), "Run Recoup Copilot query controls must stay collapsed until clicked");
+  await runCopilot.locator("summary").click();
+  await expectVisibleLocator(run, '[data-testid="run-copilot-drawer"] .query-box', "Run Recoup Copilot query controls");
   await mayaContext.close();
 
   await assertMayaShadcnReviewRoute(browser);
@@ -1436,8 +1731,6 @@ async function assertEvalsFinopsGovernanceRoute(browser: Browser): Promise<void>
 }
 
 async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
-  const model = await loadForensicsE2EModel();
-  const kpi = firstItem(model.kpiStrip, "forensics KPI strip");
   const mayaContext = await newRoleContext(browser, "maya", 1440, 900);
   const page = await mayaContext.newPage();
 
@@ -1447,18 +1740,17 @@ async function assertMayaShadcnReviewRoute(browser: Browser): Promise<void> {
     await expectVisibleText(page, "Maya");
     await expectVisibleLocator(page, '[data-testid="maya-overview-kpi-band"]', "Maya Overview KPI band");
     await expectVisibleLocator(page, '[data-testid="maya-overview-concentration-band"]', "Maya Overview concentration band");
-    await expectVisibleLocator(page, '[data-testid="maya-overview-system-band"]', "Maya Overview system band");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-source-readiness-toggle"]', "Maya Overview source readiness toggle");
+    await expectVisibleLocator(page, '[data-testid="maya-overview-summary-card"]', "Maya Overview summary cards");
     await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-table"]', "Maya Overview concentration table");
     await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-filter"]', "Maya Overview concentration filter");
     await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', "Maya Overview concentration customer sort");
-    await expectVisibleLocator(page, '[data-testid="maya-kpi-trend-unavailable"]', "Maya KPI trend unavailable fallback");
     await expectVisibleText(page, "Case Concentration Analysis");
-    await expectVisibleText(page, kpi.label);
+    await expectVisibleText(page, "Deduction cases");
 
-    await page.getByRole("button", { name: /^Evidence$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-root-section-evidence"]', "Maya Evidence root section");
-    await expectVisibleText(page, model.selected.lineId);
-    await expectVisibleText(page, "Evidence attached");
+    await page.getByRole("button", { name: /^Worklist$/u }).click();
+    await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist root section");
+    await expectVisibleText(page, "Deduction Worklist");
   } finally {
     await mayaContext.close();
   }
@@ -1514,16 +1806,17 @@ async function captureMayaBeat9DraftReviewScreenshot(browser: Browser): Promise<
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 9 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Draft/u }).click();
-    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaDraftReviewSection(page);
+    await assertBeat9DraftReviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
     await page.evaluate(() => {
       document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
     });
     await assertLocatorInsideViewport(page, '[data-testid="maya-draft-command-bar"]', "Maya Beat 9 command bar");
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-09-draft-review.png` });
 
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /^Open approval$/u }).click();
     await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya draft command approval dialog");
     assert(forbiddenRequests.length === 0, `Beat 9 commands must not call forbidden routes: ${forbiddenRequests.join(", ")}`);
@@ -1552,23 +1845,25 @@ async function captureMayaBeat10HumanApprovalScreenshot(browser: Browser): Promi
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 10 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Draft/u }).click();
-    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaDraftReviewSection(page);
+    await assertBeat9DraftReviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
     await page.evaluate(() => {
       document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
     });
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /^Open approval$/u }).click();
-    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await assertBeat10HumanApprovalFidelity(page, detailModel, forbiddenRequests);
     await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-10-human-approval.png` });
 
-    await page.getByRole("button", { name: /^Close human approval dialog$/u }).click();
+    await page.getByRole("button", { name: /^Close approval dialog$/u }).click();
     await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
     assertNoForbiddenRequests(forbiddenRequests, "Beat 10 close icon");
 
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /^Open approval$/u }).click();
-    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await assertBeat10HumanApprovalFidelity(page, detailModel, forbiddenRequests);
     await page.getByRole("button", { name: /^Cancel$/u }).click();
     await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
     assertNoForbiddenRequests(forbiddenRequests, "Beat 10 cancel");
@@ -1581,7 +1876,6 @@ async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): P
   const model = await loadForensicsE2EModel();
   const backendSelectedRow =
     model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
-  const detailModel = await loadForensicsWorkItemDetailE2EModel(backendSelectedRow.lineId);
   const context = await newRoleContext(browser, "maya", 1600, 1024);
   const page = await context.newPage();
   const forbiddenRequests: string[] = [];
@@ -1598,22 +1892,23 @@ async function captureMayaBeat11AuditConfirmationScreenshot(browser: Browser): P
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 11 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Draft/u }).click();
-    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaDraftReviewSection(page);
+    await assertBeat9DraftReviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
     await page.evaluate(() => {
       document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
     });
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /^Open approval$/u }).click();
-    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await assertBeat10HumanApprovalFidelity(page, detailModel, forbiddenRequests);
     await page.getByRole("button", { name: /^Cancel$/u }).click();
     await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
     assertNoForbiddenRequests(forbiddenRequests, "Beat 11 pre-audit approval cancel");
 
-    await page.getByRole("tab", { name: /^Audit$/u }).click();
+    await openMayaAuditDepthDrawer(page);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
-    await assertBeat11AuditConfirmationFidelity(page, model, detailModel, forbiddenRequests);
+    await assertBeat11AuditConfirmationFidelity(page, detailModel, detailModel, forbiddenRequests);
   } finally {
     await context.close();
   }
@@ -1623,7 +1918,6 @@ async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Prom
   const model = await loadForensicsE2EModel();
   const backendSelectedRow =
     model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
-  const detailModel = await loadForensicsWorkItemDetailE2EModel(backendSelectedRow.lineId);
   const context = await newRoleContext(browser, "maya", 1600, 1024);
   const page = await context.newPage();
   const forbiddenRequests: string[] = [];
@@ -1640,21 +1934,22 @@ async function captureMayaBeat12ReturnWorklistScreenshot(browser: Browser): Prom
     await openMayaWorklistSection(page);
     await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${backendSelectedRow.lineId}"]`).click();
     await assertBeat3RecommendedActionFidelity(page, backendSelectedRow, "Maya Beat 12 pre-open selected row");
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
-    await assertBeat4CaseOverviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
-    await page.getByRole("tab", { name: /Draft/u }).click();
-    await assertBeat9DraftReviewFidelity(page, model, backendSelectedRow, forbiddenRequests);
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya case detail open");
+    await assertBeat4CaseOverviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
+    await openMayaDraftReviewSection(page);
+    await assertBeat9DraftReviewFidelity(page, detailModel, backendSelectedRow, forbiddenRequests);
     await page.evaluate(() => {
       document.querySelector('[data-testid="maya-recovery-draft-review"]')?.scrollIntoView({ block: "start" });
     });
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /^Open approval$/u }).click();
-    await assertBeat10HumanApprovalFidelity(page, model, forbiddenRequests);
+    await assertBeat10HumanApprovalFidelity(page, detailModel, forbiddenRequests);
     await page.getByRole("button", { name: /^Cancel$/u }).click();
     await page.locator('[data-testid="maya-approval-gate-dialog"]').waitFor({ state: "hidden", timeout: 5_000 });
     assertNoForbiddenRequests(forbiddenRequests, "Beat 12 pre-audit approval cancel");
 
-    await page.getByRole("tab", { name: /^Audit$/u }).click();
-    await assertBeat11AuditConfirmationFidelity(page, model, detailModel, forbiddenRequests);
+    await openMayaAuditDepthDrawer(page);
+    await assertBeat11AuditConfirmationFidelity(page, detailModel, detailModel, forbiddenRequests);
     await page
       .getByTestId("maya-audit-confirmation")
       .getByRole("button", { name: /^Return to worklist$/u })
@@ -1674,12 +1969,13 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "worklist rows");
   const context = await newRoleContext(browser, "maya", 1440, 900);
   const page = await context.newPage();
+  let queryEvidenceContext: ForensicsSelectedEvidenceContext = model;
 
   await page.route("**/api/forensics/query", async (route) => {
     await route.fulfill({
       body: JSON.stringify(
         buildE2EForensicsQueryResponse(
-          model,
+          queryEvidenceContext,
           "E2E storyboard cited answer from the backend query route.",
           "E2E deterministic basis from the storyboard backend query response."
         )
@@ -1698,35 +1994,37 @@ async function captureMayaShadcnStoryboardScreenshots(browser: Browser): Promise
     await page.getByTestId("maya-worklist-recommended-action").first().scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-03-recommended-action.png` });
 
-    await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya storyboard case detail open");
+    const detailModel = await openSelectedMayaWorkItemDetail(page, backendSelectedRow, "Maya storyboard case detail open");
+    queryEvidenceContext = detailModel;
     await page.getByTestId("maya-case-workspace").scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-04-case-overview.png` });
 
-    await page.getByRole("tab", { name: /Evidence/u }).click();
+    await openMayaEvidenceSection(page);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-05-evidence-dossier.png` });
 
-    await page.getByRole("button", { name: /Query evidence/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
+    await openRecoupCopilotDock(page, "Maya query dock");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-06-query-start.png` });
     await page.getByTestId("maya-query-input").fill("What evidence supports the selected draft?");
     await page.getByRole("button", { name: /^Run query$/u }).click();
-    await page.getByTestId("maya-cited-answer").scrollIntoViewIfNeeded();
+    await page.getByTestId("maya-copilot-verdict-band").waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByTestId("maya-copilot-verdict-band").scrollIntoViewIfNeeded();
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-08-cited-answer.png` });
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
 
-    await page.getByRole("tab", { name: /Trace/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya agent trace");
+    await openMayaInvestigationSection(page);
+    await openMayaAgentTraceDepthDrawer(page);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-07-agent-trace.png` });
 
-    await page.getByRole("tab", { name: /Draft/u }).click();
+    await openMayaDraftReviewSection(page);
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-09-draft-review.png` });
 
+    await markMayaEvidenceReviewed(page);
     await page.getByRole("button", { name: /Open approval/u }).click();
     await expectVisibleLocator(page, '[role="alertdialog"]', "Maya approval dialog");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-10-human-approval.png` });
     await closeVisibleOverlay(page, '[role="alertdialog"]');
 
-    await page.getByRole("tab", { name: /^Audit$/u }).click();
+    await openMayaAuditDepthDrawer(page);
     await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
     await page.screenshot({ fullPage: true, path: `${outputDir}/maya-beat-11-audit-confirmation.png` });
 
@@ -1896,13 +2194,6 @@ async function loadEvalFinopsE2EModel(): Promise<EvalFinopsCockpitModel> {
   return (await response.json()) as EvalFinopsCockpitModel;
 }
 
-async function loadForensicsWorkItemDetailE2EModel(lineId: string): Promise<ForensicsWorkItemDetailE2EModel> {
-  const response = await fetch(`${apiUrl}/forensics/work-items/${encodeURIComponent(lineId)}`);
-  assert(response.ok, `forensics work-item detail expected 2xx, received ${String(response.status)}`);
-
-  return (await response.json()) as ForensicsWorkItemDetailE2EModel;
-}
-
 async function expectLocator(page: Page, selector: string, label: string): Promise<void> {
   const count = await page.locator(selector).count();
   assert(count > 0, `${label} was not rendered`);
@@ -1974,7 +2265,7 @@ async function openSelectedMayaWorkItemDetail(
   page: Page,
   expectedRow: ForensicsE2EModel["worklist"][number],
   label: string
-): Promise<PlaywrightRequest> {
+): Promise<ForensicsWorkItemDetailE2EModel> {
   const expectedDetailPath = `/api/forensics/work-items/${encodeURIComponent(expectedRow.lineId)}`;
   const explicitDetailRequest = page.waitForRequest(
     (request) => request.method() === "GET" && request.url().includes(expectedDetailPath),
@@ -1986,13 +2277,72 @@ async function openSelectedMayaWorkItemDetail(
   );
 
   await page.getByTestId("maya-local-row-action-open").click();
-  const request = await explicitDetailRequest;
+  await explicitDetailRequest;
   const response = await explicitDetailResponse;
   assert(response.ok(), `${label} backend detail response must be 2xx for ${expectedRow.lineId}: ${response.status().toString()}`);
+  const detailModel = (await response.json()) as ForensicsWorkItemDetailE2EModel;
   await expectMayaCaseDetailFlow(page, expectedRow, label);
   await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 20_000 });
+  await assertMayaSinglePageCaseSkeleton(page, label);
 
-  return request;
+  return detailModel;
+}
+
+async function scrollToMayaCaseSection(page: Page, testId: string, label: string): Promise<void> {
+  await page.getByTestId(testId).scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, `[data-testid="${testId}"]`, label);
+}
+
+async function openMayaEvidenceSection(page: Page): Promise<void> {
+  await scrollToMayaCaseSection(page, "maya-case-detail-b4-evidence", "Maya evidence section");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya evidence fact cards");
+}
+
+async function openMayaInvestigationSection(page: Page): Promise<void> {
+  await scrollToMayaCaseSection(page, "maya-case-detail-b3-investigation", "Maya investigation section");
+  const drawer = page.getByTestId("maya-agent-investigation-drawer");
+  if ((await drawer.getAttribute("data-state")) !== "open") {
+    await drawer.getByTestId("maya-agent-investigation-trigger").click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-timeline"]', "Maya agent investigation timeline");
+}
+
+async function openMayaAgentTraceDepthDrawer(page: Page): Promise<void> {
+  const drawer = page.getByTestId("maya-case-depth-drawer-audit-provenance");
+  await drawer.scrollIntoViewIfNeeded();
+  if (!(await hasVisibleLocator(page, '[data-testid="maya-agent-trace"]'))) {
+    await drawer.getByTestId("maya-case-depth-drawer-trigger").click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya agent trace");
+}
+
+async function openMayaDraftReviewSection(page: Page): Promise<void> {
+  await scrollToMayaCaseSection(page, "maya-case-detail-b6-outcome", "Maya draft review section");
+  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya draft review");
+}
+
+async function openMayaAuditDepthDrawer(page: Page): Promise<void> {
+  const drawer = page.getByTestId("maya-case-depth-drawer-audit-provenance");
+  await drawer.scrollIntoViewIfNeeded();
+  const trigger = drawer.getByTestId("maya-case-depth-drawer-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
+}
+
+async function markMayaEvidenceReviewed(page: Page): Promise<void> {
+  await openMayaDraftReviewSection(page);
+  const toggle = page.getByTestId("maya-evidence-reviewed-toggle");
+  await toggle.scrollIntoViewIfNeeded();
+  if (!(await toggle.isChecked())) {
+    await toggle.check();
+  }
+  await page.waitForFunction(() => {
+    return [...document.querySelectorAll<HTMLButtonElement>("button")].some(
+      (button) => button.innerText.trim() === "Open approval" && !button.disabled && button.offsetParent !== null
+    );
+  }, { timeout: 5_000 });
 }
 
 async function expectMayaCaseDetailFlow(
@@ -2115,6 +2465,137 @@ async function expectMayaCaseDetailFlow(
   assert(
     result.selectedDataLineIds.includes(expectedRow.lineId),
     `${label} must mark ${expectedRow.lineId} selected in the visible case/worklist rail`
+  );
+}
+
+async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Promise<void> {
+  const result = await page.evaluate(() => {
+    const sectionIds = [
+      "maya-case-detail-b1-stepper",
+      "maya-case-detail-b2-dossier-head",
+      "maya-case-detail-b3-investigation",
+      "maya-case-detail-b4-evidence",
+      "maya-case-detail-b5-verdict",
+      "maya-case-detail-b6-outcome",
+      "maya-case-detail-b7-depth-drawers"
+    ];
+    const drawerIds = [
+      "maya-case-depth-drawer-audit-provenance"
+    ];
+    const workspace = document.querySelector<HTMLElement>('[data-testid="maya-case-workspace"]');
+    if (workspace === null) {
+      return {
+        annotationArtifacts: ["maya-case-workspace missing"],
+        bodyText: document.body.innerText,
+        drawerCount: 0,
+        drawers: [],
+        liveDrawerIds: [],
+        missingDrawerIds: drawerIds,
+        ordered: false,
+        roleTabCount: document.querySelectorAll('[role="tab"]').length,
+        roleTablistCount: document.querySelectorAll('[role="tablist"]').length,
+        sectionIdsFound: [],
+        unexpectedDrawerIds: []
+      };
+    }
+
+    const sections: Array<HTMLElement | null> = sectionIds.map((sectionId) =>
+      workspace.querySelector<HTMLElement>(`[data-testid="${sectionId}"]`)
+    );
+    let ordered = true;
+    let previousSection: HTMLElement | undefined;
+    for (const section of sections) {
+      if (section === null) {
+        ordered = false;
+        break;
+      }
+      if (previousSection !== undefined && !(previousSection.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        ordered = false;
+        break;
+      }
+      previousSection = section;
+    }
+    const drawers = drawerIds.map((drawerId) => {
+      const drawer = workspace.querySelector<HTMLElement>(`[data-testid="${drawerId}"]`);
+      const trigger = drawer?.querySelector<HTMLElement>('[data-testid="maya-case-depth-drawer-trigger"]') ?? null;
+      const content = drawer?.querySelector<HTMLElement>('[data-slot="collapsible-content"]') ?? null;
+      const rect = content?.getBoundingClientRect();
+
+      return {
+        contentState: content?.getAttribute("data-state") ?? "",
+        contentVisible: content !== null && rect !== undefined && rect.width > 0 && rect.height > 0,
+        drawerId,
+        rootState: drawer?.getAttribute("data-state") ?? "",
+        triggerExpanded: trigger?.getAttribute("aria-expanded") ?? "",
+        triggerText: trigger?.innerText.replace(/\s+/gu, " ").trim() ?? ""
+      };
+    });
+    const depthDrawerContainer = workspace.querySelector<HTMLElement>(
+      '[data-testid="maya-case-detail-b7-depth-drawers"]'
+    );
+    const liveDrawerNodes =
+      depthDrawerContainer === null
+        ? []
+        : Array.from(depthDrawerContainer.children).filter(
+            (child): child is HTMLElement =>
+              child instanceof HTMLElement &&
+              child.dataset.testid?.startsWith("maya-case-depth-drawer-") === true
+          );
+    const liveDrawerIds = liveDrawerNodes.map((node) => node.dataset.testid ?? "");
+    const expectedDrawerIdSet = new Set(drawerIds);
+    const missingDrawerIds = drawerIds.filter((drawerId) => !liveDrawerIds.includes(drawerId));
+    const unexpectedDrawerIds = liveDrawerIds.filter((drawerId) => !expectedDrawerIdSet.has(drawerId));
+    const annotationArtifacts = [...document.querySelectorAll<HTMLElement>("body *")]
+      .map((node) => node.innerText)
+      .filter((text) =>
+        /\{(?:item|doc|trace\[|path|curly|\w+\.)/u.test(text) ||
+        /RENDER ONLY IF|PANEL\s+\d|B[1-7]\b/u.test(text)
+      );
+
+    return {
+      annotationArtifacts,
+      bodyText: document.body.innerText,
+      drawerCount: liveDrawerIds.length,
+      drawers,
+      liveDrawerIds,
+      missingDrawerIds,
+      ordered,
+      roleTabCount: document.querySelectorAll('[role="tab"]').length,
+      roleTablistCount: document.querySelectorAll('[role="tablist"]').length,
+      sectionIdsFound: sections.map((section) => section?.dataset.testid ?? ""),
+      unexpectedDrawerIds
+    };
+  });
+
+  assert(result.roleTablistCount === 0, `${label} case detail must not expose a tablist in the browser DOM`);
+  assert(result.roleTabCount === 0, `${label} case detail must not expose old tab controls in the browser DOM`);
+  assert(result.ordered, `${label} case detail sections must render in B1 to B7 DOM order: ${result.sectionIdsFound.join(" > ")}`);
+  assert(
+    result.drawerCount === 1,
+    `${label} case detail must render exactly one live depth drawer; saw ${String(result.drawerCount)}: ${result.liveDrawerIds.join(", ")}`
+  );
+  assert(
+    result.unexpectedDrawerIds.length === 0,
+    `${label} case detail rendered unexpected depth drawers: ${result.unexpectedDrawerIds.join(", ")}`
+  );
+  assert(
+    result.missingDrawerIds.length === 0,
+    `${label} case detail is missing expected depth drawers: ${result.missingDrawerIds.join(", ")}`
+  );
+  for (const drawer of result.drawers) {
+    assert(drawer.rootState === "closed", `${label} ${drawer.drawerId} must start data-state=closed; saw ${drawer.rootState}`);
+    assert(drawer.triggerExpanded === "false", `${label} ${drawer.drawerId} trigger must start aria-expanded=false`);
+    assert(drawer.contentState === "closed", `${label} ${drawer.drawerId} content must start data-state=closed; saw ${drawer.contentState}`);
+    assert(!drawer.contentVisible, `${label} ${drawer.drawerId} collapsed content must not be visible`);
+    assert(
+      /^[^.]+(?:\u00b7|\u00c2\u00b7)[^.]+$/u.test(drawer.triggerText),
+      `${label} ${drawer.drawerId} trigger must be fact-bearing only; saw "${drawer.triggerText}"`
+    );
+  }
+  assert(!/\bdata proof\b|\bdecision proof\b/iu.test(result.bodyText), `${label} must not expose data/decision proof chips in the header`);
+  assert(
+    result.annotationArtifacts.length === 0,
+    `${label} must not render blueprint annotation artifacts: ${result.annotationArtifacts.slice(0, 3).join(" | ")}`
   );
 }
 
@@ -2243,7 +2724,8 @@ async function assertBeat2HeaderFidelity(page: Page, connectors: ConnectorE2EMod
         button.innerText.trim() === "Refresh"
       ).length,
       refreshMetadataText: refreshMetadata?.innerText.trim() ?? "",
-      runDateLabel: runDateGap?.getAttribute("aria-label") ?? "",
+      runDateGapExists: runDateGap !== null,
+      runDateText: runDateGap?.innerText.trim() ?? "",
       sourceReadinessLabel: sourceReadiness?.getAttribute("aria-label") ?? ""
     };
   });
@@ -2257,7 +2739,8 @@ async function assertBeat2HeaderFidelity(page: Page, connectors: ConnectorE2EMod
     /source health rows checked at/u.test(connectors.lastRefreshedLabel),
     `${label} backend refresh label must describe source-health recency`
   );
-  assert(header.runDateLabel.includes("Run date not exposed"), `${label} header must not invent a calendar date`);
+  assert(!header.runDateGapExists, `${label} header must omit unavailable run-date contract gap copy`);
+  assert(header.runDateText.length === 0, `${label} header must not render unavailable run-date text`);
   const renderedRefreshMetadata = /^(\d+) source health rows checked at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/u.exec(
     header.refreshMetadataText
   );
@@ -2330,7 +2813,7 @@ async function assertBeat2WorklistFit(page: Page, label: string): Promise<void> 
         }))
         .filter((cell) => cell.scrollWidth > cell.clientWidth + 1),
       currentQueueVisibleCount: currentQueueMentions.length,
-      hasContractGapAffordance: contractGap?.innerText.includes("Source details") ?? false,
+      hasContractGapAffordance: contractGap?.innerText.includes("Evidence details") ?? false,
       maxRowHeight: Math.max(...rows.map((row) => row.getBoundingClientRect().height)),
       routingLabelMetrics: routingLabels.map((routingLabel) => ({
         height: routingLabel.getBoundingClientRect().height,
@@ -2407,6 +2890,7 @@ async function assertBeat2RowStartsUnselected(
   assert(result.ariaSelected !== "true", `${label} target row ${expectedRow.lineId} must start non-selected`);
   assert(result.text.includes(expectedRow.customerLabel), `${label} target row must show backend customer ${expectedRow.customerLabel}`);
   assert(result.text.includes(expectedRow.workItemLabel), `${label} target row must show backend Work item ${expectedRow.workItemLabel}`);
+  assert(!result.text.includes(expectedRow.lineId), `${label} target row must not expose raw backend line IDs as primary copy`);
 }
 
 async function assertBeat2OverviewIsNotBlank(
@@ -2472,12 +2956,38 @@ async function assertBeat2OverviewIsNotBlank(
   await expectVisibleLocator(page, '[data-testid="maya-overview-case-concentration-sort-customer"]', `${label} customer sort`);
   await page.getByTestId("maya-overview-case-concentration-sort-customer").click();
   const customerSortState = await page.getByTestId("maya-overview-case-concentration-sort-customer").evaluate((button) => {
-    return button.closest("th")?.getAttribute("aria-sort") ?? "";
+    return button.getAttribute("data-sort-state") ?? "";
   });
   assert(
     customerSortState === "ascending" || customerSortState === "descending",
-    `${label} customer sort must update aria-sort after click: ${customerSortState}`
+    `${label} customer sort must update data-sort-state after click: ${customerSortState}`
   );
+
+  const invalidRows = model.worklist.filter((item) => item.verdict === "invalid");
+  if (invalidRows.length > 0) {
+    await expectVisibleLocator(page, '[data-testid="maya-overview-verdict-filter"]', `${label} verdict quick filters`);
+    await page.locator('[data-testid="maya-overview-verdict-filter"] [data-filter="invalid"]').click();
+    await page.waitForFunction((expectedCount) => {
+      const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]')].filter(
+        (row) => row.offsetParent !== null
+      );
+
+      return rows.length === expectedCount && rows.every((row) => row.getAttribute("data-verdict") === "invalid");
+    }, invalidRows.length);
+    const invalidFilterText = await page.locator('[data-testid="maya-overview-concentration-band"]').innerText();
+    assert(
+      invalidFilterText.includes(`Showing ${invalidRows.length.toString()} of ${model.worklist.length.toString()} cases`),
+      `${label} invalid quick filter must update the visible row count`
+    );
+    await page.locator('[data-testid="maya-overview-verdict-filter"] [data-filter="all"]').click();
+    await page.waitForFunction((expectedCount) => {
+      return (
+        [...document.querySelectorAll<HTMLElement>('[data-testid="maya-overview-case-concentration-row"]')].filter(
+          (row) => row.offsetParent !== null
+        ).length === expectedCount
+      );
+    }, model.worklist.length);
+  }
 
   const filter = page.getByTestId("maya-overview-case-concentration-filter");
   await filter.fill(expectedFilterTarget);
@@ -2509,114 +3019,6 @@ async function assertBeat2OverviewIsNotBlank(
   assert(
     restoredRowCount === model.worklist.length,
     `${label} Overview concentration filter clear must restore backend row count`
-  );
-}
-
-async function assertBeat2CasesRootFidelity(
-  page: Page,
-  model: ForensicsE2EModel,
-  expectedRow: ForensicsE2EModel["worklist"][number],
-  label: string
-): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-root-section-cases"]', `${label} Cases root section`);
-  await expectVisibleLocator(page, '[data-testid="maya-cases-table-scroll"]', `${label} Cases table scroll area`);
-  await expectVisibleLocator(page, '[data-testid="maya-cases-selected-starter"]', `${label} Cases selected starter`);
-  await page
-    .locator('[data-testid="maya-case-row"]')
-    .filter({ hasText: expectedRow.workItemLabel })
-    .getByRole("button", { name: /^Select$/u })
-    .click();
-
-  const result = await page.evaluate(() => {
-    const root = document.querySelector<HTMLElement>('[data-testid="maya-root-section-cases"]');
-    const scroll = document.querySelector<HTMLElement>('[data-testid="maya-cases-table-scroll"]');
-    const starter = document.querySelector<HTMLElement>('[data-testid="maya-cases-selected-starter"]');
-    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-case-row"]')].filter(
-      (row) => row.offsetParent !== null
-    );
-    const selectedRows = rows.filter((row) => row.getAttribute("aria-selected") === "true");
-    const selectedRow = selectedRows[0];
-    const selectedStyle = selectedRow === undefined ? undefined : window.getComputedStyle(selectedRow);
-    const visibleCells = [...(root?.querySelectorAll<HTMLElement>("td, th, button, [data-slot='badge']") ?? [])].filter(
-      (node) => {
-        const rect = node.getBoundingClientRect();
-
-        return node.offsetParent !== null && rect.width > 4 && rect.height > 4;
-      }
-    );
-
-    return {
-      cellCount: visibleCells.length,
-      rootText: root?.innerText ?? "",
-      rowCount: rows.length,
-      scrollHeight: scroll?.getBoundingClientRect().height ?? 0,
-      selectedRowCount: selectedRows.length,
-      selectedRowText: selectedRow?.innerText ?? "",
-      selectedStarterHeight: starter?.getBoundingClientRect().height ?? 0,
-      selectedStarterText: starter?.innerText ?? "",
-      selectedStyle: {
-        boxShadow: selectedStyle?.boxShadow ?? "",
-        borderLeftWidth: selectedStyle?.borderLeftWidth ?? ""
-      }
-    };
-  });
-
-  assert(result.rowCount === model.worklist.length, `${label} Cases root must render every backend work item`);
-  assert(result.cellCount >= model.worklist.length * 4, `${label} Cases root must use dense table content, not sparse blank space`);
-  assert(result.scrollHeight >= 360, `${label} Cases table must reserve useful operational height: ${String(result.scrollHeight)}px`);
-  assert(
-    result.selectedStarterHeight >= 360,
-    `${label} Cases selected starter must fill the side pane instead of leaving a sparse column`
-  );
-  assert(result.selectedRowCount === 1, `${label} Cases root must expose one selected row after Select`);
-  assert(result.selectedRowText.includes(expectedRow.workItemLabel), `${label} selected Cases row must use backend Work item`);
-  assert(result.selectedStarterText.includes(expectedRow.customerLabel), `${label} selected starter must use backend customer`);
-  assert(result.selectedStarterText.includes(expectedRow.amount), `${label} selected starter must use backend amount`);
-  assert(result.rootText.includes(expectedRow.verdictLabel), `${label} Cases root must show backend verdict labels`);
-  assert(
-    result.selectedStyle.borderLeftWidth !== "0px" || result.selectedStyle.boxShadow !== "none",
-    `${label} Cases selected state must have visible elevation or left-edge treatment`
-  );
-}
-
-async function assertBeat2EvidenceRootFidelity(page: Page, connectors: ConnectorE2EModel, label: string): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-root-section-evidence"]', `${label} Evidence root section`);
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-source-readiness-group"]', `${label} Evidence source readiness`);
-
-  const result = await page.evaluate(() => {
-    const root = document.querySelector<HTMLElement>('[data-testid="maya-root-section-evidence"]');
-    const readinessGroup = document.querySelector<HTMLElement>('[data-testid="maya-evidence-source-readiness-group"]');
-    const sourceRows = [...(readinessGroup?.querySelectorAll<HTMLElement>("[data-status-tone]") ?? [])].filter(
-      (row) => row.offsetParent !== null
-    );
-    const visibleChildren = [...(root?.querySelectorAll<HTMLElement>("button, [role='alert'], [data-status-tone], dl, div") ?? [])].filter(
-      (node) => {
-        const rect = node.getBoundingClientRect();
-
-        return node.offsetParent !== null && rect.width > 4 && rect.height > 4;
-      }
-    );
-
-    return {
-      evidenceHeight: root?.getBoundingClientRect().height ?? 0,
-      readinessText: readinessGroup?.innerText ?? "",
-      sourceRowCount: sourceRows.length,
-      text: root?.innerText ?? "",
-      visibleChildCount: visibleChildren.length
-    };
-  });
-
-  assert(result.evidenceHeight >= 320, `${label} Evidence root must occupy useful space: ${String(result.evidenceHeight)}px`);
-  assert(result.visibleChildCount >= 12, `${label} Evidence root must render dense selected/source content`);
-  assert(
-    result.sourceRowCount === connectors.sourceTiles.length,
-    `${label} Evidence root must render all backend source readiness rows`
-  );
-  assert(result.text.includes("Selected evidence"), `${label} Evidence root must keep selected evidence context`);
-  assert(result.text.includes("Source readiness"), `${label} Evidence root must keep source readiness context`);
-  assert(
-    connectors.sourceTiles.every((source) => result.readinessText.includes(source.label)),
-    `${label} Evidence root source readiness must use connector read-model labels`
   );
 }
 
@@ -2666,7 +3068,7 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
     `${label} sidebar visual rail must not hang over a transparent page gap`
   );
   assert(
-    sidebar.footerBottom >= sidebar.documentHeight - 28,
+    sidebar.footerBottom >= sidebar.documentHeight - 72,
     `${label} sidebar user identity must sit at the bottom of the full rail: ${String(sidebar.footerBottom)}px < ${String(
       sidebar.documentHeight
     )}px`
@@ -2675,10 +3077,8 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
   assert(sidebar.collapseVisible, `${label} sidebar must expose a working collapse affordance`);
   assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Overview")), `${label} sidebar must expose Overview`);
   assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Worklist")), `${label} sidebar must expose Worklist`);
-  assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Cases")), `${label} sidebar must expose Cases`);
-  assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Evidence")), `${label} sidebar must expose Evidence`);
   assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Approvals")), `${label} sidebar must expose Approvals`);
-  assert(sidebar.navCount >= 5, `${label} sidebar must keep the actual Maya section map`);
+  assert(sidebar.navCount >= 3, `${label} sidebar must keep the actual Maya section map`);
   assert(sidebar.navMaxHeight <= 38, `${label} sidebar nav rhythm must stay dense`);
   assert(sidebar.badgeCount >= 2, `${label} sidebar must render backend-backed count badges`);
   assert(sidebar.disabledControlCount === 0, `${label} sidebar must not expose disabled fake controls`);
@@ -2798,32 +3198,29 @@ async function assertBeat3ReadModelMismatch(
 
 async function assertBeat4CaseOverviewFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   expectedRow: ForensicsE2EModel["worklist"][number],
   forbiddenRequests: string[]
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya Beat 4 case workspace");
   await expectVisibleLocator(page, '[data-testid="maya-case-worklist-rail"]', "Maya Beat 4 worklist rail");
   await expectVisibleLocator(page, '[data-testid="maya-case-overview"]', "Maya Beat 4 overview tab");
-  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  const primaryRecordIds = evidenceRecordIdsExcludingSelectedLine(model);
+  const basisDocumentId = firstItem(model.selected.evidencePack.documents, "selected evidence documents").documentId;
 
   const result = await page.evaluate(() => {
     const workspace = document.querySelector<HTMLElement>('[data-testid="maya-case-workspace"]');
+    const overview = document.querySelector<HTMLElement>('[data-testid="maya-case-overview"]');
     const rail = document.querySelector<HTMLElement>('[data-testid="maya-case-worklist-rail"]');
     const selectedRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-worklist-row"][aria-selected="true"]')].filter(
       (row) => row.offsetParent !== null
     );
     const amount = document.querySelector<HTMLElement>('[data-testid="maya-case-overview-readonly-amount"]');
     const basis = document.querySelector<HTMLElement>('[data-testid="maya-case-deterministic-basis"]');
-    const primaryDraftFacts = document.querySelector<HTMLElement>('[data-testid="maya-case-primary-draft-facts"]');
-    const draftReadonlyStatus = document.querySelector<HTMLElement>('[data-testid="maya-case-draft-readonly-status"]');
-    const draftControls = [...document.querySelectorAll<HTMLElement>('[data-testid^="maya-case-draft-action-"]')];
 
     return {
       amountReadOnly: amount?.getAttribute("aria-readonly") ?? "",
-      draftControlCount: draftControls.length,
-      draftReadonlyStatusText: draftReadonlyStatus?.innerText ?? "",
-      primaryDraftFactsText: primaryDraftFacts?.innerText ?? "",
+      overviewText: overview?.innerText ?? "",
       railWidth: rail?.getBoundingClientRect().width ?? 0,
       selectedDataLineId: selectedRows[0]?.dataset.lineId ?? "",
       selectedRowCount: selectedRows.length,
@@ -2835,41 +3232,44 @@ async function assertBeat4CaseOverviewFidelity(
   assert(result.selectedRowCount === 1, "Beat 4 rail must expose exactly one selected row");
   assert(result.selectedDataLineId === expectedRow.lineId, `Beat 4 rail must keep ${expectedRow.lineId} selected`);
   assert(result.railWidth > 220 && result.railWidth < 390, `Beat 4 worklist rail must be narrow: ${String(result.railWidth)}px`);
-  assert(result.text.includes(expectedRow.workItemLabel), "Beat 4 workspace must use backend Work item label");
-  assert(result.text.includes(expectedRow.customerLabel), "Beat 4 workspace must use backend customer label");
-  assert(result.text.includes(expectedRow.amount), "Beat 4 workspace must use backend amount string");
-  assert(result.text.includes(expectedRow.verdictLabel), "Beat 4 workspace must use backend verdict label");
-  assert(result.text.includes(expectedRow.routingLabel), "Beat 4 workspace must use backend routing label");
-  assert(result.text.includes(expectedRow.queueLabel), "Beat 4 workspace must use backend queue label");
-  assert(result.text.includes(expectedRow.confidenceLabel), "Beat 4 workspace must use backend confidence label");
-  assert(!result.text.includes(recordId), "Beat 4 workspace must keep backend record IDs out of primary overview copy");
-  await page.locator('[data-testid="maya-case-basis-source-details"]').getByRole("button", { name: /^Basis source details$/u }).click();
-  const basisSourceDetailsText = await page.locator('[data-testid="maya-case-basis-source-details"]').innerText();
-  assert(basisSourceDetailsText.includes(recordId), "Beat 4 basis source details must retain backend record IDs");
-  assert(result.primaryDraftFactsText.includes("Draft action"), "Beat 4 primary draft facts must keep the backend action label");
-  assert(
-    !result.primaryDraftFactsText.includes(model.selected.draft.actionId),
-    "Beat 4 primary draft facts must not expose raw backend action IDs"
-  );
+  assert(result.overviewText.includes(expectedRow.workItemLabel), "Beat 4 workspace must use backend Work item label");
+  assert(result.overviewText.includes(expectedRow.customerLabel), "Beat 4 workspace must use backend customer label");
+  assert(result.overviewText.includes(expectedRow.amount), "Beat 4 workspace must use backend amount string");
+  assert(result.overviewText.includes(expectedRow.verdictLabel), "Beat 4 workspace must use backend verdict label");
+  assert(result.text.includes(expectedRow.recommendedActionLabel), "Beat 4 outcome must use backend recommended action label");
+  assert(result.overviewText.includes(expectedRow.queueLabel), "Beat 4 workspace must use backend queue label");
+  for (const recordId of primaryRecordIds) {
+    assert(
+      !result.overviewText.includes(recordId),
+      `Beat 4 overview copy must keep backend record ID ${recordId} out of primary overview copy`
+    );
+  }
+  await page.getByTestId("maya-case-detail-b5-verdict").scrollIntoViewIfNeeded();
+  const basisSourceDetailsText = await page.locator('[data-testid="maya-deterministic-basis-document-details"]').innerText();
+  assert(basisSourceDetailsText.includes(basisDocumentId), "Beat 4 basis evidence details must retain backend document IDs");
+  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 4 outcome must keep the backend action label");
+  assert(result.usesBasis.includes(expectedRow.reason), "Beat 4 verdict band must keep the backend worklist reason");
   assert(
     !result.text.includes(model.selected.draft.actionId),
+    "Beat 4 case detail must not expose raw backend action IDs as business copy"
+  );
+  assert(
+    !result.overviewText.includes(model.selected.draft.actionId),
     "Beat 4 overview must not expose raw backend action IDs as business copy"
   );
   assert(
-    !result.text.includes("Action type") && !result.usesBasis.includes("Action type"),
+    !result.overviewText.includes("Action type") && !result.usesBasis.includes("Action type"),
     "Beat 4 overview must not render raw action-type business labels"
   );
   assert(
-    !result.text.includes("External action locked") &&
-      !result.text.includes("View draft") &&
-      !result.text.includes("Approval locked") &&
-      !result.text.includes("More actions"),
+    !result.overviewText.includes("External action locked") &&
+      !result.overviewText.includes("View draft") &&
+      !result.overviewText.includes("Approval locked") &&
+      !result.overviewText.includes("More actions"),
     "Beat 4 overview must not expose disabled command/action copy"
   );
   assert(result.amountReadOnly === "true", "Beat 4 amount block must be marked read-only");
-  assert(result.draftControlCount === 0, "Beat 4 overview must not render disabled draft command controls");
-  assert(result.draftReadonlyStatusText.includes("Read-only"), "Beat 4 draft panel must present a read-only status");
-  assert(result.text.includes("Notes unavailable"), "Beat 4 notes must be an honest unavailable state");
+  assert(result.text.includes("Human approval required"), "Beat 4 outcome must present the human approval posture");
   assert(!result.text.includes("Case created"), "Beat 4 must not invent a case-created timeline event");
 
   if (expectedRow.lineIds.length > 1) {
@@ -2892,140 +3292,137 @@ async function assertBeat4CaseOverviewFidelity(
 
 async function assertBeat4DraftTabFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   forbiddenRequests: string[]
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 4 Draft tab");
-  await page.locator('[data-testid="maya-recovery-draft-review"]').getByRole("tab", { name: "Audit basis" }).click();
-  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 4 Draft section");
+  await expectVisibleLocator(page, '[data-testid="maya-outcome-action-package"]', "Maya Beat 4 action package");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-letter-preview"]', "Maya Beat 4 draft letter preview");
+  const primaryRecordIds = evidenceRecordIdsExcludingSelectedLine(model);
 
   const result = await page.evaluate(() => {
     const draft = document.querySelector<HTMLElement>('[data-testid="maya-recovery-draft-review"]');
-    const headers = [...(draft?.querySelectorAll<HTMLElement>("th") ?? [])].map((header) => header.innerText.trim());
-    const disabledButtons = [...(draft?.querySelectorAll<HTMLButtonElement>("button:disabled") ?? [])].map(
-      (button) => button.innerText.trim() || button.getAttribute("aria-label") || ""
-    );
+    const primaryDraft = draft?.cloneNode(true) as HTMLElement | undefined;
+    primaryDraft
+      ?.querySelectorAll(
+        '[data-testid="maya-draft-source-details"], [data-testid="maya-draft-letter-preview"], [data-testid="maya-draft-message-section"]'
+      )
+      .forEach((node) => {
+        node.remove();
+      });
     const buttons = [...(draft?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map(
       (button) => button.innerText.trim() || button.getAttribute("aria-label") || ""
     );
 
     return {
       buttonLabels: buttons,
-      disabledButtonLabels: disabledButtons,
-      headers,
+      primaryText: primaryDraft?.textContent ?? "",
       text: draft?.innerText ?? ""
     };
   });
 
-  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 4 Draft tab must keep the backend action label");
-  assert(result.text.includes(model.selected.draft.statusLabel), "Beat 4 Draft tab must keep the backend status label");
-  assert(result.text.includes(model.selected.draft.amount), "Beat 4 Draft tab must keep the backend amount");
-  assert(result.text.includes(model.selected.draft.basis), "Beat 4 Draft tab must keep the backend deterministic basis");
-  assert(!result.text.includes(recordId), "Beat 4 Draft tab must keep backend record IDs out of primary draft copy");
-  await page
-    .locator('[data-testid="maya-draft-audit-basis-source-details"]')
-    .getByRole("button", { name: /^Audit basis source details$/u })
-    .click();
-  const draftSourceDetailsText = await page.locator('[data-testid="maya-draft-audit-basis-source-details"]').innerText();
-  assert(draftSourceDetailsText.includes(recordId), "Beat 4 Draft tab source details must retain backend record IDs");
-  assert(result.headers.includes("Draft label"), "Beat 4 Draft tab inbox must use neutral draft-label copy");
-  assert(!result.headers.includes("Action"), "Beat 4 Draft tab inbox must not use command-like Action header copy");
-  assert(!result.text.includes("Action ID"), "Beat 4 Draft tab must not expose raw Action ID labels");
-  assert(!result.text.includes("Action type"), "Beat 4 Draft tab must not expose raw Action type labels");
-  assert(!result.text.includes("draft-rebill"), "Beat 4 Draft tab must not expose raw draft-rebill metadata");
+  assert(result.text.includes(model.selected.draft.actionLabel), "Beat 4 Draft section must keep the backend action label");
+  assert(result.text.includes(model.selected.draft.statusLabel), "Beat 4 Draft section must keep the backend status label");
+  assert(result.text.includes(model.selected.draft.amount), "Beat 4 Draft section must keep the backend amount");
+  assert(result.text.includes(model.selected.draft.basis), "Beat 4 Draft section must keep the backend deterministic basis");
+  for (const recordId of primaryRecordIds) {
+    assert(!result.primaryText.includes(recordId), `Beat 4 Draft section must keep backend record ID ${recordId} out of primary draft copy`);
+  }
+  await page.locator('[data-testid="maya-draft-source-details"]').getByRole("button", { name: /^Details$/u }).click();
+  const draftSourceDetailsText = await page.locator('[data-testid="maya-draft-source-details"]').innerText();
+  assert(draftSourceDetailsText.includes(model.selected.lineId), "Beat 4 Draft evidence details must retain backend record IDs");
+  assert(result.text.includes("Recommended action"), "Beat 4 Draft section must use current recommended-action package copy");
+  assert(result.text.includes("Draft letter preview"), "Beat 4 Draft section must expose the prepared email draft preview");
+  assert(!result.text.includes("Action ID"), "Beat 4 Draft section must not expose raw Action ID labels");
+  assert(!result.text.includes("Action type"), "Beat 4 Draft section must not expose raw Action type labels");
+  assert(!result.text.includes("draft-rebill"), "Beat 4 Draft section must not expose raw draft-rebill metadata");
   assert(
     !result.text.includes(model.selected.draft.actionId),
-    "Beat 4 Draft tab must not expose raw backend action IDs as business copy"
+    "Beat 4 Draft section must not expose raw backend action IDs as business copy"
   );
   assert(
     !/\b(?:approve draft|preview draft|route for approval|send draft|modify)\b/iu.test(result.buttonLabels.join(" ")),
-    "Beat 4 Draft tab must not expose raw approval-submit or legacy command copy"
+    "Beat 4 Draft section must not expose raw approval-submit or legacy command copy"
   );
-  assert(forbiddenRequests.length === 0, `Beat 4 Draft tab must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
+  assert(forbiddenRequests.length === 0, `Beat 4 Draft section must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
 }
 
 async function assertBeat9DraftReviewFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   selectedRow: ForensicsE2EModel["worklist"][number],
   forbiddenRequests: string[]
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya Beat 9 draft review");
   await expectVisibleLocator(page, '[data-testid="maya-draft-hitl-warning"]', "Maya Beat 9 HITL warning");
-  await expectVisibleLocator(page, '[data-testid="maya-draft-packet-panel"]', "Maya Beat 9 packet panel");
-  await expectVisibleLocator(page, '[data-testid="maya-draft-evidence-table"]', "Maya Beat 9 evidence table");
-  await expectVisibleLocator(page, '[data-testid="maya-draft-context-rail"]', "Maya Beat 9 case context rail");
+  await expectVisibleLocator(page, '[data-testid="maya-outcome-action-packages"]', "Maya Beat 9 outcome action packages");
+  await expectVisibleLocator(page, '[data-testid="maya-outcome-action-package"]', "Maya Beat 9 outcome action package");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-letter-preview"]', "Maya Beat 9 draft letter preview");
+  await expectVisibleLocator(page, '[data-testid="maya-draft-rail-human-decisions"]', "Maya Beat 9 human decisions rail");
   await expectVisibleLocator(page, '[data-testid="maya-draft-command-bar"]', "Maya Beat 9 command bar");
-  await expectVisibleLocator(page, '[data-testid="maya-draft-readonly-amount"]', "Maya Beat 9 read-only amount");
-  const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
-  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-reviewed-toggle"]', "Maya Beat 9 evidence reviewed gate");
+  const primaryRecordIds = evidenceRecordIdsExcludingSelectedLine(model);
 
   const result = await page.evaluate(() => {
     const draft = document.querySelector<HTMLElement>('[data-testid="maya-recovery-draft-review"]');
-    const amount = document.querySelector<HTMLElement>('[data-testid="maya-draft-readonly-amount"]');
-    const evidenceRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-draft-evidence-row"]')];
-    const headers = [...(draft?.querySelectorAll<HTMLElement>("th") ?? [])].map((header) => header.innerText.trim());
+    const actionPackages = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-outcome-action-package"]')];
+    const draftPreviews = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-draft-letter-preview"]')];
+    const primaryDraft = draft?.cloneNode(true) as HTMLElement | undefined;
+    primaryDraft
+      ?.querySelectorAll(
+        '[data-testid="maya-draft-source-details"], [data-testid="maya-draft-letter-preview"], [data-testid="maya-draft-message-section"]'
+      )
+      .forEach((node) => {
+        node.remove();
+      });
     const buttons = [...(draft?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => ({
       disabled: button.disabled,
       label: button.innerText.trim() || button.getAttribute("aria-label") || ""
     }));
-    const inputs = draft?.querySelectorAll("input, textarea, select, [contenteditable='true']") ?? [];
+    const editableInputs = draft?.querySelectorAll("textarea, select, [contenteditable='true'], input:not([type='checkbox'])") ?? [];
 
     return {
-      amountReadonly: amount?.getAttribute("aria-readonly") ?? "",
+      actionPackageCount: actionPackages.length,
       buttonLabels: buttons.map((button) => button.label),
       disabledButtonLabels: buttons.filter((button) => button.disabled).map((button) => button.label),
-      evidenceRowCount: evidenceRows.length,
-      headers,
-      inputCount: inputs.length,
+      draftPreviewCount: draftPreviews.length,
+      editableInputCount: editableInputs.length,
+      primaryText: primaryDraft?.textContent ?? "",
       text: draft?.innerText ?? ""
     };
   });
 
-  assert(result.text.includes("Recovery Draft Review"), "Beat 9 must show the draft-review title");
+  assert(result.text.includes("Outcome"), "Beat 9 must show the outcome title");
   assert(result.text.includes("Human approval required"), "Beat 9 must show the human-approval gate");
-  assert(result.text.includes("Draft only"), "Beat 9 must show a draft-only packet state");
-  assert(result.text.includes("No external action before human approval"), "Beat 9 must keep HITL posture visible");
+  assert(result.text.includes("External send gated"), "Beat 9 must keep HITL posture visible");
   assert(result.text.includes(model.selected.draft.actionLabel), "Beat 9 must render the backend draft label");
   assert(result.text.includes(model.selected.draft.statusLabel), "Beat 9 must render the backend draft status");
   assert(result.text.includes(model.selected.draft.amount), "Beat 9 must render the backend draft amount");
   assert(result.text.includes(model.selected.draft.basis), "Beat 9 must render the backend draft basis");
-  assert(!result.text.includes(recordId), "Beat 9 must keep backend record IDs out of primary draft copy");
-  assert(result.text.includes("Draft gate"), "Beat 9 context rail must show the backend draft gate section");
-  assert(result.text.includes("Human decisions"), "Beat 9 context rail must show available human decisions");
-  assert(result.text.includes("Evidence records"), "Beat 9 context rail must show backend evidence record IDs");
-  await page.locator('[data-testid="maya-draft-rail-record-ids"]').getByRole("button", { name: /^Evidence source details$/u }).click();
-  const draftRecordDetailsText = await page.locator('[data-testid="maya-draft-rail-record-ids"]').innerText();
-  assert(draftRecordDetailsText.includes(recordId), "Beat 9 evidence source details must retain backend record IDs");
-  assert(result.text.includes("Source fields pending"), "Beat 9 context rail must call out source-field gaps");
-  const sourceGapDisclosure = page.locator('[data-testid="maya-draft-rail-backend-gaps"]').getByRole("button", {
-    name: /^Source fields pending$/u
-  });
-  await sourceGapDisclosure.click();
-  const sourceGapDetailText = await page.locator('[data-testid="maya-draft-rail-backend-gaps"]').innerText();
-  assert(sourceGapDetailText.includes("Packet display ID not exposed"), "Beat 9 source details must avoid fake packet IDs");
-  assert(sourceGapDetailText.includes("Case account and currency not exposed"), "Beat 9 source details must avoid fake account/currency facts");
-  assert(sourceGapDetailText.includes("Approval owner and timestamps not exposed"), "Beat 9 source details must avoid fake owner/timestamp facts");
-  assert(sourceGapDetailText.includes("Audit hash waits for human decision"), "Beat 9 source details must avoid fake audit hashes");
-  assert(result.text.includes(selectedRow.customerLabel), "Beat 9 context rail must use the selected worklist customer label");
-  assert(result.text.includes(selectedRow.workItemLabel), "Beat 9 context rail must use the selected worklist Work item label");
-  assert(result.text.includes(evidenceDocument.citationId), "Beat 9 evidence table must show backend citation IDs");
-  assert(result.text.includes(evidenceDocument.documentId), "Beat 9 evidence table must show backend document IDs");
-  assert(result.text.includes(evidenceDocument.documentType), "Beat 9 evidence table must show backend document types");
-  assert(result.text.includes(evidenceDocument.description), "Beat 9 evidence table must show backend descriptions");
-  assert(result.text.includes(evidenceDocument.sourceLabel), "Beat 9 evidence table must show backend source labels");
-  assert(result.text.includes(evidenceDocument.verifiedLabel), "Beat 9 evidence table must show backend verification labels");
-  assert(result.evidenceRowCount === model.selected.evidencePack.documents.length, "Beat 9 must render one row per evidence document");
-  assert(result.headers.includes("Evidence item"), "Beat 9 evidence table must be table-led");
-  assert(!result.headers.includes("Date"), "Beat 9 evidence table must not invent dates");
-  assert(!result.headers.includes("File / Reference"), "Beat 9 evidence table must not invent file references");
-  assert(!result.headers.includes("Included"), "Beat 9 evidence table must not invent included flags");
-  assert(result.amountReadonly === "true", "Beat 9 amount must be marked read-only");
-  assert(result.inputCount === 0, "Beat 9 must not render editable draft fields");
+  for (const selectedRecordId of primaryRecordIds) {
+    assert(
+      !result.primaryText.includes(selectedRecordId),
+      `Beat 9 must keep backend record ID ${selectedRecordId} out of primary draft copy`
+    );
+  }
+  assert(result.text.includes("Gate"), "Beat 9 must show the draft gate section");
+  assert(result.text.includes("Approval review"), "Beat 9 must show the backend approval decision option");
+  assert(result.text.includes("Change request"), "Beat 9 must show the backend change-request decision option");
+  assert(result.text.includes("Rejection review"), "Beat 9 must show the backend rejection decision option");
+  await page.locator('[data-testid="maya-draft-source-details"]').getByRole("button", { name: /^Details$/u }).click();
+  const draftRecordDetailsText = await page.locator('[data-testid="maya-draft-source-details"]').innerText();
+  assert(draftRecordDetailsText.includes(model.selected.lineId), "Beat 9 draft evidence details must retain backend record IDs");
+  assert(result.text.includes(selectedRow.customerLabel), "Beat 9 draft preview must use the selected worklist customer label");
+  assert(!result.text.includes(selectedRow.lineId), "Beat 9 draft preview must keep raw selected line IDs out of primary copy");
+  assert(result.text.includes("Selected case line"), "Beat 9 draft preview must use business selected-line copy");
+  assert(result.text.includes(selectedRow.reason), "Beat 9 draft preview must use the real agent reason");
+  assert(result.actionPackageCount > 0, "Beat 9 must render at least one backend action package");
+  assert(result.draftPreviewCount > 0, "Beat 9 must render at least one real draft preview");
+  assert(result.editableInputCount === 0, "Beat 9 must not render editable draft fields before the approval dialog");
   assert(!result.buttonLabels.includes("Request changes"), "Beat 9 must not expose caption-only Request changes controls");
   assert(!result.buttonLabels.includes("Reject draft"), "Beat 9 must not expose caption-only Reject draft controls");
   assert(result.buttonLabels.includes("Open approval"), "Beat 9 must expose an Open approval affordance");
-  assert(result.disabledButtonLabels.length === 0, "Beat 9 available command buttons must be keyboard reachable");
+  assert(result.disabledButtonLabels.includes("Open approval"), "Beat 9 Open approval must stay disabled until evidence is marked reviewed");
   assert(!result.text.includes("Action ID"), "Beat 9 must not expose raw Action ID as primary copy");
   assert(!result.text.includes("Action type"), "Beat 9 must not expose raw Action type as primary copy");
   assert(!result.text.includes("draft-rebill"), "Beat 9 must not expose raw draft-rebill metadata");
@@ -3039,28 +3436,20 @@ async function assertBeat9DraftReviewFidelity(
 
 async function assertBeat10HumanApprovalFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   forbiddenRequests: string[]
 ): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya Beat 10 approval dialog");
-  await expectVisibleText(page, "Human approval required");
-  if (model.selected.draft.approvalEligibility.available) {
-    await expectVisibleText(page, "Ready for human approval");
-    await expectVisibleText(page, "Evidence eligibility is available");
-  } else {
-    await expectVisibleText(page, "Approval unavailable");
-    await expectVisibleText(page, "Decision buttons stay disabled");
-  }
-  await expectVisibleText(page, "Verified human principal unavailable");
+  await expectVisibleText(page, "Approve");
+  await expectVisibleText(page, "Review the case facts and record your decision");
+  await expectVisibleText(page, "Details");
   await expectVisibleText(page, model.selected.draft.actionLabel);
-  await expectVisibleText(page, model.selected.draft.statusLabel);
   await expectVisibleText(page, model.selected.draft.basis);
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
-  await expectVisibleText(page, "Cited evidence available");
-  const approvalSourceDetails = page.locator('[data-testid="maya-approval-source-details"]');
-  await approvalSourceDetails.getByRole("button", { name: /^Approval source details$/u }).click();
+  const approvalSourceDetails = page.locator('[data-testid="maya-approval-details"]');
+  await approvalSourceDetails.getByRole("button", { name: /^Details$/u }).click();
   const approvalSourceDetailsText = await approvalSourceDetails.innerText();
-  assert(approvalSourceDetailsText.includes(recordId), "Beat 10 approval source details must retain backend record IDs");
+  assert(approvalSourceDetailsText.includes(recordId), "Beat 10 approval evidence details must retain backend record IDs");
 
   const expectedDecisionLabels = model.selected.approvalActions.map((action) => approvalDecisionButtonLabel(action.decision));
   const result = await page.evaluate(() => {
@@ -3109,11 +3498,11 @@ async function assertBeat10HumanApprovalFidelity(
     );
   }
   assert(result.buttonLabels.includes("Cancel"), "Beat 10 must expose footer cancel");
-  assert(result.buttonLabels.includes("Close human approval dialog"), "Beat 10 must expose icon-only close");
+  assert(result.buttonLabels.includes("Close approval dialog"), "Beat 10 must expose icon-only close");
   assert(result.text.includes("Reason required"), "Beat 10 must keep reason-required state visible");
-  assert(result.text.includes("Opening this dialog does not dispatch anything"), "Beat 10 must state open is non-dispatching");
-  assert(result.text.includes("No action will be taken until you choose an option"), "Beat 10 must state decision boundary copy");
-  assert(result.text.includes("Your decision, note, and timestamp will be recorded with the draft"), "Beat 10 must show audit posture");
+  assert(result.text.includes("Review the case facts and record your decision"), "Beat 10 must show approval purpose copy");
+  assert(result.text.includes("Email remains locked until an approved decision is returned"), "Beat 10 must show audit posture in details");
+  assert(!/Verified human principal unavailable|Approval owner pending|Opening this dialog does not dispatch anything/u.test(result.text), "Beat 10 must not show deprecated approval copy");
   assert(result.noteCounterText === "0 / 500", "Beat 10 note field must show a 500-character counter");
   assert(result.textareaCount === 1, "Beat 10 must render exactly one note/reason textarea");
   assert(!/\b(?:3 of 3|Reviewed|Maya Patel|auditEntryHash|APPROVAL-HASH|dispatch success|sent to customer)\b/u.test(result.text), "Beat 10 must not invent reviewed, approver, audit, or dispatch state");
@@ -3122,7 +3511,7 @@ async function assertBeat10HumanApprovalFidelity(
 
 async function assertBeat11AuditConfirmationFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   detailModel: ForensicsWorkItemDetailE2EModel,
   forbiddenRequests: string[]
 ): Promise<void> {
@@ -3194,12 +3583,12 @@ async function assertBeat11AuditConfirmationFidelity(
   assert(!primaryResult.text.includes(selectedRecordId), "Beat 11 primary audit copy must keep selected record IDs behind details");
   await page
     .locator('[data-testid="maya-audit-selected-action-source-details"]')
-    .getByRole("button", { name: /^Selected action source details$/u })
+    .getByRole("button", { name: /^Selected action evidence details$/u })
     .click();
   const selectedActionSourceDetailsText = await page
     .locator('[data-testid="maya-audit-selected-action-source-details"]')
     .innerText();
-  assert(selectedActionSourceDetailsText.includes(selectedRecordId), "Beat 11 selected action source details must retain record IDs");
+  assert(selectedActionSourceDetailsText.includes(selectedRecordId), "Beat 11 selected action evidence details must retain record IDs");
   assert(result.text.includes("Committed audit receipt citations unavailable"), "Beat 11 must not relabel selected IDs as receipt IDs");
   assert(!result.buttons.some((button) => button.label === "View audit trail"), "Beat 11 must hide unavailable audit-route controls");
   assert(result.copyButtonCount === 0, "Beat 11 unavailable state must not expose copy controls for absent hashes");
@@ -3268,6 +3657,7 @@ async function assertBeat12ReturnWorklistFidelity(
   assert(result.pageText.includes(expectedRow.customerLabel), "Beat 12 table must use the returned work-item customer");
   assert(result.pageText.includes(expectedRow.workItemLabel), "Beat 12 table must use the returned work-item Work item");
   assert(result.pageText.includes(expectedRow.amount), "Beat 12 table must show source amount string");
+  assert(!result.tableText.includes(expectedRow.lineId), "Beat 12 returned worklist table must keep raw backend line IDs out of primary copy");
   assert(result.pageText.includes("All work items"), "Beat 12 must render the target-style work-item tabs");
   assert(result.pageText.includes("Source fields pending"), "Beat 12 must expose missing source fields through a disclosure control");
   assert(result.pageText.includes("Audit status unavailable"), "Beat 12 must avoid fake audit-success toast or status");
@@ -3286,101 +3676,92 @@ async function assertBeat12ReturnWorklistFidelity(
 
 async function assertBeat5EvidenceDossierFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   connectors: ConnectorE2EModel,
   forbiddenRequests: string[]
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 5 evidence dossier");
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-business-group"]', "Maya Beat 5 business evidence group");
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-source-details"]', "Maya Beat 5 source details");
-  await expectVisibleLocator(page, '[data-testid="maya-deterministic-basis-rail"]', "Maya Beat 5 deterministic basis rail");
-  await expectVisibleLocator(page, '[data-testid="maya-source-provenance-rail"]', "Maya Beat 5 source provenance rail");
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-review-state"]', "Maya Beat 5 review state readout");
-  const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya Beat 5 evidence fact cards");
+  await expectVisibleLocator(page, '[data-testid="maya-deterministic-basis-band"]', "Maya Beat 5 deterministic basis band");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
   const proxyTile = connectors.sourceTiles.find((source) => source.modeLabel === "Proxy - Supabase");
-  const closedGroups = await page.locator('[data-testid="maya-evidence-business-group"] button[aria-expanded="false"]').all();
-  for (const group of closedGroups) {
-    await group.click();
+  const firstProvenanceTrigger = page.getByTestId("maya-evidence-provenance-trigger").first();
+  if ((await firstProvenanceTrigger.getAttribute("aria-expanded")) !== "true") {
+    await firstProvenanceTrigger.click();
   }
-  const sourceDetails = page.locator('[data-testid="maya-evidence-source-details"]');
-  await sourceDetails.getByRole("button", { name: /View details/i }).click();
+  const auditDrawer = page.getByTestId("maya-case-depth-drawer-audit-provenance");
+  await auditDrawer.scrollIntoViewIfNeeded();
+  const auditTrigger = auditDrawer.getByTestId("maya-case-depth-drawer-trigger");
+  if ((await auditTrigger.getAttribute("aria-expanded")) !== "true") {
+    await auditTrigger.click();
+  }
 
   const result = await page.evaluate(() => {
-    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
-    const groups = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-business-group"]')].map((group) => ({
-      text: group.innerText
+    const evidenceSurface = document.querySelector<HTMLElement>('[data-testid="maya-evidence-fact-cards"]');
+    const basisBand = document.querySelector<HTMLElement>('[data-testid="maya-deterministic-basis-band"]');
+    const auditDrawer = document.querySelector<HTMLElement>('[data-testid="maya-case-depth-drawer-audit-provenance"]');
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-fact-card"]')];
+    const primaryRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-fact-row"]')].map((row) => ({
+      label: row.dataset.label ?? "",
+      value: row.dataset.value ?? ""
     }));
-    const basisRail = document.querySelector<HTMLElement>('[data-testid="maya-deterministic-basis-rail"]');
-    const sourceRail = document.querySelector<HTMLElement>('[data-testid="maya-source-provenance-rail"]');
-    const reviewState = document.querySelector<HTMLElement>('[data-testid="maya-evidence-review-state"]');
-    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-document-row"]')];
-    const recordBadges = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-record-id"]')].map((badge) =>
-      badge.innerText.trim()
-    );
-    const sourceRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-source-provenance-row"]')].map((row) => ({
-      statusTone: row.dataset.statusTone ?? "",
-      text: row.innerText
+    const provenanceRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-evidence-provenance-row"]')].map((row) => ({
+      label: row.dataset.label ?? "",
+      value: row.dataset.value ?? ""
     }));
 
     return {
-      basisText: basisRail?.innerText ?? "",
-      dossierText: dossier?.innerText ?? "",
-      groupLabels: groups.map((group) => group.text),
-      recordBadges,
-      reviewText: reviewState?.innerText ?? "",
-      rowCount: rows.length,
-      sourceRows,
-      sourceText: sourceRail?.innerText ?? ""
+      auditText: auditDrawer?.innerText ?? "",
+      basisText: basisBand?.innerText ?? "",
+      evidenceText: evidenceSurface?.innerText ?? "",
+      primaryRows,
+      provenanceRows,
+      rowCount: cards.length
     };
   });
 
   assert(result.rowCount === model.selected.evidencePack.documents.length, "Beat 5 must render one row per backend evidence document");
-  assert(result.groupLabels.length > 0, "Beat 5 must render grouped business evidence sections");
-  assert(
-    result.groupLabels.some((label) => /\b(?:Invoice|POD|Contract|Promotion|Customer record)\b/u.test(label)),
-    "Beat 5 must lead with business document labels"
-  );
-  assert(!result.dossierText.includes("Backend evidence packet"), "Beat 5 must not use backend packet copy as primary evidence language");
-  assert(result.dossierText.includes("Evidence dossier available"), "Beat 5 must show dossier availability");
-  assert(result.reviewText.includes("Review state unavailable"), "Beat 5 must not imply evidence-review completion");
+  assert(result.primaryRows.some((row) => row.label === "Document"), "Beat 5 evidence fact cards must expose Document as a primary row");
+  assert(result.primaryRows.some((row) => row.label === "Source"), "Beat 5 evidence fact cards must expose Source as a primary row");
+  assert(result.primaryRows.some((row) => row.label === "Status"), "Beat 5 evidence fact cards must expose Status as a primary row");
+  assert(!result.evidenceText.includes("Backend evidence packet"), "Beat 5 must not use backend packet copy as primary evidence language");
+  assert(!result.evidenceText.includes("Evidence dossier available"), "Beat 5 must not keep the removed dossier status copy");
   assert(result.basisText.includes(model.selected.draft.basis), "Beat 5 must show backend deterministic basis text");
   assert(result.basisText.includes(model.selected.draft.statusLabel), "Beat 5 must label draft status as draft/HITL state only");
-  assert(result.basisText.includes("Deterministic basis unavailable"), "Beat 5 must mark structured criteria as unavailable");
-  assert(result.recordBadges.includes(recordId), "Beat 5 source details must show backend record IDs");
-  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 5 must show backend citation IDs");
-  assert(result.dossierText.includes(evidenceDocument.documentId), "Beat 5 must show backend document IDs");
   assert(
-    result.dossierText.includes(evidenceBusinessLabelForDocumentType(evidenceDocument.documentType)),
+    result.provenanceRows.some((row) => row.value === evidenceDocument.citationId),
+    "Beat 5 must keep backend citation IDs in the details disclosure"
+  );
+  assert(
+    result.provenanceRows.some((row) => row.value === evidenceDocument.documentId),
+    "Beat 5 must keep backend document IDs in the details disclosure"
+  );
+  assert(
+    result.evidenceText.includes(evidenceBusinessLabelForDocumentType(evidenceDocument.documentType)),
     "Beat 5 must show the business document label derived from backend document type"
   );
-  assert(result.dossierText.includes(evidenceDocument.description), "Beat 5 must show backend document descriptions");
-  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 5 must show backend document summaries");
-  assert(result.dossierText.includes(evidenceDocument.sourceLabel), "Beat 5 must show backend source labels");
-  assert(result.dossierText.includes(evidenceDocument.verifiedLabel), "Beat 5 must show backend verification labels");
-  assert(result.dossierText.includes(evidenceDocument.relevance), "Beat 5 must show backend relevance labels");
+  assert(result.evidenceText.includes(evidenceDocument.sourceLabel), "Beat 5 must show backend source labels");
+  assert(result.evidenceText.includes(evidenceDocument.verifiedLabel), "Beat 5 must show backend verification labels");
+  assert(result.provenanceRows.some((row) => row.value === evidenceDocument.relevance), "Beat 5 must keep backend relevance labels in details");
   assert(
     !/\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu.test(
-      result.dossierText
+      result.evidenceText
     ),
     "Beat 5 must not render unsupported review completion or external-action copy"
   );
   assert(
     !/\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u.test(
-      result.dossierText
+      result.evidenceText
     ),
     "Beat 5 must not render mockup-only evidence pod names"
   );
 
   if (proxyTile !== undefined) {
-    const matchingSourceRow = result.sourceRows.find((row) => row.text.includes(proxyTile.label));
-    assert(matchingSourceRow !== undefined, `Beat 5 source provenance must include ${proxyTile.label}`);
+    assert(result.auditText.includes(proxyTile.label), `Beat 5 audit provenance must include ${proxyTile.label}`);
     assert(
-      matchingSourceRow.statusTone === proxyTile.statusTone,
+      result.auditText.includes(proxyTile.statusTone),
       `Beat 5 must keep ${proxyTile.label} on backend status tone ${proxyTile.statusTone}`
     );
-    assert(matchingSourceRow.text.includes("Proxy - Supabase"), `Beat 5 must label ${proxyTile.label} as proxy-backed`);
-    assert(!matchingSourceRow.text.includes("Live read"), `Beat 5 must not relabel ${proxyTile.label} as live`);
+    assert(!result.auditText.includes("Live read"), `Beat 5 must not relabel ${proxyTile.label} as live`);
   }
 
   assert(forbiddenRequests.length === 0, `Beat 5 must not dispatch forbidden requests: ${forbiddenRequests.join(", ")}`);
@@ -3388,17 +3769,17 @@ async function assertBeat5EvidenceDossierFidelity(
 
 async function assertBeat6QueryStartFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   localQuestion: string,
   forbiddenRequests: string[]
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 6 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya Beat 6 evidence fact cards stay visible");
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 6 query dock");
   await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya Beat 6 query input");
   await expectVisibleLocator(page, '[data-testid="maya-query-selected-line"]', "Maya Beat 6 selected line");
   await expectVisibleLocator(page, '[data-testid="maya-query-readiness-preview"]', "Maya Beat 6 readiness preview");
   await expectVisibleLocator(page, '[data-testid="maya-selected-evidence-context"]', "Maya Beat 6 selected evidence context");
-  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya Beat 6 source details disclosure");
+  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya Beat 6 evidence details disclosure");
   const queryButton = page.getByRole("button", { name: /^Run query$/u });
   await queryButton.waitFor({ state: "visible", timeout: 15_000 });
   assert(!(await queryButton.isDisabled()), "Beat 6 query button must be enabled after typing a local question");
@@ -3414,7 +3795,7 @@ async function assertBeat6QueryStartFidelity(
     }
   }
   const sourceDetails = page.getByTestId("maya-query-source-details");
-  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Source details$/u });
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Evidence details$/u });
   if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
     await sourceDetailsTrigger.click();
   }
@@ -3450,8 +3831,8 @@ async function assertBeat6QueryStartFidelity(
 
   assert(inputValue === localQuestion, "Beat 6 input must preserve the typed local question");
   assert(result.text.includes("Query Evidence"), "Beat 6 dock must show the query sheet title");
-  assert(result.text.includes("Selected evidence context"), "Beat 6 dock must describe selected evidence context honestly");
-  assert(result.text.includes("Client-selected case context"), "Beat 6 dock must not imply server-enforced record scope");
+  assert(result.text.includes("Case evidence"), "Beat 6 dock must describe selected evidence context honestly");
+  assert(!result.text.includes("Client-selected case context"), "Beat 6 dock must not expose developer-facing selected-case copy");
   assert(result.text.includes("500"), "Beat 6 counter/help must use the current 500-character limit");
   assert(!result.text.includes("2000"), "Beat 6 must not show the mockup-only 2000-character counter");
   assert(result.overlayExists, "Beat 6 must keep the shadcn Sheet overlay mounted for dialog accessibility");
@@ -3480,8 +3861,8 @@ async function assertBeat6QueryStartFidelity(
     `Beat 6 right rail must have an opaque token background; received ${result.dockBackgroundColor}`
   );
   assert(result.dockOpacity === "1", `Beat 6 right rail must not be captured mid-fade; received opacity ${result.dockOpacity}`);
-  assert(result.selectedLine.includes(model.selected.lineId), "Beat 6 must show the selected backend line ID");
-  assert(result.recordBadges.includes(recordId), "Beat 6 must show backend record ID badges in Source details");
+  assert(result.selectedLine.includes("Selected case"), "Beat 6 must show business selected-case copy");
+  assert(result.recordBadges.includes(recordId), "Beat 6 must show backend record ID badges in Evidence details");
   assert(!result.hasCitedAnswer, "Beat 6 start state must not render a cited answer card");
   assert(!result.hasTracePanel, "Beat 6 start state must not render the full agent trace panel");
   assert(
@@ -3495,15 +3876,16 @@ async function assertBeat6QueryStartFidelity(
 
 async function assertBeat7AgentTraceInProgressFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   localQuestion: string,
   forbiddenRequests: string[],
   backendQueryRequestCount: number
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 7 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya Beat 7 evidence fact cards stay visible");
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 7 query dock");
   await expectVisibleLocator(page, '[data-testid="maya-query-assistant-message"]', "Maya Beat 7 compact checking bubble");
   await expectVisibleLocator(page, '[data-testid="maya-query-trace-details"]', "Maya Beat 7 trace details disclosure");
+  assert((await page.getByRole("button", { name: /^Ask by voice$/u }).count()) === 0, "Beat 7 must hide the voice button while a text query is in flight");
   const traceDetails = page.getByTestId("maya-query-trace-details");
   const traceDetailsTrigger = traceDetails.getByRole("button", { name: /^Trace details$/u });
   if ((await traceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
@@ -3513,12 +3895,12 @@ async function assertBeat7AgentTraceInProgressFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-trace-running-session"]', "Maya Beat 7 running session row");
   await expectVisibleLocator(page, '[data-testid="maya-trace-running-skeleton"]', "Maya Beat 7 running skeleton");
   await expectVisibleLocator(page, '[data-testid="maya-selected-evidence-context"]', "Maya Beat 7 selected evidence context");
-  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya Beat 7 source details disclosure");
+  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya Beat 7 evidence details disclosure");
   await expectVisibleLocator(page, '[data-testid="maya-submitted-query"]', "Maya Beat 7 submitted query context");
   const recordId = firstItem(model.selected.evidencePack.recordIds, "selected evidence record IDs");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
   const sourceDetails = page.getByTestId("maya-query-source-details");
-  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Source details$/u });
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Evidence details$/u });
   if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
     await sourceDetailsTrigger.click();
   }
@@ -3526,7 +3908,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
   const result = await page.evaluate(() => {
     const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
     const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
-    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const evidenceSurface = document.querySelector<HTMLElement>('[data-testid="maya-evidence-fact-cards"]');
     const runningSession = document.querySelector<HTMLElement>('[data-testid="maya-trace-running-session"]');
     const skeletons = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-running-skeleton"]')];
     const contextRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-static-context-row"]')];
@@ -3541,7 +3923,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
       contextRowCount: contextRows.length,
       contextText: contextRows.map((row) => row.innerText).join("\n"),
       dockText: dock?.innerText ?? "",
-      dossierText: dossier?.innerText ?? "",
+      evidenceText: evidenceSurface?.innerText ?? "",
       hasCitedAnswer: citedAnswer !== null,
       checkingBubbleText: assistant?.innerText ?? "",
       runningStatus: runningSession?.getAttribute("data-run-status") ?? "",
@@ -3561,14 +3943,14 @@ async function assertBeat7AgentTraceInProgressFidelity(
   });
 
   assert(backendQueryRequestCount === 1, "Beat 7 must start exactly one held backend forensics query request");
-  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 7 must keep evidence document context visible");
-  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 7 must keep backend evidence summaries visible");
+  assert(result.evidenceText.includes(evidenceBusinessLabelForDocumentType(evidenceDocument.documentType)), "Beat 7 must keep evidence document context visible");
+  assert(result.evidenceText.includes(evidenceDocument.sourceLabel), "Beat 7 must keep backend evidence source labels visible");
   assert(result.submittedQuery.includes(localQuestion), "Beat 7 must show the local submitted query as query context");
   assert(result.checkingBubbleText.includes("Maya is checking evidence"), "Beat 7 must show compact evidence-checking copy");
   assert(result.runningStatus === "connecting", "Beat 7 running row must be tied to the session connecting state");
-  assert(result.sourceRecordBadges.includes(recordId), "Beat 7 source details must keep selected evidence record badges visible");
-  assert(result.selectedContextText.includes("Selected evidence packet"), "Beat 7 must promote selected evidence context in the dock");
-  assert(result.selectedContextText.includes(model.selected.lineId), "Beat 7 selected evidence context must include the selected line");
+  assert(result.sourceRecordBadges.includes(recordId), "Beat 7 evidence details must keep selected evidence record badges visible");
+  assert(result.selectedContextText.includes("Case evidence packet"), "Beat 7 must promote case evidence context in the dock");
+  assert(result.selectedContextText.includes("Selected case"), "Beat 7 selected evidence context must use business selected-case copy");
   for (const selectedRecordId of model.selected.evidencePack.recordIds) {
     if (selectedRecordId !== model.selected.lineId) {
       assert(
@@ -3576,7 +3958,7 @@ async function assertBeat7AgentTraceInProgressFidelity(
         `Beat 7 compact selected evidence context leaked raw backend recordId ${selectedRecordId}`
       );
     }
-    assert(result.sourceRecordBadges.includes(selectedRecordId), `Beat 7 source details must include ${selectedRecordId}`);
+    assert(result.sourceRecordBadges.includes(selectedRecordId), `Beat 7 evidence details must include ${selectedRecordId}`);
   }
   assert(result.skeletonCount >= 2, "Beat 7 must show shadcn skeleton loading affordance while the session is running");
   assert(
@@ -3610,7 +3992,8 @@ async function assertBeat7StopQueryResetsParentTrace(page: Page): Promise<void> 
     timeout: 5_000
   });
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-  await page.getByTestId("maya-case-agent-trace-tab").click();
+  await openMayaInvestigationSection(page);
+  await openMayaAgentTraceDepthDrawer(page);
   await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya Beat 7 parent trace after Stop query");
   const result = await page.evaluate(() => {
     const runningSessions = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-trace-running-session"]')].filter(
@@ -3643,7 +4026,7 @@ async function assertBeat7StopQueryResetsParentTrace(page: Page): Promise<void> 
 
 async function assertBeat8CitedAnswerFidelity(
   page: Page,
-  model: ForensicsE2EModel,
+  model: ForensicsSelectedEvidenceContext,
   {
     acceptedAnswer,
     acceptedBasis,
@@ -3658,37 +4041,42 @@ async function assertBeat8CitedAnswerFidelity(
     localQuestion: string;
   }
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya Beat 8 evidence dossier stays visible");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya Beat 8 evidence fact cards stay visible");
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya Beat 8 query dock");
   await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya Beat 8 persistent query input");
   await expectVisibleLocator(page, '[data-testid="maya-query-assistant-message"]', "Maya Beat 8 assistant answer bubble");
-  await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', "Maya Beat 8 cited answer");
-  await expectVisibleLocator(page, '[data-testid="maya-cited-answer-basis"]', "Maya Beat 8 deterministic basis");
-  await expectVisibleLocator(page, '[data-testid="maya-cited-source-details"]', "Maya Beat 8 expandable source details");
-  const basisDetails = page.getByTestId("maya-cited-answer-basis");
-  const basisDetailsTrigger = basisDetails.getByRole("button", { name: /^Basis$/u });
-  if ((await basisDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
-    await basisDetailsTrigger.click();
-  }
-  await page.getByRole("button", { name: /^Sources$/u }).click();
-  await expectVisibleLocator(page, '[data-testid="maya-cited-record-row"]', "Maya Beat 8 citation rows");
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Maya Beat 8 Copilot verdict band");
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-citations-drawer"]', "Maya Beat 8 citations drawer");
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-trace-drawer"]', "Maya Beat 8 trace drawer");
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-model-drawer"]', "Maya Beat 8 model execution drawer");
+  await expectVisibleLocator(page, 'button[aria-label="Ask by voice"]', "Maya Beat 8 completed answer voice button");
+  const citationsDrawer = page.getByTestId("maya-copilot-citations-drawer");
+  const traceDrawer = page.getByTestId("maya-copilot-trace-drawer");
+  const modelDrawer = page.getByTestId("maya-copilot-model-drawer");
+  assert(
+    (await citationsDrawer.getByRole("button", { name: /^Citations/u }).getAttribute("aria-expanded")) !== "true",
+    "Beat 8 citations drawer must be collapsed by default"
+  );
+  assert(
+    (await traceDrawer.getByRole("button", { name: /^Trace/u }).getAttribute("aria-expanded")) !== "true",
+    "Beat 8 trace drawer must be collapsed by default"
+  );
+  await citationsDrawer.getByRole("button", { name: /^Citations/u }).click();
+  await modelDrawer.getByRole("button", { name: /^Model execution/u }).click();
+  await expectVisibleLocator(page, '[data-testid="maya-query-citation-record"]', "Maya Beat 8 citation records");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
 
   const result = await page.evaluate(() => {
     const dock = document.querySelector<HTMLElement>('[data-testid="maya-query-dock"]');
     const assistant = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]');
-    const answer = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer"]');
-    const basis = document.querySelector<HTMLElement>('[data-testid="maya-cited-answer-basis"]')?.innerText ?? "";
+    const modelDrawer = document.querySelector<HTMLElement>('[data-testid="maya-copilot-model-drawer"]');
+    const verdictBand = document.querySelector<HTMLElement>('[data-testid="maya-copilot-verdict-band"]');
     const trace = document.querySelector<HTMLElement>('[data-testid="maya-agent-trace"]');
-    const dossier = document.querySelector<HTMLElement>('[data-testid="maya-evidence-dossier"]');
+    const evidenceSurface = document.querySelector<HTMLElement>('[data-testid="maya-evidence-fact-cards"]');
     const composer = document.querySelector<HTMLElement>('[data-testid="maya-query-input"]');
     const submittedQuery = document.querySelector<HTMLElement>('[data-testid="maya-submitted-query"]')?.innerText ?? "";
-    const blockedAlerts = answer?.querySelectorAll<HTMLElement>('[data-testid="maya-cited-answer-blocked"]') ?? [];
-    const citationRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-cited-record-row"]')].map((row) => ({
-      metadataGap: row.getAttribute("data-metadata-gap") ?? "",
-      metadataJoin: row.getAttribute("data-metadata-join") ?? "",
-      metadataText: row.querySelector<HTMLElement>('[data-testid="maya-cited-record-metadata"]')?.innerText ?? "",
-      recordId: row.getAttribute("data-record-id") ?? "",
+    const citationRows = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-query-citation-record"]')].map((row) => ({
+      recordId: row.innerText.trim(),
       text: row.innerText
     }));
     const buttons = [...(dock?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map((button) => button.innerText);
@@ -3696,37 +4084,36 @@ async function assertBeat8CitedAnswerFidelity(
 
     return {
       assistantText: assistant?.innerText ?? "",
-      basis,
-      blockedCount: blockedAlerts.length,
       buttons,
       citationRows,
       dockMode: dock?.dataset.answerMode ?? "",
       dockText: dock?.innerText ?? "",
       dockWidth: dockRect?.width ?? 0,
-      dossierText: dossier?.innerText ?? "",
+      evidenceText: evidenceSurface?.innerText ?? "",
       hasComposer: composer !== null,
+      modelText: modelDrawer?.innerText ?? "",
       submittedQuery,
-      text: answer?.innerText ?? "",
-      traceText: trace?.innerText ?? ""
+      text: assistant?.innerText ?? "",
+      traceText: trace?.innerText ?? "",
+      verdictText: verdictBand?.innerText ?? ""
     };
   });
 
   assert(backendQueryRequestCount === 1, "Beat 8 must request exactly one backend forensics query response");
   assert(result.hasComposer, "Beat 8 must keep the query composer available after a cited answer");
   assert(result.assistantText.includes(acceptedAnswer), "Beat 8 assistant bubble must render the backend/test accepted answer text");
-  assert(result.basis.includes(acceptedBasis), "Beat 8 must render the backend/test deterministic basis");
+  assert(result.modelText.includes(acceptedBasis), "Beat 8 model execution drawer must render the backend/test deterministic basis");
   assert(result.submittedQuery.includes(localQuestion), "Beat 8 must preserve the local submitted query context");
-  assert(result.dossierText.includes(evidenceDocument.citationId), "Beat 8 must keep adjacent evidence context visible");
-  assert(result.dossierText.includes(evidenceDocument.summary), "Beat 8 must keep backend evidence summaries visible");
+  assert(result.evidenceText.includes(evidenceBusinessLabelForDocumentType(evidenceDocument.documentType)), "Beat 8 must keep adjacent evidence context visible");
+  assert(result.evidenceText.includes(evidenceDocument.sourceLabel), "Beat 8 must keep backend evidence source labels visible");
   assert(result.dockMode === "review", "Beat 8 answered state must promote the sheet into answer-review mode");
   assert(result.dockWidth >= 760, `Beat 8 answer-review mode must be wider than the query drawer: ${String(result.dockWidth)}px`);
-  assert(result.text.includes("Answered"), "Beat 8 must label the accepted answered state");
+  assert(result.dockText.includes("Complete"), "Beat 8 must label the accepted answered state as complete");
   assert(
-    result.text.includes(`${String(model.selected.evidencePack.documents.length)} loaded documents`),
-    "Beat 8 answer card must show a backend-document readout from the loaded evidence packet"
+    result.dockText.includes(`Citations`) && result.dockText.includes(`${String(model.selected.evidencePack.recordIds.length)} records`),
+    "Beat 8 completed answer must expose citation count in the drawer trigger"
   );
   assert(!result.text.includes("No cited answer returned"), "Beat 8 must not show the blocked/no-answer state");
-  assert(result.blockedCount === 0, "Beat 8 accepted answer must not render blocked-state content");
   assert(!result.text.includes("Partial / Blocked"), "Beat 8 must not invent a warning/caution block");
   assert(!result.text.includes("Shortage Deduction Recoverability"), "Beat 8 must not render mockup-only query title");
   assert(!result.text.includes("The shortage deduction is recoverable."), "Beat 8 must not render mockup-only answer prose");
@@ -3737,41 +4124,10 @@ async function assertBeat8CitedAnswerFidelity(
   assert(result.traceText.length === 0, "Beat 8 answered view must focus on answer review instead of agent trace");
   assert(result.citationRows.length === model.selected.evidencePack.recordIds.length, "Beat 8 must render every cited record ID");
   for (const recordId of model.selected.evidencePack.recordIds) {
-    assert(result.text.includes(recordId), `Beat 8 cited answer must show ${recordId}`);
-  }
-  const exactJoinedDocuments = model.selected.evidencePack.documents.filter(
-    (document) =>
-      model.selected.evidencePack.recordIds.includes(document.documentId) ||
-      model.selected.evidencePack.recordIds.includes(document.citationId)
-  );
-  assert(exactJoinedDocuments.length > 0, "Beat 8 fixture must include at least one exact document metadata join");
-  const firstJoinedRowIndex = result.citationRows.findIndex((row) => row.metadataJoin === "exact");
-  const firstGapRowIndex = result.citationRows.findIndex((row) => row.metadataGap === "true");
-  assert(firstJoinedRowIndex >= 0, "Beat 8 must render at least one exact metadata join row");
-  assert(
-    firstGapRowIndex === -1 || firstJoinedRowIndex < firstGapRowIndex,
-    "Beat 8 must promote exact backend document metadata rows before unavailable metadata rows"
-  );
-  for (const document of exactJoinedDocuments) {
-    const joinedRow = result.citationRows.find((row) => row.recordId === document.documentId || row.recordId === document.citationId);
-    assert(joinedRow !== undefined, `Beat 8 must render a citation row for exact document ${document.documentId}`);
-    assert(joinedRow.metadataJoin === "exact", `Beat 8 must mark ${document.documentId} as an exact metadata join`);
-    assert(joinedRow.metadataGap !== "true", `Beat 8 must not mark ${document.documentId} as unavailable when metadata is exact`);
-    assert(joinedRow.metadataText.includes(document.citationId), `Beat 8 joined metadata must show citation ${document.citationId}`);
-    assert(joinedRow.metadataText.includes(document.documentId), `Beat 8 joined metadata must show document ${document.documentId}`);
-    assert(joinedRow.metadataText.includes(document.documentType), `Beat 8 joined metadata must show type ${document.documentType}`);
-    assert(joinedRow.metadataText.includes(document.sourceLabel), `Beat 8 joined metadata must show source ${document.sourceLabel}`);
-    assert(joinedRow.metadataText.includes(document.verifiedLabel), `Beat 8 joined metadata must show verification ${document.verifiedLabel}`);
-  }
-  for (const row of result.citationRows) {
-    const hasExactDocument = exactJoinedDocuments.some(
-      (document) => row.recordId === document.documentId || row.recordId === document.citationId
+    assert(
+      result.citationRows.some((row) => row.recordId.includes(recordId)),
+      `Beat 8 citation drawer must show ${recordId}`
     );
-    if (hasExactDocument) {
-      continue;
-    }
-    assert(row.metadataGap === "true", "Beat 8 citation rows without exact joins must honestly mark unavailable metadata");
-    assert(row.text.includes("Metadata unavailable"), "Beat 8 citation rows without exact joins must expose the metadata gap");
   }
   assert(
     !/\b(?:send|recover|approve|post|write back|route to billing|change terms|release hold|freeze)\b/iu.test(
@@ -3785,7 +4141,245 @@ async function assertBeat8CitedAnswerFidelity(
   );
 }
 
-function buildE2EForensicsQueryResponse(model: ForensicsE2EModel, answer: string, deterministicBasis: string) {
+async function assertBeat8VoiceQueryFidelity(
+  page: Page,
+  model: ForensicsSelectedEvidenceContext,
+  localQuestion: string
+): Promise<void> {
+  const voiceAnswer = "E2E accepted cited voice answer from the realtime tool route.";
+  const voiceBasis = "E2E deterministic basis from the realtime voice tool response.";
+  const recordIds = model.selected.evidencePack.recordIds;
+  const selectedLineId = model.selected.lineId;
+  let voiceMode: "answered" | "blocked" = "answered";
+  let releaseVoiceTool: (() => void) | undefined;
+  let markVoiceToolStarted: (() => void) | undefined;
+  let voiceToolStarted = new Promise<void>((resolve) => {
+    markVoiceToolStarted = resolve;
+  });
+  const voiceRequests: string[] = [];
+
+  await page.route("**/api/query/realtime-client-secret", async (route) => {
+    const requestBody = parseOptionalJsonRecord(route.request().postData());
+    voiceRequests.push("client-secret");
+    assert(requestBody !== undefined, "Voice query client-secret request body must be JSON");
+    assert(requestBody["question"] === localQuestion, "Voice query must reuse the typed Maya question");
+    assert(requestBody["selectedLineId"] === selectedLineId, "Voice query must send the selected line id");
+    assert(Array.isArray(requestBody["recordIds"]), "Voice query must send scoped record ids");
+    for (const recordId of recordIds) {
+      assert((requestBody["recordIds"] as unknown[]).includes(recordId), `Voice query must scope record ${recordId}`);
+    }
+
+    await route.fulfill({
+      body: JSON.stringify({
+        auditPolicy: {
+          externalActions: "none",
+          recordIds,
+          retention: "Audit hashes and cited record ids only; no raw audio."
+        },
+        clientSecret: { value: "ek_e2e_voice_client_secret" },
+        deterministicBasis: "E2E realtime client-secret proxy gate",
+        model: "gpt-realtime-2",
+        status: "issued",
+        transport: "webrtc"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+  await page.route("https://api.openai.com/v1/realtime/calls", async (route) => {
+    voiceRequests.push("sdp");
+    await route.fulfill({
+      body: "v=0\r\ns=e2e-voice-answer",
+      contentType: "application/sdp",
+      status: 200
+    });
+  });
+  await page.route("**/api/query/realtime-tool", async (route) => {
+    const requestBody = parseOptionalJsonRecord(route.request().postData());
+    voiceRequests.push(`tool:${voiceMode}`);
+    assert(requestBody !== undefined, "Voice query realtime-tool request body must be JSON");
+    assert(requestBody["name"] === "query.answer", "Voice query may only bridge the query.answer realtime tool");
+    const argumentsJson = typeof requestBody["argumentsJson"] === "string" ? requestBody["argumentsJson"] : "{}";
+    const parsedArguments = parseOptionalJsonRecord(argumentsJson);
+    assert(parsedArguments !== undefined, "Voice query tool arguments must be JSON");
+    assert(parsedArguments["selectedLineId"] === selectedLineId, "Voice query tool args must retain selected line id");
+    assert(Array.isArray(parsedArguments["recordIds"]), "Voice query tool args must retain scoped record ids");
+    for (const recordId of recordIds) {
+      assert((parsedArguments["recordIds"] as unknown[]).includes(recordId), `Voice query tool args must include ${recordId}`);
+    }
+
+    assert(markVoiceToolStarted !== undefined, "Voice query tool-start resolver must be initialized");
+    markVoiceToolStarted();
+    await new Promise<void>((resolve) => {
+      releaseVoiceTool = resolve;
+    });
+
+    await route.fulfill({
+      body: JSON.stringify({
+        deterministicBasis: "E2E realtime tool allowlist + citation parity",
+        output:
+          voiceMode === "answered"
+            ? {
+                answer: voiceAnswer,
+                citationParity: {
+                  parity: "same_record_ids",
+                  textRecordIds: recordIds,
+                  voiceRecordIds: recordIds
+                },
+                deterministicBasis: voiceBasis,
+                recordIds
+              }
+            : {
+                answer: "This uncited voice output must not render as an answer.",
+                deterministicBasis: voiceBasis,
+                recordIds
+              },
+        recordIds,
+        status: "ok",
+        toolName: "query.answer"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+
+  try {
+    await page.evaluate(() => {
+      const runtime = (window as unknown as { __recoupE2ERealtime?: { denyMedia: boolean } }).__recoupE2ERealtime;
+      if (runtime !== undefined) {
+        runtime.denyMedia = true;
+      }
+    });
+    await page.getByRole("button", { name: /^Ask by voice$/u }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("Voice permission or session setup failed."), undefined, {
+      timeout: 10_000
+    });
+    const deniedState = await page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="maya-query-input"]');
+
+      return {
+        hasError: document.body.innerText.includes("Voice permission or session setup failed. Text query is still available."),
+        inputDisabled: input?.disabled ?? true,
+        voiceButtonVisible: [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Ask by voice"]')].some(
+          (button) => button.offsetParent !== null
+        )
+      };
+    });
+    assert(deniedState.hasError, "Voice mic-denied state must render the one-line fallback notice");
+    assert(!deniedState.inputDisabled, "Voice mic-denied state must keep text query input available");
+    assert(deniedState.voiceButtonVisible, "Voice mic-denied state must leave the voice control recoverable");
+    await page.evaluate(() => {
+      const runtime = (window as unknown as { __recoupE2ERealtime?: { denyMedia: boolean } }).__recoupE2ERealtime;
+      if (runtime !== undefined) {
+        runtime.denyMedia = false;
+      }
+    });
+
+    voiceMode = "blocked";
+    voiceToolStarted = new Promise<void>((resolve) => {
+      markVoiceToolStarted = resolve;
+    });
+    await page.getByRole("button", { name: /^Ask by voice$/u }).click();
+    await Promise.race([
+      voiceToolStarted,
+      delay(10_000).then(() => {
+        throw new Error("Beat 8 voice blocked query did not reach the realtime tool bridge.");
+      })
+    ]);
+    await expectVisibleLocator(page, '[data-testid="maya-query-voice-recording-indicator"]', "Maya Beat 8 voice listening indicator");
+    releaseVoiceTool?.();
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Blocked cited Realtime answer without matching voice/text citation parity."),
+      undefined,
+      { timeout: 10_000 }
+    );
+    assert(
+      !(await hasVisibleLocator(page, '[data-testid="maya-query-assistant-answer"]')),
+      "Voice blocked/uncited output must not render as an assistant answer"
+    );
+
+    voiceMode = "answered";
+    voiceToolStarted = new Promise<void>((resolve) => {
+      markVoiceToolStarted = resolve;
+    });
+    await page.getByRole("button", { name: /^Ask by voice$/u }).click();
+    await Promise.race([
+      voiceToolStarted,
+      delay(10_000).then(() => {
+        throw new Error("Beat 8 voice cited query did not reach the realtime tool bridge.");
+      })
+    ]);
+    await expectVisibleLocator(page, '[data-testid="maya-query-voice-recording-indicator"]', "Maya Beat 8 voice cited listening indicator");
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-08-voice-listening.png` });
+    releaseVoiceTool?.();
+    await page.waitForFunction(
+      (answer) => document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-answer"]')?.innerText.includes(answer) === true,
+      voiceAnswer,
+      { timeout: 10_000 }
+    );
+    await page.screenshot({ fullPage: false, path: `${outputDir}/maya-beat-08-voice-answer.png` });
+    const voiceCitationsDrawer = page.getByTestId("maya-copilot-citations-drawer");
+    if ((await voiceCitationsDrawer.getByRole("button", { name: /^Citations/u }).getAttribute("aria-expanded")) !== "true") {
+      await voiceCitationsDrawer.getByRole("button", { name: /^Citations/u }).click();
+    }
+    await expectVisibleLocator(page, '[data-testid="maya-query-citation-record"]', "Maya Beat 8 voice citation records");
+    const answeredState = await page.evaluate((expectedRecordIds) => {
+      const assistant = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]');
+      const citations = [...document.querySelectorAll<HTMLElement>('[data-testid="maya-query-citation-record"]')].map((node) =>
+        node.innerText.trim()
+      );
+
+      return {
+        citationCount: citations.length,
+        missingRecordIds: expectedRecordIds.filter((recordId) => !citations.some((citation) => citation.includes(recordId))),
+        mode: assistant?.dataset.queryMode ?? "",
+        text: assistant?.innerText ?? ""
+      };
+    }, recordIds);
+    assert(answeredState.mode === "voice", `Voice answer must render in the Copilot story panel with data-query-mode=voice; saw ${answeredState.mode}`);
+    assert(answeredState.text.includes(voiceAnswer), "Voice answer must render the cited realtime answer text");
+    assert(answeredState.text.includes("Agents complete"), "Voice answer must render the agents-complete checklist");
+    assert(answeredState.citationCount >= 1, "Voice answer must retain at least one citation");
+    assert(answeredState.missingRecordIds.length === 0, `Voice answer citations missing ${answeredState.missingRecordIds.join(", ")}`);
+
+    await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+    const teardown = await page.evaluate(() => {
+      const runtime = (
+        window as unknown as {
+          __recoupE2ERealtime?: { mediaTrackStops: number; peerConnections: Array<{ closed?: boolean }> };
+        }
+      ).__recoupE2ERealtime;
+
+      return {
+        livePeerCount: runtime?.peerConnections.filter((peer) => peer.closed !== true).length ?? -1,
+        mediaTrackStops: runtime?.mediaTrackStops ?? 0,
+        peerCount: runtime?.peerConnections.length ?? 0
+      };
+    });
+    assert(teardown.peerCount >= 2, "Voice proof must create fake peers for blocked and cited voice sessions");
+    assert(teardown.livePeerCount === 0, `Voice dock close must leave zero live RTCPeerConnection objects; saw ${String(teardown.livePeerCount)}`);
+    assert(teardown.mediaTrackStops >= 2, "Voice dock close must stop local microphone tracks for voice sessions");
+    assert(
+      voiceRequests.includes("client-secret") &&
+        voiceRequests.includes("sdp") &&
+        voiceRequests.includes("tool:blocked") &&
+        voiceRequests.includes("tool:answered"),
+      `Voice proof missed expected realtime calls: ${voiceRequests.join(", ")}`
+    );
+  } finally {
+    releaseVoiceTool?.();
+    await page.unroute("**/api/query/realtime-client-secret").catch(() => undefined);
+    await page.unroute("https://api.openai.com/v1/realtime/calls").catch(() => undefined);
+    await page.unroute("**/api/query/realtime-tool").catch(() => undefined);
+  }
+}
+
+function buildE2EForensicsQueryResponse(
+  model: ForensicsSelectedEvidenceContext,
+  answer: string,
+  deterministicBasis: string,
+  options: { memoryRecall?: Record<string, unknown> } = {}
+) {
   const recordIds = model.selected.evidencePack.recordIds;
   const documents = model.selected.evidencePack.documents;
   const orderedCitationRecordIds = [...recordIds].sort((left, right) => {
@@ -3817,6 +4411,7 @@ function buildE2EForensicsQueryResponse(model: ForensicsE2EModel, answer: string
       };
     }),
     deterministicBasis,
+    ...(options.memoryRecall === undefined ? {} : { memoryRecall: options.memoryRecall }),
     modelExecution: {
       agentNames: ["Forensics Investigator", "Evidence Retriever"],
       deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",
@@ -3864,6 +4459,22 @@ function buildE2EForensicsQueryResponse(model: ForensicsE2EModel, answer: string
         sourceKind: "agent_trace"
       }
     ]
+  };
+}
+
+function selectedEvidenceContextForWorklistItem(
+  model: ForensicsSelectedEvidenceContext,
+  item: ForensicsE2EWorklistItem
+): ForensicsSelectedEvidenceContext {
+  return {
+    selected: {
+      ...model.selected,
+      evidencePack: {
+        documents: [],
+        recordIds: [...item.lineIds]
+      },
+      lineId: item.lineId
+    }
   };
 }
 
@@ -4899,11 +5510,32 @@ function assertNoForbiddenRequests(requests: readonly string[], label: string): 
   assert(requests.length === 0, `${label} must not call forbidden routes: ${requests.join(", ")}`);
 }
 
+function evidenceRecordIdsExcludingSelectedLine(model: ForensicsSelectedEvidenceContext): string[] {
+  return model.selected.evidencePack.recordIds.filter((recordId) => recordId !== model.selected.lineId);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 function firstItem<T>(items: readonly T[], label: string): T {
   const item = items[0];
   assert(item !== undefined, `${label} must include at least one item`);
 
   return item;
+}
+
+function parseOptionalJsonRecord(value: string | null): Record<string, unknown> | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

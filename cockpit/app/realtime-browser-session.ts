@@ -5,11 +5,15 @@ export type RealtimeBrowserSessionStatus =
   | "connected"
   | "connecting"
   | "ended"
-  | "error";
+  | "error"
+  | "hearing"
+  | "processing";
 
 export interface RealtimeBrowserSessionSnapshot {
   answer?: string;
+  assistantTranscript?: string;
   deterministicBasis?: string;
+  inputTranscript?: string;
   message: string;
   recordIds: string[];
   status: RealtimeBrowserSessionStatus;
@@ -75,15 +79,17 @@ export async function startRealtimeBrowserSession({
   toolEndpoint = realtimeToolUrl
 }: RealtimeBrowserSessionInput): Promise<RealtimeBrowserSession> {
   const trimmedQuestion = question.trim();
+  const hasTypedQuestion = trimmedQuestion.length > 0 && !isMicrophoneFirstQuestionPrompt(trimmedQuestion);
+  const clientSecretQuestion = trimmedQuestion.length > 0 ? trimmedQuestion : "Voice question from microphone for the selected evidence packet.";
   const selectedQueryScope = normalizeSelectedQueryScope({
     ...(recordIds === undefined ? {} : { recordIds }),
     ...(selectedLineId === undefined ? {} : { selectedLineId })
   });
   const scopedRecordIds = selectedQueryScope?.recordIds ?? policyRecordIds;
   let snapshot: RealtimeBrowserSessionSnapshot = {
-    message: "Ask a scoped question before requesting a Realtime session.",
-    recordIds: policyRecordIds,
-    status: "blocked"
+    message: "Voice session idle.",
+    recordIds: scopedRecordIds,
+    status: "ended"
   };
   const localTracks: MediaStreamTrack[] = [];
   const abortController = new AbortController();
@@ -145,10 +151,6 @@ export async function startRealtimeBrowserSession({
     return cancelledBeforeStart;
   }
 
-  if (trimmedQuestion.length === 0) {
-    return { close, getSnapshot: () => snapshot };
-  }
-
   publish({
     message: "Requesting audit-scoped Realtime session.",
     recordIds: scopedRecordIds,
@@ -160,7 +162,7 @@ export async function startRealtimeBrowserSession({
   try {
     secretResponse = await fetcher("/api/query/realtime-client-secret", {
       body: JSON.stringify({
-        question: trimmedQuestion,
+        question: clientSecretQuestion,
         ...(selectedQueryScope === undefined
           ? {}
           : { recordIds: [...selectedQueryScope.recordIds], selectedLineId: selectedQueryScope.selectedLineId })
@@ -293,17 +295,19 @@ export async function startRealtimeBrowserSession({
         return;
       }
 
-      dataChannel.send(
-        JSON.stringify({
-          item: {
-            content: [{ text: trimmedQuestion, type: "input_text" }],
-            role: "user",
-            type: "message"
-          },
-          type: "conversation.item.create"
-        })
-      );
-      dataChannel.send(JSON.stringify({ type: "response.create" }));
+      if (hasTypedQuestion) {
+        dataChannel.send(
+          JSON.stringify({
+            item: {
+              content: [{ text: trimmedQuestion, type: "input_text" }],
+              role: "user",
+              type: "message"
+            },
+            type: "conversation.item.create"
+          })
+        );
+        dataChannel.send(JSON.stringify({ type: "response.create" }));
+      }
     });
   } catch {
     const cancelledAfterSetupError = cancelledSession();
@@ -328,6 +332,10 @@ export async function startRealtimeBrowserSession({
   });
 
   return { close, getSnapshot: () => snapshot };
+}
+
+function isMicrophoneFirstQuestionPrompt(question: string): boolean {
+  return question === "Voice question from microphone for the selected evidence packet.";
 }
 
 async function handleRealtimeEvent(
@@ -358,6 +366,84 @@ async function handleRealtimeEvent(
     return;
   }
 
+  const eventType = typeof parsed["type"] === "string" ? parsed["type"] : "";
+  if (eventType === "input_audio_buffer.speech_started") {
+    const current = context.getSnapshot();
+    context.publish({
+      ...current,
+      message: "Hearing you...",
+      status: "hearing"
+    });
+    return;
+  }
+
+  if (eventType === "input_audio_buffer.speech_stopped") {
+    const current = context.getSnapshot();
+    context.publish({
+      ...current,
+      message: "Processing...",
+      status: "processing"
+    });
+    return;
+  }
+
+  if (
+    eventType === "conversation.item.input_audio_transcription.delta" ||
+    eventType === "input_audio_transcription.delta"
+  ) {
+    const current = context.getSnapshot();
+    const delta = readRealtimeTranscriptDelta(parsed);
+    context.publish({
+      ...current,
+      ...(delta.length === 0 ? {} : { inputTranscript: `${current.inputTranscript ?? ""}${delta}` }),
+      message: "Hearing you...",
+      status: "hearing"
+    });
+    return;
+  }
+
+  if (
+    eventType === "conversation.item.input_audio_transcription.completed" ||
+    eventType === "conversation.item.input_audio_transcription.done" ||
+    eventType === "input_audio_transcription.completed"
+  ) {
+    const current = context.getSnapshot();
+    const transcript = readRealtimeTranscriptText(parsed);
+    context.publish({
+      ...current,
+      ...(transcript.length === 0 ? {} : { inputTranscript: transcript }),
+      message: "Processing...",
+      status: "processing"
+    });
+    return;
+  }
+
+  if (
+    eventType === "response.output_audio_transcript.delta" ||
+    eventType === "response.audio_transcript.delta"
+  ) {
+    const current = context.getSnapshot();
+    context.publish({
+      ...current,
+      message: "Assistant answer playing.",
+      status: current.status === "answered" ? "answered" : "processing"
+    });
+    return;
+  }
+
+  if (
+    eventType === "response.output_audio_transcript.done" ||
+    eventType === "response.audio_transcript.done"
+  ) {
+    const current = context.getSnapshot();
+    context.publish({
+      ...current,
+      message: current.status === "answered" ? current.message : "Assistant answer played.",
+      status: current.status === "answered" ? "answered" : "processing"
+    });
+    return;
+  }
+
   if (parsed["type"] === "recoup.cited_answer") {
     const text = typeof parsed["text"] === "string" ? parsed["text"] : undefined;
     const deterministicBasis =
@@ -369,9 +455,12 @@ async function handleRealtimeEvent(
       recordIds: parsed["recordIds"]
     });
     if (citedAnswer !== undefined) {
+      const current = context.getSnapshot();
       context.publish({
         answer: citedAnswer.answer,
+        assistantTranscript: citedAnswer.answer,
         deterministicBasis: citedAnswer.deterministicBasis,
+        ...(current.inputTranscript === undefined ? {} : { inputTranscript: current.inputTranscript }),
         message: "Cited Realtime answer received.",
         recordIds: citedAnswer.recordIds,
         status: "answered"
@@ -385,8 +474,12 @@ async function handleRealtimeEvent(
 
   if (parsed["type"] === "response.done") {
     const current = context.getSnapshot();
+    if (current.status === "answered") {
+      return;
+    }
     context.publish({
       ...(current.deterministicBasis === undefined ? {} : { deterministicBasis: current.deterministicBasis }),
+      ...(current.inputTranscript === undefined ? {} : { inputTranscript: current.inputTranscript }),
       message: "Blocked uncited Realtime output; deterministic query answer remains required.",
       recordIds: current.recordIds,
       status: "blocked_uncited_output"
@@ -399,12 +492,14 @@ async function handleRealtimeToolCall(
   {
     dataChannel,
     fetcher,
+    getSnapshot,
     publish,
     selectedQueryScope,
     toolEndpoint
   }: {
     dataChannel: RTCDataChannel;
     fetcher: typeof fetch;
+    getSnapshot: () => RealtimeBrowserSessionSnapshot;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
     selectedQueryScope: SelectedQueryScope | undefined;
     toolEndpoint: string;
@@ -454,9 +549,12 @@ async function handleRealtimeToolCall(
   dataChannel.send(JSON.stringify({ type: "response.create" }));
 
   if (citedAnswer !== undefined) {
+    const current = getSnapshot();
     publish({
       answer: citedAnswer.answer,
+      assistantTranscript: citedAnswer.answer,
       deterministicBasis: citedAnswer.deterministicBasis,
+      ...(current.inputTranscript === undefined ? {} : { inputTranscript: current.inputTranscript }),
       message: "Cited Realtime answer received.",
       recordIds: citedAnswer.recordIds,
       status: "answered"
@@ -464,6 +562,28 @@ async function handleRealtimeToolCall(
     return;
   }
 
+}
+
+function readRealtimeTranscriptDelta(event: Record<string, unknown>): string {
+  const delta = event["delta"];
+  if (typeof delta === "string") {
+    return delta;
+  }
+
+  return "";
+}
+
+function readRealtimeTranscriptText(event: Record<string, unknown>): string {
+  const transcript = event["transcript"];
+  if (typeof transcript === "string") {
+    return transcript;
+  }
+  const text = event["text"];
+  if (typeof text === "string") {
+    return text;
+  }
+
+  return readRealtimeTranscriptDelta(event);
 }
 
 function normalizeSelectedQueryScope(input: {

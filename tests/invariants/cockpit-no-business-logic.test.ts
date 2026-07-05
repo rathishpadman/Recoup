@@ -105,8 +105,8 @@ describe("S5 cockpit business-logic boundary", () => {
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
     const worklistTable = readFileSync("cockpit/components/maya/deduction-worklist-table.tsx", "utf8");
-    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
     const recoveryDraftReview = readFileSync("cockpit/components/maya/recovery-draft-review.tsx", "utf8");
+    const emailDraftDialog = readFileSync("cockpit/components/maya/email-draft-dialog.tsx", "utf8");
     const realtimeHelper = readFileSync("cockpit/app/realtime-browser-session.ts", "utf8");
 
     expect(mayaSources).toContain("model: ForensicsCockpitModel");
@@ -114,8 +114,17 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(mayaSources).toContain("session: DemoSession");
     expect(mayaSources).toContain("recommendedActionLabel");
     expect(queryDock).toContain('fetch("/api/forensics/query"');
-    expect(queryDock).not.toContain("startRealtimeBrowserSession");
-    expect(queryDock).not.toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("startRealtimeBrowserSession");
+    expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain('aria-label="Ask by voice"');
+    expect(queryDock).toContain("recordIds: activeRecordIds");
+    expect(queryDock).toContain("selectedLineId: activeSelectedLine");
+    expect(queryDock).toContain("realtimeSessionRef");
+    expect(queryDock).not.toContain("new RTCPeerConnection");
+    expect(queryDock).not.toContain("getUserMedia");
+    expect(queryDock).not.toContain("Realtime cited answer returned from selected evidence.");
+    expect(queryDock).not.toContain("/api/email");
+    expect(queryDock).not.toContain("/api/approvals");
     expect(queryDock).toContain("sessionTokenRef");
     expect(queryDock).toContain("closeActiveSession");
     expect(queryDock).toContain("onOpenChange={handleOpenChange}");
@@ -127,14 +136,14 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("QUERY_QUESTION_CHARACTER_LIMIT = 500");
     expect(queryDock).toContain("maxLength={QUERY_QUESTION_CHARACTER_LIMIT}");
     expect(queryDock).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
-    expect(queryDock).toContain("Selected evidence context");
-    expect(queryDock).toContain("Client-selected case context");
+    expect(queryDock).toContain("Case evidence");
+    expect(queryDock).not.toContain("Client-selected case context");
     expect(queryDock).toContain('data-testid="maya-selected-evidence-context"');
-    expect(queryDock).toContain("Selected evidence packet");
+    expect(queryDock).toContain("Case evidence packet");
     expect(queryDock).toContain('data-testid="maya-query-record-id"');
     expect(queryDock).toContain('data-testid="maya-query-source-details"');
     expect(queryDock).toContain('data-testid="maya-query-trace-details"');
-    expect(queryDock).toMatch(/\bisRunning\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u);
+    expect(queryDock).toMatch(/\bshouldShowStopQuery\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u);
     expect(sheet).toContain("overlayClassName?: string");
     expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
     expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
@@ -146,8 +155,13 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain('animation: "none"');
     expect(queryDock).toContain('backgroundColor: "var(--bg-surface)"');
     expect(queryDock).toContain("opacity: 1");
-    expect(queryDock).toContain("CitedAnswerCard");
+    expect(queryDock).not.toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
+    expect(queryDock).toContain("CopilotStoryPanel");
+    expect(queryDock).toContain('testId="maya-copilot-citations-drawer"');
+    expect(queryDock).toContain('testId="maya-copilot-trace-drawer"');
+    expect(queryDock).toContain('testId="maya-copilot-model-drawer"');
+    expect(queryDock).toContain('<ModelFact label="Basis" value={response.deterministicBasis} />');
     expect(queryDock).toContain("submittedQuestion");
     expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
     expect(queryDock).toContain('data-testid="maya-submitted-query"');
@@ -167,14 +181,16 @@ describe("S5 cockpit business-logic boundary", () => {
     );
     expect(queryDock).toContain("aria-describedby={promptChipDescriptionId}");
     expect(queryDock).toContain("id={promptChipDescriptionId}");
+    expect(queryDock).toContain("const COPILOT_SOFT_PANEL_CLASS");
+    expect(queryDock).toContain("const COPILOT_SOFT_BUTTON_CLASS");
     expect(queryDock).toMatch(
-      /<div\b(?=[^>]*\bclassName="grid min-w-0 gap-2 rounded-lg border bg-background p-3")(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
+      /<div\b(?=[^>]*\bclassName=\{cn\("grid min-w-0 gap-2 rounded-lg border p-3", COPILOT_SOFT_PANEL_CLASS\)\})(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
     );
     expect(queryDock).toContain("displayAnswerWithoutInlineRecordIds(snapshot.answer");
     expect(queryDock).not.toMatch(/\{(?:snapshot|response)\.answer\}/u);
     expect(queryDock).toContain("evidencePack: MayaEvidencePack");
     expect(queryDock).toContain("evidencePack,");
-    expect(queryDock).toContain("evidencePack={evidencePack}");
+    expect(queryDock).toContain("evidencePack={activeEvidencePack}");
     const citedAnswer = readFileSync("cockpit/components/maya/cited-answer-card.tsx", "utf8");
     expect(citedAnswer).toContain('response.status === "answered"');
     expect(citedAnswer).toContain("response.answer !== undefined");
@@ -249,7 +265,7 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalDialog).toContain("<AlertDialogTitle");
     expect(approvalDialog).toContain("<AlertDialogDescription");
     expect(approvalDialog).toContain("<AlertDialogCancel asChild");
-    expect(approvalDialog).toContain('aria-label="Close human approval dialog"');
+    expect(approvalDialog).toContain('aria-label="Close approval dialog"');
     expect(approvalDialog).toContain("actionId");
     expect(approvalDialog).toContain("decision");
     expect(approvalDialog).toContain("reason");
@@ -260,12 +276,14 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("evidenceReviewEligibilityAvailable = false");
     expect(approvalDialog).toContain("approvalEligibilityUnavailable");
-    expect(approvalDialog).toContain("Evidence review status and approval availability are unavailable");
-    expect(approvalDialog).toContain("Approval unavailable");
-    expect(approvalDialog).toContain("Verified human principal unavailable");
-    expect(approvalDialog).toContain("Opening this dialog does not dispatch anything");
-    expect(approvalDialog).toContain("No action will be taken until you choose an option");
-    expect(approvalDialog).toContain("Your decision, note, and timestamp will be recorded with the draft");
+    expect(approvalDialog).toContain("hasTerminalDecision");
+    expect(approvalDialog).toContain("approvalEligibilityUnavailable");
+    expect(approvalDialog).toContain('data-testid="maya-approval-details"');
+    expect(approvalDialog).toContain("Email remains locked until an approved decision is returned");
+    expect(approvalDialog).toContain("Decision already recorded");
+    expect(approvalDialog).not.toContain("Verified human principal unavailable");
+    expect(approvalDialog).not.toContain("Opening this dialog does not dispatch anything");
+    expect(approvalDialog).not.toContain("Approval owner pending");
     expect(approvalDialog).toContain("NOTE_CHARACTER_LIMIT = 500");
     expect(approvalDialog).toContain("FieldError");
     expect(approvalDialog).toContain("Separator");
@@ -278,7 +296,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("selectedWorklistItem.lineIds.includes(selected.lineId)");
     expect(caseWorkspace).toContain("selected.evidencePack.recordIds");
     expect(caseWorkspace).toContain("selected.draft.basis");
-    expect(caseWorkspace).toContain("selected.draft.actionLabel");
+    expect(recoveryDraftReview).toContain("buildOutcomeActionPackages");
+    expect(recoveryDraftReview).toContain("buildRoutingBanner");
     expect(caseWorkspace).toContain("setApprovalResponse");
     expect(caseWorkspace).toContain("approvalReceipt");
     expect(caseWorkspace).toContain("response={approvalResponse ?? approvalReceipt}");
@@ -292,8 +311,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("response={queryResponse}");
     expect(caseWorkspace).toContain("recordIds={selected.evidencePack.recordIds}");
     expect(caseWorkspace).toContain("evidencePack={selected.evidencePack}");
-    expect(caseWorkspace).toContain('data-testid="maya-case-primary-draft-facts"');
-    expect(caseWorkspace).toContain('data-testid="maya-case-draft-readonly-status"');
+    expect(caseWorkspace).toContain('data-testid="maya-case-detail-b6-outcome"');
+    expect(recoveryDraftReview).toContain('data-testid="maya-outcome-action-packages"');
     expect(caseWorkspace).toContain("<RecoveryDraftReview");
     expect(caseWorkspace).not.toContain('label="Action ID"');
     expect(caseWorkspace).not.toContain('label="Action type"');
@@ -321,7 +340,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(auditPanel).toContain("No committed approval receipt is available yet");
     expect(auditPanel).toContain("Waiting for committed approval receipt");
     expect(auditPanel).toContain("Backend contract gap");
-    expect(auditPanel).toContain("Receipt fields remain source-owned");
+    expect(auditPanel).not.toContain("Receipt fields remain source-owned");
+    expect(auditPanel).not.toContain("Approval finality is not recovery dispatch");
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
     expect(auditPanel).not.toContain("View audit trail");
@@ -336,32 +356,30 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(auditPanel).not.toMatch(
       /\b(?:APPROVAL-HASH|audit-entry-demo|Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case)\b/u
     );
-    expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
-    expect(evidenceDossier).toContain("Query evidence");
-    expect(evidenceDossier).toContain("groupEvidenceDocumentsByBusinessLabel(evidencePack.documents)");
-    expect(evidenceDossier).toContain("evidenceGroups.map");
-    expect(evidenceDossier).toContain("EvidenceDocumentTable documents={group.documents}");
-    expect(evidenceDossier).toContain("RecordIdStrip recordIds={evidencePack.recordIds}");
-    expect(evidenceDossier).toContain("recordIds.map");
-    expect(evidenceDossier).toContain("documents.map");
-    expect(evidenceDossier).toContain("sourceTiles.map");
-    expect(evidenceDossier).toContain('data-testid="maya-evidence-business-group"');
-    expect(evidenceDossier).toContain('data-testid="maya-evidence-source-details"');
-    expect(evidenceDossier).toContain("Review state unavailable");
-    expect(evidenceDossier).toContain("Deterministic basis unavailable");
-    expect(evidenceDossier).not.toContain("Backend evidence packet");
-    expect(evidenceDossier).not.toMatch(
+    expect(caseWorkspace).toContain("<EvidenceFactCards");
+    expect(caseWorkspace).toContain("buildEvidenceFactCard(document)");
+    expect(caseWorkspace).toContain("card.rows.map");
+    expect(caseWorkspace).toContain("card.provenanceRows.map");
+    expect(caseWorkspace).toContain('data-testid="maya-evidence-fact-cards"');
+    expect(caseWorkspace).toContain('data-testid="maya-evidence-fact-card"');
+    expect(caseWorkspace).toContain('data-testid="maya-evidence-fact-row"');
+    expect(caseWorkspace).toContain('data-testid="maya-evidence-provenance-disclosure"');
+    expect(caseWorkspace).toContain('testId="maya-evidence-provenance-row"');
+    expect(caseWorkspace).toContain("Document");
+    expect(caseWorkspace).toContain("Source");
+    expect(caseWorkspace).toContain("Status");
+    expect(caseWorkspace).not.toContain("Additional proof fields pending");
+    expect(caseWorkspace).not.toContain("Backend evidence packet");
+    expect(caseWorkspace).not.toMatch(
       /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu
     );
-    expect(evidenceDossier).not.toMatch(
+    expect(caseWorkspace).not.toMatch(
       /\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u
     );
-    expect(evidenceDossier).not.toContain("fetch(");
-    expect(evidenceDossier).not.toContain("/api/");
+    expect(caseWorkspace).not.toContain("fetch(");
+    expect(caseWorkspace).not.toContain("/api/");
     expect(recoveryDraftReview).toContain('data-testid="maya-recovery-draft-review"');
-    expect(recoveryDraftReview).toContain("draft.actionLabel");
     expect(recoveryDraftReview).toContain("draft.statusLabel");
-    expect(recoveryDraftReview).toContain("draft.amount");
     expect(recoveryDraftReview).toContain("draft.basis");
     expect(recoveryDraftReview).toContain("draft.actionId");
     expect(recoveryDraftReview).toContain("<ApprovalGateDialog");
@@ -369,11 +387,14 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(recoveryDraftReview).toContain("setApprovalDialogOpen(true)");
     expect(recoveryDraftReview).toContain("actionId={draft.actionId}");
     expect(recoveryDraftReview).toContain("recordIds.map");
-    expect(recoveryDraftReview).toContain("item.actionLabel");
-    expect(recoveryDraftReview).toContain("item.lineId");
-    expect(recoveryDraftReview).toContain("item.amount");
-    expect(recoveryDraftReview).toContain("item.statusLabel");
-    expect(recoveryDraftReview).toContain("<TableHead>Draft label</TableHead>");
+    expect(recoveryDraftReview).toContain("buildOutcomeActionPackages");
+    expect(recoveryDraftReview).toContain("actionPackage.title");
+    expect(recoveryDraftReview).toContain("Selected case line");
+    expect(recoveryDraftReview).toContain("<SourceRecordDetails");
+    expect(recoveryDraftReview).toContain("<RecordIdStrip");
+    expect(recoveryDraftReview).toContain("actionPackage.amount");
+    expect(recoveryDraftReview).toContain("actionPackage.statusLabel");
+    expect(recoveryDraftReview).toContain('data-testid="maya-outcome-action-package"');
     expect(recoveryDraftReview).not.toContain("Action ID");
     expect(recoveryDraftReview).not.toContain("Action type");
     expect(recoveryDraftReview).not.toContain("draft.actionType");
@@ -386,19 +407,19 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(recoveryDraftReview).toContain("canOpenApproval");
     expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"modify\")");
     expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"reject\")");
-    expect(recoveryDraftReview).toContain("evidencePack.documents.map");
-    expect(recoveryDraftReview).toContain('data-testid="maya-draft-readonly-amount"');
-    expect(recoveryDraftReview).toContain('aria-readonly="true"');
+    expect(recoveryDraftReview).toContain('testId="maya-draft-source-details"');
+    expect(recoveryDraftReview).toContain('data-testid="maya-draft-letter-preview"');
+    expect(recoveryDraftReview).toContain('data-testid="maya-evidence-reviewed-toggle"');
     expect(recoveryDraftReview).toContain('data-testid="maya-draft-command-bar"');
     expect(recoveryDraftReview).toContain("Open approval");
     expect(recoveryDraftReview).not.toContain('data-testid="maya-draft-command-intent"');
     expect(recoveryDraftReview).not.toContain("Request changes");
     expect(recoveryDraftReview).not.toContain("Reject draft");
-    expect(recoveryDraftReview).toContain("sticky bottom-0");
-    expect(recoveryDraftReview).toContain("pb-24");
     expect(recoveryDraftReview).not.toContain("/api/approval");
-    expect(recoveryDraftReview).not.toContain("fetch(");
-    expect(recoveryDraftReview).not.toMatch(/<input\b|<textarea\b|contentEditable|type="number"/iu);
+    expect(recoveryDraftReview).toContain('fetch("/api/email"');
+    expect(emailDraftDialog).toContain("<Textarea");
+    expect(emailDraftDialog).toContain("<input");
+    expect(emailDraftDialog).not.toMatch(/contentEditable|type="number"/iu);
     expect(recoveryDraftReview).not.toMatch(/\b(?:new Date|Date\.now|toLocaleDateString|toLocaleTimeString)\b/u);
     expect(recoveryDraftReview).not.toMatch(/\b(?:DP-24-08971-01|24-08971|XXXX-XX34|Sterling Equipment Finance|Crestline Auto Target|contract_XXXXX34|pmt_history_XXXXX34)\b/u);
     expect(recoveryDraftReview).not.toMatch(/\b(?:Sent|Recovered|ERP written|Portal submitted|Human approved|Approved|Posted|Cleared by AI)\b/u);
@@ -536,14 +557,16 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(shell).not.toMatch(/\b(?:Deductions|Run trace|Analytics|Configuration)\b/u);
     expect(surface).toContain('React.useState<MayaSurfaceSection>("overview")');
     expect(surface).toContain("activeSection={activeSection}");
-    expect(surface).toContain("onSectionChange={setActiveSection}");
-    expect(surface).toContain('model.worklist.filter((item) => item.verdict === "valid").length');
-    expect(surface).toContain('label="Valid deductions"');
-    expect(surface).toContain("validDeductionCount.toString()");
+    expect(surface).toContain("onSectionChange={handleSurfaceSectionChange}");
+    expect(surface).toContain("buildOverviewSummaryCards(model.worklist)");
+    expect(surface).toContain("summaryCards.map");
+    expect(surface).toContain('data-testid="maya-overview-summary-card"');
+    expect(surface).toContain("buildSourcePillState(connectors.sourceTiles)");
+    expect(shell).not.toMatch(/\b(?:Cases|Evidence)\b/u);
     expect(surface).not.toContain('data-testid="maya-valid-deduction-signal"');
-    expect(table).toContain('item.verdict === "valid"');
+    expect(table).toContain("verdictBadgeVariant(item.verdict)");
     expect(table).toContain("data-verdict={item.verdict}");
-    expect(workspace).toContain('selectedWorklistItem.verdict === "valid"');
+    expect(workspace).toContain("verdictBadgeVariant(selectedWorklistItem.verdict)");
     expect(workspace).toContain("data-verdict={selectedWorklistItem.verdict}");
     expect(`${surface}\n${table}\n${workspace}`).not.toMatch(/["'`]Valid deduction["'`]/u);
   });

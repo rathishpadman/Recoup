@@ -1,8 +1,8 @@
-import { ExternalLinkIcon, FileTextIcon, InfoIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
+import { ExternalLinkIcon, FileTextIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -84,13 +84,12 @@ export function EvidenceDossier({
           <CardHeader>
             <div className="grid min-w-0 gap-1">
               <CardTitle>Evidence dossier</CardTitle>
-              <CardDescription>Business documents grouped for the selected case</CardDescription>
             </div>
             <CardAction className="flex gap-2">
               {onQueryEvidence === undefined ? null : (
                 <Button onClick={onQueryEvidence} size="sm" type="button">
                   <SearchIcon aria-hidden="true" data-icon="inline-start" />
-                  Query evidence
+                  Open Recoup Copilot
                 </Button>
               )}
             </CardAction>
@@ -118,8 +117,8 @@ export function EvidenceDossier({
             <Collapsible className={cn("rounded-lg border p-3", mayaAccent.proofPanel)} data-testid="maya-evidence-source-details">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="grid gap-0.5">
-                  <span className="text-sm font-medium">Source details</span>
-                  <span className="text-xs text-muted-foreground">Record IDs and source identifiers remain available for audit.</span>
+                  <span className="text-sm font-medium">Evidence details</span>
+                  <span className="text-xs text-muted-foreground">Record IDs for audit.</span>
                 </div>
                 <CollapsibleTrigger asChild>
                   <Button size="sm" type="button" variant="outline">
@@ -141,28 +140,20 @@ export function EvidenceDossier({
                 <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
                 Deterministic basis
               </CardTitle>
-              <CardDescription>Draft basis for the selected case</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{deterministicBasis}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-muted-foreground">Draft/HITL status</span>
+              <div className="flex flex-wrap items-center gap-2" data-testid="maya-deterministic-basis-status">
+                <span className="text-sm text-muted-foreground">Draft status</span>
                 <Badge variant="outline">{draftStatusLabel}</Badge>
+                <Badge variant="outline">Structured review fields unavailable</Badge>
               </div>
-              <Alert>
-                <InfoIcon aria-hidden="true" data-icon="inline-start" />
-                <AlertTitle>Deterministic basis unavailable</AlertTitle>
-                <AlertDescription>
-                  Additional proof fields pending: structured criteria, counts, reviewer, and review timestamp are unavailable.
-                </AlertDescription>
-              </Alert>
             </CardContent>
           </Card>
 
           <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} data-testid="maya-source-provenance-rail" size="sm">
             <CardHeader>
               <CardTitle>Source provenance</CardTitle>
-              <CardDescription>Connector readiness labels from governed sources</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {sourceTiles.length === 0 ? (
@@ -198,10 +189,7 @@ export function EvidenceDossier({
       <Alert data-testid="maya-evidence-review-state">
         <FileTextIcon aria-hidden="true" data-icon="inline-start" />
         <AlertTitle>Evidence dossier available</AlertTitle>
-        <AlertDescription>
-          Evidence documents are available for this opened line. Review state unavailable until source detail provides evidence
-          review status, criteria, reviewer, timestamp, and cited basis.
-        </AlertDescription>
+        <AlertDescription>Review state unavailable.</AlertDescription>
       </Alert>
     </section>
   );

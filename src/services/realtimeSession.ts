@@ -226,6 +226,9 @@ export async function requestRealtimeClientSecret({
   const response = await fetcher(realtimeClientSecretUrl, {
     body: JSON.stringify({
       session: {
+        input_audio_transcription: {
+          model: runtimeModels.transcription
+        },
         instructions: buildRealtimeSessionInstructions(queryScope),
         model: runtimeModels.realtime,
         tools: buildRealtimeToolManifest(),

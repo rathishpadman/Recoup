@@ -3,10 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   BellIcon,
-  CalendarClockIcon,
   ClipboardListIcon,
-  FileCheck2Icon,
-  FileTextIcon,
   InboxIcon,
   LayoutDashboardIcon,
   RefreshCwIcon
@@ -41,6 +38,7 @@ interface MayaWorkspaceShellProps {
   activeSection: MayaSurfaceSection;
   children: ReactNode;
   heading?: string;
+  headerAction?: ReactNode;
   onSectionChange?: (section: MayaSurfaceSection) => void;
   onRefreshSources?: () => void;
   pendingActionCount: number;
@@ -55,8 +53,6 @@ interface MayaWorkspaceShellProps {
 const navItems = [
   { icon: LayoutDashboardIcon, label: "Overview", section: "overview" },
   { count: "worklist" as const, icon: ClipboardListIcon, label: "Worklist", section: "worklist" },
-  { icon: FileTextIcon, label: "Cases", section: "cases" },
-  { icon: FileCheck2Icon, label: "Evidence", section: "evidence" },
   { count: "approvals" as const, icon: InboxIcon, label: "Approvals", section: "approvals" }
 ] as const;
 
@@ -86,6 +82,7 @@ export function MayaWorkspaceShell({
   activeSection,
   children,
   heading,
+  headerAction,
   onSectionChange,
   onRefreshSources,
   pendingActionCount,
@@ -235,21 +232,7 @@ export function MayaWorkspaceShell({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  aria-label="Run date not exposed by the read model"
-                  className="hidden h-8 items-center gap-1.5 px-1 text-xs text-muted-foreground 2xl:inline-flex"
-                  data-testid="maya-run-date-contract-gap"
-                >
-                  <CalendarClockIcon aria-hidden="true" data-icon="inline-start" />
-                  Run date unavailable
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <span>No run date field is exposed by the read model.</span>
-              </TooltipContent>
-            </Tooltip>
+            {headerAction}
             <span
               className="hidden h-8 items-center gap-1.5 px-1.5 text-xs text-muted-foreground lg:inline-flex"
               data-testid="maya-refresh-metadata"

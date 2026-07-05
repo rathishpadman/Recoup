@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { GovernedConfigValues } from "../../config/governed.js";
+import { loadLocalRuntimeEnvFiles } from "../../config/localRuntimeEnv.js";
+import type { RuntimeEnv } from "../../config/env.js";
 import type { DecisionConfidenceThreshold } from "../../config/releaseOwnerInputs.js";
 import { draftOutreach } from "../tools/actions/draftOutreach.js";
 import { draftRebill } from "../tools/actions/draftRebill.js";
@@ -17,7 +19,7 @@ import {
 } from "./approvals.js";
 import { createAuditEntry, type AuditEntry, type AuditEntryBuildOptions } from "../audit/trail.js";
 import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
-import type { ToolPermissionMetadata } from "./permissionEngine.js";
+import { evaluateToolPermission, type ToolPermissionMetadata } from "./permissionEngine.js";
 import {
   buildDeductionDecision,
   CoreRuleInputSchema,
@@ -29,6 +31,15 @@ import { DeductionLineSchema } from "../types/entities.js";
 import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 import { assessHarborSentinel } from "../agents/sentinel.js";
+import {
+  emailSendCapabilitiesForPrincipal,
+  emailStatusSecret,
+  readRecoupEmailConfig,
+  readResendEmailStatus,
+  sendResendEmail,
+  verifyApprovedEmailSendPolicy,
+  type EmailFetch
+} from "./emailGateway.js";
 import type { EnterpriseConnectorName } from "../adapters/enterpriseReadOnly.js";
 import type { SourcePort } from "../adapters/source.js";
 import type {
@@ -52,6 +63,7 @@ interface ServiceTool {
 }
 
 export interface ServiceInvocationContext {
+  actorCapabilities?: string[];
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig?: GovernedConfigValues;
   queryAnswerScope?: {
@@ -66,6 +78,8 @@ export interface ServiceInvocationContext {
   sapEvidenceSource?: ServiceSapEvidenceSource;
   source?: SourcePort;
   syntheticEvidenceSource?: ServiceSyntheticEvidenceSource;
+  emailFetch?: EmailFetch;
+  runtimeEnv?: RuntimeEnv;
   vectorStoreEvidenceSource?: ServiceVectorStoreEvidenceSource;
   verifiedHumanPrincipal?: string;
 }
@@ -158,6 +172,25 @@ const queryAnswerToolSchema = z
       });
     }
   });
+const emailRecipientGroupSchema = z.enum(["billing", "recovery"]);
+const emailSendApprovedToolSchema = z
+  .object({
+    actionId: z.string().min(1),
+    body: z.string().min(1).max(20_000),
+    lineId: z.string().min(1),
+    recipientGroup: emailRecipientGroupSchema,
+    subject: z.string().min(1).max(300)
+  })
+  .strict();
+const emailStatusToolSchema = z
+  .object({
+    actionId: z.string().min(1),
+    lineId: z.string().min(1),
+    providerEmailId: z.string().min(1),
+    recipientGroup: emailRecipientGroupSchema,
+    statusToken: z.string().min(1)
+  })
+  .strict();
 const r1BusinessPartnerSchema = z.string().regex(/^USCU_[A-Z0-9]+$/u);
 const r1BillingDocumentSchema = z.string().regex(/^9000\d{4}$/u);
 const r1SourceReadToolSchema = z.discriminatedUnion("need", [
@@ -198,6 +231,8 @@ export const serviceToolMetadata = {
   "core.evaluateRule": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
   "core.riskMeshClosedLoop": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
   "decisions.deductionVerdict": { riskClass: "decision", sideEffectClass: "write_local", visibility: "internal" },
+  "email.sendApproved": { riskClass: "communication", sideEffectClass: "external_correspondence", visibility: "mcp" },
+  "email.status": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "query.answer": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "retrieval.bureau": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "retrieval.docs": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
@@ -333,6 +368,14 @@ export const serviceTools = {
   "decisions.deductionVerdict": {
     schema: DeductionDecisionToolInputSchema,
     handler: (input) => buildDeductionDecision(input)
+  },
+  "email.sendApproved": {
+    schema: emailSendApprovedToolSchema,
+    handler: (input, context) => sendApprovedEmail(emailSendApprovedToolSchema.parse(input), context)
+  },
+  "email.status": {
+    schema: emailStatusToolSchema,
+    handler: (input, context) => readEmailStatus(emailStatusToolSchema.parse(input), context)
   },
   "query.answer": {
     schema: queryAnswerToolSchema,
@@ -675,6 +718,102 @@ function retrieveQueryAnswerSelectedEvidence(
     });
 }
 
+async function sendApprovedEmail(
+  input: z.infer<typeof emailSendApprovedToolSchema>,
+  context: ServiceInvocationContext
+): Promise<unknown> {
+  const humanPrincipal = readVerifiedHumanPrincipal(context);
+  const runtimeEnv = readEmailRuntimeEnv(context);
+  const serverCapabilities = emailSendCapabilitiesForPrincipal(runtimeEnv, humanPrincipal);
+  const callerCapabilities = context.actorCapabilities ?? [];
+  const actorCapabilities =
+    serverCapabilities.includes("send_email") && callerCapabilities.includes("send_email") ? ["read", "send_email"] : ["read"];
+  const permission = evaluateToolPermission(serviceToolMetadata["email.sendApproved"], {
+    actorCapabilities,
+    actorId: humanPrincipal
+  });
+  if (permission.decision === "deny") {
+    throw new Error(permission.reason ?? "Email send is not permitted.");
+  }
+
+  const configResult = readRecoupEmailConfig(runtimeEnv);
+  if (!configResult.ok) {
+    throw new Error(`Email service is not configured: ${configResult.missing.join(", ")}.`);
+  }
+
+  const detail = await fetchApprovedEmailDetail({
+    context,
+    humanPrincipal,
+    lineId: input.lineId,
+    runtimeEnv
+  });
+  const policyCheck = verifyApprovedEmailSendPolicy(detail, input);
+  if (!policyCheck.ok) {
+    throw new Error(policyCheck.error);
+  }
+
+  return sendResendEmail({
+    config: configResult.config,
+    draft: input,
+    fetchImpl: context.emailFetch,
+    principal: humanPrincipal,
+    statusSecret: emailStatusSecret(runtimeEnv, configResult.config)
+  });
+}
+
+async function readEmailStatus(input: z.infer<typeof emailStatusToolSchema>, context: ServiceInvocationContext): Promise<unknown> {
+  const humanPrincipal = readVerifiedHumanPrincipalForEmailStatus(context);
+  const runtimeEnv = readEmailRuntimeEnv(context);
+  const configResult = readRecoupEmailConfig(runtimeEnv);
+  if (!configResult.ok) {
+    throw new Error(`Email service is not configured: ${configResult.missing.join(", ")}.`);
+  }
+
+  return readResendEmailStatus({
+    actionId: input.actionId,
+    config: configResult.config,
+    fetchImpl: context.emailFetch,
+    lineId: input.lineId,
+    principal: humanPrincipal,
+    providerEmailId: input.providerEmailId,
+    recipientGroup: input.recipientGroup,
+    statusSecret: emailStatusSecret(runtimeEnv, configResult.config),
+    statusToken: input.statusToken
+  });
+}
+
+async function fetchApprovedEmailDetail(input: {
+  context: ServiceInvocationContext;
+  humanPrincipal: string;
+  lineId: string;
+  runtimeEnv: RuntimeEnv;
+}): Promise<unknown> {
+  const authToken = input.runtimeEnv.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
+  if (authToken === undefined || authToken.length === 0) {
+    throw new Error("Verified human cockpit auth required for email send.");
+  }
+
+  const fetchImpl = input.context.emailFetch ?? fetch;
+  const baseUrl = input.runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317";
+  const response = await fetchImpl(`${baseUrl}/forensics/work-items/${encodeURIComponent(input.lineId)}`, {
+    headers: {
+      accept: "application/json",
+      "x-recoup-human-principal": input.humanPrincipal,
+      "x-recoup-human-token": authToken
+    },
+    method: "GET"
+  });
+  if (!response.ok) {
+    throw new Error("Approved case detail unavailable.");
+  }
+
+  return response.json();
+}
+
+function readEmailRuntimeEnv(context: ServiceInvocationContext): RuntimeEnv {
+  return context.runtimeEnv ?? loadLocalRuntimeEnvFiles();
+}
+
 function readVerifiedHumanPrincipal(context: ServiceInvocationContext): string {
   const principal = context.verifiedHumanPrincipal?.trim();
   if (principal === undefined || !principal.startsWith("human:")) {
@@ -682,6 +821,14 @@ function readVerifiedHumanPrincipal(context: ServiceInvocationContext): string {
   }
 
   return principal;
+}
+
+function readVerifiedHumanPrincipalForEmailStatus(context: ServiceInvocationContext): string {
+  try {
+    return readVerifiedHumanPrincipal(context);
+  } catch {
+    throw new Error("Verified human cockpit auth required for email status.");
+  }
 }
 
 function readGovernedConfig(context: ServiceInvocationContext): GovernedConfigValues {

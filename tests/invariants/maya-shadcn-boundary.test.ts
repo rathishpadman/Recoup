@@ -219,33 +219,32 @@ describe("Maya shadcn cockpit boundary", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
-    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "cases" | "evidence" | "approvals";');
+    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "approvals";');
     expect(surface).toContain('React.useState<MayaSurfaceSection>("overview")');
     expect(surface).toContain("activeSection={activeSection}");
-    expect(surface).toContain("onSectionChange={setActiveSection}");
+    expect(surface).toContain("onSectionChange={handleSurfaceSectionChange}");
     expect(surface).toContain("renderMayaRootSection");
     expect(surface).toContain('case "overview"');
     expect(surface).toContain('case "worklist"');
-    expect(surface).toContain('case "cases"');
-    expect(surface).toContain('case "evidence"');
     expect(surface).toContain('case "approvals"');
+    expect(surface).not.toContain('case "cases"');
+    expect(surface).not.toContain('case "evidence"');
     expect(surface).toContain('data-testid="maya-root-section-overview"');
     expect(surface).toContain('data-testid="maya-root-section-worklist"');
-    expect(surface).toContain('data-testid="maya-root-section-cases"');
-    expect(surface).toContain('data-testid="maya-root-section-evidence"');
     expect(surface).toContain('data-testid="maya-root-section-approvals"');
+    expect(surface).not.toContain('data-testid="maya-root-section-cases"');
+    expect(surface).not.toContain('data-testid="maya-root-section-evidence"');
     expect(surface).toMatch(/case "worklist":\s*return renderWorklistSection\(\);/u);
-    expect(surface).toMatch(/case "cases":\s*return renderCasesSection\(\);/u);
     expect(surface).not.toMatch(/case "worklist":\s*case "cases":\s*return renderWorklistAndPane\(\);/su);
     expect(surface).toContain("function renderWorklistSection(): React.ReactNode");
-    expect(surface).toContain("function renderCasesSection(): React.ReactNode");
+    expect(surface).not.toContain("function renderCasesSection(): React.ReactNode");
     expect(shell).toContain("activeSection: MayaSurfaceSection");
     expect(shell).toContain("onSectionChange?: (section: MayaSurfaceSection) => void");
     expect(shell).toContain('section: "overview"');
     expect(shell).toContain('section: "worklist"');
-    expect(shell).toContain('section: "cases"');
-    expect(shell).toContain('section: "evidence"');
     expect(shell).toContain('section: "approvals"');
+    expect(shell).not.toContain('section: "cases"');
+    expect(shell).not.toContain('section: "evidence"');
     expect(shell).toContain("onSectionChange?.(item.section)");
     expect(shell).toContain("disabled={onSectionChange === undefined}");
     expect(shell).toContain('aria-current={item.section === activeSection ? "page" : undefined}');
@@ -259,8 +258,6 @@ describe("Maya shadcn cockpit boundary", () => {
     for (const sectionHook of [
       "maya-root-section-overview",
       "maya-root-section-worklist",
-      "maya-root-section-cases",
-      "maya-root-section-evidence",
       "maya-root-section-approvals"
     ]) {
       expect(e2e).toContain(sectionHook);
@@ -271,12 +268,9 @@ describe("Maya shadcn cockpit boundary", () => {
   it("wires query narrative through the backend forensics query route and cited answer guard", () => {
     const sources = readTree("cockpit/components/maya");
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
-    const citedAnswer = readFileSync("cockpit/components/maya/cited-answer-card.tsx", "utf8");
     const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
 
     for (const forbidden of [
-      "/api/query/realtime-tool",
-      "/api/query/realtime-client-secret",
       "https://api.openai.com",
       "OPENAI_API_KEY",
       "RECOUP_COCKPIT_AUTH_TOKEN",
@@ -293,8 +287,17 @@ describe("Maya shadcn cockpit boundary", () => {
 
     expect(sources).not.toContain("https://api.openai.com");
     expect(queryDock).toContain('fetch("/api/forensics/query"');
-    expect(queryDock).not.toContain("startRealtimeBrowserSession");
-    expect(queryDock).not.toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("startRealtimeBrowserSession");
+    expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain('aria-label="Ask by voice"');
+    expect(queryDock).toContain("recordIds: activeRecordIds");
+    expect(queryDock).toContain("selectedLineId: activeSelectedLine");
+    expect(queryDock).toContain("realtimeSessionRef");
+    expect(queryDock).not.toContain("new RTCPeerConnection");
+    expect(queryDock).not.toContain("getUserMedia");
+    expect(queryDock).not.toContain("Realtime cited answer returned from selected evidence.");
+    expect(queryDock).not.toContain("/api/email");
+    expect(queryDock).not.toContain("/api/approvals");
     expect(queryDock).toContain("const QUERY_QUESTION_CHARACTER_LIMIT = 500");
     expect(queryDock).toContain("sessionTokenRef");
     expect(queryDock).toContain("abortControllerRef");
@@ -311,7 +314,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
     expect(queryDock).toContain('data-testid="maya-query-source-details"');
     expect(queryDock).toContain('data-testid="maya-query-trace-details"');
-    expect(queryDock).toMatch(/\bisRunning\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u);
+    expect(queryDock).toMatch(/\bshouldShowStopQuery\s*\?\s*\((?=[\s\S]{0,900}Stop query)(?=[\s\S]{0,900}\bcloseActiveSession\s*\()/u);
     expect(sheet).toContain("overlayClassName");
     expect(sheet).toContain("<SheetOverlay className={overlayClassName} />");
     expect(queryDock).toContain('overlayClassName="bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"');
@@ -328,20 +331,25 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain("<InputGroupTextarea");
     expect(queryDock).toContain("maxLength={QUERY_QUESTION_CHARACTER_LIMIT}");
     expect(queryDock).toContain("aria-live");
-    expect(queryDock).toContain("CitedAnswerCard");
+    expect(queryDock).not.toContain("CitedAnswerCard");
     expect(queryDock).toContain("AgentTracePanel");
+    expect(queryDock).toContain("CopilotStoryPanel");
+    expect(queryDock).toContain('testId="maya-copilot-citations-drawer"');
+    expect(queryDock).toContain('testId="maya-copilot-trace-drawer"');
+    expect(queryDock).toContain('testId="maya-copilot-model-drawer"');
+    expect(queryDock).toContain("buildCopilotDrawerTrigger(label, value)");
+    expect(queryDock).toContain('<ModelFact label="Basis" value={response.deterministicBasis} />');
     expect(queryDock).toContain('data-testid="maya-query-selected-line"');
     expect(queryDock).toContain('data-testid="maya-query-record-id"');
     expect(queryDock).toContain('data-testid="maya-query-readiness-preview"');
-    expect(queryDock).toContain("Selected evidence context");
-    expect(queryDock).toContain("Client-selected case context");
+    expect(queryDock).toContain("Case evidence");
+    expect(queryDock).not.toContain("Client-selected case context");
     expect(queryDock).toContain('data-testid="maya-selected-evidence-context"');
-    expect(queryDock).toContain("Selected evidence packet");
+    expect(queryDock).toContain("Case evidence packet");
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
-    expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
     expect(queryDock).toMatch(
-      /\{snapshot !== undefined \? \(\s*<AgentTracePanel\b[\s\S]{0,420}\bevidencePack=\{evidencePack\}[\s\S]{0,220}\brecordIds=\{recordIds\}[\s\S]{0,220}\bresponse=\{snapshot\}[\s\S]{0,220}\bselectedLine=\{selectedLine\}[\s\S]{0,120}\/>\s*\)\s*: null\}/u
+      /<AgentTracePanel\b[\s\S]{0,420}\bevidencePack=\{activeEvidencePack\}[\s\S]{0,220}\brecordIds=\{activeRecordIds\}[\s\S]{0,220}\bresponse=\{snapshot\}[\s\S]{0,220}\bselectedLine=\{activeSelectedLine\}[\s\S]{0,120}\/>/u
     );
     expect(queryDock).toContain("const blockedRecordIds");
     expect(queryDock).toContain("citations: response.citations");
@@ -369,54 +377,22 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain("recordIds");
     expect(queryDock).toContain("evidencePack: MayaEvidencePack");
     expect(queryDock).toContain("evidencePack,");
-    expect(queryDock).toContain("evidencePack={evidencePack}");
+    expect(queryDock).toContain("evidencePack={activeEvidencePack}");
     expect(queryDock).toContain("signal: abortController.signal");
-    expect(queryDock).toContain("selectedLineId: selectedLine");
+    expect(queryDock).toContain("selectedLineId: activeSelectedLine");
     expect(queryDock).toContain("onChange=");
     expect(queryDock).toContain("disabled={question.trim().length === 0}");
+    expect(queryDock).toContain("const COPILOT_SOFT_PANEL_CLASS");
+    expect(queryDock).toContain("const COPILOT_SOFT_BUTTON_CLASS");
     expect(queryDock).toMatch(
-      /<div\b(?=[^>]*\bclassName="grid min-w-0 gap-2 rounded-lg border bg-background p-3")(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
+      /<div\b(?=[^>]*\bclassName=\{cn\("grid min-w-0 gap-2 rounded-lg border p-3", COPILOT_SOFT_PANEL_CLASS\)\})(?=[^>]*\bdata-testid="maya-query-assistant-message")[^>]*>/u
     );
     expect(queryDock).toContain("displayAnswerWithoutInlineRecordIds(snapshot.answer");
     expect(queryDock).not.toMatch(/\{(?:snapshot|response)\.answer\}/u);
     expect(queryDock).not.toContain("2000");
     expect(queryDock).not.toMatch(/\b(?:server-enforced|locked to|locked records|send|recover|approve|write back|route to billing|change terms|release hold|freeze)\b/iu);
-    expect(citedAnswer).toContain("response.answer !== undefined");
-    expect(citedAnswer).toContain("response.deterministicBasis !== undefined");
-    expect(citedAnswer).toContain("response.recordIds.length > 0");
-    expect(citedAnswer).toContain("response.answer.trim().length > 0");
-    expect(citedAnswer).toContain("response.deterministicBasis.trim().length > 0");
-    expect(citedAnswer).toContain('data-testid="maya-cited-answer-text"');
-    expect(citedAnswer).toContain('data-testid="maya-cited-answer-basis"');
-    expect(citedAnswer).toContain('data-testid="maya-cited-record-row"');
-    expect(citedAnswer).toMatch(/@\/components\/ui\/(?:accordion|collapsible)/u);
-    expect(citedAnswer).toContain('data-testid="maya-cited-source-details"');
-    expect(citedAnswer.indexOf('data-testid="maya-cited-source-details"')).toBeLessThan(
-      citedAnswer.indexOf('data-testid="maya-cited-record-row"')
-    );
-    expect(citedAnswer).toContain('data-metadata-gap={metadata === undefined && !hasBackendMetadata ? "true" : undefined}');
-    expect(citedAnswer).toContain("evidencePack: MayaEvidencePack");
-    expect(citedAnswer).toContain("findEvidenceDocumentForCitation");
-    expect(citedAnswer).toContain("document.documentId === citation.documentId");
-    expect(citedAnswer).toContain("document.citationId === citation.recordId");
-    expect(citedAnswer).toContain("evidencePack.documents.length");
-    expect(citedAnswer).toContain('hasBackendMetadata ? "backend-citation" : undefined');
-    expect(citedAnswer).toContain('data-testid="maya-cited-record-metadata"');
-    expect(citedAnswer).toContain("response.citations.map");
-    expect(citedAnswer).toContain("citationRows.map");
-    expect(citedAnswer).not.toContain("orderedCitationRows");
-    expect(citedAnswer).not.toMatch(/\bcitationRows\b[\s\S]{0,160}\.sort\s*\(/u);
-    expect(citedAnswer).toContain("citation.source");
-    expect(citedAnswer).toContain("citation.summary");
-    expect(citedAnswer).toContain("citation.documentId");
-    expect(citedAnswer).not.toContain("citation.deterministicBasis.trim().length > 0");
-    expect(citedAnswer).toContain("Metadata unavailable");
-    expect(citedAnswer).not.toContain("fallbackRecordIds.map");
-    expect(citedAnswer).not.toMatch(
+    expect(queryDock).not.toMatch(
       /\b(?:Shortage Deduction Recoverability|shortage deduction is recoverable|INV-100245|POD-77421|CLAIM-8821|Partial \/ Blocked|Review Draft)\b/iu
-    );
-    expect(citedAnswer).not.toMatch(
-      /\b(?:send|recover|approve|write back|route to billing|change terms|release hold|freeze)\b/iu
     );
   });
 
@@ -462,9 +438,9 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(agentTrace).not.toContain("selected-evidence-read-model");
     expect(agentTrace).not.toMatch(/\b(?:Query Agent accepted|Forensics context attached|Delivery proof retriever|Evidence reader|Citation and action guard)\b/u);
     expect(queryDock).toMatch(
-      /\{snapshot !== undefined \? \(\s*<AgentTracePanel\b[\s\S]{0,420}\bevidencePack=\{evidencePack\}[\s\S]{0,220}\brecordIds=\{recordIds\}[\s\S]{0,220}\bresponse=\{snapshot\}[\s\S]{0,220}\bselectedLine=\{selectedLine\}[\s\S]{0,120}\/>\s*\)\s*: null\}/u
+      /<AgentTracePanel\b[\s\S]{0,420}\bevidencePack=\{activeEvidencePack\}[\s\S]{0,220}\brecordIds=\{activeRecordIds\}[\s\S]{0,220}\bresponse=\{snapshot\}[\s\S]{0,220}\bselectedLine=\{activeSelectedLine\}[\s\S]{0,120}\/>/u
     );
-    expect(queryDock).toContain("canShowCitedAnswer ? <CitedAnswerCard");
+    expect(queryDock).not.toContain("CitedAnswerCard");
     expect(mayaSources).not.toContain("/trace");
     expect(traceAndDock).not.toMatch(/\b(?:POD_2025|312 KB|SHA-256|Custodian|Proof of Delivery|fake five-step|fake trace)\b/u);
     expect(traceAndDock).not.toMatch(
@@ -473,12 +449,11 @@ describe("Maya shadcn cockpit boundary", () => {
   });
 
   it("opens the Beat 6 query dock from the Evidence tab without borrowing future answer state", () => {
-    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
     const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
 
-    expect(evidenceDossier).toContain("onQueryEvidence?: () => void");
-    expect(evidenceDossier).toContain("onQueryEvidence");
-    expect(evidenceDossier).toContain("Query evidence");
+    expect(workspace).toContain("QueryEvidenceDock");
+    expect(workspace).toContain("queryDockOpen");
+    expect(workspace).toContain("setQueryDockOpen");
     expect(workspace).toContain("QueryEvidenceDock");
     expect(workspace).toContain("queryDockOpen");
     expect(workspace).toContain("setQueryDockOpen");
@@ -506,7 +481,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).toContain("<AlertDialogTitle");
     expect(approvalDialog).toContain("<AlertDialogDescription");
     expect(approvalDialog).toContain("<AlertDialogCancel asChild");
-    expect(approvalDialog).toContain('aria-label="Close human approval dialog"');
+    expect(approvalDialog).toContain('aria-label="Close approval dialog"');
     expect(approvalDialog).toContain("actions.map");
     expect(approvalDialog).toContain("actionId");
     expect(approvalDialog).toContain("decision");
@@ -520,11 +495,13 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(approvalDialog).toContain('result.status !== "human_decided"');
     expect(approvalDialog).toContain("evidenceReviewEligibilityAvailable = false");
     expect(approvalDialog).toContain("approvalEligibilityUnavailable");
-    expect(approvalDialog).toContain("Evidence review status and approval availability are unavailable");
-    expect(approvalDialog).toContain("Verified human principal unavailable");
-    expect(approvalDialog).toContain("Opening this dialog does not dispatch anything");
-    expect(approvalDialog).toContain("No action will be taken until you choose an option");
-    expect(approvalDialog).toContain("Your decision, note, and timestamp will be recorded with the draft");
+    expect(approvalDialog).toContain("hasTerminalDecision");
+    expect(approvalDialog).toContain('data-testid="maya-approval-details"');
+    expect(approvalDialog).toContain("Email remains locked until an approved decision is returned");
+    expect(approvalDialog).toContain("Decision already recorded");
+    expect(approvalDialog).not.toContain("Verified human principal unavailable");
+    expect(approvalDialog).not.toContain("Opening this dialog does not dispatch anything");
+    expect(approvalDialog).not.toContain("Approval owner pending");
     expect(approvalDialog).toContain("NOTE_CHARACTER_LIMIT = 500");
     expect(approvalDialog).toContain("FieldError");
     expect(approvalDialog).toContain("Separator");
@@ -543,25 +520,25 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(recoveryDraftReview).toContain("setApprovalDialogOpen(true)");
     expect(recoveryDraftReview).toContain("actionId={draft.actionId}");
     expect(recoveryDraftReview).toContain("const draftApprovalEligibility = (draft as { approvalEligibility?: { available?: boolean; statusLabel?: string } }).approvalEligibility");
-    expect(recoveryDraftReview).toContain("const evidenceReviewEligibilityAvailable = draftApprovalEligibility?.available ?? false");
-    expect(recoveryDraftReview).toContain("const evidenceReviewEligibilityStatusLabel = draftApprovalEligibility?.statusLabel");
+    expect(recoveryDraftReview).toContain("const evidenceReviewEligibilityAvailable = (draftApprovalEligibility?.available ?? false) && evidenceReviewed");
+    expect(recoveryDraftReview).toContain("const evidenceReviewEligibilityStatusLabel = evidenceReviewed");
     expect(recoveryDraftReview).toContain("evidenceReviewEligibilityAvailable={evidenceReviewEligibilityAvailable}");
     expect(recoveryDraftReview).toContain("evidenceReviewEligibilityStatusLabel={evidenceReviewEligibilityStatusLabel}");
     expect(recoveryDraftReview).toContain("onApprovalResponse");
     expect(recoveryDraftReview).not.toContain("/api/approval");
-    expect(recoveryDraftReview).not.toContain("fetch(");
+    expect(recoveryDraftReview).toContain('fetch("/api/email"');
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u");
     expect(auditPanel).toContain('response.status === "human_decided"');
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN.test(response.auditEntryHash)");
     expect(auditPanel).toContain('typeof response.actionId === "string"');
     expect(auditPanel).toContain("Audit confirmation unavailable");
     expect(auditPanel).toContain("No committed approval receipt is available yet");
-    expect(auditPanel).toContain("verified human decision and a complete approval receipt");
     expect(auditPanel).toContain("status === human_decided");
     expect(auditPanel).toContain("valid 64-hex auditEntryHash");
     expect(auditPanel).toContain("Waiting for committed approval receipt");
     expect(auditPanel).toContain("Backend contract gap");
-    expect(auditPanel).toContain("Receipt fields remain source-owned");
+    expect(auditPanel).not.toContain("Receipt fields remain source-owned");
+    expect(auditPanel).not.toContain("Approval finality is not recovery dispatch");
     expect(auditPanel).toContain("Committed audit receipt citations unavailable");
     expect(auditPanel).toContain("Selected action citations");
     expect(auditPanel).not.toContain("View audit trail");
@@ -631,7 +608,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(surface).not.toContain("model.worklist[0]");
     expect(surface).toContain("backendSelectedWorklistItem");
     expect(surface).toContain("backendSelectionUnavailable");
-    expect(surface).toContain("Selected line unavailable");
+    expect(surface).toContain("Selected work item unavailable");
     expect(surface).not.toContain("fallbackSelectedWorklistItem");
     expect(surface).not.toContain("model.worklist.at(0)");
     expect(surface).toContain("initialSelectedWorklistItem");
@@ -679,10 +656,8 @@ describe("Maya shadcn cockpit boundary", () => {
     const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
     const sources = `${surface}\n${table}\n${workspace}`;
 
-    expect(surface).toContain('model.worklist.filter((item) => item.verdict === "valid").length');
-    expect(surface).toContain("validDeductionCount");
-    expect(surface).toContain('label="Valid deductions"');
-    expect(surface).toContain("validDeductionCount.toString()");
+    expect(surface).toContain("buildOverviewSummaryCards(model.worklist)");
+    expect(surface).toContain('data-testid="maya-overview-summary-card"');
     expect(surface).not.toContain('data-testid="maya-valid-deduction-signal"');
     expect(table).toContain('item.verdict === "valid"');
     expect(table).toContain("CheckCircle2Icon");
@@ -716,12 +691,12 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).toContain("selected.evidencePack.documents");
     expect(workspace).toContain("selected.draft.basis");
     expect(workspace).toContain("selected.draft.actionLabel");
-    expect(workspace).toContain("selected.draft.statusLabel");
-    expect(workspace).toContain('data-testid="maya-case-primary-draft-facts"');
-    expect(workspace).toContain('data-testid="maya-case-draft-readonly-status"');
-    expect(workspace).toContain("journey.map");
+    expect(workspace).toContain("auditState.statusLabel");
+    expect(workspace).toContain('data-testid="maya-case-detail-b1-stepper"');
+    expect(workspace).toContain('data-testid="maya-case-detail-b6-outcome"');
+    expect(workspace).toContain('data-testid="maya-case-detail-b7-depth-drawers"');
+    expect(workspace).toContain("<CaseDepthDrawer");
     expect(workspace).toContain("Source detail pending");
-    expect(workspace).toContain("Notes unavailable");
     expect(workspace).toContain("aria-readonly");
     expect(workspace).toContain('data-testid="maya-case-overview"');
     expect(workspace).toContain('data-testid="maya-case-overview-readonly-amount"');
@@ -742,16 +717,18 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).not.toMatch(/\b(?:owner|contact|due date|received|priority|case created|preview draft|route for approval)\b/iu);
 
     expect(recoveryDraftReview).toContain('data-testid="maya-recovery-draft-review"');
-    expect(recoveryDraftReview).toContain("draft.actionLabel");
     expect(recoveryDraftReview).toContain("draft.statusLabel");
-    expect(recoveryDraftReview).toContain("draft.amount");
     expect(recoveryDraftReview).toContain("draft.basis");
     expect(recoveryDraftReview).toContain("recordIds.map");
-    expect(recoveryDraftReview).toContain("item.actionLabel");
-    expect(recoveryDraftReview).toContain("item.lineId");
-    expect(recoveryDraftReview).toContain("item.amount");
-    expect(recoveryDraftReview).toContain("item.statusLabel");
-    expect(recoveryDraftReview).toContain("<TableHead>Draft label</TableHead>");
+    expect(recoveryDraftReview).toContain("buildOutcomeActionPackages");
+    expect(recoveryDraftReview).toContain("buildRoutingBanner");
+    expect(recoveryDraftReview).toContain("actionPackage.title");
+    expect(recoveryDraftReview).toContain("Selected case line");
+    expect(recoveryDraftReview).toContain("<SourceRecordDetails");
+    expect(recoveryDraftReview).toContain("<RecordIdStrip");
+    expect(recoveryDraftReview).toContain("actionPackage.amount");
+    expect(recoveryDraftReview).toContain("actionPackage.statusLabel");
+    expect(recoveryDraftReview).toContain('data-testid="maya-outcome-action-package"');
     expect(recoveryDraftReview).not.toContain("Action ID");
     expect(recoveryDraftReview).not.toContain("Action type");
     expect(recoveryDraftReview).not.toContain("draft.actionType");
@@ -767,7 +744,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).toContain("approvalActions={selected.approvalActions}");
     expect(workspace).toContain("evidencePack={selected.evidencePack}");
     expect(workspace).toContain("selectedLineId={selected.lineId}");
-    expect(workspace).toContain("selectedWorklistItem={selectedWorklistItem}");
+    expect(workspace).toContain("selectedWorklistItem={detail.workItem}");
     expect(workspace).not.toContain("/api/approval");
     expect(workspace).not.toContain("fetch(");
 
@@ -783,84 +760,64 @@ describe("Maya shadcn cockpit boundary", () => {
     for (const requiredHook of [
       'data-testid="maya-recovery-draft-review"',
       'data-testid="maya-draft-hitl-warning"',
-      'data-testid="maya-draft-packet-panel"',
-      'data-testid="maya-draft-evidence-table"',
-      'data-testid="maya-draft-evidence-row"',
-      'data-testid="maya-draft-context-rail"',
-      'data-testid="maya-draft-rail-gate"',
-      'data-testid="maya-draft-rail-record-ids"',
+      'data-testid="maya-outcome-routing-banner"',
+      'data-testid="maya-outcome-action-packages"',
+      'data-testid="maya-outcome-action-package"',
+      'data-testid="maya-draft-message-section"',
+      'data-testid="maya-draft-letter-preview"',
+      'data-testid="maya-evidence-reviewed-toggle"',
       'data-testid="maya-draft-rail-human-decisions"',
-      'data-testid="maya-draft-rail-backend-gaps"',
-      'data-testid="maya-draft-readonly-amount"',
       'data-testid="maya-draft-command-bar"'
     ]) {
       expect(recoveryDraftReview).toContain(requiredHook);
     }
 
     for (const requiredPropRead of [
-      "draft.actionLabel",
       "draft.statusLabel",
-      "draft.amount",
       "draft.basis",
       "draft.actionId",
       "selectedLineId",
-      "selectedWorklistItem.customerLabel",
-      "selectedWorklistItem.workItemLabel",
-      "selectedWorklistItem.amount",
-      "selectedWorklistItem.queueLabel",
-      "selectedWorklistItem.routingLabel",
+      "selectedWorklistItem.recommendedActionLabel",
       "evidencePack.recordIds",
       "approvalActions.map",
       "humanDecisionLabel(action.decision)",
       "action.requiresReason",
-      "evidencePack.documents.map",
-      "document.citationId",
-      "document.documentId",
-      "document.documentType",
-      "document.description",
-      "document.relevance",
-      "document.sourceLabel",
-      "document.summary",
-      "document.verifiedLabel",
-      "actionInbox.map",
-      "item.actionLabel",
-      "item.lineId",
-      "item.amount",
-      "item.statusLabel",
+      "actionPackages.map",
+      "actionPackage.title",
+      "Selected case line",
+      "actionPackage.amount",
+      "actionPackage.statusLabel",
+      "<SourceRecordDetails",
+      "<RecordIdStrip",
+      "draftPreviews.map",
+      "deriveEmailRecipientGroups",
       "canOpenApproval"
     ]) {
       expect(recoveryDraftReview).toContain(requiredPropRead);
     }
 
-    expect(recoveryDraftReview).toContain('aria-readonly="true"');
-    expect(recoveryDraftReview).toContain("Read-only amount");
     expect(recoveryDraftReview).toContain("Open approval");
     expect(recoveryDraftReview).not.toContain('data-testid="maya-draft-command-intent"');
     expect(recoveryDraftReview).not.toContain("Request changes");
     expect(recoveryDraftReview).not.toContain("Reject draft");
     expect(recoveryDraftReview).not.toContain("setCommandIntent");
-    expect(recoveryDraftReview).toContain("sticky bottom-0");
-    expect(recoveryDraftReview).toContain("pb-24");
-    expect(recoveryDraftReview).toContain("Packet display ID not exposed");
-    expect(recoveryDraftReview).toContain("Case account and currency not exposed");
-    expect(recoveryDraftReview).toContain("Approval owner and timestamps not exposed");
-    expect(recoveryDraftReview).toContain("Audit hash waits for human decision");
     expect(recoveryDraftReview).toContain("type=\"button\"");
-    expect(recoveryDraftReview).toContain("<TabsList");
-    expect(recoveryDraftReview).toContain("<TabsTrigger");
-    expect(recoveryDraftReview).toContain("<Table");
+    expect(recoveryDraftReview).not.toContain("<TabsList");
+    expect(recoveryDraftReview).not.toContain("<TabsTrigger");
+    expect(recoveryDraftReview).not.toContain("<TabsContent");
+    expect(recoveryDraftReview).toContain('data-testid="maya-draft-message-section"');
     expect(recoveryDraftReview).toContain("<Alert");
     expect(recoveryDraftReview).toContain("<Button");
     expect(recoveryDraftReview).not.toContain("/api/approval");
-    expect(recoveryDraftReview).not.toContain("fetch(");
-    expect(recoveryDraftReview).not.toMatch(/<input\b|<textarea\b|contentEditable|type="number"/iu);
+    expect(recoveryDraftReview).toContain("/api/email");
+    expect(recoveryDraftReview).toContain("fetch(");
+    expect(recoveryDraftReview).not.toMatch(/contentEditable|type="number"/iu);
     expect(recoveryDraftReview).not.toMatch(/\b(?:new Date|Date\.now|toLocaleDateString|toLocaleTimeString)\b/u);
     expect(recoveryDraftReview).not.toMatch(/\b(?:DP-24-08971-01|24-08971|XXXX-XX34|Sterling Equipment Finance|Crestline Auto Target|contract_XXXXX34|pmt_history_XXXXX34)\b/u);
     expect(recoveryDraftReview).not.toMatch(/\b(?:Sent|Recovered|ERP written|Portal submitted|Human approved|Approved|Posted|Cleared by AI)\b/u);
   });
 
   it("keeps Beat 5 evidence dossier prop-driven, review-state honest, and provenance-safe", () => {
-    const evidenceDossier = readFileSync("cockpit/components/maya/evidence-dossier.tsx", "utf8");
     const workspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
@@ -868,65 +825,59 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(types).toContain("MayaSourceTile");
     expect(surface).toContain("sourceTiles={connectors.sourceTiles}");
     expect(workspace).toContain("sourceTiles: MayaSourceTile[]");
-    expect(workspace).toContain("sourceTiles={sourceTiles}");
-    expect(workspace).toContain("deterministicBasis={selected.draft.basis}");
-    expect(workspace).toContain("draftStatusLabel={selected.draft.statusLabel}");
-    expect(workspace).toContain("<EvidenceDossier");
+    expect(workspace).toContain("sourceTiles: MayaSourceTile[]");
+    expect(workspace).toContain("<EvidenceFactCards");
+    expect(workspace).not.toContain("<EvidenceDossier");
 
     for (const requiredHook of [
-      'data-testid="maya-evidence-dossier"',
-      'data-testid="maya-evidence-business-group"',
-      'data-testid="maya-evidence-source-details"',
-      'data-testid="maya-evidence-document-row"',
-      'data-testid="maya-deterministic-basis-rail"',
-      'data-testid="maya-source-provenance-rail"',
-      'data-testid="maya-evidence-review-state"'
+      'data-testid="maya-evidence-fact-cards"',
+      'data-testid="maya-evidence-fact-card"',
+      'data-testid="maya-evidence-fact-card-title"',
+      'data-testid="maya-evidence-fact-card-body"',
+      'data-testid="maya-evidence-fact-row"',
+      'data-testid="maya-evidence-provenance-disclosure"',
+      'testId="maya-evidence-provenance-row"',
+      'data-testid="maya-deterministic-basis-band"',
+      'testId="maya-case-depth-drawer-audit-provenance"'
     ]) {
-      expect(evidenceDossier).toContain(requiredHook);
+      expect(workspace).toContain(requiredHook);
     }
 
     for (const requiredPropRead of [
-      "groupEvidenceDocumentsByBusinessLabel(evidencePack.documents)",
-      "evidenceGroups.map",
-      "EvidenceDocumentTable documents={group.documents}",
-      "RecordIdStrip recordIds={evidencePack.recordIds}",
-      "recordIds.map",
-      "documents.map",
-      "document.documentType",
-      "getEvidenceBusinessLabel(document.documentType)",
-      "document.citationId",
-      "document.documentId",
-      "document.description",
-      "document.summary",
-      "document.sourceLabel",
-      "document.verifiedLabel",
-      "document.relevance",
-      "sourceTiles.map",
-      "source.statusTone",
-      "source.stateLabel",
-      "source.modeLabel"
+      "buildEvidenceFactCard(document)",
+      "evidencePack.documents.map",
+      "card.rows.map",
+      "card.provenanceRows.map",
+      "card.documentId",
+      "card.title",
+      "card.sourceLabel",
+      "card.semanticRetrievalBadge",
+      "card.documentSummary",
+      "card.documentHref",
+      "buildEvidencePacketAvailabilityLabel(selected.evidencePack)",
+      "RecordIdStrip recordIds={selected.evidencePack.recordIds}"
     ]) {
-      expect(evidenceDossier).toContain(requiredPropRead);
+      expect(workspace).toContain(requiredPropRead);
     }
 
-    expect(evidenceDossier).toContain("Business documents grouped for the selected case");
-    expect(evidenceDossier).toContain("Source details");
-    expect(evidenceDossier).not.toContain("Backend evidence packet");
-    expect(evidenceDossier).toContain("Evidence dossier available");
-    expect(evidenceDossier).toContain("Review state unavailable");
-    expect(evidenceDossier).toContain("Deterministic basis unavailable");
-    expect(evidenceDossier).toContain("Additional proof fields pending");
-    expect(evidenceDossier).toContain('source.statusTone === "synthetic"');
-    expect(evidenceDossier).not.toMatch(
+    expect(workspace).toContain("Evidence retrieved");
+    expect(workspace).toContain("View document");
+    expect(workspace).toContain("More details");
+    expect(workspace).not.toContain("Backend evidence packet");
+    expect(workspace).not.toContain("Evidence dossier available");
+    expect(workspace).not.toContain("Review state unavailable");
+    expect(workspace).not.toContain("Structured review fields unavailable");
+    expect(workspace).not.toContain("Additional proof fields pending");
+    expect(workspace).not.toMatch(
       /\b(?:pod reviewed|review satisfied|evidence review satisfied|all criteria satisfied|3 of 3|source verified by API|auto recover|auto approve|send|execute|write back|recovered|cleared by AI)\b/iu
     );
-    expect(evidenceDossier).not.toMatch(
+    expect(workspace).not.toMatch(
       /\b(?:Delivery and Proof of Delivery|Shipment Details|Inventory and Shortage Claim|Communications|Adjustments and Financials)\b/u
     );
-    expect(evidenceDossier).not.toContain("new Date");
-    expect(evidenceDossier).not.toContain("Date.now");
-    expect(evidenceDossier).not.toContain("fetch(");
-    expect(evidenceDossier).not.toContain("/api/");
+    expect(workspace).not.toContain("new Date");
+    expect(workspace).not.toContain("Date.now");
+    expect(workspace).not.toContain("fetch(");
+    expect(workspace).not.toContain("/api/");
   });
 
   it("renders only backend KPI items in backend order without UI metric injection", () => {
@@ -990,7 +941,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(table).toContain("items.length");
     expect(table).toContain("InputGroup");
     expect(table).toContain("Search by work item, customer, or line ID");
-    expect(table).toContain("Source details");
+    expect(table).toContain("Evidence details");
     expect(table).toContain("missingOperationalFields");
     expect(table).toContain("Open investigation");
     expect(table).not.toContain("Save view");

@@ -67,12 +67,12 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
             <AlertDescription>
               {(response?.recordIds ?? []).length === 0
                 ? "No cited record IDs were returned with this response."
-                : "Cited record IDs are available in source details."}
+                : "Cited record IDs are available in evidence details."}
             </AlertDescription>
           </Alert>
           <Accordion collapsible type="single">
             <AccordionItem data-testid="maya-cited-blocked-source-details" value="blocked-source-details">
-              <AccordionTrigger>Source details</AccordionTrigger>
+              <AccordionTrigger>Evidence details</AccordionTrigger>
               <AccordionContent>
                 <div className="flex flex-wrap gap-2" aria-label="Blocked cited answer record IDs">
                   {(response?.recordIds ?? []).length === 0 ? (
@@ -119,7 +119,10 @@ export function CitedAnswerCard({ evidencePack, response }: CitedAnswerCardProps
               <Badge variant="outline">{`${evidencePack.documents.length.toString()} loaded documents`}</Badge>
             </div>
             <p className="text-sm leading-6" data-testid="maya-cited-answer-text">
-              {displayAnswerWithoutInlineRecordIds(response.answer, response.recordIds)}
+              {displayAnswerWithoutInlineRecordIds(response.answer, [
+                ...response.recordIds,
+                ...response.citations.map((citation) => citation.recordId)
+              ])}
             </p>
           </div>
           <Separator />
@@ -252,7 +255,7 @@ function displayAnswerWithoutInlineRecordIds(answer: string, recordIds: readonly
     .replace(/\s+/gu, " ")
     .trim();
 
-  return redacted.length === 0 ? "Answer details are available with citations in source details." : redacted;
+  return redacted.length === 0 ? "Answer details are available with citations in evidence details." : redacted;
 }
 
 function escapeRegExp(value: string): string {

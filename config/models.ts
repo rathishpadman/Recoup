@@ -6,7 +6,8 @@ export const runtimeModels = {
   fast: "gpt-5.4",
   fastMini: "gpt-5.4-mini",
   fastNano: "gpt-5.4-nano",
-  realtime: "gpt-realtime-2"
+  realtime: "gpt-realtime-2",
+  transcription: "gpt-4o-mini-transcribe"
 } as const;
 
 export type RuntimeModelKey = keyof typeof runtimeModels;

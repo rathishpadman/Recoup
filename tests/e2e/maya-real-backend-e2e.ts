@@ -11,6 +11,17 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page, type Request as PlaywrightRequest, type Response as PlaywrightResponse } from "playwright";
+import {
+  buildCitedRecordChips,
+  buildDraftLetterPreview,
+  buildEvidenceFactCard,
+  buildOutcomeActionPackages,
+  buildOverviewSummaryCards,
+  buildRoutingBanner,
+  buildVerdictLead,
+  deriveEmailRecipientGroups,
+  resolveMayaWorklistReason
+} from "../../cockpit/components/maya/maya-workspace-derived.ts";
 import { loadLocalRuntimeEnvFiles, type RuntimeEnv } from "../../config/localRuntimeEnv.ts";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 
@@ -75,6 +86,7 @@ interface WorklistModelItem {
   workItemId: string;
   workItemLabel: string;
   deductionReason: string;
+  reason?: string;
   verdict: string;
   verdictLabel: string;
 }
@@ -93,10 +105,18 @@ interface EvidenceDocumentModel {
   receiptId?: string;
   relevance: string;
   retrievedAt?: string;
+  retrieval?: {
+    fileName: string;
+    mode: "semantic-vector";
+    provenance: "openai-vector-store";
+    score: number;
+    vectorStoreId: string;
+  };
   sourceFreshness?: string;
   sourceLabel: string;
   sourceRecordId?: string;
   sourceSystem?: string;
+  storageHref?: string;
   storageUri?: string;
   summary: string;
   verifiedLabel: string;
@@ -277,6 +297,16 @@ interface RenderedAgentProcessNode {
   uiProcessKind: string | null;
 }
 
+interface RenderedAgentInvestigationStep {
+  agentName: string | null;
+  phase: string | null;
+  recordIds: string | null;
+  sourceLabel: string | null;
+  text: string;
+  toolName: string | null;
+  verdict: string | null;
+}
+
 const repoRoot = process.cwd();
 const localEnv = loadLocalRuntimeEnvFiles();
 const requestedApiUrl = readEnvValue("RECOUP_E2E_API_URL", "http://127.0.0.1:4317");
@@ -389,7 +419,7 @@ async function main(): Promise<void> {
     await assertObservedForensicsReadOrRefresh(apiServer);
     await assertObservedRealBackendCall(apiServer, "GET", "/connectors");
     await assertRootSidebarSectionNavigation(page, forensicsModel);
-    await assertRenderedKpiStripMatchesBackend(page, activeForensicsModel);
+    await assertRenderedOverviewSummaryCardsMatchBackend(page, activeForensicsModel);
     await assertRenderedSourceReadinessMatchesBackend(page, connectorsModel);
     await assertRenderedWorklistTableMatchesBackend(page, activeForensicsModel);
     activeForensicsModel = await assertForceRefreshReloadsSourceBackedWorklist(page, apiServer);
@@ -414,8 +444,7 @@ async function main(): Promise<void> {
     const queryResults = await runRealMayaQueryWorkItems(page, apiServer, detail);
     await captureMayaBeat(page, "08-cited-answer");
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-    await page.getByRole("tab", { name: /^Draft$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya draft review");
+    await openDraftReviewSection(page);
     await assertRenderedRecoveryDraftMatchesBackend(page, detail);
     await captureMayaBeat(page, "09-draft-review");
     await page.getByRole("button", { name: /^Open approval$/u }).click();
@@ -423,8 +452,7 @@ async function main(): Promise<void> {
     await assertRenderedApprovalGateMatchesBackend(page, detail);
     await captureMayaBeat(page, "10-human-approval");
     await closeVisibleOverlay(page, '[data-testid="maya-approval-gate-dialog"]');
-    await page.getByRole("tab", { name: /^Audit$/u }).click();
-    await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
+    await openAuditDepthDrawer(page);
     await assertRenderedAuditConfirmationMatchesBackend(page, detail);
     await captureMayaBeat(page, "11-audit-confirmation");
     await assertReturnToWorklistRestoresWorklist(page, activeForensicsModel, detail);
@@ -610,7 +638,7 @@ async function sweepCanonicalMayaWorklist(
       const detail =
         lineId === firstDetail.lineId
           ? firstDetail
-          : await switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex);
+          : await switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex, item);
       assertCanonicalWorkItemDetailBackendModel(detail, item, lineId);
       await assertCanonicalVisibleDetailState(page, detail, connectorsModel, lineIndex);
       visitedLineIds.push(lineId);
@@ -629,7 +657,7 @@ async function sweepCanonicalMayaWorklist(
   );
 
   const selectedDetail = await openCanonicalWorklistLine(page, apiServer, model, model.selected.lineId);
-  await page.getByRole("tab", { name: /^Overview$/u }).click();
+  await openCaseDetailSection(page, "maya-case-detail-b2-dossier-head", "Maya dossier head");
   const selectedLineIndex = selectedDetail.workItem.lineIds.indexOf(selectedDetail.lineId);
   assert(selectedLineIndex >= 0, `Maya selected line ${selectedDetail.lineId} was not present in its work item group.`);
   await assertSelectedCaseLineOverviewMatchesBackend(page, selectedDetail.workItem.lineIds, selectedDetail, selectedLineIndex);
@@ -653,7 +681,7 @@ async function openCanonicalWorklistLine(
   const lineIndex = item.lineIds.indexOf(lineId);
   assert(lineIndex >= 0, `Maya canonical worklist item ${item.workItemId} does not include ${lineId}.`);
 
-  return switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex);
+  return switchToBackendCaseLine(page, apiServer, item.lineIds, lineId, lineIndex, item);
 }
 
 async function openBackendWorklistItem(
@@ -707,7 +735,24 @@ async function readAndAssertWorkItemDetail(
   await expectVisibleLocator(page, '[data-testid="maya-case-workspace"]', "Maya case workspace");
   await assertObservedRealBackendCall(apiServer, "GET", `/forensics/work-items/${encodeURIComponent(lineId)}`);
 
-  return detail;
+  return withWorklistReason(detail, item);
+}
+
+function withWorklistReason(
+  detail: ForensicsWorkItemDetailModel,
+  workItem: WorklistModelItem
+): ForensicsWorkItemDetailModel {
+  if (typeof workItem.reason !== "string" || workItem.reason.trim().length === 0 || typeof detail.workItem.reason === "string") {
+    return detail;
+  }
+
+  return {
+    ...detail,
+    workItem: {
+      ...detail.workItem,
+      reason: workItem.reason
+    }
+  };
 }
 
 async function showRootWorklist(page: Page): Promise<void> {
@@ -743,20 +788,10 @@ async function assertCanonicalVisibleDetailState(
   connectorsModel: ConnectorRealBackendModel,
   lineIndex: number
 ): Promise<void> {
-  await page.getByRole("tab", { name: /^Overview$/u }).click();
+  await openCaseDetailSection(page, "maya-case-detail-b2-dossier-head", "Maya dossier head");
   await assertSelectedCaseLineOverviewMatchesBackend(page, detail.workItem.lineIds, detail, lineIndex);
-  const basisSourceDetailsText = await openDisclosureAndReadText(
-    page,
-    "maya-case-basis-source-details",
-    /^Basis source details$/u,
-    "Maya basis source details"
-  );
-  for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(
-      basisSourceDetailsText.includes(normalizeUiText(recordId)),
-      `Maya overview basis source details omitted backend recordId ${recordId} for ${detail.lineId}.`
-    );
-  }
+  await openCaseDetailSection(page, "maya-case-detail-b5-verdict", "Maya verdict section");
+  await assertRenderedVerdictBlockMatchesBackend(page, detail);
 
   await assertCanonicalAgentProcessMapBeforeQuery(page, detail, connectorsModel);
   await openEvidenceTab(page);
@@ -764,13 +799,13 @@ async function assertCanonicalVisibleDetailState(
   await openEvidenceQuery(page);
   await assertRenderedQueryDockMatchesBackend(page, detail);
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-  await page.getByRole("tab", { name: /^Draft$/u }).click();
+  await openDraftReviewSection(page);
   await assertRenderedRecoveryDraftMatchesBackend(page, detail);
   await page.getByRole("button", { name: /^Open approval$/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-approval-gate-dialog"]', "Maya approval gate");
   await assertRenderedApprovalGateMatchesBackend(page, detail);
   await closeVisibleOverlay(page, '[data-testid="maya-approval-gate-dialog"]');
-  await page.getByRole("tab", { name: /^Audit$/u }).click();
+  await openAuditDepthDrawer(page);
   await assertRenderedAuditConfirmationMatchesBackend(page, detail);
 }
 
@@ -779,43 +814,52 @@ async function assertCanonicalAgentProcessMapBeforeQuery(
   detail: ForensicsWorkItemDetailModel,
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
-  await page.getByTestId("maya-case-agent-trace-tab").click();
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-map"]', "Maya canonical agent process map before query");
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-node"]', "Maya canonical agent process node before query");
-  const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
-  const renderedProcessText = normalizeUiText(renderedProcessNodes.map((node) => node.text).join(" "));
-  const recordIdsInProcessNodeData = new Set(renderedProcessNodes.flatMap((node) => splitRecordIdsAttribute(node.recordIds)));
+  await page.getByTestId("maya-case-detail-b3-investigation").scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, '[data-testid="maya-case-detail-b3-investigation"]', "Maya investigation section before query");
+  await openAgentInvestigationDrawer(page);
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-timeline"]', "Maya canonical investigation timeline before query");
+  const renderedSteps = await assertOvernightInvestigationSteps(page, "Canonical pre-query", detail, connectorsModel);
   const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
-  assert(
-    renderedProcessNodes.length > 0 && connectorsModel.sourceTiles.length > 0,
-    `Canonical pre-query process map rendered ${renderedProcessNodes.length.toString()} nodes for ${connectorsModel.sourceTiles.length.toString()} backend source tiles.`
-  );
-  assert(
-    !renderedProcessText.includes(normalizeUiText(detail.selected.lineId)),
-    `Canonical pre-query compact process map leaked selected backend line ${detail.selected.lineId}; raw IDs belong in Trace details or data-record-ids.`
-  );
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(
-      !renderedProcessText.includes(normalizeUiText(recordId)),
-      `Canonical pre-query compact process map leaked selected backend evidence recordId ${recordId}; raw IDs belong in Trace details or data-record-ids.`
-    );
-    assert(
-      recordIdsInProcessNodeData.has(recordId),
-      `Canonical pre-query process map omitted selected backend evidence recordId ${recordId} from data-record-ids.`
-    );
     assert(
       traceDetailsText.includes(normalizeUiText(recordId)),
       `Canonical pre-query Trace details omitted selected backend evidence recordId ${recordId}.`
     );
   }
 
-  assertPreQuerySourceProvenance("Canonical pre-query", detail, renderedProcessNodes, traceDetailsText);
+  assertPreQuerySourceProvenance("Canonical pre-query", detail, renderedSteps, traceDetailsText);
+}
+
+async function assertOvernightInvestigationSteps(
+  page: Page,
+  label: string,
+  detail: ForensicsWorkItemDetailModel,
+  connectorsModel: ConnectorRealBackendModel
+): Promise<RenderedAgentInvestigationStep[]> {
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-step"]', `${label} overnight investigation steps`);
+  await openAgentInvestigationCitationDetails(page);
+  const renderedSteps = await readRenderedAgentInvestigationSteps(page);
+  assert(
+    renderedSteps.length >= 3 && connectorsModel.sourceTiles.length > 0,
+    `${label} timeline rendered ${renderedSteps.length.toString()} overnight steps; expected at least 3 from real evidence before query.`
+  );
+  assert(
+    renderedSteps.every((step) => normalizeUiText(step.text).length > 0),
+    `${label} timeline rendered an empty investigation step.`
+  );
+  const renderedRecordIds = normalizeUiText(renderedSteps.map((step) => `${step.recordIds ?? ""} ${step.text}`).join(" "));
+  assert(
+    detail.selected.evidencePack.recordIds.some((recordId) => renderedRecordIds.includes(normalizeUiText(recordId))),
+    `${label} timeline did not cite any selected evidence record IDs.`
+  );
+
+  return renderedSteps;
 }
 
 function assertPreQuerySourceProvenance(
   label: string,
   detail: ForensicsWorkItemDetailModel,
-  renderedProcessNodes: readonly RenderedAgentProcessNode[],
+  renderedProcessNodes: ReadonlyArray<RenderedAgentProcessNode | RenderedAgentInvestigationStep>,
   traceDetailsText: string
 ): void {
   const expectedSourceKinds = new Set(detail.selected.evidencePack.documents.map((document) => document.provenance.sourceKind));
@@ -837,8 +881,8 @@ function assertPreQuerySourceProvenance(
     assert(
       renderedProcessNodes.some(
         (node) =>
-          node.sourceKind === sourceKind ||
-          node.retrievalSource === sourceKind ||
+          ("sourceKind" in node && node.sourceKind === sourceKind) ||
+          ("retrievalSource" in node && node.retrievalSource === sourceKind) ||
           traceDetailsText.includes(sourceLabel)
       ) || hasSupabaseSourceBackedSummary,
       `${label} Agent Trace omitted ${sourceLabel} provenance for ${detail.lineId}.`
@@ -1018,13 +1062,62 @@ function assertNoDuplicateStrings(values: readonly string[], context: string): v
   }
 }
 
+async function openCaseDetailSection(page: Page, testId: string, label: string): Promise<void> {
+  await page.getByTestId(testId).scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, `[data-testid="${testId}"]`, label);
+}
+
 async function openEvidenceTab(page: Page): Promise<void> {
-  await page.getByRole("tab", { name: /^Evidence$/u }).click();
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya evidence dossier");
+  await openCaseDetailSection(page, "maya-case-detail-b4-evidence", "Maya evidence section");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya evidence fact cards");
+}
+
+async function openDraftReviewSection(page: Page): Promise<void> {
+  await openCaseDetailSection(page, "maya-case-detail-b6-outcome", "Maya draft review section");
+  await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya recovery draft review");
+}
+
+async function openAgentInvestigationDrawer(page: Page): Promise<void> {
+  const drawer = page.getByTestId("maya-agent-investigation-drawer");
+  await drawer.scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-drawer"]', "Maya agent investigation drawer");
+  const trigger = drawer.getByTestId("maya-agent-investigation-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+}
+
+async function openAgentInvestigationCitationDetails(page: Page): Promise<void> {
+  const disclosures = page.getByTestId("maya-agent-investigation-record-disclosure");
+  const count = await disclosures.count();
+  for (let index = 0; index < count; index += 1) {
+    const disclosure = disclosures.nth(index);
+    const trigger = disclosure.getByRole("button", { name: /^Citation details$/u });
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+      await trigger.click();
+    }
+  }
+}
+
+async function openCaseDepthDrawerText(page: Page, testId: string, label: string): Promise<string> {
+  const drawer = page.getByTestId(testId);
+  await drawer.scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, `[data-testid="${testId}"]`, label);
+  const trigger = drawer.getByTestId("maya-case-depth-drawer-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  return normalizeUiText(await drawer.innerText());
+}
+
+async function openAuditDepthDrawer(page: Page): Promise<string> {
+  const text = await openCaseDepthDrawerText(page, "maya-case-depth-drawer-audit-provenance", "Maya audit provenance depth drawer");
+  await expectVisibleLocator(page, '[data-testid="maya-audit-confirmation"]', "Maya audit confirmation");
+  return text;
 }
 
 async function openEvidenceQuery(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /^Query evidence$/u }).click();
+  await page.getByTestId("recoup-agent-launcher").click();
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
   await expectVisibleLocator(page, '[data-testid="maya-query-input"]', "Maya query input");
 }
@@ -1055,7 +1148,7 @@ async function assertCaseLineSelectorControls(
 
   const secondLineId = lineIds[1];
   assert(secondLineId !== undefined, "Maya line selector test could not resolve the second backend line ID.");
-  const secondLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, secondLineId, 1);
+  const secondLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, secondLineId, 1, detail.workItem);
   await assertSelectedCaseLineOverviewMatchesBackend(page, lineIds, secondLineDetail, 1);
   await assertAgentProcessMapBeforeQuery(page, secondLineDetail, connectorsModel);
   await openEvidenceTab(page);
@@ -1063,24 +1156,24 @@ async function assertCaseLineSelectorControls(
   await openEvidenceQuery(page);
   await assertRenderedQueryDockMatchesBackend(page, secondLineDetail);
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-  await page.getByRole("tab", { name: /^Draft$/u }).click();
+  await openDraftReviewSection(page);
   await assertRenderedRecoveryDraftMatchesBackend(page, secondLineDetail);
   await page.getByRole("button", { name: /^Open approval$/u }).click();
   await assertRenderedApprovalGateMatchesBackend(page, secondLineDetail);
   await closeVisibleOverlay(page, '[data-testid="maya-approval-gate-dialog"]');
-  await page.getByRole("tab", { name: /^Audit$/u }).click();
+  await openAuditDepthDrawer(page);
   await assertRenderedAuditConfirmationMatchesBackend(page, secondLineDetail);
 
   if (lineIds.length >= 3) {
     const thirdLineId = lineIds[2];
     assert(thirdLineId !== undefined, "Maya line selector test could not resolve the third backend line ID.");
-    const thirdLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, thirdLineId, 2);
+    const thirdLineDetail = await switchToBackendCaseLine(page, apiServer, lineIds, thirdLineId, 2, detail.workItem);
     await assertSelectedCaseLineOverviewMatchesBackend(page, lineIds, thirdLineDetail, 2);
   }
 
   const originalLineIndex = lineIds.indexOf(detail.selected.lineId);
   assert(originalLineIndex >= 0, `Backend selected line ${detail.selected.lineId} is not present in work item line IDs.`);
-  const restoredDetail = await switchToBackendCaseLine(page, apiServer, lineIds, detail.selected.lineId, originalLineIndex);
+  const restoredDetail = await switchToBackendCaseLine(page, apiServer, lineIds, detail.selected.lineId, originalLineIndex, detail.workItem);
   assert(restoredDetail.lineId === detail.selected.lineId, "Maya restored-line detail did not match the original backend-selected line.");
   const restoredLineLabel = normalizeUiText(await page.getByTestId("maya-selected-line-label").innerText());
   assert(
@@ -1094,7 +1187,8 @@ async function switchToBackendCaseLine(
   apiServer: ManagedApiServer,
   lineIds: readonly string[],
   lineId: string,
-  lineIndex: number
+  lineIndex: number,
+  workItem?: WorklistModelItem
 ): Promise<ForensicsWorkItemDetailModel> {
   const detailPath = `/api/forensics/work-items/${encodeURIComponent(lineId)}`;
   await page.getByTestId("maya-line-selector").scrollIntoViewIfNeeded();
@@ -1125,8 +1219,12 @@ async function switchToBackendCaseLine(
     '[data-testid="maya-case-workspace"]',
     `Maya Line ${String(lineIndex + 1)} case workspace`
   );
-  await page.getByRole("tab", { name: /^Overview$/u }).waitFor({ state: "visible", timeout: 20_000 });
-  return lineDetail;
+  await expectVisibleLocator(
+    page,
+    '[data-testid="maya-case-detail-b2-dossier-head"]',
+    `Maya Line ${String(lineIndex + 1)} dossier head`
+  );
+  return workItem === undefined ? lineDetail : withWorklistReason(lineDetail, workItem);
 }
 
 async function assertSelectedCaseLineOverviewMatchesBackend(
@@ -1140,20 +1238,37 @@ async function assertSelectedCaseLineOverviewMatchesBackend(
     selectedLineLabel.includes(`Line ${String(lineIndex + 1)} of ${lineIds.length.toString()}`),
     `Maya selected-line label did not move to Line ${String(lineIndex + 1)} of ${lineIds.length.toString()}: ${selectedLineLabel}.`
   );
-  const lineSourceDetailsText = await openDisclosureAndReadText(
-    page,
-    "maya-case-line-source-details",
-    /^Line source details$/u,
-    "Maya line source details"
-  );
+  const lineSourceDetailsText = await openCaseDepthDrawerText(page, "maya-case-depth-drawer-audit-provenance", "Maya audit provenance drawer");
   assert(
     lineSourceDetailsText.includes(detail.selected.lineId),
-    `Maya case detail did not keep backend raw ID ${detail.selected.lineId} available inside line source details.`
+    `Maya case detail did not keep backend raw ID ${detail.selected.lineId} available inside line evidence details.`
   );
-  const lineBasisText = normalizeUiText(await page.getByTestId("maya-case-deterministic-basis").innerText());
+  const detailReason = (detail.workItem as { reason?: unknown }).reason;
   assert(
-    lineBasisText.includes(normalizeUiText(detail.selected.draft.basis)),
-    `Maya case overview did not update to the backend detail returned for ${detail.selected.lineId}.`
+    typeof detailReason === "string" && detailReason.trim().length > 0,
+    `Maya backend detail ${detail.selected.lineId} did not expose a worklist reason.`
+  );
+  const expectedReason = normalizeUiText(detailReason);
+  try {
+    await page.waitForFunction(
+      (expected) => {
+        const text = document.querySelector('[data-testid="maya-case-deterministic-basis-body"]')?.textContent ?? "";
+        return text.replace(/\s+/gu, " ").trim() === expected;
+      },
+      expectedReason,
+      { timeout: 10_000 }
+    );
+  } catch (error) {
+    const currentReason = normalizeUiText(await page.getByTestId("maya-case-deterministic-basis-body").innerText());
+    throw new Error(
+      `Maya case overview basis did not settle for ${detail.selected.lineId}. Expected "${expectedReason}" but rendered "${currentReason}".`,
+      { cause: error }
+    );
+  }
+  const lineBasisText = normalizeUiText(await page.getByTestId("maya-case-deterministic-basis-body").innerText());
+  assert(
+    lineBasisText === expectedReason,
+    `Maya case overview basis did not equal the worklist reason for ${detail.selected.lineId}.`
   );
 }
 
@@ -1176,8 +1291,8 @@ async function runRealMayaQueryWorkItems(
     assertAppQueryResponseMatchesBackend(queryResult.backendResponse, queryResult.appResponse);
     await assertRenderedCitedAnswerMatchesBackend(page, workItem, queryResult.backendResponse);
     await assertRenderedConversationTurnsMatchBackend(page, queryResult);
-    await expectVisibleLocator(page, '[data-testid="maya-cited-answer"]', `Maya cited answer for ${workItem.id}`);
-    await assertAgentProcessMapAfterQuery(page, queryResult);
+    await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', `Maya Copilot verdict for ${workItem.id}`);
+    await assertAgentProcessMapAfterQuery(page, queryResult, detail);
     await assertRenderedTraceRowsMatchBackend(page, queryResult.backendResponse.trace);
     await captureMayaBeat(page, index === 0 ? "07-agent-trace" : `07-query-${workItem.id}`);
     logRealMayaQueryResult(queryResult, detail);
@@ -1241,7 +1356,8 @@ async function assertClosingRunningQueryResetsParentTrace(
   await page.getByTestId("maya-query-input").fill(workItem.question);
   await page.getByRole("button", { name: /^Run query$/u }).click();
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-  await page.getByTestId("maya-case-agent-trace-tab").click();
+  await page.getByTestId("maya-case-detail-b3-investigation").scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, '[data-testid="maya-case-detail-b3-investigation"]', "Maya investigation section after query");
   await expectVisibleLocator(page, '[data-testid="maya-agent-trace"]', "Maya parent agent trace after query close");
   const runningSessionCount = await visibleLocatorCount(page, '[data-testid="maya-trace-running-session"]');
   assert(
@@ -1380,20 +1496,20 @@ async function assertVisibleSelectedEvidenceScope(page: Page, detail: ForensicsW
   const selectedContextText = normalizeUiText(await page.getByTestId("maya-selected-evidence-context").innerText());
   const selectedLineText = normalizeUiText(await page.getByTestId("maya-query-selected-line").innerText());
   assert(
-    selectedLineText.includes(detail.selected.lineId),
-    `Maya query dock selected line ${selectedLineText} did not match backend detail ${detail.selected.lineId}.`
+    selectedLineText.includes("Selected case"),
+    `Maya query dock selected line ${selectedLineText} did not use business selected-case copy.`
   );
   for (const recordId of detail.selected.evidencePack.recordIds) {
     if (recordId !== detail.selected.lineId) {
       assert(
         !selectedContextText.includes(normalizeUiText(recordId)),
-        `Maya query compact selected evidence context leaked raw backend recordId ${recordId}; raw IDs belong in Source details.`
+        `Maya query compact selected evidence context leaked raw backend recordId ${recordId}; raw IDs belong in Evidence details.`
       );
     }
   }
-  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya query source details disclosure");
+  await expectVisibleLocator(page, '[data-testid="maya-query-source-details"]', "Maya query evidence details disclosure");
   const sourceDetails = page.getByTestId("maya-query-source-details");
-  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Source details$/u });
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /^Evidence details$/u });
   if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
     await sourceDetailsTrigger.click();
   }
@@ -1410,7 +1526,14 @@ async function assertVisibleSelectedEvidenceScope(page: Page, detail: ForensicsW
 
 async function assertRenderedPromptChipsMatchBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
   const promptSuggestions = dedupePromptSuggestionsByQuestion(detail.multimodalDock.promptSuggestions);
-  const renderedChipLabels = (await page.getByTestId("maya-query-prompt-chip").allTextContents()).map(normalizeUiText);
+  const renderedPromptChips = page.getByTestId("maya-query-prompt-chip");
+  const renderedPromptChipCount = await renderedPromptChips.count();
+  const renderedChipLabels = (await page.getByTestId("maya-query-prompt-question").allTextContents()).map(normalizeUiText);
+  const renderedRecordCountLabels = (await page.getByTestId("maya-query-prompt-record-count").allTextContents()).map(normalizeUiText);
+  assert(
+    renderedPromptChipCount === promptSuggestions.length,
+    `Maya rendered ${renderedPromptChipCount.toString()} prompt chip controls for ${promptSuggestions.length.toString()} unique backend prompt questions.`
+  );
   assert(
     renderedChipLabels.length === promptSuggestions.length,
     `Maya rendered ${renderedChipLabels.length.toString()} prompt chips for ${promptSuggestions.length.toString()} unique backend prompt questions.`
@@ -1419,6 +1542,11 @@ async function assertRenderedPromptChipsMatchBackend(page: Page, detail: Forensi
     assert(
       renderedChipLabels[index] === normalizeUiText(prompt.question),
       `Maya prompt chip ${index.toString()} did not match backend prompt question ${prompt.question}.`
+    );
+    const expectedRecordCount = new Set([...prompt.recordIds, ...prompt.provenance.recordIds].map((recordId) => recordId.trim()).filter(Boolean)).size;
+    assert(
+      renderedRecordCountLabels[index] === `${expectedRecordCount.toString()} records`,
+      `Maya prompt chip ${index.toString()} did not match backend prompt record count.`
     );
     assert(prompt.question.trim().length > 0, `Backend prompt suggestion ${prompt.label} returned no question.`);
     assert(prompt.recordIds.length > 0, `Backend prompt suggestion ${prompt.label} returned no cited record IDs.`);
@@ -1643,66 +1771,43 @@ async function assertAgentProcessMapBeforeQuery(
   detail: ForensicsWorkItemDetailModel,
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
-  await page.getByTestId("maya-case-agent-trace-tab").click();
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-map"]', "Maya agent process map before query");
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-node"]', "Maya agent process node before query");
-  const sourceTiles = connectorsModel.sourceTiles;
-  const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
-  const renderedProcessText = normalizeUiText(renderedProcessNodes.map((node) => node.text).join(" "));
-  const recordIdsInProcessNodeData = new Set(renderedProcessNodes.flatMap((node) => splitRecordIdsAttribute(node.recordIds)));
-  const selectedLineId = detail.selected.lineId;
-  for (const node of renderedProcessNodes) {
-    if (node.uiProcessKind !== null && node.retrievalSource === null && node.sourceKind === null) {
-      assert(
-        normalizeUiText(node.text).length > 0,
-        "Pre-query source-backed UI summary process node rendered without business-readable text."
-      );
-      continue;
-    }
-  }
+  await page.getByTestId("maya-case-detail-b3-investigation").scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, '[data-testid="maya-case-detail-b3-investigation"]', "Maya investigation section before query");
+  await openAgentInvestigationDrawer(page);
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-timeline"]', "Maya investigation timeline before query");
+  const renderedSteps = await assertOvernightInvestigationSteps(page, "Pre-query", detail, connectorsModel);
+  assert((await page.getByTestId("maya-agent-investigation-empty").count()) === 0, "Pre-query process map showed the empty investigation state.");
   assert(
-    renderedProcessNodes.length > 0 && sourceTiles.length > 0,
-    `Pre-query process map rendered ${renderedProcessNodes.length.toString()} nodes for ${sourceTiles.length.toString()} backend source tiles.`
-  );
-  assert(
-    !renderedProcessText.includes(normalizeUiText(selectedLineId)),
-    `Pre-query compact process map leaked selected backend line ${selectedLineId}; raw IDs belong in Trace details or data-record-ids.`
+    renderedSteps.length >= 3 && connectorsModel.sourceTiles.length > 0 && detail.selected.evidencePack.recordIds.length > 0,
+    "Pre-query process map did not render from the forensics detail and connector read models."
   );
   const traceDetailsText = await openAgentTraceDetailsAndReadText(page);
-  for (const sourceLabel of ["SAP OData", "Supabase", "Source-backed"]) {
-    assert(
-      !renderedProcessText.includes(sourceLabel),
-      `Pre-query compact process map leaked primary source/plumbing label ${sourceLabel}; source proof belongs in Trace details or data attributes.`
-    );
-  }
   for (const recordId of detail.selected.evidencePack.recordIds) {
-    assert(
-      !renderedProcessText.includes(normalizeUiText(recordId)),
-      `Pre-query compact process map leaked selected backend evidence recordId ${recordId}; raw IDs belong in Trace details or data-record-ids.`
-    );
-    assert(
-      recordIdsInProcessNodeData.has(recordId),
-      `Pre-query process map omitted selected backend evidence recordId ${recordId} from data-record-ids.`
-    );
     assert(
       traceDetailsText.includes(normalizeUiText(recordId)),
       `Pre-query Trace details omitted selected backend evidence recordId ${recordId}.`
     );
   }
-  assertPreQuerySourceProvenance("Pre-query", detail, renderedProcessNodes, traceDetailsText);
+  assertPreQuerySourceProvenance("Pre-query", detail, renderedSteps, traceDetailsText);
 }
 
-async function assertAgentProcessMapAfterQuery(page: Page, queryResult: ForensicsQueryE2EResult): Promise<void> {
+async function assertAgentProcessMapAfterQuery(
+  page: Page,
+  queryResult: ForensicsQueryE2EResult,
+  detail: ForensicsWorkItemDetailModel
+): Promise<void> {
   await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
-  await page.getByTestId("maya-case-agent-trace-tab").click();
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-map"]', "Maya agent process map after query");
-  await expectVisibleLocator(page, '[data-testid="maya-agent-process-node"]', "Maya agent process node after query");
+  await page.getByTestId("maya-case-detail-b3-investigation").scrollIntoViewIfNeeded();
+  await expectVisibleLocator(page, '[data-testid="maya-case-detail-b3-investigation"]', "Maya investigation section after query");
+  await openAgentInvestigationDrawer(page);
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-timeline"]', "Maya investigation timeline after query");
+  await expectVisibleLocator(page, '[data-testid="maya-agent-investigation-step"]', "Maya investigation timeline step after query");
+  await openAgentInvestigationCitationDetails(page);
   const backendTrace = queryResult.backendResponse.trace;
-  const renderedProcessNodes = await readRenderedAgentProcessNodes(page);
-  const backendTraceNodes = renderedProcessNodes.filter(isRenderedBackendTraceNode);
+  const renderedSteps = await readRenderedAgentInvestigationSteps(page);
   assert(
-    backendTraceNodes.length === backendTrace.length,
-    `Post-query process map rendered ${backendTraceNodes.length.toString()} backend trace nodes inside ${renderedProcessNodes.length.toString()} compact nodes for ${backendTrace.length.toString()} backend trace rows. Backend=${JSON.stringify(
+    renderedSteps.length === backendTrace.length,
+    `Post-query investigation timeline rendered ${renderedSteps.length.toString()} steps for ${backendTrace.length.toString()} backend trace rows. Backend=${JSON.stringify(
       backendTrace.map((event) => ({
         agentName: event.agentName,
         hook: event.hook,
@@ -1710,15 +1815,62 @@ async function assertAgentProcessMapAfterQuery(page: Page, queryResult: Forensic
         phase: event.phase
       }))
     )} Rendered=${JSON.stringify(
-      renderedProcessNodes.map((node) => ({
-        agentName: node.agentName,
-        kind: node.processNodeKind,
-        label: node.traceLabel,
-        retrievalSource: node.retrievalSource,
-        sourceKind: node.sourceKind,
-        uiKind: node.uiProcessKind
+      renderedSteps.map((step) => ({
+        agentName: step.agentName,
+        phase: step.phase,
+        recordIds: step.recordIds,
+        sourceLabel: step.sourceLabel,
+        toolName: step.toolName,
+        verdict: step.verdict
       }))
     )}.`
+  );
+  const evidenceRecordIds = new Set(detail.selected.evidencePack.recordIds);
+  backendTrace.forEach((event, index) => {
+    const renderedStep = renderedSteps[index];
+    assert(renderedStep !== undefined, `Maya investigation timeline omitted backend trace step ${event.label}.`);
+    const renderedText = normalizeUiText(renderedStep.text);
+    assert(
+      normalizeUiText(renderedStep.agentName ?? "") === normalizeUiText(event.agentName),
+      `Maya investigation step ${index.toString()} omitted backend agent ${event.agentName}.`
+    );
+    assert(
+      normalizeUiText(renderedStep.phase ?? "") === normalizeUiText(event.phase),
+      `Maya investigation step ${event.label} omitted backend phase ${event.phase}.`
+    );
+    assert(
+      renderedText.includes(normalizeUiText(event.label)),
+      `Maya investigation step ${index.toString()} omitted backend label ${event.label}.`
+    );
+    assert(
+      normalizeUiText(renderedStep.sourceLabel ?? "") === normalizeUiText(expectedInvestigationSourceLabel(event)),
+      `Maya investigation step ${event.label} rendered source ${renderedStep.sourceLabel ?? "missing"} instead of backend-derived ${expectedInvestigationSourceLabel(event)}.`
+    );
+    if (event.toolName !== undefined) {
+      assert(
+        normalizeUiText(renderedStep.toolName ?? "") === normalizeUiText(event.toolName) &&
+          renderedText.includes(normalizeUiText(event.toolName)),
+        `Maya investigation step ${event.label} omitted backend toolName ${event.toolName}.`
+      );
+    }
+    const renderedRecordIds = splitRecordIdsAttribute(renderedStep.recordIds);
+    for (const recordId of renderedRecordIds) {
+      assert(
+        evidenceRecordIds.has(recordId),
+        `Maya investigation step ${event.label} rendered citation ${recordId} outside selected evidence pack.`
+      );
+    }
+  });
+  const finalRenderedStep = renderedSteps.at(-1);
+  const expectedVerdict = detail.workItem.verdict;
+  assert(finalRenderedStep !== undefined, "Maya investigation timeline rendered no final step.");
+  assert(
+    finalRenderedStep.verdict === expectedVerdict,
+    `Maya investigation final step verdict ${finalRenderedStep.verdict ?? "missing"} did not match backend verdict ${expectedVerdict}.`
+  );
+  assert(
+    normalizeUiText(finalRenderedStep.text).includes(normalizeUiText(detail.workItem.verdictLabel)),
+    `Maya investigation final step omitted backend verdict label ${detail.workItem.verdictLabel}.`
   );
   await assertRenderedAgentTracePanelMatchesBackend(page, queryResult);
 }
@@ -1740,6 +1892,12 @@ async function assertRenderedAgentTracePanelMatchesBackend(
     assert(
       !compactTraceText.includes(debugTerm),
       `Agent process primary timeline leaked debug term ${debugTerm}; technical trace text belongs in Trace details.`
+    );
+  }
+  for (const event of backendTrace) {
+    assert(
+      traceDetailsText.includes(normalizeUiText(event.message ?? "")),
+      `Agent trace details omitted backend message for ${event.label}.`
     );
   }
   assertModelExecutionVisibleInTraceDetails(traceDetailsText, queryResult.backendResponse);
@@ -2050,6 +2208,20 @@ async function readRenderedAgentProcessNodes(page: Page): Promise<RenderedAgentP
   );
 }
 
+async function readRenderedAgentInvestigationSteps(page: Page): Promise<RenderedAgentInvestigationStep[]> {
+  return page.getByTestId("maya-agent-investigation-step").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      agentName: node.getAttribute("data-agent-name"),
+      phase: node.getAttribute("data-phase"),
+      recordIds: node.getAttribute("data-record-ids"),
+      sourceLabel: node.getAttribute("data-source-label"),
+      text: node.textContent,
+      toolName: node.getAttribute("data-tool-name"),
+      verdict: node.getAttribute("data-verdict")
+    }))
+  );
+}
+
 function sourceKindDetailLabel(sourceKind: string): string {
   if (sourceKind === "sap_odata") {
     return "SAP OData";
@@ -2084,7 +2256,25 @@ function retrievalSourceDetailLabel(retrievalSource: string): string {
   return retrievalSource;
 }
 
+function expectedInvestigationSourceLabel(event: QueryTraceEvent): string {
+  if (event.retrievalSource === "sap_odata" || event.sourceKind === "sap_odata") {
+    return "SAP OData";
+  }
+  if (event.retrievalSource === "supabase" || event.sourceKind === "supabase") {
+    return "Supabase";
+  }
+  if (event.retrievalSource === "source_backed" || event.sourceKind === "derived_backend") {
+    return "Source-backed";
+  }
+  if (event.sourceKind === "operator_session") {
+    return "Operator session";
+  }
+
+  return "Agent trace";
+}
+
 async function openAgentTraceDetailsAndReadText(page: Page): Promise<string> {
+  await openCaseDepthDrawerText(page, "maya-case-depth-drawer-audit-provenance", "Maya audit and provenance depth drawer");
   await expectVisibleLocator(page, '[data-testid="maya-agent-trace-details"]', "Maya trace details disclosure");
   const traceDetails = page.getByTestId("maya-agent-trace-details");
   const trigger = traceDetails.getByRole("button", { name: /^Trace details$/u });
@@ -2195,22 +2385,23 @@ async function assertRenderedCitedAnswerMatchesBackend(
       `Maya assistant answer prose leaked raw backend recordId ${citation.recordId}; raw IDs belong in Sources.`
     );
   }
-  const citedBasisDetails = page.getByTestId("maya-cited-answer-basis");
-  if ((await citedBasisDetails.getAttribute("data-state")) !== "open") {
-    await citedBasisDetails.getByRole("button", { name: "Basis" }).click();
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', `Maya Copilot verdict band for ${workItem.id}`);
+  const modelExecutionDrawer = page.getByTestId("maya-copilot-model-drawer");
+  if ((await modelExecutionDrawer.getByRole("button", { name: /^Model execution/u }).getAttribute("aria-expanded")) !== "true") {
+    await modelExecutionDrawer.getByRole("button", { name: /^Model execution/u }).click();
   }
-  const basisText = normalizeUiText(await page.getByTestId("maya-cited-answer-basis").innerText());
+  const basisText = normalizeUiText(await modelExecutionDrawer.innerText());
   assert(
     basisText.includes(normalizeUiText(backendResponse.deterministicBasis)),
-    `Maya deterministic basis details did not match backend basis for Work item ${workItem.id}.`
+    `Maya model execution drawer did not match backend basis for Work item ${workItem.id}.`
   );
 
-  const citedSourceDetails = page.getByTestId("maya-cited-source-details");
+  const citedSourceDetails = page.getByTestId("maya-copilot-citations-drawer");
   await citedSourceDetails.waitFor({ state: "visible", timeout: 20_000 });
-  if ((await citedSourceDetails.getAttribute("data-state")) !== "open") {
-    await citedSourceDetails.getByRole("button", { name: "Sources" }).click();
+  if ((await citedSourceDetails.getByRole("button", { name: /^Citations/u }).getAttribute("aria-expanded")) !== "true") {
+    await citedSourceDetails.getByRole("button", { name: /^Citations/u }).click();
   }
-  const citationRows = page.getByTestId("maya-cited-record-row");
+  const citationRows = page.getByTestId("maya-copilot-citation-row");
   if (backendResponse.citations.length > 0) {
     await citationRows.first().waitFor({ state: "visible", timeout: 20_000 });
   }
@@ -2227,11 +2418,9 @@ async function assertRenderedCitedAnswerMatchesBackend(
     backendResponse.citations.map((citation) => citation.recordId),
     `Maya rendered cited record row order for Work item ${workItem.id}`
   );
-  const metadataGapCount = await page.locator('[data-testid="maya-cited-record-row"][data-metadata-gap="true"]').count();
-  assert(metadataGapCount === 0, `Maya rendered ${metadataGapCount.toString()} cited record metadata gaps.`);
 
   for (const citation of backendResponse.citations) {
-    const row = page.locator(`[data-testid="maya-cited-record-row"][data-record-id="${escapeAttributeValue(citation.recordId)}"]`);
+    const row = page.locator(`[data-testid="maya-copilot-citation-row"][data-record-id="${escapeAttributeValue(citation.recordId)}"]`);
     await row.waitFor({ state: "visible", timeout: 20_000 });
     const rowText = normalizeUiText(await row.innerText());
     assert(rowText.includes(citation.recordId), `Maya visible citation row omitted recordId ${citation.recordId}.`);
@@ -2273,9 +2462,7 @@ async function assertRenderedConversationTurnsMatchBackend(
     queryResult.backendResponse.answer,
     queryResult.backendResponse.citations.map((citation) => citation.recordId)
   );
-  const citedRecordIdCount = new Set(
-    queryResult.backendResponse.citations.map((citation) => citation.recordId.trim()).filter((recordId) => recordId.length > 0)
-  ).size;
+  const citationDrawerText = normalizeUiText(await page.getByTestId("maya-copilot-citations-drawer").innerText());
   assert(
     assistantTurnText.includes(normalizeUiText(expectedDisplayAnswer)),
     `Maya assistant answer bubble omitted backend answer for ${queryResult.workItem.id}.`
@@ -2285,12 +2472,8 @@ async function assertRenderedConversationTurnsMatchBackend(
     `Maya assistant answer bubble leaked backend technical basis for ${queryResult.workItem.id}.`
   );
   assert(
-    assistantTurnText.includes(`${queryResult.backendResponse.citations.length.toString()} citations`),
-    `Maya assistant answer bubble omitted backend citation count for ${queryResult.workItem.id}.`
-  );
-  assert(
-    assistantTurnText.includes(`${citedRecordIdCount.toString()} record IDs`),
-    `Maya assistant answer bubble omitted backend cited record ID count for ${queryResult.workItem.id}.`
+    citationDrawerText.includes(`${queryResult.backendResponse.citations.length.toString()} records`),
+    `Maya citations drawer omitted backend citation count for ${queryResult.workItem.id}.`
   );
   for (const citation of queryResult.backendResponse.citations) {
     assert(
@@ -2343,7 +2526,7 @@ async function captureMayaBeat(page: Page, slug: string): Promise<void> {
 }
 
 async function closeVisibleOverlay(page: Page, selector: string): Promise<void> {
-  const closeButton = page.getByRole("button", { name: /^(Close|Cancel|Close human approval dialog)$/u }).last();
+  const closeButton = page.getByRole("button", { name: /^(Close|Cancel|Close approval dialog)$/u }).last();
   if ((await closeButton.count()) > 0 && (await closeButton.isVisible())) {
     await closeButton.click();
     await page.locator(selector).waitFor({ state: "hidden", timeout: 10_000 });
@@ -2381,6 +2564,7 @@ function assertConnectorModelReady(model: ConnectorRealBackendModel): void {
   );
   const mcpSource = model.sourceTiles.find((source) => source.key === "mcp");
   assert(mcpSource !== undefined, "Real backend /connectors returned no MCP source readiness tile.");
+  assert(mcpSource.label === "MCP Gateway", `Real backend /connectors must label the mcp source as MCP Gateway; got ${mcpSource.label}.`);
   if (mcpSource.statusTone === "ready") {
     const hasLiveMcpHealthDetail =
       mcpSource.stateLabel === "Connected" && mcpSource.detail.includes("MCP health reachable");
@@ -2420,8 +2604,6 @@ async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: Fo
   const rootSections = [
     { buttonName: /^Overview$/u, label: "Overview", testId: "maya-root-section-overview" },
     { buttonName: /^Worklist$/u, label: "Worklist", testId: "maya-root-section-worklist" },
-    { buttonName: /^Cases$/u, label: "Cases", testId: "maya-root-section-cases" },
-    { buttonName: /^Evidence$/u, label: "Evidence", testId: "maya-root-section-evidence" },
     { buttonName: /^Approvals$/u, label: "Approvals", testId: "maya-root-section-approvals" }
   ] as const;
 
@@ -2445,29 +2627,33 @@ async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: Fo
   await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist root section");
 }
 
-async function assertRenderedKpiStripMatchesBackend(page: Page, forensicsModel: ForensicsRealBackendModel): Promise<void> {
-  assert(forensicsModel.kpiStrip.length > 0, "Real backend /forensics returned no KPI strip rows.");
+async function assertRenderedOverviewSummaryCardsMatchBackend(page: Page, forensicsModel: ForensicsRealBackendModel): Promise<void> {
+  assert(forensicsModel.worklist.length > 0, "Real backend /forensics returned no worklist rows for overview summary.");
   await page.getByRole("button", { name: /^Overview$/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-root-section-overview"]', "Maya Overview root section");
-  await expectVisibleLocator(page, '[data-testid="maya-run-kpi-strip"]', "Maya run KPI strip");
-  const renderedKpiCards = page.getByTestId("maya-kpi-card");
-  const renderedKpiCardCount = await renderedKpiCards.count();
+  await expectVisibleLocator(page, '[data-testid="maya-overview-intelligence-grid"]', "Maya overview summary grid");
+  const renderedSummaryCards = page.getByTestId("maya-overview-summary-card");
+  const renderedSummaryCardCount = await renderedSummaryCards.count();
+  const expectedCards = buildOverviewSummaryCards(forensicsModel.worklist);
   assert(
-    renderedKpiCardCount === forensicsModel.kpiStrip.length,
-    `Maya KPI strip rendered ${renderedKpiCardCount.toString()} KPI cards for ${forensicsModel.kpiStrip.length.toString()} backend rows.`
+    renderedSummaryCardCount === expectedCards.length,
+    `Maya overview rendered ${renderedSummaryCardCount.toString()} summary cards for ${expectedCards.length.toString()} derived worklist cards.`
   );
-  const renderedKpiLabels = await renderedKpiCards.evaluateAll((cards) =>
-    cards.map((card) => card.getAttribute("data-kpi-label") ?? "")
-  );
-  const renderedKpiTexts = await renderedKpiCards.evaluateAll((cards) => cards.map((card) => card.textContent));
-  forensicsModel.kpiStrip.forEach((item, index) => {
-    const renderedLabel = renderedKpiLabels.at(index) ?? "";
-    const renderedText = normalizeUiText(renderedKpiTexts.at(index) ?? "");
-    assert(renderedLabel === item.label, `Maya KPI strip changed backend KPI order at ${index.toString()}: ${renderedLabel}.`);
-    assert(renderedText.includes(normalizeUiText(item.label)), `Maya KPI strip omitted backend KPI label ${item.label}.`);
-    assert(renderedText.includes(normalizeUiText(item.value)), `Maya KPI strip omitted backend KPI value for ${item.label}.`);
-    assert(renderedText.includes(normalizeUiText(item.support)), `Maya KPI strip omitted backend KPI support for ${item.label}.`);
+  const renderedSummaryTexts = await renderedSummaryCards.evaluateAll((cards) => cards.map((card) => card.textContent));
+  expectedCards.forEach((item, index) => {
+    const renderedText = normalizeUiText(renderedSummaryTexts.at(index) ?? "");
+    assert(renderedText.includes(normalizeUiText(item.label)), `Maya overview omitted summary card label ${item.label}.`);
+    assert(renderedText.includes(item.count.toString()), `Maya overview omitted summary card count for ${item.label}.`);
+    assert(renderedText.includes(normalizeUiText(item.amountLabel)), `Maya overview omitted summary card amount for ${item.label}.`);
+    if (item.lineCount !== undefined) {
+      assert(renderedText.includes(item.lineCount.toString()), `Maya overview omitted line count for ${item.label}.`);
+    }
   });
+  const summaryText = normalizeUiText(await page.getByTestId("maya-overview-verdict-summary").innerText());
+  assert(
+    summaryText.includes(forensicsModel.worklist.length.toString()),
+    `Maya overview verdict summary omitted backend case count ${forensicsModel.worklist.length.toString()}.`
+  );
 }
 
 async function assertRenderedSourceReadinessMatchesBackend(
@@ -2540,12 +2726,21 @@ async function assertRenderedWorklistTableMatchesBackend(page: Page, forensicsMo
     renderedRowCount === forensicsModel.worklist.length,
     `Maya rendered ${renderedRowCount.toString()} worklist rows for ${forensicsModel.worklist.length.toString()} backend worklist rows.`
   );
-  for (const item of forensicsModel.worklist) {
+  for (const [index, item] of forensicsModel.worklist.entries()) {
     const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${escapeAttributeValue(item.lineId)}"]`).first();
     await row.waitFor({ state: "visible", timeout: 20_000 });
     const rowText = normalizeUiText(await row.innerText());
+    const identityCellText = normalizeUiText(await row.locator("td").nth(1).innerText());
+    const expectedCaseLabel = `Case ${String(index + 1)}`;
+    assert(
+      identityCellText.includes(expectedCaseLabel),
+      `Maya worklist row ${item.lineId} omitted business case label ${expectedCaseLabel}.`
+    );
+    assert(
+      !identityCellText.includes(item.lineId),
+      `Maya worklist row ${item.lineId} must keep raw backend line IDs out of the primary case-label cell.`
+    );
     for (const expectedText of [
-      item.lineId,
       item.workItemLabel,
       item.customerLabel,
       item.amount,
@@ -2627,89 +2822,185 @@ async function assertRenderedEvidenceDossierMatchesBackend(
   detail: ForensicsWorkItemDetailModel,
   connectorsModel: ConnectorRealBackendModel
 ): Promise<void> {
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-dossier"]', "Maya evidence dossier");
-  const groupTriggers = page.locator('[data-testid="maya-evidence-business-group"] button');
-  const groupTriggerCount = await groupTriggers.count();
-  for (let index = 0; index < groupTriggerCount; index += 1) {
-    const groupTrigger = groupTriggers.nth(index);
-    if ((await groupTrigger.getAttribute("aria-expanded")) !== "true") {
-      await groupTrigger.click();
-    }
-  }
-  const renderedDossierText = normalizeUiText(await page.getByTestId("maya-evidence-dossier").innerText());
-  const renderedDocumentRows = page.getByTestId("maya-evidence-document-row");
-  const renderedDocumentCount = await renderedDocumentRows.count();
+  assert(connectorsModel.sourceTiles.length > 0, "Maya connector source tiles were unavailable for evidence verification.");
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya evidence fact cards");
+  const factCards = page.getByTestId("maya-evidence-fact-card");
+  const renderedDocumentCount = await factCards.count();
   assert(
     renderedDocumentCount === detail.selected.evidencePack.documents.length,
-    `Maya evidence dossier rendered ${renderedDocumentCount.toString()} document rows for ${detail.selected.evidencePack.documents.length.toString()} backend documents.`
+    `Maya evidence fact cards rendered ${renderedDocumentCount.toString()} cards for ${detail.selected.evidencePack.documents.length.toString()} backend documents.`
   );
   for (const document of detail.selected.evidencePack.documents) {
+    const card = page.locator(`[data-testid="maya-evidence-fact-card"][data-document-id="${escapeAttributeValue(document.documentId)}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 10_000 });
+    const cardText = normalizeUiText(await card.innerText());
+    const titleText = normalizeUiText(await card.getByTestId("maya-evidence-fact-card-title").innerText());
+    const expectedCard = buildEvidenceFactCard(document);
     assert(
-      renderedDossierText.includes(normalizeUiText(document.documentId)),
-      `Maya evidence dossier omitted backend document ${document.documentId}.`
+      titleText === normalizeUiText(expectedCard.title),
+      `Maya evidence fact card title ${titleText} did not match derived title ${expectedCard.title}.`
+    );
+    assertNoRawEvidenceCopy(titleText, `Maya evidence fact card title for ${document.documentId}`);
+    assert(
+      cardText.includes(normalizeUiText(document.sourceLabel)),
+      `Maya evidence fact card ${document.documentId} omitted source badge ${document.sourceLabel}.`
+    );
+    const rows = await card.getByTestId("maya-evidence-fact-card-body").getByTestId("maya-evidence-fact-row").evaluateAll((items) =>
+      items.map((item) => ({
+        label: item.getAttribute("data-label") ?? "",
+        text: item.textContent,
+        value: item.getAttribute("data-value") ?? ""
+      }))
+    );
+    const expectedRows = expectedEvidenceFactRows(document);
+    assert(
+      rows.length === expectedRows.length,
+      `Maya evidence fact card ${document.documentId} rendered ${rows.length.toString()} rows for ${expectedRows.length.toString()} backend facts.`
+    );
+    for (const expectedRow of expectedRows) {
+      assert(
+        rows.some(
+          (row) =>
+            normalizeUiText(row.label) === normalizeUiText(expectedRow.label) &&
+            normalizeUiText(row.value) === normalizeUiText(expectedRow.value) &&
+            normalizeUiText(row.text).includes(normalizeUiText(expectedRow.value))
+        ),
+        `Maya evidence fact card ${document.documentId} omitted ${expectedRow.label}=${expectedRow.value}.`
+      );
+    }
+    const bodyAudit = await card.getByTestId("maya-evidence-fact-card-body").evaluate((body) => ({
+      nonRowElements: Array.from(body.children).filter((element) => element.getAttribute("data-testid") !== "maya-evidence-fact-row").length,
+      paragraphCount: body.querySelectorAll("p, li").length
+    }));
+    assert(
+      bodyAudit.nonRowElements === 0 && bodyAudit.paragraphCount === 0,
+      `Maya evidence fact card ${document.documentId} body is not key/value rows only: ${JSON.stringify(bodyAudit)}.`
     );
     assert(
-      renderedDossierText.includes(normalizeUiText(document.citationId)),
-      `Maya evidence dossier omitted backend citation ${document.citationId}.`
+      !cardText.includes(normalizeUiText(document.summary)) || document.summary === document.description,
+      `Maya evidence fact card ${document.documentId} rendered summary prose inside the card body.`
     );
-    assert(
-      renderedDossierText.includes(normalizeUiText(document.summary)),
-      `Maya evidence dossier omitted backend document summary for ${document.documentId}.`
+    assertNoRawEvidenceCopy(cardText, `Maya evidence fact card ${document.documentId}`);
+    const documentViewTrigger = card.getByTestId("maya-evidence-document-view-trigger");
+    if (document.storageHref === undefined) {
+      assert(
+        (await documentViewTrigger.count()) === 0,
+        `Maya evidence fact card ${document.documentId} rendered a document trigger without stored content.`
+      );
+    } else {
+      await documentViewTrigger.click();
+    }
+    if (document.storageHref !== undefined) {
+      const frame = card.getByTestId("maya-evidence-document-frame");
+      await frame.waitFor({ state: "visible", timeout: 10_000 });
+      assert(
+        (await frame.getAttribute("src")) === document.storageHref,
+        `Maya evidence fact card ${document.documentId} iframe did not use backend storageHref ${document.storageHref}.`
+      );
+    }
+    await card.getByTestId("maya-evidence-provenance-trigger").click();
+    const provenanceRows = await card.getByTestId("maya-evidence-provenance-row").evaluateAll((items) =>
+      items.map((item) => ({
+        label: item.getAttribute("data-label") ?? "",
+        text: item.textContent,
+        value: item.getAttribute("data-value") ?? ""
+      }))
     );
-    for (const expectedMetadata of [
-      document.evidenceId,
-      document.receiptId,
-      document.contentHash,
-      document.storageUri,
-      document.sourceFreshness,
-      document.deterministicComparisonBasis
-    ]) {
-      if (expectedMetadata !== undefined) {
-        assert(
-          renderedDossierText.includes(normalizeUiText(expectedMetadata)),
-          `Maya evidence dossier omitted backend evidence metadata ${expectedMetadata} for ${document.documentId}.`
-        );
-      }
+    const expectedProvenanceRows = expectedEvidenceProvenanceRows(document);
+    for (const expectedRow of expectedProvenanceRows) {
+      assert(
+        provenanceRows.some(
+          (row) =>
+            normalizeUiText(row.label) === normalizeUiText(expectedRow.label) &&
+            normalizeUiText(row.value) === normalizeUiText(expectedRow.value) &&
+            normalizeUiText(row.text).includes(normalizeUiText(expectedRow.value))
+        ),
+        `Maya evidence provenance drawer ${document.documentId} omitted ${expectedRow.label}=${expectedRow.value}.`
+      );
     }
   }
-  const podDocuments = detail.selected.evidencePack.documents.filter((document) => document.documentType === "pod");
-  if (podDocuments.length > 0) {
-    const renderedPodPreviewCount = await page.getByTestId("pod-document-preview").count();
+  const vectorDocuments = detail.selected.evidencePack.documents.filter(
+    (document) => document.retrieval?.provenance === "openai-vector-store"
+  );
+  const semanticBadges = page.getByTestId("maya-evidence-semantic-badge");
+  assert(
+    (await semanticBadges.count()) === vectorDocuments.length,
+    `Maya rendered ${(await semanticBadges.count()).toString()} semantic retrieval badges for ${vectorDocuments.length.toString()} vector evidence documents.`
+  );
+  for (const document of vectorDocuments) {
+    const card = page.locator(`[data-testid="maya-evidence-fact-card"][data-document-id="${escapeAttributeValue(document.documentId)}"]`).first();
+    const expectedBadge = expectedSemanticRetrievalBadge(document);
+    assert(expectedBadge !== undefined, `Backend vector document ${document.documentId} had no parseable semantic score.`);
     assert(
-      renderedPodPreviewCount >= podDocuments.length,
-      `Maya evidence dossier rendered ${renderedPodPreviewCount.toString()} POD previews for ${podDocuments.length.toString()} backend POD documents.`
+      normalizeUiText(await card.getByTestId("maya-evidence-semantic-badge").innerText()) === normalizeUiText(expectedBadge),
+      `Maya vector evidence card ${document.documentId} semantic badge did not match backend score ${expectedBadge}.`
     );
   }
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-source-details"]', "Maya evidence source details disclosure");
-  const sourceDetails = page.getByTestId("maya-evidence-source-details");
-  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /View details/u });
-  if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
-    await sourceDetailsTrigger.click();
-  }
-  await expectVisibleLocator(page, '[data-testid="maya-evidence-record-id"]', "Maya evidence source detail record IDs");
-  const renderedRecordIds = (await sourceDetails.getByTestId("maya-evidence-record-id").evaluateAll((items) =>
-    items.map((item) => item.textContent.trim()).filter((item) => item.length > 0)
-  )).sort();
-  assertSameRecordIds(renderedRecordIds, [...detail.selected.evidencePack.recordIds].sort(), "Maya evidence dossier source details");
-  const renderedSourceRows = page.getByTestId("maya-source-provenance-row");
+  await openCaseDepthDrawerText(page, "maya-case-depth-drawer-audit-provenance", "Maya audit provenance drawer");
+  const evidencePacketSection = page.getByTestId("maya-depth-evidence-packet-section");
+  const evidencePacketSectionText = normalizeUiText(await evidencePacketSection.innerText());
+  const expectedAvailability = `${detail.selected.evidencePack.documents.length.toString()} documents / ${detail.selected.evidencePack.recordIds.length.toString()} records`;
   assert(
-    (await renderedSourceRows.count()) === connectorsModel.sourceTiles.length,
-    "Maya evidence dossier source provenance row count did not match connector source tiles."
+    evidencePacketSectionText.includes(expectedAvailability),
+    `Maya evidence packet drawer omitted availability summary ${expectedAvailability}.`
   );
+  if (detail.selected.evidencePack.documents.length > 0 || detail.selected.evidencePack.recordIds.length > 0) {
+    assert(
+      !evidencePacketSectionText.includes("Unavailable"),
+      `Maya evidence packet drawer showed Unavailable while backend returned ${expectedAvailability}.`
+    );
+  }
+  const renderedRecordIds = (await page
+    .getByTestId("maya-depth-evidence-packet-section")
+    .locator('[aria-label="Backend record IDs"] [title]')
+    .evaluateAll((items) => items.map((item) => item.textContent.trim()).filter((item) => item.length > 0))).sort();
+  assertSameRecordIds(
+    renderedRecordIds,
+    [...detail.selected.evidencePack.recordIds].sort(),
+    "Maya evidence packet drawer record IDs"
+  );
+}
+
+function expectedEvidenceFactRows(document: EvidenceDocumentModel): Array<{ label: string; value: string }> {
+  return buildEvidenceFactCard(document).rows;
+}
+
+function expectedEvidenceProvenanceRows(document: EvidenceDocumentModel): Array<{ label: string; value: string }> {
+  return buildEvidenceFactCard(document).provenanceRows;
+}
+
+function assertNoRawEvidenceCopy(text: string, label: string): void {
+  assert(
+    !/(^|\s)#\s|retrieved through|read-model|source receipt|plumbing|system prompt|do not reveal/iu.test(text),
+    `${label} exposed raw retrieval or developer-facing proof text: ${text}`
+  );
+}
+
+function expectedSemanticRetrievalBadge(document: EvidenceDocumentModel): string | undefined {
+  if (document.retrieval?.provenance !== "openai-vector-store") {
+    return undefined;
+  }
+  const match = /\bscore\s+([01](?:\.\d+)?)\b/iu.exec(document.provenance.deterministicBasis);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  return `Semantic retrieval · score ${Number(match[1]).toFixed(2)}`;
 }
 
 async function assertRenderedQueryDockMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
   const sourceDetails = page.getByTestId("maya-query-source-details");
-  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /Source details/u });
+  const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /Evidence details/u });
   if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
     await sourceDetailsTrigger.click();
   }
-  const renderedDockText = normalizeUiText(await page.getByTestId("maya-query-dock").innerText());
+  const renderedCompactText = normalizeUiText(await page.getByTestId("maya-selected-evidence-context").innerText());
   assert(
-    renderedDockText.includes(normalizeUiText(detail.selected.lineId)),
-    `Maya query dock omitted backend selected line ${detail.selected.lineId}.`
+    !renderedCompactText.includes(normalizeUiText(detail.selected.lineId)),
+    `Maya query compact context leaked backend selected line ${detail.selected.lineId}.`
   );
+  const renderedDockText = normalizeUiText(await page.getByTestId("maya-query-dock").innerText());
   for (const recordId of detail.selected.evidencePack.recordIds) {
     assert(renderedDockText.includes(normalizeUiText(recordId)), `Maya query dock omitted backend recordId ${recordId}.`);
   }
@@ -2733,6 +3024,40 @@ async function assertRenderedQueryDockMatchesBackend(page: Page, detail: Forensi
   await assertRenderedPromptChipsMatchBackend(page, detail);
 }
 
+async function assertRenderedVerdictBlockMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
+  await expectVisibleLocator(page, '[data-testid="maya-deterministic-basis-band"]', "Maya deterministic verdict block");
+  const verdictBlockText = normalizeUiText(await page.getByTestId("maya-deterministic-basis-band").innerText());
+  const expectedLead = buildVerdictLead(detail.workItem);
+  const expectedReason = resolveMayaWorklistReason(detail.workItem);
+  assert(verdictBlockText.includes(normalizeUiText(expectedLead)), `Maya verdict block omitted lead ${expectedLead}.`);
+  const renderedBasisBody = normalizeUiText(await page.getByTestId("maya-case-deterministic-basis-body").innerText());
+  assert(
+    renderedBasisBody === normalizeUiText(expectedReason),
+    `Maya verdict basis body did not equal worklist reason. Expected ${expectedReason}; got ${renderedBasisBody}.`
+  );
+
+  const citedChips = buildCitedRecordChips(
+    detail.selected.evidencePack.recordIds,
+    [detail.selected.lineId, ...detail.selected.evidencePack.documents.map((document) => document.documentId)],
+    detail.selected.evidencePack.documents
+  );
+  const renderedChipTexts = (await page.getByTestId("maya-verdict-cited-record").allTextContents()).map(normalizeUiText);
+  const visibleChips = citedChips.slice(0, 3);
+  assert(renderedChipTexts.length === visibleChips.length, "Maya verdict cited chip count did not match capped business labels.");
+  for (const chip of visibleChips) {
+    assert(
+      renderedChipTexts.includes(normalizeUiText(chip.label)),
+      `Maya verdict cited chips omitted business label ${chip.label}.`
+    );
+  }
+  const disclosure = page.getByTestId("maya-verdict-cited-record-disclosure");
+  await disclosure.getByRole("button", { name: /^All \d+ cited records$/u }).click();
+  const disclosureText = normalizeUiText(await disclosure.innerText());
+  for (const recordId of detail.selected.evidencePack.recordIds) {
+    assert(disclosureText.includes(normalizeUiText(recordId)), `Maya verdict cited disclosure omitted record ${recordId}.`);
+  }
+}
+
 async function assertRenderedRecoveryDraftMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
   await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya recovery draft review");
   const draft = detail.recoveryDraft;
@@ -2747,19 +3072,94 @@ async function assertRenderedRecoveryDraftMatchesBackend(page: Page, detail: For
   const draftSourceDetailsText = await openDisclosureAndReadText(
     page,
     "maya-draft-source-details",
-    /^Draft source details$/u,
-    "Maya draft source details"
+    /^Details$/u,
+    "Maya draft evidence details"
   );
   assert(
     draftSourceDetailsText.includes(normalizeUiText(detail.selected.lineId)),
-    `Maya recovery draft source details omitted backend selected line ${detail.selected.lineId}.`
+    `Maya recovery draft evidence details omitted backend selected line ${detail.selected.lineId}.`
   );
   for (const recordId of detail.selected.evidencePack.recordIds) {
     assert(
       draftSourceDetailsText.includes(normalizeUiText(recordId)),
-      `Maya recovery draft source details omitted backend recordId ${recordId}.`
+      `Maya recovery draft evidence details omitted backend recordId ${recordId}.`
     );
   }
+  const routingBanner = buildRoutingBanner(detail.workItem);
+  const routingBannerText = normalizeUiText(await page.getByTestId("maya-outcome-routing-banner").innerText());
+  for (const expectedText of [routingBanner.title, routingBanner.amountLabel, routingBanner.routeLine]) {
+    assert(
+      routingBannerText.includes(normalizeUiText(expectedText)),
+      `Maya outcome routing banner omitted backend route text ${expectedText}.`
+    );
+  }
+
+  const expectedActionPackages = buildOutcomeActionPackages({
+    actionInbox: detail.actionInbox.map((action) => ({
+      actionId: action.actionId,
+      actionLabel: action.actionLabel,
+      actionType: action.actionType,
+      amount: action.amount,
+      ...(action.basis === undefined ? {} : { basis: action.basis }),
+      lineId: action.lineId,
+      provenance: action.provenance,
+      ...(action.status === "pending_human" ? { status: action.status } : {}),
+      ...(action.statusLabel === undefined ? {} : { statusLabel: action.statusLabel })
+    })),
+    draft: { ...detail.recoveryDraft, status: "pending_human" as const },
+    selectedLineId: detail.selected.lineId
+  });
+  const renderedActionPackages = page.getByTestId("maya-outcome-action-package");
+  assert(
+    (await renderedActionPackages.count()) === expectedActionPackages.length,
+    "Maya outcome action package count did not match backend action rows."
+  );
+  const renderedActionPackageText = normalizeUiText((await renderedActionPackages.allTextContents()).join(" "));
+  for (const actionPackage of expectedActionPackages) {
+    for (const expectedText of [actionPackage.title, actionPackage.amount, actionPackage.basis, actionPackage.statusLabel]) {
+      assert(
+        renderedActionPackageText.includes(normalizeUiText(expectedText)),
+        `Maya outcome action package omitted backend action field ${expectedText}.`
+      );
+    }
+  }
+  assert(
+    renderedActionPackageText.includes("Selected case line"),
+    "Maya outcome action package omitted the business selected-case-line label."
+  );
+
+  const expectedPreviews = deriveEmailRecipientGroups(detail.workItem).flatMap((recipientGroup) => {
+    const preview = buildDraftLetterPreview({
+      draft: { ...detail.recoveryDraft, status: "pending_human" as const },
+      evidenceRecordIds: detail.selected.evidencePack.recordIds,
+      reason: resolveMayaWorklistReason(detail.workItem),
+      recipientGroup,
+      workItem: detail.workItem
+    });
+    return preview === undefined ? [] : [preview];
+  });
+  assert(expectedPreviews.length > 0, "Maya selected test detail did not derive any expected draft preview.");
+  const renderedPreviewBodies = (await page.getByTestId("maya-draft-letter-body").allTextContents()).map(normalizeUiText);
+  const renderedPreviewSubjects = (await page.getByTestId("maya-draft-letter-subject").allTextContents()).map(normalizeUiText);
+  assert(
+    renderedPreviewBodies.length === expectedPreviews.length,
+    "Maya draft preview body count did not match derived recipient routes."
+  );
+  assert(
+    renderedPreviewSubjects.length === expectedPreviews.length,
+    "Maya draft preview subject count did not match derived recipient routes."
+  );
+  for (const expectedPreview of expectedPreviews) {
+    assert(
+      renderedPreviewBodies.includes(normalizeUiText(expectedPreview.body)),
+      `Maya draft preview body did not match the derived ${expectedPreview.recipientGroup} draft message.`
+    );
+    assert(
+      renderedPreviewSubjects.includes(normalizeUiText(expectedPreview.subject)),
+      `Maya draft preview subject did not match the derived ${expectedPreview.recipientGroup} draft subject.`
+    );
+  }
+
   const humanDecisionText = normalizeUiText(await page.getByTestId("maya-draft-rail-human-decisions").innerText());
   assert(
     approvalActions.length === detail.selected.approvalActions.length,
@@ -2770,9 +3170,20 @@ async function assertRenderedRecoveryDraftMatchesBackend(page: Page, detail: For
     assert(humanDecisionText.includes(reasonState), `Maya recovery draft review omitted backend approval state ${reasonState}.`);
   }
   assert(
-    renderedDraftText.includes("Human approval required") && renderedDraftText.includes("No external action before human approval"),
+    renderedDraftText.includes("Human approval required") && renderedDraftText.includes("External send gated"),
     "Maya recovery draft review did not render the explicit fail-closed human approval state."
   );
+  const openApprovalButton = page.getByRole("button", { name: /^Open approval$/u });
+  assert(await openApprovalButton.isDisabled(), "Maya Open approval button was enabled before evidence review was marked.");
+  const emailButtons = page.getByTestId("maya-email-draft-action");
+  for (let index = 0; index < await emailButtons.count(); index += 1) {
+    assert(await emailButtons.nth(index).isDisabled(), `Maya email draft action ${index.toString()} was enabled before approval.`);
+  }
+  await page.getByTestId("maya-evidence-reviewed-toggle").check();
+  assert(!(await openApprovalButton.isDisabled()), "Maya Open approval button stayed disabled after evidence review was marked.");
+  for (let index = 0; index < await emailButtons.count(); index += 1) {
+    assert(await emailButtons.nth(index).isDisabled(), `Maya email draft action ${index.toString()} enabled before approval response.`);
+  }
 }
 
 async function assertRenderedApprovalGateMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
@@ -2780,21 +3191,25 @@ async function assertRenderedApprovalGateMatchesBackend(page: Page, detail: Fore
   const draft = detail.recoveryDraft;
   const approvalActions = detail.approvalState.actions;
   const renderedGateText = normalizeUiText(await page.getByTestId("maya-approval-gate-dialog").innerText());
-  for (const expectedText of [draft.actionLabel, draft.statusLabel, draft.basis]) {
+  for (const expectedText of [draft.amount, draft.basis]) {
     assert(renderedGateText.includes(normalizeUiText(expectedText)), `Maya approval gate omitted backend draft text ${expectedText}.`);
   }
   const approvalSourceDetailsText = await openDisclosureAndReadText(
     page,
-    "maya-approval-source-details",
-    /^Approval source details$/u,
-    "Maya approval source details"
+    "maya-approval-details",
+    /^Details$/u,
+    "Maya approval evidence details"
   );
   for (const recordId of detail.selected.evidencePack.recordIds) {
     assert(
       approvalSourceDetailsText.includes(normalizeUiText(recordId)),
-      `Maya approval source details omitted backend cited recordId ${recordId}.`
+      `Maya approval evidence details omitted backend cited recordId ${recordId}.`
     );
   }
+  assert(
+    approvalSourceDetailsText.includes(normalizeUiText(detail.selected.lineId)),
+    `Maya approval evidence details omitted backend selected line ${detail.selected.lineId}.`
+  );
   const renderedButtonText = normalizeUiText(
     (await page.getByTestId("maya-approval-gate-dialog").locator("button").allTextContents()).join(" ")
   );
@@ -2806,18 +3221,20 @@ async function assertRenderedApprovalGateMatchesBackend(page: Page, detail: Fore
   }
   if (detail.selected.approvalEligibility.available) {
     assert(
-      renderedGateText.includes(detail.selected.approvalEligibility.statusLabel) &&
-        renderedGateText.includes("External action remains blocked"),
+      approvalSourceDetailsText.includes(detail.selected.approvalEligibility.statusLabel),
       "Maya approval gate did not render the explicit backend approval eligibility state."
     );
   } else {
     assert(
-      renderedGateText.includes(detail.selected.approvalEligibility.statusLabel) &&
-        renderedGateText.includes("Approval blocked by missing eligibility") &&
-        renderedGateText.includes("External action remains blocked"),
+      approvalSourceDetailsText.includes(detail.selected.approvalEligibility.statusLabel) &&
+        renderedGateText.includes("Decision buttons stay disabled"),
       "Maya approval gate did not render the explicit fail-closed approval eligibility state."
     );
   }
+  assert(
+    !/Verified human principal unavailable|Approval owner pending|Opening this dialog does not dispatch anything/u.test(renderedGateText),
+    "Maya approval gate rendered deprecated approval copy."
+  );
 }
 
 async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
@@ -2835,8 +3252,8 @@ async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail:
   const auditActionDetailsText = await openDisclosureAndReadText(
     page,
     "maya-audit-selected-action-source-details",
-    /^Selected action source details$/u,
-    "Maya selected action source details"
+    /^Selected action evidence details$/u,
+    "Maya selected action evidence details"
   );
   for (const recordId of detail.selected.evidencePack.recordIds) {
     assert(
@@ -2859,7 +3276,7 @@ async function assertRenderedAuditConfirmationMatchesBackend(page: Page, detail:
   const receiptDetailsText = normalizeUiText(await receiptDetails.innerText());
   assert(
     receiptDetailsText.includes("Backend contract gap"),
-    "Maya audit receipt details did not render source-owned backend contract gaps."
+    "Maya audit receipt details did not render backend contract gaps."
   );
 }
 
@@ -3310,7 +3727,7 @@ function displayAnswerWithoutInlineRecordIds(answer: string, recordIds: readonly
     .replace(/\s+/gu, " ")
     .trim();
 
-  return redacted.length === 0 ? "Answer details are available with citations in source details." : redacted;
+  return redacted.length === 0 ? "Answer details are available with citations in evidence details." : redacted;
 }
 
 function assertCitationsStayWithinSelectedEvidenceScope(

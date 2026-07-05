@@ -25,7 +25,7 @@ export function ToolStatusRail({ connectors }: Readonly<{ connectors: ConnectorR
     <section className="tool-status-rail" aria-label="Source readiness health">
       <div className="premium-section-heading">
         <div>
-          <h2>ToolStatusRail</h2>
+          <h2>Source readiness</h2>
         </div>
         <div className="rail-actions">
           <span className="rail-provenance">{connectors.lastRefreshedLabel}</span>
@@ -283,11 +283,11 @@ export function MultimodalDock({
   recordIds
 }: Readonly<{ dock: ForensicsCockpitModel["multimodalDock"]; recordIds: string[] }>) {
   return (
-    <section className="multimodal-dock" aria-label="Multimodal evidence dock">
+    <section className="multimodal-dock" aria-label="Evidence agent checklist">
       <div className="premium-section-heading">
         <div>
-          <span>Sub-agents</span>
-          <h2>MultimodalDoc</h2>
+          <span>Evidence agents</span>
+          <h2>Investigation checklist</h2>
         </div>
       </div>
       <div className="dock-mode-toggle" aria-label="Evidence dock mode">

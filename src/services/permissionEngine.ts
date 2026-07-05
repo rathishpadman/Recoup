@@ -17,6 +17,17 @@ export interface PermissionDecision {
 
 export function evaluateToolPermission(metadata: ToolPermissionMetadata, context: ToolPermissionContext = {}): PermissionDecision {
   if (
+    metadata.sideEffectClass === "external_correspondence" &&
+    (!context.actorId?.startsWith("human:") || !context.actorCapabilities?.includes("send_email"))
+  ) {
+    return {
+      decision: "deny",
+      reason: "Actor is not permitted to send approved external correspondence.",
+      riskClass: metadata.riskClass
+    };
+  }
+
+  if (
     metadata.sideEffectClass === "draft_only" &&
     context.actorCapabilities !== undefined &&
     !context.actorCapabilities.includes("draft_action")

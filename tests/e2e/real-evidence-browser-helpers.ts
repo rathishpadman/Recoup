@@ -172,12 +172,12 @@ export async function openMayaEvidenceDossier(page: Page, baseUrl: string, lineI
   }
   await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 30_000 });
   await page.getByRole("tab", { name: /^Evidence$/u }).click();
-  await page.locator('[data-testid="maya-evidence-dossier"]').waitFor({ state: "visible", timeout: 30_000 });
-  await waitForVisibleTextWithin(page, '[data-testid="maya-evidence-dossier"]', "EVD-POD-S3-L1", 30_000);
+  await page.locator('[data-testid="maya-evidence-fact-cards"]').waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisibleTextWithin(page, '[data-testid="maya-evidence-fact-cards"]', "Document", 30_000);
   await page
-    .locator('[data-testid="maya-evidence-dossier"]')
-    .getByTestId("pod-document-preview")
+    .locator('[data-testid="maya-evidence-fact-card"]')
     .first()
+    .getByTestId("maya-evidence-document-view-trigger")
     .waitFor({ state: "visible", timeout: 30_000 });
 }
 

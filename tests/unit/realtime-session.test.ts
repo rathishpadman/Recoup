@@ -63,7 +63,13 @@ describe("Realtime session policy", () => {
       throw new Error("Expected Realtime upstream body to be a JSON string.");
     }
     const upstreamBody = JSON.parse(upstreamRequestBody) as {
-      session: { instructions?: string; model: string; tools?: Array<{ name: string }>; type: string };
+      session: {
+        input_audio_transcription?: { model?: string };
+        instructions?: string;
+        model: string;
+        tools?: Array<{ name: string }>;
+        type: string;
+      };
     };
     expect(upstreamRequestBody).not.toContain("why is harbor blocked");
     expect(upstreamRequestBody).toContain(selectedQueryScope.selectedLineId);
@@ -71,6 +77,7 @@ describe("Realtime session policy", () => {
     expect(upstreamBody.session.instructions).toContain(selectedQueryScope.selectedLineId);
     expect(upstreamBody.session.instructions).toContain("External actions are forbidden");
     expect(upstreamBody.session.instructions).toContain("Allowed tools: audit.read and query.answer");
+    expect(upstreamBody.session.input_audio_transcription).toEqual({ model: "gpt-4o-mini-transcribe" });
     expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
     expect(calls[0]?.init.headers).toMatchObject({
       Authorization: "Bearer sk-live-secret",

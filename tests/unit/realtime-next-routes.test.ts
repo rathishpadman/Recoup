@@ -467,7 +467,12 @@ describe("Realtime Next proxy routes", () => {
         lineId: "S6-L1"
       },
       surface: "forensics-work-item-detail",
-      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+      workItem: {
+        lineId: "S6-L1",
+        lineIds: ["S6-L1"],
+        reason: "The signed proof of delivery shows the shipment matched the billed quantity.",
+        workItemId: "S6-L1"
+      }
     };
     let sawCacheLookup = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -542,7 +547,12 @@ describe("Realtime Next proxy routes", () => {
         lineId: "S6-L1"
       },
       surface: "forensics-work-item-detail",
-      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+      workItem: {
+        lineId: "S6-L1",
+        lineIds: ["S6-L1"],
+        reason: "The signed proof of delivery shows the shipment matched the billed quantity.",
+        workItemId: "S6-L1"
+      }
     };
     const freshBackendDetail = {
       ...cachedDetail,
@@ -651,7 +661,12 @@ describe("Realtime Next proxy routes", () => {
         lineId: "S6-L1"
       },
       surface: "forensics-work-item-detail",
-      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+      workItem: {
+        lineId: "S6-L1",
+        lineIds: ["S6-L1"],
+        reason: "The signed proof of delivery shows the shipment matched the billed quantity.",
+        workItemId: "S6-L1"
+      }
     };
     const freshBackendDetail = {
       lineId: "S6-L1",

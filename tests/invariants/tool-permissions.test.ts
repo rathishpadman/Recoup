@@ -17,6 +17,8 @@ describe("tool permissions", () => {
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
       "decisions.deductionVerdict",
+      "email.sendApproved",
+      "email.status",
       "query.answer",
       "retrieval.bureau",
       "retrieval.docs",
@@ -44,6 +46,10 @@ describe("tool permissions", () => {
       riskClass: "read_only"
     });
     expect(evaluateToolPermission(serviceToolMetadata["sources.r1Read"])).toMatchObject({
+      decision: "allow",
+      riskClass: "read_only"
+    });
+    expect(evaluateToolPermission(serviceToolMetadata["email.status"])).toMatchObject({
       decision: "allow",
       riskClass: "read_only"
     });
@@ -76,6 +82,24 @@ describe("tool permissions", () => {
     ).toMatchObject({
       decision: "approval_required",
       riskClass: "financial"
+    });
+    expect(
+      evaluateToolPermission(serviceToolMetadata["email.sendApproved"], {
+        actorCapabilities: ["read"],
+        actorId: "human:maya-lead"
+      })
+    ).toMatchObject({
+      decision: "deny",
+      reason: "Actor is not permitted to send approved external correspondence."
+    });
+    expect(
+      evaluateToolPermission(serviceToolMetadata["email.sendApproved"], {
+        actorCapabilities: ["read", "send_email"],
+        actorId: "human:maya-lead"
+      })
+    ).toMatchObject({
+      decision: "allow",
+      riskClass: "communication"
     });
   });
 });

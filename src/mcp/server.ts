@@ -76,7 +76,7 @@ export interface StartedMcpHttpServer {
 }
 
 export function createMcpToolFacade(options: McpToolFacadeOptions = {}): McpToolFacade {
-  const serviceContext = buildMcpServiceInvocationContext(options.serviceContext);
+  const serviceContext = buildMcpServiceInvocationContext(options.serviceContext, options.actorId, options.actorCapabilities);
 
   return {
     listTools() {
@@ -112,12 +112,25 @@ export function createMcpToolFacade(options: McpToolFacadeOptions = {}): McpTool
 }
 
 function buildMcpServiceInvocationContext(
-  serviceContext: ServiceInvocationContext | undefined
+  serviceContext: ServiceInvocationContext | undefined,
+  actorId: string | undefined,
+  actorCapabilities: string[] | undefined
 ): ServiceInvocationContext {
   return {
     ...(serviceContext ?? {}),
+    ...(actorCapabilities === undefined ? {} : { actorCapabilities }),
     requireSupabaseSapEvidence: serviceContext?.requireSupabaseSapEvidence ?? true,
-    requireSupabaseSyntheticEvidence: serviceContext?.requireSupabaseSyntheticEvidence ?? true
+    requireSupabaseSyntheticEvidence: serviceContext?.requireSupabaseSyntheticEvidence ?? true,
+    ...(serviceContext?.verifiedHumanPrincipal !== undefined || actorId === undefined || !actorId.startsWith("human:")
+      ? {}
+      : { verifiedHumanPrincipal: actorId })
+  };
+}
+
+function withMcpRuntimeEnv(serviceContext: ServiceInvocationContext | undefined, runtimeEnv: RuntimeEnv): ServiceInvocationContext {
+  return {
+    ...(serviceContext ?? {}),
+    runtimeEnv: serviceContext?.runtimeEnv ?? runtimeEnv
   };
 }
 
@@ -133,7 +146,7 @@ export function createMcpHttpApp(options: McpHttpAppOptions = {}): Express {
   const app = express();
   const runtimeEnv = options.env ?? process.env;
   const actorContext = buildMcpActorContext(runtimeEnv);
-  const facade = createMcpToolFacade(actorContext);
+  const facade = createMcpToolFacade({ ...actorContext, serviceContext: withMcpRuntimeEnv(options.serviceContext, runtimeEnv) });
 
   app.use(express.json({ limit: "1mb" }));
   app.use("/mcp", buildMcpAuthMiddleware(runtimeEnv));
@@ -150,10 +163,10 @@ export function createMcpHttpApp(options: McpHttpAppOptions = {}): Express {
       );
       const callFacade = createMcpToolFacade({
         ...actorContext,
-        ...(serviceContext === undefined ? {} : { serviceContext })
+        serviceContext: withMcpRuntimeEnv(serviceContext, runtimeEnv)
       });
       response.json({
-        result: callFacade.callTool(request.params.name, request.body)
+        result: await callFacade.callTool(request.params.name, request.body)
       });
     } catch (error) {
       response.status(error instanceof Error && error.message === "Governed runtime config snapshot required." ? 503 : 400).json({
@@ -182,6 +195,7 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
   });
 
   for (const tool of facade.listTools()) {
+    const metadata = serviceToolMetadata[tool.name as keyof typeof serviceToolMetadata];
     server.registerTool(
       tool.name,
       {
@@ -189,15 +203,15 @@ export function createMcpSdkServer(options: McpSdkServerOptions = {}): McpServer
         inputSchema: mcpSdkInputSchemaForTool(tool.name),
         annotations: {
           destructiveHint: false,
-          idempotentHint: true,
+          idempotentHint: metadata.sideEffectClass === "none",
           openWorldHint: false,
-          readOnlyHint: serviceToolMetadata[tool.name as keyof typeof serviceToolMetadata].sideEffectClass === "none"
+          readOnlyHint: metadata.sideEffectClass === "none"
         }
       },
-      (args: unknown) => ({
+      async (args: unknown) => ({
         content: [
           {
-            text: JSON.stringify(facade.callTool(tool.name, args)),
+            text: JSON.stringify(await facade.callTool(tool.name, args)),
             type: "text" as const
           }
         ]
@@ -214,6 +228,24 @@ function mcpSdkInputSchemaForTool(toolName: string) {
       question: z.string().min(1).max(500),
       recordIds: z.array(z.string().min(1)).min(1),
       selectedLineId: z.string().min(1)
+    };
+  }
+  if (toolName === "email.sendApproved") {
+    return {
+      actionId: z.string().min(1),
+      body: z.string().min(1).max(20_000),
+      lineId: z.string().min(1),
+      recipientGroup: z.enum(["billing", "recovery"]),
+      subject: z.string().min(1).max(300)
+    };
+  }
+  if (toolName === "email.status") {
+    return {
+      actionId: z.string().min(1),
+      lineId: z.string().min(1),
+      providerEmailId: z.string().min(1),
+      recipientGroup: z.enum(["billing", "recovery"]),
+      statusToken: z.string().min(1)
     };
   }
 
@@ -258,7 +290,7 @@ export function createMcpStreamableHttpApp(options: McpHttpAppOptions = {}): Exp
         );
         await createMcpSdkServer({
           actorContext: buildMcpActorContext(runtimeEnv),
-          ...(serviceContext === undefined ? {} : { serviceContext })
+          serviceContext: withMcpRuntimeEnv(serviceContext, runtimeEnv)
         }).connect(transport as unknown as Transport);
       }
 

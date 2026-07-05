@@ -341,7 +341,7 @@ describe("S5 Forensics cockpit model", () => {
     expect(surface).toContain("function reconcileWorklistItemFromModel");
     expect(refreshEffectSource).toContain("setOpenedCaseWorklistItem((current) => reconcileWorklistItemFromModel");
     expect(refreshEffectSource).toContain("setOpenedCaseDetail((current) => {");
-    expect(refreshEffectSource).toContain("return { ...current, workItem: refreshedWorkItem };");
+    expect(refreshEffectSource).toContain("return current;");
     expect(refreshEffectSource).not.toContain("cancelWorkItemDetailRequest(detailRequestSequence)");
     expect(refreshEffectSource).not.toContain("setOpenedCaseDetail(undefined)");
   });

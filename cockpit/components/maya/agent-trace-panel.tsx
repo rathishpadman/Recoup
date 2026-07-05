@@ -125,7 +125,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
           </Alert>
         )}
         {isTraceRunning && evidencePack !== undefined ? (
-          <section className="grid min-w-0 gap-2" aria-label="Selected evidence context">
+          <section className="grid min-w-0 gap-2" aria-label="Case evidence context">
             {evidencePack.documents.map((document) => (
               <div
                 className={cn("grid min-w-0 gap-1 rounded-md border p-3", mayaAccent.proofMutedPanel)}
@@ -241,7 +241,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                           </div>
                           <Badge className={mayaAccent.pill} variant="secondary">{isBackendTrace ? node.hook : formatProcessNodeKind(node.nodeKind)}</Badge>
                         </div>
-                        <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} source and technical receipt details`}>
+                        <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} source and supporting record details`}>
                           <Badge variant="outline">{node.sourceLabel}</Badge>
                           {sourceTrustLabel === undefined ? null : <Badge variant="outline">{sourceTrustLabel}</Badge>}
                           {sourceTransportLabel === undefined ? null : <Badge variant="outline">{sourceTransportLabel}</Badge>}
@@ -364,13 +364,13 @@ function buildAgentProcessNodes(input: {
   const selectedBasis =
     input.evidencePack?.provenance.deterministicBasis ??
     input.response?.deterministicBasis ??
-    "Selected evidence record IDs from backend read model.";
+    "Case evidence records prepared for the query.";
   const selectedNode: AgentProcessNode = {
     citations: selectedRecordIds,
     deterministicBasis: selectedBasis,
     key: `selected-${input.selectedLine ?? selectedRecordIds.join("-")}`,
-    label: input.selectedLine === undefined ? "Selected evidence" : `Selected line ${input.selectedLine}`,
-    message: "Selected evidence records seed the Maya query process map.",
+    label: input.selectedLine === undefined ? "Selected evidence" : "Selected case evidence",
+    message: "Case evidence records seed the Maya query process map.",
     nodeKind: "selected-evidence",
     recordIds: selectedRecordIds,
     sourceLabel: input.evidencePack?.provenance.sourceName ?? "Selected evidence source",
@@ -468,11 +468,11 @@ function sourceNodesFromCitations(citations: readonly QueryCitation[]): AgentPro
 }
 
 function compactEvidenceDocumentProcessMessage(document: MayaEvidencePack["documents"][number]): string {
-  return `${formatEvidenceDocumentType(document.documentType)} evidence checked; technical receipt is held in Trace details.`;
+  return `${formatEvidenceDocumentType(document.documentType)} evidence checked; supporting records are held in Trace details.`;
 }
 
 function compactCitationProcessMessage(): string {
-  return "Cited evidence checked; technical receipt is held in Trace details.";
+  return "Cited evidence checked; supporting records are held in Trace details.";
 }
 
 function formatEvidenceDocumentType(documentType: string): string {
@@ -570,10 +570,10 @@ function formatPrimaryProcessNodeCaption(node: AgentProcessNode): string {
 
 function formatPrimaryProcessNodeMessage(node: AgentProcessNode): string {
   if (node.nodeKind === "selected-evidence") {
-    return "Maya starts from the selected case evidence; receipts stay in Trace details.";
+    return "Maya starts from the selected case evidence; supporting records stay in Trace details.";
   }
   if (node.nodeKind === "retrieval-source") {
-    return "Maya checked the evidence needed for this step; source receipts stay in Trace details.";
+    return "Maya checked the evidence needed for this step; supporting records stay in Trace details.";
   }
   if (node.nodeKind === "handoff") {
     return "Maya prepared the draft or handoff context for human review.";
@@ -585,7 +585,7 @@ function formatPrimaryProcessNodeMessage(node: AgentProcessNode): string {
     return "Maya confirmed deterministic basis is available before the answer is shown.";
   }
 
-  return "Maya evaluated the evidence step and kept the technical receipt in Trace details.";
+  return "Maya evaluated the evidence step and kept the supporting record in Trace details.";
 }
 
 function formatPrimaryEvidenceSummary(node: AgentProcessNode): string {

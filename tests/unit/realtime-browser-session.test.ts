@@ -2,19 +2,46 @@ import { describe, expect, it } from "vitest";
 import { startRealtimeBrowserSession } from "../../cockpit/app/realtime-browser-session.js";
 
 describe("Realtime browser session helper", () => {
-  it("does not request a client secret, microphone, or peer connection for a blank question", async () => {
+  it("starts a microphone-first session for a blank typed question without sending a synthetic user message", async () => {
     const fakes = createRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      auditPolicy: {
+        externalActions: "none",
+        recordIds: ["S3-L1", "EVD-POD-S3-L1"],
+        retention: "Audit hashes and cited record ids only; no raw audio."
+      },
+      clientSecret: { value: "ek_test_client_secret" },
+      deterministicBasis: "credential gate",
+      model: "gpt-realtime-2",
+      status: "issued",
+      transport: "webrtc"
+    });
+    fakes.enqueueTextResponse("v=0\r\ns=answer");
+
     const result = await startRealtimeBrowserSession({
       createPeerConnection: fakes.createPeerConnection,
       fetcher: fakes.fetcher,
       mediaDevices: fakes.mediaDevices,
-      question: " "
+      question: " ",
+      recordIds: ["S3-L1", "EVD-POD-S3-L1"],
+      selectedLineId: "S3-L1"
     });
 
-    expect(result.getSnapshot().status).toBe("blocked");
-    expect(fakes.fetchCalls).toEqual([]);
-    expect(fakes.mediaCalls).toEqual([]);
-    expect(fakes.peerConnections).toEqual([]);
+    expect(result.getSnapshot().status).toBe("connected");
+    expect(fakes.events.slice(0, 3)).toEqual([
+      "fetch:/api/query/realtime-client-secret",
+      "media:getUserMedia",
+      "peer:create"
+    ]);
+    expect(fakes.fetchCalls[0]?.body).toBe(
+      JSON.stringify({
+        question: "Voice question from microphone for the selected evidence packet.",
+        recordIds: ["S3-L1", "EVD-POD-S3-L1"],
+        selectedLineId: "S3-L1"
+      })
+    );
+    fakes.lastDataChannel.dispatchOpen();
+    expect(fakes.lastDataChannel.sentMessages).toEqual([]);
   });
 
   it("requests the local cockpit proxy before opening microphone or peer connection", async () => {
@@ -64,6 +91,9 @@ describe("Realtime browser session helper", () => {
       Authorization: "Bearer ek_test_client_secret",
       "Content-Type": "application/sdp"
     });
+    fakes.lastDataChannel.dispatchOpen();
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("Why is Harbor blocked?"))).toBe(true);
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("response.create"))).toBe(true);
     expect(JSON.stringify(result)).not.toContain("ek_test_client_secret");
   });
 
@@ -201,6 +231,107 @@ describe("Realtime browser session helper", () => {
       recordIds: ["CUST-HARBOR"],
       status: "answered"
     });
+  });
+
+  it("surfaces microphone speech and transcript states before the cited answer", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const snapshots: Array<{
+      assistantTranscript: string | undefined;
+      inputTranscript: string | undefined;
+      message: string;
+      status: string;
+    }> = [];
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      onSnapshot: (snapshot) => {
+        snapshots.push({
+          assistantTranscript: snapshot.assistantTranscript,
+          inputTranscript: snapshot.inputTranscript,
+          message: snapshot.message,
+          status: snapshot.status
+        });
+      },
+      question: " "
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ type: "input_audio_buffer.speech_started" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ delta: "Why ", type: "conversation.item.input_audio_transcription.delta" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ delta: "invalid?", type: "conversation.item.input_audio_transcription.delta" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ type: "input_audio_buffer.speech_stopped" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ transcript: "Why invalid?", type: "conversation.item.input_audio_transcription.completed" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ delta: "The cited ", type: "response.output_audio_transcript.delta" }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ delta: "records match.", type: "response.output_audio_transcript.delta" }));
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        deterministicBasis: "query.answer + cited records",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
+        recordIds: ["CUST-HARBOR"],
+        text: "The cited records match.",
+        type: "recoup.cited_answer"
+      })
+    );
+
+    expect(snapshots.map((snapshot) => snapshot.status)).toEqual([
+      "connecting",
+      "connected",
+      "hearing",
+      "hearing",
+      "hearing",
+      "processing",
+      "processing",
+      "processing",
+      "processing",
+      "answered"
+    ]);
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "The cited records match.",
+      assistantTranscript: "The cited records match.",
+      inputTranscript: "Why invalid?",
+      status: "answered"
+    });
+  });
+
+  it("does not carry uncited assistant audio transcript text into the cited answer snapshot", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: " "
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({ delta: "Uncited spoken wording.", type: "response.output_audio_transcript.delta" })
+    );
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({ transcript: "Uncited spoken wording.", type: "response.output_audio_transcript.done" })
+    );
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        deterministicBasis: "query.answer + cited records",
+        citationParity: {
+          textRecordIds: ["CUST-HARBOR"],
+          voiceRecordIds: ["CUST-HARBOR"],
+          parity: "same_record_ids"
+        },
+        recordIds: ["CUST-HARBOR"],
+        text: "Cited answer only.",
+        type: "recoup.cited_answer"
+      })
+    );
+
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "Cited answer only.",
+      assistantTranscript: "Cited answer only.",
+      status: "answered"
+    });
+    expect(result.getSnapshot().assistantTranscript).not.toContain("Uncited spoken wording");
   });
 
   it("blocks cited Realtime answer events that do not carry matching voice/text citation parity", async () => {
@@ -580,6 +711,12 @@ class FakeDataChannel {
   dispatchMessage(data: string): void {
     for (const listener of this.listeners.get("message") ?? []) {
       listener({ data });
+    }
+  }
+
+  dispatchOpen(): void {
+    for (const listener of this.listeners.get("open") ?? []) {
+      listener({});
     }
   }
 

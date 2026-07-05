@@ -75,9 +75,7 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="grid min-w-0 gap-1">
             <CardTitle className="text-2xl leading-tight">Audit confirmation</CardTitle>
-            <CardDescription>
-              Approval receipt state for the selected draft. No downstream action is inferred.
-            </CardDescription>
+            <CardDescription>Approval receipt for the selected draft.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant={confirmedResponse === undefined ? "outline" : "secondary"}>
@@ -99,8 +97,8 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
           </AlertTitle>
           <AlertDescription>
             {confirmedResponse === undefined
-              ? "No committed approval receipt is available yet. The audit remains blocked until the source returns a verified human decision and a complete approval receipt."
-              : "A committed human approval receipt is available. Fields not returned by the source remain unavailable."}
+              ? "No committed approval receipt is available yet. The receipt records the reviewer decision only; correspondence, ERP postings, Billing tasks, and case closure remain separate."
+              : "A human decision receipt is available. It records the reviewer decision only; correspondence, ERP postings, Billing tasks, and case closure remain separate."}
           </AlertDescription>
         </Alert>
 
@@ -119,12 +117,13 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
             />
             <SummaryFact
               label="Receipt proof"
-              value="Open details for field availability"
+              value={
+                confirmedResponse === undefined
+                  ? "Waiting for a verified human decision and a complete approval receipt"
+                  : "Verified human decision and a complete approval receipt"
+              }
             />
           </div>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Receipt fields remain source-owned. Approval finality is not recovery dispatch, ERP write-back, Billing routing, or case closure.
-          </p>
         </section>
 
         <Collapsible
@@ -164,9 +163,6 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
               <LockKeyholeIcon aria-hidden="true" data-icon="inline-start" />
               Selected action context
             </h3>
-            <p className="text-sm text-muted-foreground">
-              These are selected action citations, not committed audit receipt citations.
-            </p>
           </div>
           <div className="grid min-w-0 gap-3">
             <ContextFact label="Selected action" value={selectedActionContext.actionLabel} />
@@ -175,7 +171,9 @@ export function AuditConfirmationPanel({ onReturnToWorklist, response, selectedA
             <div className="grid min-w-0 gap-1.5">
               <span className="text-sm font-medium">Selected action citations</span>
               <span className="text-sm text-muted-foreground">
-                {selectedActionContext.recordIds.length === 0 ? "No selected action citations attached." : "Cited evidence available."}
+                {selectedActionContext.recordIds.length === 0
+                  ? "No selected action citations attached."
+                  : `${selectedActionContext.recordIds.length.toString()} cited records attached.`}
               </span>
               <SelectedActionSourceDetails recordIds={selectedActionContext.recordIds} />
             </div>
@@ -267,7 +265,7 @@ function unavailableRows(): ReceiptRow[] {
       value: "Committed audit receipt citations unavailable"
     },
     {
-      basis: "Approval finality is not recovery dispatch, ERP write-back, Billing routing, or case closure.",
+      basis: "The receipt confirms the human decision for this draft.",
       label: "Action state",
       state: "Unavailable",
       tone: "waiting",
@@ -436,7 +434,7 @@ function SelectedActionSourceDetails({ recordIds }: { recordIds: string[] }) {
       <CollapsibleTrigger asChild>
         <Button className={cn("w-fit justify-start", mayaAccent.outlineButton)} size="sm" type="button" variant="outline">
           <ChevronDownIcon aria-hidden="true" data-icon="inline-start" />
-          Selected action source details
+          Selected action evidence details
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>

@@ -290,6 +290,12 @@ export interface WorklistItem {
   routing: string;
   routingLabel: string;
   recommendedActionLabel: string;
+  reason: string;
+  reasonFactHash?: string;
+  reasonGeneratedAt?: string;
+  reasonModel?: string;
+  reasonNarrative?: string;
+  reasonSource?: "deterministic_fallback" | "llm";
   confidence: string;
   confidenceLabel: string;
   evidenceScoreLabel: string;
@@ -750,7 +756,13 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
         })
       }
     ],
-    worklist: buildDeductionWorklist(dataset, run.decisions, run.actions, options?.approvalRecords),
+    worklist: buildDeductionWorklist(
+      dataset,
+      run.decisions,
+      run.actions,
+      options?.approvalRecords,
+      options?.reconciliation?.receipts
+    ),
     selected: buildSelectedForensicsCase(
       selectedDecision,
       selectedAction,
@@ -897,9 +909,14 @@ export function buildForensicsWorkItemDetailCockpitModel(
     throw new Error(`Missing action for requested line ${lineId}.`);
   }
 
-  const workItem = buildDeductionWorklist(dataset, run.decisions, run.actions, options?.approvalRecords).find((item) =>
-    item.lineIds.includes(lineId)
-  );
+  const workItem = buildDeductionWorklist(
+    dataset,
+    run.decisions,
+    run.actions,
+    options?.approvalRecords,
+    options?.reconciliation?.receipts,
+    lineId
+  ).find((item) => item.lineIds.includes(lineId));
   if (workItem === undefined) {
     throw new Error(`Missing worklist item for requested line ${lineId}.`);
   }
@@ -1579,11 +1596,14 @@ function buildDeductionWorklist(
   dataset: SettlementDataset,
   decisions: DeductionDecision[],
   actions: ReturnType<typeof runForensicsInvestigation>["actions"],
-  approvalRecords: readonly MemoryRecord[] = []
+  approvalRecords: readonly MemoryRecord[] = [],
+  reconciliationReceipts: ForensicsReconciliationOptions["receipts"] = [],
+  preferredLineId?: string
 ): WorklistItem[] {
   const decisionsByLineId = new Map(decisions.map((decision) => [decision.lineId, decision]));
   const actionByLineId = new Map(actions.map((action) => [action.lineId, action]));
   const receiptByActionId = new Map(buildApprovalAuditReceipts(approvalRecords).map((receipt) => [receipt.actionId, receipt]));
+  const reconciliationReceiptByLineId = new Map(reconciliationReceipts.map((receipt) => [receipt.lineId, receipt]));
   const customerById = new Map(dataset.customers.map((customer) => [customer.customerId, customer]));
 
   return dataset.manifest.workItemGroupIds.map((workItemGroupId) => {
@@ -1610,6 +1630,21 @@ function buildDeductionWorklist(
       .filter((receipt): receipt is ApprovalAuditReceipt => receipt !== undefined);
     const allGroupActionsDecided = groupActions.length > 0 && groupApprovalReceipts.length === groupActions.length;
     const customer = customerById.get(firstLine.customerId);
+    const groupReceipts = lines
+      .map((line) => reconciliationReceiptByLineId.get(line.lineId))
+      .filter((receipt): receipt is ReconciliationReceiptView => receipt !== undefined);
+    const preferredReceipt =
+      preferredLineId === undefined || !lines.some((line) => line.lineId === preferredLineId)
+        ? undefined
+        : reconciliationReceiptByLineId.get(preferredLineId);
+    const displayedReasonLineId =
+      preferredLineId !== undefined && lines.some((line) => line.lineId === preferredLineId) ? preferredLineId : firstLine.lineId;
+    const firstLlmReceiptWithNarrative = groupReceipts.find(
+      (receipt) => receipt.reasonSource === "llm" && readNonEmpty(receipt.reasonNarrative) !== undefined
+    );
+    const firstReceiptWithNarrative = groupReceipts.find((receipt) => readNonEmpty(receipt.reasonNarrative) !== undefined);
+    const firstReceipt = preferredReceipt ?? firstLlmReceiptWithNarrative ?? firstReceiptWithNarrative ?? groupReceipts[0];
+    const reasonFields = worklistReasonFields(firstDecision, firstReceipt, displayedReasonLineId);
 
     return {
       lineId: firstLine.lineId,
@@ -1626,6 +1661,7 @@ function buildDeductionWorklist(
       routing: firstDecision.routing,
       routingLabel: routingLabel(firstDecision.routing),
       recommendedActionLabel: routingLabel(firstDecision.routing),
+      ...reasonFields,
       confidence: confidenceDisplayValue(firstDecision.confidence),
       confidenceLabel: confidenceLabel(firstDecision.confidence),
       evidenceScoreLabel: String(recordIds.length),
@@ -1641,6 +1677,76 @@ function buildDeductionWorklist(
       queueLabel: firstDecision.routing === "recovery" ? "Review" : "Billing"
     };
   });
+}
+
+type ReconciliationReceiptView = NonNullable<ForensicsReconciliationOptions["receipts"]>[number] & {
+  reasonFactHash?: string;
+  reasonGeneratedAt?: string;
+  reasonModel?: string;
+  reasonNarrative?: string;
+  reasonSource?: "deterministic_fallback" | "llm";
+  receiptId?: string;
+};
+
+function worklistReasonFields(
+  decision: DeductionDecision,
+  receipt: ReconciliationReceiptView | undefined,
+  displayedLineId: string
+): Pick<WorklistItem, "reason" | "reasonFactHash" | "reasonGeneratedAt" | "reasonModel" | "reasonNarrative" | "reasonSource"> {
+  const narrative = readNonEmpty(receipt?.reasonNarrative);
+  if (narrative !== undefined) {
+    return {
+      reason: worklistNarrativeForDisplayedLine(narrative, receipt, displayedLineId),
+      reasonNarrative: narrative,
+      reasonSource: receipt?.reasonSource ?? "llm",
+      ...(receipt?.reasonFactHash === undefined ? {} : { reasonFactHash: receipt.reasonFactHash }),
+      ...(receipt?.reasonGeneratedAt === undefined ? {} : { reasonGeneratedAt: receipt.reasonGeneratedAt }),
+      ...(receipt?.reasonModel === undefined ? {} : { reasonModel: receipt.reasonModel })
+    };
+  }
+
+  return {
+    reason: worklistDecisionReason(decision),
+    reasonSource: "deterministic_fallback"
+  };
+}
+
+function worklistNarrativeForDisplayedLine(
+  narrative: string,
+  receipt: ReconciliationReceiptView | undefined,
+  displayedLineId: string
+): string {
+  if (receipt?.lineId !== undefined && receipt.lineId !== displayedLineId) {
+    return `Line ${receipt.lineId} (${receipt.receiptId}): ${narrative}`;
+  }
+
+  return narrative;
+}
+
+function worklistDecisionReason(decision: DeductionDecision): string {
+  switch (decision.deterministicBasis.ruleId) {
+    case "damage-evidence-valid":
+      return "Carrier damage evidence and photos support the deduction, so the agents routed the line to Billing.";
+    case "promo-not-captured":
+      return "The approved trade promotion support exists and the invoice was billed at list, so the agents routed the line to Billing.";
+    case "shortage-pod-mismatch":
+      return "The signed proof of delivery shows full delivery for the claimed shortage, so the agents marked the deduction for Recovery.";
+    case "otif-fine-valid":
+      return "The contract SLA permits the OTIF fine and the delivery evidence confirms the breach, so the agents routed the line to Billing.";
+    case "otif-timestamp-mismatch":
+      return "The 3PL delivery timestamp shows the order was on time, so the agents marked the OTIF deduction for Recovery.";
+    case "pricing-below-contract":
+      return "The pricing evidence shows the deduction priced the line below the contracted price, so the agents marked it for Recovery.";
+    case "promo-overclaim":
+      return "The TPM evidence shows the claimed allowance exceeds the approved accrual, so the agents marked the claim as Partial.";
+    case "duplicate-credit":
+      return "The evidence shows a credit memo was already issued for the deduction, so the agents marked the duplicate deduction for Recovery.";
+  }
+}
+
+function readNonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
 }
 
 function buildCreditCommandCenter(model: Omit<CreditCockpitModel, "commandCenter">): CreditCommandCenterModel {

@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
+import { resolveMayaWorklistReason } from "./maya-workspace-derived.ts";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
 import { verdictBadgeVariant } from "./verdict-badge-variant.ts";
@@ -32,12 +33,17 @@ interface DeductionWorklistTableProps {
 
 const missingOperationalFields = ["Priority", "Work type", "Source", "Age", "Owner"] as const;
 const mayaSelectedRowClass =
-  "data-[selected=true]:border-l-[3px] data-[selected=true]:border-l-[color:var(--maya-accent)] data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
+  "data-[selected=true]:bg-[color:var(--maya-accent-surface-strong)] data-[selected=true]:shadow-[var(--shadow-sm)] data-[selected=true]:ring-1 data-[selected=true]:ring-[color:var(--maya-accent-ring)]";
 
 function isInteractiveDescendantEvent(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     ? target.closest("button,a,input,textarea,select,summary,[role='button'],[role='checkbox'],[role='menuitem']") !== null
     : false;
+}
+
+function worklistCaseLabel(items: readonly MayaWorklistItem[], item: MayaWorklistItem): string {
+  const index = items.findIndex((candidate) => candidate.lineId === item.lineId);
+  return index >= 0 ? `Case ${String(index + 1)}` : "Case";
 }
 
 export function DeductionWorklistTable({
@@ -63,6 +69,7 @@ export function DeductionWorklistTable({
         item.queueLabel,
         item.approvalStatusLabel,
         item.recommendedActionLabel,
+        resolveMayaWorklistReason(item),
         ...item.lineIds
       ]
         .join(" ")
@@ -116,6 +123,8 @@ export function DeductionWorklistTable({
               <div className="flex min-w-0 flex-col gap-1 pr-2">
                 {filteredItems.map((item) => {
                   const isValidDeduction = item.verdict === "valid";
+                  const reason = resolveMayaWorklistReason(item);
+                  const caseLabel = worklistCaseLabel(items, item);
 
                   return (
                     <Button
@@ -139,12 +148,13 @@ export function DeductionWorklistTable({
                       <span className="flex min-w-0 flex-1 flex-col gap-2">
                         <span className="flex min-w-0 items-start justify-between gap-2">
                           <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium">{item.lineId}</span>
+                            <span className="block truncate text-sm font-medium">{caseLabel}</span>
                             <span className="block truncate text-xs text-muted-foreground">{item.workItemLabel}</span>
                           </span>
                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                         </span>
-                        <span className="line-clamp-2 text-xs text-muted-foreground">{item.customerLabel}</span>
+                        <span className="line-clamp-1 text-xs text-muted-foreground">{item.customerLabel}</span>
+                        <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">{reason}</span>
                         <span className="flex min-w-0 flex-wrap gap-1">
                           <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                             {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
@@ -199,11 +209,11 @@ export function DeductionWorklistTable({
                   variant="outline"
                 >
                   <CircleHelpIcon aria-hidden="true" data-icon="inline-start" />
-                  Source details
+                  Evidence details
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-72">
-                <span>Not exposed on worklist rows: {missingOperationalFields.join(", ")}.</span>
+                <span>Available in the case detail: {missingOperationalFields.join(", ")}.</span>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -235,6 +245,8 @@ export function DeductionWorklistTable({
             <div className="grid gap-2 md:hidden" data-testid="maya-mobile-worklist-list">
               {filteredItems.map((item) => {
                 const isValidDeduction = item.verdict === "valid";
+                const reason = resolveMayaWorklistReason(item);
+                const caseLabel = worklistCaseLabel(items, item);
 
                 return (
                   <Button
@@ -258,12 +270,13 @@ export function DeductionWorklistTable({
                     <span className="grid min-w-0 flex-1 gap-2">
                       <span className="flex min-w-0 items-start justify-between gap-3">
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{item.lineId}</span>
+                          <span className="block truncate text-sm font-medium">{caseLabel}</span>
                           <span className="block line-clamp-2 text-xs text-muted-foreground">{item.workItemLabel}</span>
                         </span>
                         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.amount}</span>
                       </span>
                       <span className="line-clamp-1 text-xs text-muted-foreground">{item.customerLabel}</span>
+                      <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">{reason}</span>
                       <span className="flex min-w-0 flex-wrap gap-1">
                         <Badge className="h-5 gap-1 px-1.5 text-[10px]" data-verdict={item.verdict} variant={verdictBadgeVariant(item.verdict)}>
                           {isValidDeduction ? <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" /> : null}
@@ -300,6 +313,8 @@ export function DeductionWorklistTable({
               <TableBody>
                 {filteredItems.map((item) => {
                   const isValidDeduction = item.verdict === "valid";
+                  const reason = resolveMayaWorklistReason(item);
+                  const caseLabel = worklistCaseLabel(items, item);
 
                   return (
                     <TableRow
@@ -328,7 +343,7 @@ export function DeductionWorklistTable({
                       }}
                       tabIndex={0}
                     >
-                    <TableCell className="px-2 py-2 align-middle">
+                    <TableCell className="px-2 py-1.5 align-middle">
                       <Checkbox
                         aria-label={`${item.workItemLabel} local focus selection`}
                         checked={item.lineId === selectedLineId}
@@ -343,25 +358,28 @@ export function DeductionWorklistTable({
                         }}
                       />
                     </TableCell>
-                    <TableCell className="whitespace-normal px-2 py-2">
+                    <TableCell className="whitespace-normal px-2 py-1.5">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <p className="truncate font-medium">{item.lineId}</p>
+                        <p className="truncate font-medium">{caseLabel}</p>
                         <span className="text-[11px] leading-3 text-muted-foreground">{item.lineCount.toString()} lines</span>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-2 py-2">
+                    <TableCell className="whitespace-normal px-2 py-1.5">
                       <div className="flex min-w-0 flex-col gap-1">
                         <div className="min-w-0">
-                          <p className="break-words font-medium leading-4" title={item.workItemLabel}>
+                          <p className="line-clamp-1 break-words font-medium leading-4" title={item.workItemLabel}>
                             {item.workItemLabel}
                           </p>
-                          <p className="break-words text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
+                          <p className="line-clamp-1 text-xs leading-4 text-muted-foreground" title={reason}>
+                            {reason}
+                          </p>
+                          <p className="line-clamp-1 break-words text-xs leading-4 text-muted-foreground" title={item.customerLabel}>
                             {item.customerLabel}
                           </p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-2 py-2" data-testid="maya-worklist-recommended-action">
+                    <TableCell className="whitespace-normal px-2 py-1.5" data-testid="maya-worklist-recommended-action">
                       <div className="flex min-w-0 flex-col items-start gap-1.5">
                         <Badge
                           className="h-6 max-w-full justify-start gap-1 truncate px-2 text-[11px] leading-none"
@@ -376,8 +394,8 @@ export function DeductionWorklistTable({
                         <RecommendedActionCell item={item} />
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap px-2 py-2 tabular-nums">{item.amount}</TableCell>
-                    <TableCell className="whitespace-normal px-2 py-2">
+                    <TableCell className="whitespace-nowrap px-2 py-1.5 tabular-nums">{item.amount}</TableCell>
+                    <TableCell className="whitespace-normal px-2 py-1.5">
                       <div className="flex flex-col gap-0.5">
                         <span>{item.evidenceScoreLabel}</span>
                         <span className="break-words text-xs leading-4 text-muted-foreground" title={item.evidenceLabel}>
@@ -385,7 +403,7 @@ export function DeductionWorklistTable({
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="whitespace-normal px-2 py-2">
+                    <TableCell className="whitespace-normal px-2 py-1.5">
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1.5">
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="break-words" title={item.queueLabel}>

@@ -17,6 +17,8 @@ export default async function ForensicsPage() {
     fetchConnectorReadinessModel(backendReadAuthHeaders)
   ]);
   const selectedWorkItem = model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? model.worklist[0];
+  const selectedCaseIndex = model.worklist.findIndex((item) => item.lineIds.includes(model.selected.lineId));
+  const selectedCaseLabel = selectedCaseIndex >= 0 ? `Case ${String(selectedCaseIndex + 1)}` : "Selected case";
 
   return (
     <CockpitShell
@@ -74,13 +76,14 @@ export default async function ForensicsPage() {
                 <span role="columnheader">Evidence</span>
                 <span role="columnheader">Queue</span>
               </div>
-              {model.worklist.map((item) => {
+              {model.worklist.map((item, index) => {
                 const isSelected = item.lineIds.includes(model.selected.lineId);
+                const caseLabel = `Case ${String(index + 1)}`;
 
                 return (
                   <div className="table-row work-row" aria-selected={isSelected} key={item.lineId} role="row">
                     <div className="work-item-cell" role="cell">
-                      <strong>{item.workItemId}</strong>
+                      <strong>{caseLabel}</strong>
                       <span>{item.customerLabel}</span>
                     </div>
                     <span className="account-cell" role="cell">
@@ -106,7 +109,7 @@ export default async function ForensicsPage() {
         <section className="decision-console dossier-workbench" id="selected-line" aria-label="Selected deduction decision">
           <div className="section-heading">
             <div>
-              <h2>{selectedWorkItem?.workItemId ?? model.selected.lineId}</h2>
+              <h2>{selectedWorkItem?.workItemId ?? selectedCaseLabel}</h2>
               <span>{selectedWorkItem?.deductionReason ?? "Selected deduction"}</span>
             </div>
             <span className="review-state">{model.selected.draft.statusLabel}</span>
@@ -126,8 +129,8 @@ export default async function ForensicsPage() {
               <strong>{selectedWorkItem?.customerLabel ?? "Selected account"}</strong>
             </div>
             <div>
-              <span>Selected line</span>
-              <strong>{model.selected.lineId}</strong>
+              <span>Selected work item</span>
+              <strong>{selectedCaseLabel}</strong>
             </div>
             <div>
               <span>Exposure</span>
@@ -167,7 +170,7 @@ export default async function ForensicsPage() {
                 dispatch state
               </span>
             </div>
-            <RecordStrip label="Selected line record IDs" recordIds={model.selected.evidencePack.recordIds} />
+            <RecordStrip label="Evidence IDs used for this work item" recordIds={model.selected.evidencePack.recordIds} />
             <div className="evidence-dossier" role="table" aria-label="Key evidence">
               <div className="evidence-dossier-row evidence-dossier-head" role="row">
                 <span role="columnheader">Artifact</span>
@@ -252,7 +255,12 @@ export default async function ForensicsPage() {
             <h3>Action inbox</h3>
             {model.actionInbox.slice(0, 3).map((action) => (
               <div className="inbox-row" key={action.actionId}>
-                <span>{action.lineId}</span>
+                <span>
+                  {(() => {
+                    const actionIndex = model.worklist.findIndex((item) => item.lineIds.includes(action.lineId));
+                    return actionIndex >= 0 ? `Case ${String(actionIndex + 1)}` : "Selected case";
+                  })()}
+                </span>
                 <strong>{action.actionLabel}</strong>
                 <span className="amount">{action.amount}</span>
               </div>
