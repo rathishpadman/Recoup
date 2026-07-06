@@ -6,7 +6,7 @@ Production alias tested for baseline failure: `https://recoup-self-eta.vercel.ap
 
 Production baseline under test: `13a8e0f Fix Maya workspace copilot settlement queries`
 
-Local remediation under test: uncommitted patch in `C:\Rathish\Root Folder\CFO\Hackathon\Recoup1\Recoup-main-landing-prod`; production deploy remains pending.
+Production remediation under test: `5ef8510 Bind Maya realtime queries to selected scope`
 
 Evidence artifacts:
 
@@ -23,6 +23,11 @@ Local remediation evidence:
 - `npm run test`: 127 test files passed, 1135 tests passed.
 - `npm run build`: pass.
 
+Production remediation evidence:
+
+- Failed-case diagnostic against `https://recoup-self-eta.vercel.app`: S4, S5, S7, and S8 all returned `live_openai_agents`.
+- Full all-case browser sweep against `https://recoup-self-eta.vercel.app`: `caseFailures: 0`, `caseTotal: 8`, `workspaceFailures: 0`, `staleRunStatus: 409`, `workspaceVisibleMs: 11436`.
+
 ## Execution Summary
 
 | Area | Expected | Result | Status |
@@ -30,7 +35,7 @@ Local remediation evidence:
 | Maya login and workspace load | Authenticated Maya user reaches `/forensics/shadcn` and the workbench renders from prod | Workbench visible after 28.1s | Pass with latency note |
 | Workspace Copilot question | UI submits `scope: "workspace"` and the current backend `settlementRunId`; answer matches live worklist rollup | Submitted `settlement-run:42:4b6d444991d98a43`; answer matched 8 cases, 3 valid, 4 invalid, 1 partial | Pass |
 | Stale settlement run guard | Old settlement run id fails closed | `/api/forensics/query` returned 409 with `Maya workspace query requires the current settlement run.` | Pass |
-| Case selected-evidence questions | All 8 cases return cited selected-evidence answer, trace, citations, and live agent completion metadata | 4 passed; 4 failed closed with `blocked_live_agent_trace` | Fail |
+| Case selected-evidence questions | All 8 cases return cited selected-evidence answer, trace, citations, and live agent completion metadata | Baseline: 4 passed and 4 failed; remediation: 8 passed | Pass |
 
 ## Case Results
 
@@ -39,11 +44,11 @@ Local remediation evidence:
 | S1 | Greenleaf Naturals | What evidence supports the Billing verdict for Greenleaf Naturals? | Valid, Billing, cited evidence | Answer, citations, trace, and `live_openai_agents` present | Pass |
 | S2 | Crestline Grocery | Why did agents treat Crestline Grocery as a valid deduction? | Valid, Billing, cited evidence | Answer, citations, trace, and `live_openai_agents` present | Pass |
 | S3 | Crestline Grocery | Why did agents route Crestline Grocery to Recovery? | Invalid, Recovery, cited evidence | Answer, citations, trace, and `live_openai_agents` present | Pass |
-| S4 | ValuMart Club | Why did agents treat ValuMart Club as a valid deduction? | Valid, Billing, cited evidence | No answer/citations/trace; `blocked_live_agent_trace` | Fail |
-| S5 | ValuMart Club | Why did agents route ValuMart Club to Recovery? | Invalid, Recovery, cited evidence | No answer/citations/trace; `blocked_live_agent_trace` | Fail |
+| S4 | ValuMart Club | Why did agents treat ValuMart Club as a valid deduction? | Valid, Billing, cited evidence | Baseline failed closed; remediation returned answer, citations, trace, and `live_openai_agents` | Pass |
+| S5 | ValuMart Club | Why did agents route ValuMart Club to Recovery? | Invalid, Recovery, cited evidence | Baseline failed closed; remediation returned answer, citations, trace, and `live_openai_agents` | Pass |
 | S6 | Crestline Grocery | What proof supports the Recovery verdict for Crestline Grocery? | Invalid, Recovery, cited evidence | Answer, citations, trace, and `live_openai_agents` present | Pass |
-| S7 | Harbor Foods | For Harbor Foods, what cited evidence supports the partial split verdict? | Partial, Recovery, cited evidence | No answer/citations/trace; `blocked_live_agent_trace` | Fail |
-| S8 | Harbor Foods | What proof supports the Recovery verdict for Harbor Foods? | Invalid, Recovery, cited evidence | No answer/citations/trace; `blocked_live_agent_trace` | Fail |
+| S7 | Harbor Foods | For Harbor Foods, what cited evidence supports the partial split verdict? | Partial, Recovery, cited evidence | Baseline failed closed; remediation returned answer, citations, trace, and `live_openai_agents` | Pass |
+| S8 | Harbor Foods | What proof supports the Recovery verdict for Harbor Foods? | Invalid, Recovery, cited evidence | Baseline failed closed; remediation returned answer, citations, trace, and `live_openai_agents` | Pass |
 
 ## Failed Case Diagnostics
 
@@ -64,8 +69,8 @@ Local remediation evidence:
 | 2 | Normalize selected-evidence scope server-side before live-agent execution so client-submitted record IDs cannot expand or stale-shift beyond the current backend-selected evidence pack and worklist provenance. | Complete; S4/S5 local diagnostic returns cited `live_openai_agents` answers. |
 | 3 | Harden deterministic source-read fallback so non-SAP selected evidence from Supabase connectors can satisfy the guard when SAP rows are unavailable. | Complete; S7/S8 local diagnostic returns cited `live_openai_agents` answers. |
 | 4 | Re-run focused tests, full `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`, and full browser sweep. | Complete locally; all verification green. |
-| 5 | Deploy to Render/Vercel and rerun production sweep across workspace plus all 8 cases. | Pending production deploy and public-alias sweep. |
+| 5 | Deploy to Render/Vercel and rerun production sweep across workspace plus all 8 cases. | Complete; public alias sweep passed with 8/8 cases, workspace pass, and stale-run 409. |
 
 ## Current Gate
 
-Local remediation gate is clear. Production remains gated until the patched main commit is deployed and the public alias passes the same workspace plus all-8-case sweep.
+Production gate is clear for the Maya Copilot selected-evidence remediation. Public alias verification passed after deploying `5ef8510`.
