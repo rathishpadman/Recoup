@@ -259,8 +259,6 @@ async function exerciseSidebarSections(page: Page): Promise<ProdQaResult["sectio
   const sections = [
     { name: "Overview", testId: "maya-root-section-overview" },
     { name: "Worklist", testId: "maya-root-section-worklist" },
-    { name: "Cases", testId: "maya-root-section-cases" },
-    { name: "Evidence", testId: "maya-root-section-evidence" },
     { name: "Approvals", testId: "maya-root-section-approvals" }
   ];
   const results: ProdQaResult["sections"] = [];
@@ -288,9 +286,7 @@ async function openInvestigation(page: Page): Promise<void> {
 }
 
 async function openQueryDock(page: Page): Promise<void> {
-  await page.getByRole("tab", { name: /^Evidence$/u }).click();
-  await page.getByTestId("maya-evidence-dossier").waitFor({ state: "visible", timeout: 30_000 });
-  await page.getByRole("button", { name: /^Query evidence$/u }).click();
+  await page.getByTestId("recoup-agent-launcher").click();
   await page.getByTestId("maya-query-dock").waitFor({ state: "visible", timeout: 30_000 });
 }
 
@@ -388,12 +384,34 @@ async function runQueries(page: Page): Promise<QueryExecutionResult[]> {
 
 async function exerciseHitl(page: Page): Promise<ProdQaResult["hitl"]> {
   await closeQueryDockIfOpen(page);
-  await page.getByRole("tab", { name: /^Draft$/u }).click();
-  await page.getByTestId("maya-recovery-draft-review").waitFor({ state: "visible", timeout: 30_000 });
-  await page.getByRole("button", { name: /^Open approval$/u }).click();
+  const recommendedAction = page.getByTestId("maya-recovery-draft-review");
+  await recommendedAction.waitFor({ state: "visible", timeout: 30_000 });
+  await recommendedAction.scrollIntoViewIfNeeded();
+  const recommendedActionTrigger = page.getByTestId("maya-recommended-action-trigger");
+  const recommendedActionExpanded = await recommendedActionTrigger.getAttribute("aria-expanded").catch(() => "false");
+  if (recommendedActionExpanded !== "true") {
+    await recommendedActionTrigger.click();
+  }
+  await page.getByTestId("maya-draft-command-bar").waitFor({ state: "visible", timeout: 30_000 });
+
+  const approvalButton = page.getByRole("button", { name: /^Open approval$/u });
+  const approvalInitiallyDisabled = await approvalButton.isDisabled().catch(() => true);
+  const evidenceReviewedToggle = page.getByTestId("maya-evidence-reviewed-toggle");
+  if (!(await evidenceReviewedToggle.isChecked().catch(() => false))) {
+    await evidenceReviewedToggle.check();
+  }
+  await page.waitForFunction(
+    () => {
+      const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "Open approval");
+      return button instanceof HTMLButtonElement && !button.disabled;
+    },
+    undefined,
+    { timeout: 15_000 }
+  );
+  await approvalButton.click();
   const dialog = page.getByTestId("maya-approval-gate-dialog");
   const approvalDialogVisible = await dialog.isVisible({ timeout: 30_000 }).catch(() => false);
-  const noteCounterVisible = await page.getByTestId("maya-approval-note-counter").isVisible().catch(() => false);
+  const noteCounterVisible = await dialog.getByTestId("maya-approval-note-counter").isVisible().catch(() => false);
   const decisionButtons = await dialog.locator("button").evaluateAll((buttons) =>
     buttons.map((button) => button.textContent.replace(/\s+/gu, " ").trim()).filter((text) => text.length > 0)
   );
@@ -403,23 +421,17 @@ async function exerciseHitl(page: Page): Promise<ProdQaResult["hitl"]> {
     dialog.getByRole("button", { name: /Reject/u })
   ];
   const disabledStates = await Promise.all(decisionButtonLocators.map((locator) => locator.isDisabled().catch(() => true)));
-  let approvalPostStatus: number | undefined;
-
-  if (approvalDialogVisible && disabledStates.every((disabled) => !disabled)) {
-    const approvalResponsePromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/approval", {
-      timeout: 60_000
-    });
-    await dialog.getByRole("button", { name: /Approve/u }).click();
-    approvalPostStatus = (await approvalResponsePromise).status();
-  }
+  await dialog.getByRole("button", { name: /Cancel/u }).click().catch(async () => {
+    await page.keyboard.press("Escape");
+  });
+  await dialog.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => undefined);
 
   return {
     approvalDialogVisible,
-    buttonsDisabled: disabledStates.every(Boolean),
+    buttonsDisabled: approvalInitiallyDisabled,
     decisionButtons,
     noteCounterVisible,
-    result: approvalDialogVisible ? "passed" : "failed",
-    ...(approvalPostStatus === undefined ? {} : { approvalPostStatus })
+    result: approvalDialogVisible && approvalInitiallyDisabled && disabledStates.some((disabled) => !disabled) ? "passed" : "failed"
   };
 }
 
