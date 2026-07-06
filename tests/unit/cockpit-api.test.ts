@@ -5452,7 +5452,7 @@ describe("S5 cockpit API", () => {
           summary: string;
         }>;
       };
-      const mcpTile = connectors.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+      const mcpTile = connectors.sourceTiles.find((sourceTile) => sourceTile.label === "MCP Gateway");
 
       expect(response.status).toBe(200);
       expect(mcpHealthFetcher).not.toHaveBeenCalled();

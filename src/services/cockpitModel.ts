@@ -2811,6 +2811,8 @@ function buildSourceReadinessTiles(
   return sourceTileOrder;
 }
 
+const mcpGatewaySourceLabel = "MCP Gateway";
+
 function mcpSourceTile(
   sourceCheckedAtIso: string,
   mcpReadiness: McpReadinessStatus | undefined,
@@ -2832,7 +2834,7 @@ function mcpSourceTile(
       checkedAtIso,
       detail,
       key: "mcp",
-      label: "MCP",
+      label: mcpGatewaySourceLabel,
       mark: "M",
       modeLabel: "Read-only tools",
       proofItems: uniqueStrings([
@@ -2865,7 +2867,7 @@ function mcpSourceTile(
       checkedAtIso: mcpReadiness.checkedAtIso,
       detail: mcpReadiness.lastError,
       key: "mcp",
-      label: "MCP",
+      label: mcpGatewaySourceLabel,
       mark: "M",
       modeLabel: "Read-only tools",
       proofItems: uniqueStrings([...mcpReadiness.proofItems, "tools filtered", "draft-only actions", "no ERP write-back"]),
@@ -2890,7 +2892,7 @@ function mcpSourceTile(
     checkedAtIso: mcpReadiness.checkedAtIso,
     detail: `MCP health reachable at ${mcpEndpoint} with ${mcpTransport}/${mcpSessionMode}.`,
     key: "mcp",
-    label: "MCP",
+    label: mcpGatewaySourceLabel,
     mark: "M",
     modeLabel: "Read-only tools",
     proofItems: uniqueStrings([
@@ -2923,7 +2925,7 @@ function mcpSourceTileFromHealth(health: SourceHealthResult): SourceReadinessTil
     checkedAtIso: health.checkedAtIso,
     detail: health.lastError ?? "MCP status loaded from saved source-health snapshot.",
     key: "mcp",
-    label: "MCP",
+    label: mcpGatewaySourceLabel,
     mark: "M",
     modeLabel: "Read-only tools",
     proofItems: uniqueStrings([...health.proofItems, "tools filtered", "draft-only actions", "no ERP write-back"]),

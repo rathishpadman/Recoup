@@ -26,7 +26,6 @@ import {
   buildCopilotVerdictBand,
   resolveMayaWorklistReason,
   countEvidenceSourceLabels,
-  sanitizeMemoryRecallSummary,
   semanticRetrievalBadgeFromDocument
 } from "./maya-workspace-derived.ts";
 import type { MayaCopilotCaseOption } from "./maya-workspace-derived.ts";
@@ -821,7 +820,6 @@ function CopilotStoryPanel({
     ...(selectedLine === undefined ? {} : { selectedLineLabel: "selected deduction" }),
     subAgentNames: fallbackAgentNames
   });
-  const memoryRecall = snapshot.memoryRecall;
   const verdictBand =
     selectedWorklistItem === undefined
       ? undefined
@@ -856,11 +854,6 @@ function CopilotStoryPanel({
                   ...snapshot.citations.map((citation) => citation.recordId)
                 ])}
               </p>
-            )}
-            {memoryRecall === undefined || memoryRecall.memoryRecordCount === 0 ? null : (
-              <Badge className="w-fit" data-testid="maya-query-memory-chip" variant="outline">
-                Case memory · {memoryRecall.memoryRecordCount.toString()} records
-              </Badge>
             )}
           </div>
         </div>
@@ -1200,14 +1193,10 @@ function toQueryEvidenceSnapshot(input: ToQueryEvidenceSnapshotInput): QueryEvid
   }
   const modelExecutionField =
     response.modelExecution === undefined ? {} : { modelExecution: response.modelExecution };
-  const memoryRecall = sanitizeMemoryRecallSummary(response.memoryRecall);
-  const memoryRecallField =
-    memoryRecall === undefined ? {} : { memoryRecall };
 
   if (hasAnswer && response.answer !== undefined && response.deterministicBasis !== undefined) {
     return {
       ...modelExecutionField,
-      ...memoryRecallField,
       answer: response.answer,
       citations: response.citations,
       deterministicBasis: response.deterministicBasis,
@@ -1220,7 +1209,6 @@ function toQueryEvidenceSnapshot(input: ToQueryEvidenceSnapshotInput): QueryEvid
 
   return {
     ...modelExecutionField,
-    ...memoryRecallField,
     citations: response.citations,
     message,
     recordIds: blockedRecordIds,

@@ -110,7 +110,7 @@ function displaySourceLabel(label: string): string {
     return "Contract Repo";
   }
 
-  if (label === "MCP") {
+  if (label === "MCP" || label === "MCP Gateway") {
     return "MCP";
   }
 

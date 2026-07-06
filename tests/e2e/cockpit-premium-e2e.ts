@@ -728,14 +728,7 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
           buildE2EForensicsQueryResponse(
             model,
             workspaceAnswer,
-            "E2E deterministic basis from the Overview workspace backend query response.",
-            {
-              memoryRecall: {
-                memoryRecordCount: 0,
-                recordCount: 0,
-                scopeCount: 0
-              }
-            }
+            "E2E deterministic basis from the Overview workspace backend query response."
           )
         ),
         contentType: "application/json",
@@ -751,17 +744,7 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
         buildE2EForensicsQueryResponse(
           selectedEvidenceContextForWorklistItem(model, casePickerTarget),
           caseScopedAnswer,
-          `E2E deterministic basis from the Overview case-scoped backend query response for ${casePickerTarget.lineId}.`,
-          {
-            memoryRecall: {
-              memoryRecordCount: 2,
-              recordCount: 4,
-              scopeCount: 1,
-              payload_json: { body: "Do not expose remembered body text." },
-              selectedRecordIds: [casePickerTarget.lineId],
-              sessionId: "maya-session-42"
-            }
-          }
+          `E2E deterministic basis from the Overview case-scoped backend query response for ${casePickerTarget.lineId}.`
         )
       ),
       contentType: "application/json",
@@ -818,9 +801,6 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
       );
     }
     await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Overview case-scoped Copilot verdict band");
-    await expectVisibleLocator(page, '[data-testid="maya-query-memory-chip"]', "Overview case-scoped memory recall chip");
-    const memoryChipText = await page.getByTestId("maya-query-memory-chip").innerText();
-    assert(memoryChipText.trim() === "Case memory · 2 records", `Memory recall chip text mismatch: ${memoryChipText}`);
     const pickedCaseStory = await page.getByTestId("maya-query-dock").innerText();
     assert(
       pickedCaseStory.includes(casePickerTarget.verdictLabel) &&
@@ -841,8 +821,6 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
         `Overview case-scoped Copilot citation drawer must not leak default selected line ${model.selected.lineId}.`
       );
     }
-    assert(!pickedCaseStory.includes("Do not expose remembered body text."), "Overview case-scoped Copilot rendered memory body text.");
-
     await page.getByRole("combobox", { name: /^Choose copilot case focus$/u }).click();
     await page.getByRole("option", { name: /^Workspace$/u }).click();
     await page.getByTestId("maya-query-input").fill("What did the agents conclude across the settlement run?");
@@ -872,7 +850,6 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
       const assistantText = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]')?.innerText ?? "";
       return assistantText.includes(answer);
     }, workspaceAnswer);
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="maya-query-memory-chip"]').length === 0);
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
   } finally {
     await page.unroute("**/api/forensics/query").catch(() => undefined);
@@ -4377,8 +4354,7 @@ async function assertBeat8VoiceQueryFidelity(
 function buildE2EForensicsQueryResponse(
   model: ForensicsSelectedEvidenceContext,
   answer: string,
-  deterministicBasis: string,
-  options: { memoryRecall?: Record<string, unknown> } = {}
+  deterministicBasis: string
 ) {
   const recordIds = model.selected.evidencePack.recordIds;
   const documents = model.selected.evidencePack.documents;
@@ -4411,7 +4387,6 @@ function buildE2EForensicsQueryResponse(
       };
     }),
     deterministicBasis,
-    ...(options.memoryRecall === undefined ? {} : { memoryRecall: options.memoryRecall }),
     modelExecution: {
       agentNames: ["Forensics Investigator", "Evidence Retriever"],
       deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",

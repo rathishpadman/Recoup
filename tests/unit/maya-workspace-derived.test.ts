@@ -12,8 +12,6 @@ import {
   buildEvidenceFactCard,
   buildEvidencePacketAvailabilityLabel,
   countEvidenceSourceLabels,
-  buildMemoryRecallSummary,
-  buildQueryEvidenceSnapshot,
   buildCopilotDrawerTrigger,
   resolveMayaWorklistReasonDetail,
   buildOverviewSummaryCards,
@@ -30,14 +28,12 @@ import {
   overviewCardVisualKey,
   overviewShortVerdictLabel,
   resolveMayaWorklistReason,
-  sanitizeMemoryRecallSummary,
   type MayaOverviewSummaryCard
 } from "../../cockpit/components/maya/maya-workspace-derived.ts";
 import type {
   MayaEvidenceDocument,
   MayaEvidencePack,
   MayaWorklistItem,
-  QueryEvidenceBackendResponse,
   QueryEvidenceResponse
 } from "../../cockpit/components/maya/types.ts";
 
@@ -1015,127 +1011,4 @@ describe("Maya workspace derived helpers", () => {
     expect(buildCopilotDrawerTrigger("Citations", "24 records")).toBe("Citations · 24 records");
   });
 
-  it("exposes memory recall as safe counts only", () => {
-    expect(
-      buildMemoryRecallSummary({
-        memoryRecordIds: ["mem-1", "mem-2", "mem-1"],
-        recordIds: ["S3-L1", "EVD-POD-S3-L1"],
-        scopes: ["case:S3-L1", "case:S3-L1"]
-      })
-    ).toEqual({
-      memoryRecordCount: 2,
-      recordCount: 2,
-      scopeCount: 1
-    });
-    expect(buildMemoryRecallSummary(undefined)).toBeUndefined();
-    expect(
-      sanitizeMemoryRecallSummary({
-        memoryRecordCount: 2,
-        recordCount: 4,
-        scopeCount: 1
-      })
-    ).toEqual({
-      memoryRecordCount: 2,
-      recordCount: 4,
-      scopeCount: 1
-    });
-    expect(sanitizeMemoryRecallSummary({ memoryRecordCount: 0, recordCount: 0, scopeCount: 0 })).toBeUndefined();
-    expect(sanitizeMemoryRecallSummary({ memoryRecordCount: "2", recordCount: 4, scopeCount: 1 })).toBeUndefined();
-  });
-
-  it("preserves safe memory recall counts in query evidence snapshots", () => {
-    const answered = buildQueryEvidenceSnapshot({
-      evidencePackRecordIds: ["S3-L1"],
-      queryScope: "line",
-      recordIds: ["S3-L1"],
-      response: {
-        answer: "Answered from evidence.",
-        citations: [{ deterministicBasis: "Citation basis", recordId: "S3-L1" }],
-        deterministicBasis: "Deterministic basis",
-        memoryRecall: {
-          memoryRecordCount: 2,
-          recordCount: 4,
-          scopeCount: 1
-        },
-        trace: [
-          {
-            agentName: "Forensics Investigator",
-            deterministicBasis: "Hook basis",
-            hook: "agent_start",
-            label: "Scope accepted",
-            message: "Scope accepted",
-            phase: "supervisor",
-            receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
-            recordIds: ["S3-L1"]
-          }
-        ]
-      },
-      selectedLine: "S3-L1"
-    });
-    const blocked = buildQueryEvidenceSnapshot({
-      evidencePackRecordIds: ["S3-L1"],
-      queryScope: "line",
-      recordIds: ["S3-L1"],
-      response: {
-        citations: [],
-        memoryRecall: {
-          memoryRecordCount: 1,
-          recordCount: 2,
-          scopeCount: 1
-        },
-        trace: []
-      },
-      selectedLine: "S3-L1"
-    });
-
-    expect(answered.status).toBe("answered");
-    expect(answered.memoryRecall).toEqual({ memoryRecordCount: 2, recordCount: 4, scopeCount: 1 });
-    expect(blocked.status).toBe("blocked");
-    expect(blocked.memoryRecall).toEqual({ memoryRecordCount: 1, recordCount: 2, scopeCount: 1 });
-  });
-
-  it("drops unsafe memory recall body fields from query evidence snapshots", () => {
-    const poisonedMemoryRecall = {
-      memoryRecordCount: 2,
-      recordCount: 4,
-      scopeCount: 1,
-      memoryRecordIds: ["case:S3-L1:maya-recall:session:S3-L1"],
-      payload_json: {
-        body: "Do not expose remembered body text."
-      },
-      selectedRecordIds: ["S3-L1"],
-      sessionId: "maya-session-42"
-    } as unknown as NonNullable<QueryEvidenceBackendResponse["memoryRecall"]>;
-
-    const snapshot = buildQueryEvidenceSnapshot({
-      evidencePackRecordIds: ["S3-L1"],
-      queryScope: "line",
-      recordIds: ["S3-L1"],
-      response: {
-        answer: "Answered from evidence.",
-        citations: [{ deterministicBasis: "Citation basis", recordId: "S3-L1" }],
-        deterministicBasis: "Deterministic basis",
-        memoryRecall: poisonedMemoryRecall,
-        trace: [
-          {
-            agentName: "Forensics Investigator",
-            deterministicBasis: "Hook basis",
-            hook: "agent_start",
-            label: "Scope accepted",
-            message: "Scope accepted",
-            phase: "supervisor",
-            receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
-            recordIds: ["S3-L1"]
-          }
-        ]
-      },
-      selectedLine: "S3-L1"
-    });
-
-    expect(snapshot.memoryRecall).toEqual({ memoryRecordCount: 2, recordCount: 4, scopeCount: 1 });
-    expect(JSON.stringify(snapshot)).not.toContain("payload_json");
-    expect(JSON.stringify(snapshot)).not.toContain("selectedRecordIds");
-    expect(JSON.stringify(snapshot)).not.toContain("sessionId");
-    expect(JSON.stringify(snapshot)).not.toContain("Do not expose remembered body text.");
-  });
 });

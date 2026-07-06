@@ -128,24 +128,6 @@ export interface MayaCopilotVerdictBand {
   verdictLabel: string;
 }
 
-export interface MayaMemoryRecallSummary {
-  memoryRecordCount: number;
-  recordCount: number;
-  scopeCount: number;
-}
-
-export interface MayaMemoryRecallInput {
-  memoryRecordIds: readonly string[];
-  recordIds: readonly string[];
-  scopes: readonly string[];
-}
-
-export interface MayaMemoryRecallResponseInput {
-  memoryRecordCount?: unknown;
-  recordCount?: unknown;
-  scopeCount?: unknown;
-}
-
 export interface MayaResolvedWorklistReason {
   factHash?: string;
   generatedAtIso?: string;
@@ -720,37 +702,6 @@ export function buildCopilotDrawerTrigger(label: string, value: string): string 
   return `${label.trim()} · ${value.trim()}`;
 }
 
-export function buildMemoryRecallSummary(input: MayaMemoryRecallInput | undefined): MayaMemoryRecallSummary | undefined {
-  if (input === undefined) {
-    return undefined;
-  }
-
-  const memoryRecordCount = dedupeStrings(input.memoryRecordIds).length;
-  const recordCount = dedupeStrings(input.recordIds).length;
-  const scopeCount = dedupeStrings(input.scopes).length;
-
-  return memoryRecordCount === 0 && recordCount === 0 && scopeCount === 0
-    ? undefined
-    : { memoryRecordCount, recordCount, scopeCount };
-}
-
-export function sanitizeMemoryRecallSummary(input: MayaMemoryRecallResponseInput | undefined): MayaMemoryRecallSummary | undefined {
-  if (input === undefined) {
-    return undefined;
-  }
-
-  const memoryRecordCount = nonnegativeInteger(input.memoryRecordCount);
-  const recordCount = nonnegativeInteger(input.recordCount);
-  const scopeCount = nonnegativeInteger(input.scopeCount);
-  if (memoryRecordCount === undefined || recordCount === undefined || scopeCount === undefined) {
-    return undefined;
-  }
-
-  return memoryRecordCount === 0 && recordCount === 0 && scopeCount === 0
-    ? undefined
-    : { memoryRecordCount, recordCount, scopeCount };
-}
-
 export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInput): QueryEvidenceResponse {
   const citedRecordIds = dedupeStrings(input.response.citations.map((citation) => citation.recordId));
   const selectedScopeRecordIds =
@@ -780,14 +731,10 @@ export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInpu
   }
   const modelExecutionField =
     input.response.modelExecution === undefined ? {} : { modelExecution: input.response.modelExecution };
-  const memoryRecall = sanitizeMemoryRecallSummary(input.response.memoryRecall);
-  const memoryRecallField =
-    memoryRecall === undefined ? {} : { memoryRecall };
 
   if (hasAnswer && input.response.answer !== undefined && input.response.deterministicBasis !== undefined) {
     return {
       ...modelExecutionField,
-      ...memoryRecallField,
       answer: input.response.answer,
       citations: input.response.citations,
       deterministicBasis: input.response.deterministicBasis,
@@ -800,17 +747,12 @@ export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInpu
 
   return {
     ...modelExecutionField,
-    ...memoryRecallField,
     citations: input.response.citations,
     message,
     recordIds: blockedRecordIds,
     status: "blocked",
     trace: input.response.trace
   };
-}
-
-function nonnegativeInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 export function deriveDecisionFlowSteps(input: BuildDecisionFlowStepsInput): MayaDecisionFlowStep[] {

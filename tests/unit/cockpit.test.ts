@@ -1345,13 +1345,13 @@ describe("S5 Forensics cockpit model", () => {
       "Bureau",
       "Remittance / EDI",
       "Contract Repo",
-      "MCP"
+      "MCP Gateway"
     ]);
     expect(model.sourceTiles.find((source) => source.label === "3PL POD")).toMatchObject({
       stateLabel: "Status unavailable",
       statusTone: "blocked"
     });
-    expect(model.sourceTiles.find((source) => source.label === "MCP")).toMatchObject({
+    expect(model.sourceTiles.find((source) => source.label === "MCP Gateway")).toMatchObject({
       stateLabel: "Status unavailable",
       statusTone: "blocked",
       summary: "Status unavailable"
@@ -1383,7 +1383,7 @@ describe("S5 Forensics cockpit model", () => {
         transport: "StreamableHTTPServerTransport"
       }
     );
-    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP Gateway");
 
     expect(mcp).toMatchObject({
       checkedAtIso: "2026-06-24T10:31:00.000Z",
@@ -1562,7 +1562,7 @@ describe("S5 Forensics cockpit model", () => {
       }
     ];
     const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
-    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP");
+    const mcp = model.sourceTiles.find((sourceTile) => sourceTile.label === "MCP Gateway");
 
     expect(mcp).toMatchObject({
       checkedAtIso: "2026-06-24T10:31:00.000Z",

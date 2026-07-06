@@ -153,6 +153,7 @@ interface SupabaseReadModelRow {
 const defaultMemoryTableName = "recoup_memory_records";
 const defaultSourceHealthSnapshotTableName = "recoup_source_health_snapshots";
 const defaultReadModelTableName = "recoup_cockpit_read_models";
+const supabaseRestPageSize = 1000;
 
 export function createSupabaseMemoryRepository(options: SupabaseMemoryRepositoryOptions): SupabaseMemoryRepository {
   const tableName = normalizeTableName(options.tableName ?? defaultMemoryTableName);
@@ -188,14 +189,14 @@ export function createSupabaseMemoryRepository(options: SupabaseMemoryRepository
       const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
       url.searchParams.set("scope", `eq.${scope}`);
       url.searchParams.set("order", "sequence.asc");
-      return (await requestRows(fetcher, { method: "GET", serviceRoleKey: options.serviceRoleKey, url: url.href })).map(
+      return (await requestPagedRows(fetcher, { method: "GET", serviceRoleKey: options.serviceRoleKey, url: url.href })).map(
         parseSupabaseMemoryRow
       );
     },
     async listAll() {
       const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
       url.searchParams.set("order", "sequence.asc");
-      return (await requestRows(fetcher, { method: "GET", serviceRoleKey: options.serviceRoleKey, url: url.href })).map(
+      return (await requestPagedRows(fetcher, { method: "GET", serviceRoleKey: options.serviceRoleKey, url: url.href })).map(
         parseSupabaseMemoryRow
       );
     },
@@ -1734,6 +1735,32 @@ async function requestRows<T = SupabaseMemoryRow>(
   }
 
   return (await response.json()) as T[];
+}
+
+async function requestPagedRows<T = SupabaseMemoryRow>(
+  fetcher: SupabaseMemoryFetch,
+  input: {
+    method: "GET";
+    serviceRoleKey: string;
+    url: string;
+  }
+): Promise<T[]> {
+  const rows: T[] = [];
+
+  for (let offset = 0; ; offset += supabaseRestPageSize) {
+    const pageUrl = new URL(input.url);
+    pageUrl.searchParams.set("limit", String(supabaseRestPageSize));
+    pageUrl.searchParams.set("offset", String(offset));
+    const page = await requestRows<T>(fetcher, {
+      method: input.method,
+      serviceRoleKey: input.serviceRoleKey,
+      url: pageUrl.href
+    });
+    rows.push(...page);
+    if (page.length < supabaseRestPageSize) {
+      return rows;
+    }
+  }
 }
 
 async function requestSourceHealthRows(

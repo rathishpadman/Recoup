@@ -47,6 +47,7 @@ const approvedDetail = {
 const env = {
   EMAIL_TO_BILLING: "billing@example.com",
   EMAIL_TO_RECOVERY: "recovery@example.com",
+  NODE_ENV: "test",
   RECOUP_API_URL: "http://127.0.0.1:4317",
   RECOUP_COCKPIT_AUTH_TOKEN: "test-human-token",
   RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya",
@@ -237,6 +238,27 @@ describe("Maya email route", () => {
         subject: approvedEmailSubject
       }),
       { env: { ...env, VERCEL_ENV: "production" }, fetchImpl }
+    );
+
+    expect(response.status).toBe(403);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      error: "Actor is not permitted to send approved external correspondence."
+    });
+  });
+
+  it("requires an explicit send_email principal allowlist outside test runtime", async () => {
+    const fetchImpl = vi.fn();
+
+    const response = await handleEmailPostForTest(
+      request({
+        actionId: "draft:S3-L1",
+        body: approvedEmailBody,
+        lineId: "S3-L1",
+        recipientGroup: "recovery",
+        subject: approvedEmailSubject
+      }),
+      { env: { ...env, NODE_ENV: undefined }, fetchImpl }
     );
 
     expect(response.status).toBe(403);

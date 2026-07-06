@@ -271,7 +271,7 @@ export function emailStatusSecret(runtimeEnv: RuntimeEmailEnv, config: RecoupEma
 
 export function emailSendCapabilitiesForPrincipal(runtimeEnv: RuntimeEmailEnv, principal: string): string[] {
   const explicitPrincipals = parseCsv(runtimeEnv.RECOUP_EMAIL_SEND_PRINCIPALS);
-  if (explicitPrincipals.length === 0 && runtimeEnv.VERCEL_ENV?.trim() === "production") {
+  if (explicitPrincipals.length === 0 && !isTestEmailRuntime(runtimeEnv)) {
     return ["read"];
   }
 
@@ -283,6 +283,10 @@ export function emailSendCapabilitiesForPrincipal(runtimeEnv: RuntimeEmailEnv, p
         );
 
   return allowedPrincipals.includes(principal) ? ["read", "send_email"] : ["read"];
+}
+
+function isTestEmailRuntime(runtimeEnv: RuntimeEmailEnv): boolean {
+  return runtimeEnv.NODE_ENV?.trim() === "test" && runtimeEnv.VERCEL_ENV?.trim() !== "production";
 }
 
 export function clearEmailSendReceiptsForTest(): void {

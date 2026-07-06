@@ -1138,9 +1138,67 @@ describe("supabase memory repository", () => {
 
     await expect(repository.list("session:demo")).resolves.toEqual([record]);
     expect(calls[0]?.url).toBe(
-      "https://recoup.supabase.co/rest/v1/recoup_memory_records?scope=eq.session%3Ademo&order=sequence.asc"
+      "https://recoup.supabase.co/rest/v1/recoup_memory_records?scope=eq.session%3Ademo&order=sequence.asc&limit=1000&offset=0"
     );
     expect(calls[0]?.init.method).toBe("GET");
+  });
+
+  it("paginates full memory reads so approval receipts beyond the first REST page are visible", async () => {
+    const firstPageRows = Array.from({ length: 1000 }, (_, index) => ({
+      id: `query-memory:${String(index)}`,
+      category: "session_state",
+      trust_level: "trusted",
+      scope: `query:${String(index)}`,
+      payload_json: { index },
+      record_ids_json: [`Q-${String(index)}`],
+      created_at: "2026-06-19T00:00:00.000Z"
+    }));
+    const approvalRow = {
+      id: "approval:route-billing:S1-L1",
+      category: "approval_records",
+      trust_level: "trusted",
+      scope: "approval:route-billing:S1-L1",
+      payload_json: {
+        actionId: "route-billing:S1-L1",
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      record_ids_json: ["route-billing:S1-L1", "S1-L1"],
+      created_at: "2026-06-19T00:00:01.000Z"
+    };
+    const calls: Array<{ init: RequestInit; url: string }> = [];
+    const fetcher: SupabaseMemoryFetch = (url, init) => {
+      calls.push({ url, init });
+      const offset = Number(new URL(url).searchParams.get("offset") ?? "0");
+      return Promise.resolve(
+        new Response(JSON.stringify(offset === 0 ? firstPageRows : [approvalRow]), {
+          headers: { "content-type": "application/json" },
+          status: 200
+        })
+      );
+    };
+    const repository = createSupabaseMemoryRepository({
+      fetcher,
+      serviceRoleKey: "supabase-secret-key",
+      tableName: "recoup_memory_records",
+      url: "https://recoup.supabase.co"
+    });
+
+    const records = await repository.listAll();
+
+    expect(records).toHaveLength(1001);
+    expect(records.at(-1)).toMatchObject({
+      category: "approval_records",
+      id: "approval:route-billing:S1-L1",
+      payload: {
+        actionId: "route-billing:S1-L1",
+        status: "human_decided"
+      }
+    });
+    expect(calls.map((call) => new URL(call.url).searchParams.get("offset"))).toEqual(["0", "1000"]);
+    expect(calls.map((call) => new URL(call.url).searchParams.get("limit"))).toEqual(["1000", "1000"]);
   });
 
   it("normalizes Postgres timestamptz rows to the internal ISO memory datetime contract", async () => {
