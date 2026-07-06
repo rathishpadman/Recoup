@@ -362,6 +362,20 @@ describe("S5 Forensics cockpit model", () => {
     expect(evidenceDossier).toContain('data-testid="pod-document-preview"');
   });
 
+  it("keeps the Maya decision flow as a horizontal icon timeline, not nested cards", () => {
+    const stepper = readFileSync("cockpit/components/maya/decision-flow-stepper.tsx", "utf8");
+
+    expect(stepper).toContain('aria-label="Decision flow"');
+    expect(stepper).toContain('data-testid="maya-decision-flow-connector"');
+    expect(stepper).toContain("md:grid-cols-5");
+    expect(stepper).toContain("FileTextIcon");
+    expect(stepper).toContain("SearchIcon");
+    expect(stepper).toContain("RouteIcon");
+    expect(stepper).not.toContain("<Card");
+    expect(stepper).not.toContain("<Badge");
+    expect(stepper).not.toContain("CardContent");
+  });
+
   it("invalidates stale Maya work-item detail requests when returning to the worklist", () => {
     const requestGate = { current: 0 };
     const staleRequestId = beginWorkItemDetailRequest(requestGate);

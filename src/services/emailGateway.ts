@@ -19,6 +19,14 @@ export interface RecoupEmailDraft {
   subject: string;
 }
 
+interface ResendEmailProviderBody {
+  from: string;
+  html: string;
+  subject: string;
+  text: string;
+  to: string[];
+}
+
 export interface EmailSendReceipt {
   actionId: string;
   bodyHtmlHash: string;
@@ -80,7 +88,8 @@ export async function sendResendEmail(input: {
   const htmlBody = plainTextEmailHtml(textBody);
   const bodyHtmlHash = sha256Hex(htmlBody);
   const bodyTextHash = sha256Hex(textBody);
-  const sendKey = emailSendLedgerKey(input.draft);
+  const providerBody = buildResendEmailProviderBody(input.config, input.draft, { htmlBody, textBody });
+  const sendKey = emailSendLedgerKey(input.draft, providerBody);
   const existing = emailSendReceipts.get(sendKey);
   if (existing !== undefined) {
     return emailSendResultFromReceipt(existing.receipt, "already_sent", input.statusSecret);
@@ -101,6 +110,8 @@ export async function sendResendEmail(input: {
     fetchImpl,
     htmlBody,
     principal: input.principal,
+    providerBody,
+    sendKey,
     textBody
   });
   emailSendInFlight.set(sendKey, sendPromise);
@@ -121,20 +132,16 @@ async function deliverResendEmail(input: {
   fetchImpl: EmailFetch;
   htmlBody: string;
   principal?: string | undefined;
+  providerBody: ResendEmailProviderBody;
+  sendKey: string;
   textBody: string;
 }): Promise<EmailSendLedgerEntry> {
   const response = await input.fetchImpl("https://api.resend.com/emails", {
-    body: JSON.stringify({
-      from: input.config.senderEmailAddress,
-      html: input.htmlBody,
-      subject: input.draft.subject,
-      text: input.textBody,
-      to: [recipientForGroup(input.config, input.draft.recipientGroup)]
-    }),
+    body: JSON.stringify(input.providerBody),
     headers: {
       authorization: `Bearer ${input.config.resendApiKey}`,
       "content-type": "application/json",
-      "idempotency-key": resendIdempotencyKey(input.draft)
+      "idempotency-key": resendIdempotencyKey(input.sendKey)
     },
     method: "POST"
   });
@@ -308,18 +315,31 @@ function recipientForGroup(config: RecoupEmailConfig, group: EmailRecipientGroup
   return group === "billing" ? config.billingRecipient : config.recoveryRecipient;
 }
 
-function emailSendLedgerKey(draft: RecoupEmailDraft): string {
+function buildResendEmailProviderBody(
+  config: RecoupEmailConfig,
+  draft: RecoupEmailDraft,
+  body: { htmlBody: string; textBody: string }
+): ResendEmailProviderBody {
+  return {
+    from: config.senderEmailAddress,
+    html: body.htmlBody,
+    subject: draft.subject,
+    text: body.textBody,
+    to: [recipientForGroup(config, draft.recipientGroup)]
+  };
+}
+
+function emailSendLedgerKey(draft: RecoupEmailDraft, providerBody: ResendEmailProviderBody): string {
   return [
     draft.actionId,
     draft.lineId,
     draft.recipientGroup,
-    sha256Hex(draft.subject),
-    sha256Hex(draft.body)
+    sha256Hex(JSON.stringify(providerBody))
   ].join("\u0000");
 }
 
-function resendIdempotencyKey(draft: RecoupEmailDraft): string {
-  return `recoup-email/${sha256Hex(emailSendLedgerKey(draft))}`;
+function resendIdempotencyKey(sendKey: string): string {
+  return `recoup-email/${sha256Hex(sendKey)}`;
 }
 
 function emailSendResultFromReceipt(receipt: EmailSendReceipt, status: string, statusSecret: string): EmailSendResult {

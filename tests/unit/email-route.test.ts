@@ -457,6 +457,57 @@ describe("Maya email route", () => {
     expect(secondHeaders?.["idempotency-key"]).not.toBe(firstHeaders?.["idempotency-key"]);
   });
 
+  it("uses a new provider idempotency key when the configured sender or recipient changes", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(approvedDetail), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ created_at: "2026-07-03T00:00:00.000Z", id: "email_123", last_event: "sent" }), {
+          status: 200
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(approvedDetail), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ created_at: "2026-07-03T00:00:01.000Z", id: "email_456", last_event: "sent" }), {
+          status: 200
+        })
+      );
+    const requestBody = {
+      actionId: "draft:S3-L1",
+      body: approvedEmailBody,
+      lineId: "S3-L1",
+      recipientGroup: "recovery",
+      subject: approvedEmailSubject
+    } as const;
+
+    const firstResponse = await handleEmailPostForTest(request(requestBody), { env, fetchImpl });
+    const secondResponse = await handleEmailPostForTest(request(requestBody), {
+      env: {
+        ...env,
+        EMAIL_TO_RECOVERY: "collections@example.com",
+        SENDER_EMAIL_ADDRESS: "maya@north-bay.dev"
+      },
+      fetchImpl
+    });
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    const firstPayload = (await firstResponse.json()) as { providerEmailId: string; status: string };
+    const secondPayload = (await secondResponse.json()) as { providerEmailId: string; status: string };
+    expect(firstPayload).toMatchObject({ providerEmailId: "email_123", status: "sent" });
+    expect(secondPayload).toMatchObject({ providerEmailId: "email_456", status: "sent" });
+
+    const resendCalls = fetchImpl.mock.calls.filter(([url]) => url === "https://api.resend.com/emails");
+    expect(resendCalls).toHaveLength(2);
+    const firstInit = resendCalls[0]?.[1] as RequestInit | undefined;
+    const secondInit = resendCalls[1]?.[1] as RequestInit | undefined;
+    const firstHeaders = firstInit?.headers as Record<string, string> | undefined;
+    const secondHeaders = secondInit?.headers as Record<string, string> | undefined;
+    expect(firstHeaders?.["idempotency-key"]).toMatch(/^recoup-email\/[a-f0-9]{64}$/u);
+    expect(secondHeaders?.["idempotency-key"]).toMatch(/^recoup-email\/[a-f0-9]{64}$/u);
+    expect(secondHeaders?.["idempotency-key"]).not.toBe(firstHeaders?.["idempotency-key"]);
+  });
+
   it("generates a non-empty HTML body while preserving the approved plain-text body", async () => {
     const bodyWithEscapableCharacters = `${approvedEmailBody}\nReview approved & route "now".`;
     const fetchImpl = vi
