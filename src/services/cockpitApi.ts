@@ -349,6 +349,17 @@ interface ForensicsRunContext {
   source: SourcePort;
 }
 
+type GovernedForensicsRunContext = ForensicsRunContext & { governedConfig: GovernedConfigValues };
+
+type MayaSelectedQueryScope =
+  | { status: "blocked" }
+  | {
+      hasOutOfScopeSubmittedRecordId: boolean;
+      normalizedRequest: ForensicsSelectedQueryRequest;
+      status: "ready";
+      trustedEvidencePackRecordIds: string[];
+    };
+
 interface CachedForensicsRunContext extends ForensicsRunContext {
   cachedAtMs: number;
   key: ForensicsSourceContextCacheKey;
@@ -1584,6 +1595,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     const selectedQueryRequest = forensicsSelectedQueryRequestSchema.parse(parsedRequest.data);
+    if (!isSafeMayaQueryMemoryRecordId(selectedQueryRequest.selectedLineId)) {
+      response.json(blockedForensicsSelectedScopeQueryResponse());
+      return;
+    }
     const runControl = await loadRequiredRunControl(request, response);
     if (runControl === undefined) {
       return;
@@ -1623,58 +1638,25 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         memoryFetcher: options.memoryFetcher,
         selectedLineId: selectedQueryRequest.selectedLineId
       });
-      const queryModelOptions = {
-        governedConfig: runContext.governedConfig,
-        ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
-        serviceContext: runContext.serviceContext,
-        settlementSource: runContext.source
-      };
-      const selectedDetail = buildForensicsWorkItemDetailCockpitModel(
-        queryModelOptions,
-        selectedQueryRequest.selectedLineId
-      );
-      const selectedWorklistItem = buildForensicsCockpitModel(queryModelOptions).worklist.find(
-        (item) =>
-          item.lineId === selectedQueryRequest.selectedLineId ||
-          item.lineIds.includes(selectedQueryRequest.selectedLineId)
-      );
-      const trustedEvidencePackRecordIds = uniqueRecordIds([
-        ...selectedDetail.selected.evidencePack.recordIds,
-        ...(selectedWorklistItem?.lineIds ?? []),
-        ...(selectedWorklistItem?.provenance.recordIds ?? [])
-      ]);
-      const selectedQueryScopedRecordIds = uniqueRecordIds([
-        selectedQueryRequest.selectedLineId,
-        ...selectedQueryRequest.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))
-      ]);
-      const hasUnsafeSubmittedRecordId = selectedQueryRequest.recordIds.some((recordId) => !isSafeMayaQueryMemoryRecordId(recordId));
-      const hasOutOfScopeSubmittedRecordId = selectedQueryRequest.recordIds.some(
-        (recordId) =>
-          recordId !== selectedQueryRequest.selectedLineId &&
-          !trustedEvidencePackRecordIds.includes(recordId)
-      );
-      if (hasUnsafeSubmittedRecordId) {
+      const selectedScope = buildMayaSelectedQueryScope(runContext, selectedQueryRequest);
+      if (selectedScope.status === "blocked") {
         response.json(blockedForensicsSelectedScopeQueryResponse());
         return;
       }
-      const normalizedSelectedQueryRequest = {
-        ...selectedQueryRequest,
-        recordIds: selectedQueryScopedRecordIds
-      };
       const queryResponse = await runForensicsQuerySessionWithLiveAgents({
         governedConfig: runContext.governedConfig,
         liveAgentTrace,
         ...(memoryRecall === undefined ? {} : { memoryRecall }),
-        question: normalizedSelectedQueryRequest.question,
+        question: selectedScope.normalizedRequest.question,
         ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
-        recordIds: normalizedSelectedQueryRequest.recordIds,
-        selectedLineId: normalizedSelectedQueryRequest.selectedLineId,
+        recordIds: selectedScope.normalizedRequest.recordIds,
+        selectedLineId: selectedScope.normalizedRequest.selectedLineId,
         serviceContext: runContext.serviceContext,
         source: runContext.source,
-        trustedEvidencePackRecordIds
+        trustedEvidencePackRecordIds: selectedScope.trustedEvidencePackRecordIds
       });
       const queryCorrelationId = readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? "");
-      if (!hasOutOfScopeSubmittedRecordId) {
+      if (!selectedScope.hasOutOfScopeSubmittedRecordId) {
         await Promise.all([
           awaitBoundedForensicsQueryOptionalPersistence({
             correlationId: queryCorrelationId,
@@ -1683,7 +1665,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
               env: runtimeEnv,
               memoryFetcher: options.memoryFetcher,
               queryResponse,
-              request: normalizedSelectedQueryRequest,
+              request: selectedScope.normalizedRequest,
               sessionId
             }),
             taskName: "maya_query_scope_memory"
@@ -1695,7 +1677,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
               env: runtimeEnv,
               memoryFetcher: options.memoryFetcher,
               queryResponse,
-              request: normalizedSelectedQueryRequest,
+              request: selectedScope.normalizedRequest,
               sessionId
             }),
             taskName: "maya_query_case_recall_memory"
@@ -1708,7 +1690,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
               env: runtimeEnv,
               memoryFetcher: options.memoryFetcher,
               queryResponse,
-              request: normalizedSelectedQueryRequest
+              request: selectedScope.normalizedRequest
             }),
             taskName: "maya_query_token_usage_receipt"
           })
@@ -1719,14 +1701,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       if (error instanceof ForensicsQueryLineNotFoundError) {
         response.status(404).json({
           error: "Forensics query selected line not found.",
-          lineId: error.lineId
+          ...(isSafeMayaQueryMemoryRecordId(error.lineId) ? { lineId: error.lineId } : {})
         });
         return;
       }
       if (error instanceof ForensicsWorkItemNotFoundError) {
         response.status(404).json({
           error: "Forensics query selected line not found.",
-          lineId: error.lineId
+          ...(isSafeMayaQueryMemoryRecordId(error.lineId) ? { lineId: error.lineId } : {})
         });
         return;
       }
@@ -1756,12 +1738,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     try {
+      const runContext = await loadRequiredForensicsRunContext(request, response);
+      if (runContext === undefined) {
+        return;
+      }
+      const selectedScope = buildMayaSelectedQueryScope(runContext, parsedRequest.data);
+      if (selectedScope.status === "blocked") {
+        response.status(400).json({ error: "Realtime query selected evidence scope is not current." });
+        return;
+      }
       const result = await requestRealtimeClientSecret({
         env: runtimeEnv,
         ...(options.realtimeFetcher === undefined ? {} : { fetcher: options.realtimeFetcher }),
-        question: parsedRequest.data.question,
-        recordIds: parsedRequest.data.recordIds,
-        selectedLineId: parsedRequest.data.selectedLineId,
+        question: selectedScope.normalizedRequest.question,
+        recordIds: selectedScope.normalizedRequest.recordIds,
+        selectedLineId: selectedScope.normalizedRequest.selectedLineId,
         safetyIdentifier: human.principal
       });
       response.status(result.status === "blocked_missing_credentials" ? 503 : 200).json(result);
@@ -1790,16 +1781,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     try {
-      const governedConfig = await loadRequiredGovernedConfig(request, response);
-      if (governedConfig === undefined) {
-        return;
-      }
-      const source = await loadRequiredSupabaseSource(request, response, governedConfig, { riskObservationRequired: true });
-      if (source === undefined) {
+      const runContext = await loadRequiredForensicsRunContext(request, response, { riskObservationRequired: true });
+      if (runContext === undefined) {
         return;
       }
       const result = handleRealtimeToolCall(parsedRequest.data, (name, input) =>
-        invokeServiceTool(name, input, { governedConfig, source })
+        name === "query.answer"
+          ? invokeRealtimeQueryAnswerTool(runContext, input)
+          : invokeServiceTool(name, input, { governedConfig: runContext.governedConfig, source: runContext.source })
       );
       response.status(result.status === "blocked_tool" ? 403 : 200).json(result);
     } catch {
@@ -2210,6 +2199,80 @@ function sanitizeForensicsQueryTokenReceiptError(error: unknown): string {
 
 function isSafeMayaQueryMemoryRecordId(recordId: string): boolean {
   return safeMayaQueryMemoryRecordIdPattern.test(recordId) && !unsafeMayaQueryMemoryRecordIdPattern.test(recordId);
+}
+
+function buildMayaSelectedQueryScope(
+  runContext: GovernedForensicsRunContext,
+  request: ForensicsSelectedQueryRequest
+): MayaSelectedQueryScope {
+  if (
+    !isSafeMayaQueryMemoryRecordId(request.selectedLineId) ||
+    request.recordIds.some((recordId) => !isSafeMayaQueryMemoryRecordId(recordId))
+  ) {
+    return { status: "blocked" };
+  }
+
+  const queryModelOptions = {
+    governedConfig: runContext.governedConfig,
+    ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
+    serviceContext: runContext.serviceContext,
+    settlementSource: runContext.source
+  };
+  const selectedDetail = buildForensicsWorkItemDetailCockpitModel(
+    queryModelOptions,
+    request.selectedLineId
+  );
+  const selectedWorklistItem = buildForensicsCockpitModel(queryModelOptions).worklist.find(
+    (item) =>
+      item.lineId === request.selectedLineId ||
+      item.lineIds.includes(request.selectedLineId)
+  );
+  const trustedEvidencePackRecordIds = uniqueRecordIds([
+    ...selectedDetail.selected.evidencePack.recordIds,
+    ...(selectedWorklistItem?.lineIds ?? []),
+    ...(selectedWorklistItem?.provenance.recordIds ?? [])
+  ]);
+  const selectedQueryScopedRecordIds = uniqueRecordIds([
+    request.selectedLineId,
+    ...request.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))
+  ]);
+
+  return {
+    hasOutOfScopeSubmittedRecordId: request.recordIds.some(
+      (recordId) =>
+        recordId !== request.selectedLineId &&
+        !trustedEvidencePackRecordIds.includes(recordId)
+    ),
+    normalizedRequest: {
+      ...request,
+      recordIds: selectedQueryScopedRecordIds
+    },
+    status: "ready",
+    trustedEvidencePackRecordIds
+  };
+}
+
+function invokeRealtimeQueryAnswerTool(runContext: GovernedForensicsRunContext, input: unknown): unknown {
+  const parsed = forensicsSelectedQueryRequestSchema.parse(input);
+  const selectedScope = buildMayaSelectedQueryScope(runContext, parsed);
+  if (selectedScope.status === "blocked") {
+    throw new Error("query.answer input is outside the selected evidence scope.");
+  }
+
+  const scopedRecordIds = uniqueRecordIds([
+    selectedScope.normalizedRequest.selectedLineId,
+    ...selectedScope.normalizedRequest.recordIds
+  ]);
+  return invokeServiceTool("query.answer", selectedScope.normalizedRequest, {
+    ...runContext.serviceContext,
+    governedConfig: runContext.governedConfig,
+    ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
+    queryAnswerScope: {
+      recordIds: scopedRecordIds,
+      selectedLineId: selectedScope.normalizedRequest.selectedLineId
+    },
+    source: runContext.source
+  });
 }
 
 function blockedForensicsSelectedScopeQueryResponse(): ForensicsQuerySessionResponse {

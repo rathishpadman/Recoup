@@ -17,10 +17,10 @@ Evidence artifacts:
 Local remediation evidence:
 
 - Failed-case diagnostic against `http://127.0.0.1:3000`: S4, S5, S7, and S8 all returned `live_openai_agents`.
-- Full all-case browser sweep against `http://127.0.0.1:3000`: `caseFailures: 0`, `caseTotal: 8`, `workspaceFailures: 0`, `staleRunStatus: 409`, `workspaceVisibleMs: 6016`.
+- Full all-case browser sweep against `http://127.0.0.1:3000`: `caseFailures: 0`, `caseTotal: 8`, `workspaceFailures: 0`, `staleRunStatus: 409`, `workspaceVisibleMs: 10301`.
 - `npm run lint`: pass.
 - `npm run typecheck`: pass.
-- `npm run test`: 127 test files passed, 1130 tests passed.
+- `npm run test`: 127 test files passed, 1135 tests passed.
 - `npm run build`: pass.
 
 ## Execution Summary
@@ -54,6 +54,7 @@ Local remediation evidence:
 | S7 | `Live Agents SDK trace did not include a successful selected-evidence MCP query.answer source read.` | Partial/non-SAP selected evidence is source-backed through Supabase synthetic connectors, but `query.answer` only accepted reconciliation-selected evidence or SAP evidence. | `query.answer` now falls back to selected Supabase connector/vector evidence before requiring SAP. Local S7 diagnostic passes. |
 | S8 | `Live Agents SDK trace did not include a successful selected-evidence MCP query.answer source read.` | Same partial/non-SAP source-read gap as S7. | Same source-read contract fix as S7. Local S8 diagnostic passes. |
 | Unsafe/stale submitted record IDs | Reviewer regression showed original submitted record IDs could be hidden by normalization before validation and persistence checks. | The query route needed to distinguish secret-like unsafe IDs from safe-but-stale detail IDs. | Secret-like IDs now fail closed before live agents; safe stale IDs are dropped before live agents and query persistence is skipped for that request. |
+| Realtime query tool scope | Reviewer found `/query/realtime-tool` could call `query.answer` without the `/forensics/query` selected-scope normalization. | Realtime tool and client-secret routes needed the same server-derived Maya selected evidence scope. | Realtime client-secret policy and `query.answer` tool execution now normalize to server-selected scope, drop safe stale IDs, and block unsafe IDs without echoing them. |
 
 ## Remediation Plan
 

@@ -1744,6 +1744,45 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("blocks unsafe selectedLineId before Maya query lookup without echoing the submitted value", async () => {
+    const unsafeSelectedLineId = "sk-selected-line-secret";
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveQueryRunnerWithForensicsHandoff()
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["S6-L1", "INV-S6-1"],
+          selectedLineId: unsafeSelectedLineId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const text = await response.text();
+      const body = JSON.parse(text) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason?: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toMatchObject({
+        mode: "blocked_live_agent_trace",
+        reason: "Selected evidence scope is not current for this Maya case."
+      });
+      expect(text).not.toContain(unsafeSelectedLineId);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("drops stale safe submitted record IDs before live trace and skips Maya query persistence", async () => {
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
     const memoryRows: Array<Record<string, unknown>> = [];
@@ -5767,6 +5806,35 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("normalizes stale safe record IDs before building Realtime client-secret policy", async () => {
+    const staleSubmittedRecordId = "STALE-SAFE-REALTIME-RECORD";
+    const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
+    try {
+      const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
+        body: JSON.stringify({
+          question: "which selected evidence supports S6-L1?",
+          recordIds: ["S6-L1", "INV-S6-1", staleSubmittedRecordId],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const text = await response.text();
+      const result = JSON.parse(text) as {
+        auditPolicy: { recordIds: string[] };
+        status: string;
+      };
+
+      expect(response.status).toBe(503);
+      expect(result.status).toBe("blocked_missing_credentials");
+      expect(result.auditPolicy.recordIds).toEqual(expect.arrayContaining(["S6-L1", "INV-S6-1"]));
+      expect(result.auditPolicy.recordIds).not.toContain(staleSubmittedRecordId);
+      expect(text).not.toContain(staleSubmittedRecordId);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves MCP connector source readiness from a saved snapshot without live-probing during page load", async () => {
     const snapshotCheckedAt = new Date().toISOString();
     const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
@@ -6157,6 +6225,55 @@ describe("S5 cockpit API", () => {
       expect(scopedResponse.status).toBe(200);
       expect(scopedResult.status).toBe("ok");
       expect(scopedResult.recordIds).toEqual([...selectedRealtimeQueryScope.recordIds]);
+
+      const staleSubmittedRecordId = "STALE-SAFE-REALTIME-TOOL";
+      const staleSafeResponse = await fetch(`${baseUrl}/query/realtime-tool`, {
+        body: JSON.stringify({
+          argumentsJson: JSON.stringify({
+            question: "which selected evidence supports S6-L1?",
+            recordIds: ["S6-L1", "INV-S6-1", staleSubmittedRecordId],
+            selectedLineId: "S6-L1"
+          }),
+          name: "query.answer"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const staleSafeText = await staleSafeResponse.text();
+      const staleSafeResult = JSON.parse(staleSafeText) as {
+        recordIds: string[];
+        status: string;
+      };
+
+      expect(staleSafeResponse.status).toBe(200);
+      expect(staleSafeResult.status).toBe("ok");
+      expect(staleSafeResult.recordIds).toEqual(expect.arrayContaining(["S6-L1", "INV-S6-1"]));
+      expect(staleSafeResult.recordIds).not.toContain(staleSubmittedRecordId);
+      expect(staleSafeText).not.toContain(staleSubmittedRecordId);
+
+      const unsafeSelectedLineId = "sk-realtime-selected-secret";
+      const unsafeScopeResponse = await fetch(`${baseUrl}/query/realtime-tool`, {
+        body: JSON.stringify({
+          argumentsJson: JSON.stringify({
+            question: "which selected evidence supports this case?",
+            recordIds: [unsafeSelectedLineId, "INV-S6-1"],
+            selectedLineId: unsafeSelectedLineId
+          }),
+          name: "query.answer"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const unsafeScopeText = await unsafeScopeResponse.text();
+      const unsafeScopeResult = JSON.parse(unsafeScopeText) as {
+        recordIds: string[];
+        status: string;
+      };
+
+      expect(unsafeScopeResponse.status).toBe(403);
+      expect(unsafeScopeResult.status).toBe("blocked_tool");
+      expect(unsafeScopeResult.recordIds).toEqual(["OPENAI-REALTIME-POLICY"]);
+      expect(unsafeScopeText).not.toContain(unsafeSelectedLineId);
 
       const blocked = await fetch(`${baseUrl}/query/realtime-tool`, {
         body: JSON.stringify({
