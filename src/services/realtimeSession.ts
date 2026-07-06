@@ -53,10 +53,11 @@ export interface RealtimeClientSecretRequest {
 }
 
 type RealtimeAllowedToolName = RealtimeAuditPolicy["allowedTools"][number];
+type RealtimeTransportToolName = "audit_read" | "query_answer";
 
 export interface RealtimeToolManifestItem {
   description: string;
-  name: RealtimeAllowedToolName;
+  name: RealtimeTransportToolName;
   parameters: {
     additionalProperties: false;
     properties: Record<string, unknown>;
@@ -95,7 +96,7 @@ export type RealtimeToolCallResult =
 
 const defaultRealtimeSafetyIdentifier = "human:cockpit-query";
 const realtimeSessionInstructions =
-  "You are Recoup's audit-scoped Realtime query assistant. Answer only from deterministic Recoup services, cite deterministic Recoup recordIds, and include the deterministic basis. Allowed tools: audit.read and query.answer. External actions are forbidden. Do not compute or alter dollar amounts. Do not persist raw audio, uncited transcripts, or uncited model output.";
+  "You are Recoup's audit-scoped Realtime query assistant. Answer only from deterministic Recoup services, cite deterministic Recoup recordIds, and include the deterministic basis. Allowed Realtime tools: audit_read and query_answer. These map to governed Recoup services audit.read and query.answer. External actions are forbidden. Do not compute or alter dollar amounts. Do not persist raw audio, uncited transcripts, or uncited model output.";
 
 export function buildRealtimeSessionPolicy(
   env: RuntimeEnv = process.env,
@@ -129,7 +130,7 @@ export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
   return [
     {
       description: "Read the governed Risk Mesh audit trail. Input must be a configured case id.",
-      name: "audit.read",
+      name: "audit_read",
       parameters: {
         additionalProperties: false,
         properties: {
@@ -142,7 +143,7 @@ export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
     },
     {
       description: "Answer a Recoup query through the offline deterministic query guard.",
-      name: "query.answer",
+      name: "query_answer",
       parameters: {
         additionalProperties: false,
         properties: {
@@ -166,7 +167,8 @@ export function handleRealtimeToolCall(
   input: RealtimeToolCallInput,
   serviceToolInvoker: RealtimeServiceToolInvoker = invokeServiceTool
 ): RealtimeToolCallResult {
-  if (!isRealtimeAllowedToolName(input.name)) {
+  const serviceToolName = toRealtimeServiceToolName(input.name);
+  if (serviceToolName === undefined || !isRealtimeAllowedToolName(serviceToolName)) {
     return blockedRealtimeToolCall(input.name);
   }
 
@@ -179,18 +181,18 @@ export function handleRealtimeToolCall(
 
   let output: unknown;
   try {
-    output = serviceToolInvoker(input.name, parsedArgs);
+    output = serviceToolInvoker(serviceToolName, parsedArgs);
   } catch (error) {
     return blockedRealtimeToolCall(
-      input.name,
+      serviceToolName,
       error instanceof Error && error.message.includes("selected evidence scope")
         ? error.message
         : "Realtime tool service validation blocked malformed or missing selected evidence scope input."
     );
   }
   const recordIds = readRecordIds(output);
-  if (input.name === "query.answer" && !hasValidCitationParity(output)) {
-    return blockedRealtimeToolCall(input.name, "Realtime query.answer blocked: citation parity must match text, voice, and output recordIds.");
+  if (serviceToolName === "query.answer" && !hasValidCitationParity(output)) {
+    return blockedRealtimeToolCall(serviceToolName, "Realtime query.answer blocked: citation parity must match text, voice, and output recordIds.");
   }
 
   return {
@@ -198,7 +200,7 @@ export function handleRealtimeToolCall(
     output,
     recordIds: recordIds.length > 0 ? recordIds : ["OPENAI-REALTIME-POLICY"],
     status: "ok",
-    toolName: input.name
+    toolName: serviceToolName
   };
 }
 
@@ -226,8 +228,12 @@ export async function requestRealtimeClientSecret({
   const response = await fetcher(realtimeClientSecretUrl, {
     body: JSON.stringify({
       session: {
-        input_audio_transcription: {
-          model: runtimeModels.transcription
+        audio: {
+          input: {
+            transcription: {
+              model: runtimeModels.transcription
+            }
+          }
         },
         instructions: buildRealtimeSessionInstructions(queryScope),
         model: runtimeModels.realtime,
@@ -280,7 +286,7 @@ function buildRealtimeSessionInstructions(queryScope: RealtimeQueryScope | undef
     return realtimeSessionInstructions;
   }
 
-  return `${realtimeSessionInstructions} The active selectedLineId is ${queryScope.selectedLineId}. When calling query.answer, pass selectedLineId ${queryScope.selectedLineId} and exactly these selected recordIds: ${queryScope.recordIds.join(", ")}. Do not answer outside this selected evidence packet.`;
+  return `${realtimeSessionInstructions} The active selectedLineId is ${queryScope.selectedLineId}. When calling query_answer, pass selectedLineId ${queryScope.selectedLineId} and exactly these selected recordIds: ${queryScope.recordIds.join(", ")}. Do not answer outside this selected evidence packet.`;
 }
 
 function hasOpenAiApiKey(env: RuntimeEnv): boolean {
@@ -305,6 +311,17 @@ function isRealtimeAllowedToolName(name: string): name is RealtimeAllowedToolNam
     serviceToolMetadata[name].riskClass === "read_only" &&
     serviceToolMetadata[name].sideEffectClass === "none"
   );
+}
+
+function toRealtimeServiceToolName(name: string): RealtimeAllowedToolName | undefined {
+  if (name === "audit_read" || name === "audit.read") {
+    return "audit.read";
+  }
+  if (name === "query_answer" || name === "query.answer") {
+    return "query.answer";
+  }
+
+  return undefined;
 }
 
 function readRecordIds(output: unknown): string[] {

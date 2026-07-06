@@ -79,7 +79,7 @@ describe("Realtime browser session helper", () => {
     expect(fakes.fetchCalls[0]?.body).toBe(
       JSON.stringify({
         question: "Why is Harbor blocked?",
-        recordIds: ["POD-SIGNED-7", "INV-913"],
+        recordIds: ["S7-L2", "POD-SIGNED-7", "INV-913"],
         selectedLineId: "S7-L2"
       })
     );
@@ -421,7 +421,9 @@ describe("Realtime browser session helper", () => {
       createPeerConnection: fakes.createPeerConnection,
       fetcher: fakes.fetcher,
       mediaDevices: fakes.mediaDevices,
-      question: "Why is Harbor blocked?"
+      question: "Why is Harbor blocked?",
+      recordIds: ["DOC-S7-L2"],
+      selectedLineId: "S7-L2"
     });
 
     fakes.lastDataChannel.dispatchMessage(
@@ -429,7 +431,7 @@ describe("Realtime browser session helper", () => {
         item: {
           arguments: JSON.stringify({ question: "Why is Harbor blocked?" }),
           call_id: "call-query-answer",
-          name: "query.answer",
+          name: "query_answer",
           type: "function_call"
         },
         type: "response.output_item.done"
@@ -440,8 +442,12 @@ describe("Realtime browser session helper", () => {
     expect(fakes.fetchCalls[2]?.url).toBe("/api/query/realtime-tool");
     expect(fakes.fetchCalls[2]?.body).toBe(
       JSON.stringify({
-        argumentsJson: JSON.stringify({ question: "Why is Harbor blocked?" }),
-        name: "query.answer"
+        argumentsJson: JSON.stringify({
+          question: "Why is Harbor blocked?",
+          recordIds: ["S7-L2", "DOC-S7-L2"],
+          selectedLineId: "S7-L2"
+        }),
+        name: "query_answer"
       })
     );
     expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("function_call_output"))).toBe(true);
@@ -524,7 +530,7 @@ describe("Realtime browser session helper", () => {
       JSON.stringify({
         arguments: JSON.stringify({ question: "Why is Harbor blocked?" }),
         call_id: "call-query-arguments-done",
-        name: "query.answer",
+        name: "query_answer",
         type: "response.function_call_arguments.done"
       })
     );

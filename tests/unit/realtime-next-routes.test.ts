@@ -73,6 +73,30 @@ describe("Realtime Next proxy routes", () => {
     expect(text).toContain('"status":"connected"');
   });
 
+  it("ends the Forensics SSE route before the serverless timeout ceiling", async () => {
+    vi.stubEnv("RECOUP_FORENSICS_EVENTS_MAX_STREAM_MS", "1");
+    const response = getForensicsEvents(new Request("http://localhost/api/forensics/events"));
+    const reader = response.body?.getReader();
+    if (reader === undefined) {
+      throw new Error("Expected Forensics SSE route to return a readable stream.");
+    }
+
+    const first = await reader.read();
+    const next = await Promise.race([
+      reader.read(),
+      new Promise<"timeout">((resolve) => {
+        setTimeout(() => {
+          resolve("timeout");
+        }, 75);
+      })
+    ]);
+    await reader.cancel().catch(() => undefined);
+
+    expect(new TextDecoder().decode(first.value)).toContain("event: connected");
+    expect(next).not.toBe("timeout");
+    expect(next).toMatchObject({ done: true });
+  });
+
   it("publishes a Forensics invalidation event only when source or receipt fingerprints change", async () => {
     const oldRecordIds = [
       "evidence:docs:S3-L1:EVD-POD-S3-L1:old",

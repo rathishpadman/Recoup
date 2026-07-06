@@ -526,7 +526,7 @@ async function handleRealtimeToolCall(
   }
 
   const citedAnswer = readCitedAnswer(result.output);
-  if (toolCall.name === "query.answer" && citedAnswer === undefined) {
+  if (isRealtimeQueryAnswerToolName(toolCall.name) && citedAnswer === undefined) {
     publish({
       deterministicBasis: result.deterministicBasis,
       message: "Blocked cited Realtime answer without matching voice/text citation parity.",
@@ -597,13 +597,13 @@ function normalizeSelectedQueryScope(input: {
   }
 
   return {
-    recordIds: Array.from(new Set(recordIds)),
+    recordIds: Array.from(new Set([selectedLineId, ...recordIds])),
     selectedLineId
   };
 }
 
 function scopedToolArgumentsJson(toolCall: RealtimeFunctionCall, selectedQueryScope: SelectedQueryScope | undefined): string {
-  if (toolCall.name !== "query.answer" || selectedQueryScope === undefined) {
+  if (!isRealtimeQueryAnswerToolName(toolCall.name) || selectedQueryScope === undefined) {
     return toolCall.argumentsJson;
   }
 
@@ -623,6 +623,10 @@ function scopedToolArgumentsJson(toolCall: RealtimeFunctionCall, selectedQuerySc
     recordIds: selectedQueryScope.recordIds,
     selectedLineId: selectedQueryScope.selectedLineId
   });
+}
+
+function isRealtimeQueryAnswerToolName(name: string): boolean {
+  return name === "query.answer" || name === "query_answer";
 }
 
 interface RealtimeFunctionCall {

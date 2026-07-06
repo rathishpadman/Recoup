@@ -64,7 +64,8 @@ describe("Realtime session policy", () => {
     }
     const upstreamBody = JSON.parse(upstreamRequestBody) as {
       session: {
-        input_audio_transcription?: { model?: string };
+        audio?: { input?: { transcription?: { model?: string } } };
+        input_audio_transcription?: unknown;
         instructions?: string;
         model: string;
         tools?: Array<{ name: string }>;
@@ -76,9 +77,10 @@ describe("Realtime session policy", () => {
     expect(upstreamBody.session.instructions).toContain("cite deterministic Recoup recordIds");
     expect(upstreamBody.session.instructions).toContain(selectedQueryScope.selectedLineId);
     expect(upstreamBody.session.instructions).toContain("External actions are forbidden");
-    expect(upstreamBody.session.instructions).toContain("Allowed tools: audit.read and query.answer");
-    expect(upstreamBody.session.input_audio_transcription).toEqual({ model: "gpt-4o-mini-transcribe" });
-    expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
+    expect(upstreamBody.session.instructions).toContain("Allowed Realtime tools: audit_read and query_answer");
+    expect(upstreamBody.session.input_audio_transcription).toBeUndefined();
+    expect(upstreamBody.session.audio?.input?.transcription).toEqual({ model: "gpt-4o-mini-transcribe" });
+    expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit_read", "query_answer"]);
     expect(calls[0]?.init.headers).toMatchObject({
       Authorization: "Bearer sk-live-secret",
       "OpenAI-Safety-Identifier": "human-cfo"
@@ -139,9 +141,10 @@ describe("Realtime session policy", () => {
   it("builds a browser-safe Realtime tool manifest without action or write-capable tools", () => {
     const manifest = buildRealtimeToolManifest();
     const serialized = JSON.stringify(manifest);
-    const queryAnswerTool = manifest.find((tool) => tool.name === "query.answer");
+    const queryAnswerTool = manifest.find((tool) => tool.name === "query_answer");
 
-    expect(manifest.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
+    expect(manifest.map((tool) => tool.name)).toEqual(["audit_read", "query_answer"]);
+    expect(manifest.every((tool) => /^[a-zA-Z0-9_-]+$/u.test(tool.name))).toBe(true);
     expect(queryAnswerTool?.parameters.required).toEqual(["question", "selectedLineId", "recordIds"]);
     expect(serialized).not.toMatch(/draft|approve|rebill|hold|terms|routeBilling|erp|write/iu);
   });
@@ -162,13 +165,14 @@ describe("Realtime session policy", () => {
   it("returns query.answer output with voice/text citation parity", () => {
     const result = handleRealtimeToolCall({
       argumentsJson: JSON.stringify({ question: "Which selected evidence supports this deduction?", ...selectedQueryScope }),
-      name: "query.answer"
+      name: "query_answer"
     }, (name, input) => invokeServiceTool(name, input, { governedConfig, source }));
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") {
       throw new Error("Expected query.answer to be allowed.");
     }
+    expect(result.toolName).toBe("query.answer");
 
     const output = result.output as {
       citationParity?: {

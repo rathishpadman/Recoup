@@ -9,6 +9,10 @@ import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js
 const governedConfig = day1GovernedConfigSeed.values;
 const source = new SyntheticSource({ seed: 42 });
 const runForensics = () => runForensicsInvestigation({ governedConfig, serviceContext: fixtureForensicsServiceContext, source });
+const realtimeTransportToolMap = {
+  audit_read: "audit.read",
+  query_answer: "query.answer"
+} as const;
 
 describe("integration contract", () => {
   it("exposes approval, audit, query, and retrieval tools through the typed whitelist", () => {
@@ -55,10 +59,12 @@ describe("integration contract", () => {
   it("keeps Realtime browser query on read-only query and audit tools", async () => {
     const { buildRealtimeToolManifest } = await import("../../src/services/realtimeSession.js");
     const manifest = buildRealtimeToolManifest();
+    const serviceToolNames = manifest.map((tool) => toServiceToolName(tool.name));
 
-    expect(manifest.map((tool) => tool.name)).toEqual(["audit.read", "query.answer"]);
-    expect(manifest.every((tool) => Object.hasOwn(serviceTools, tool.name))).toBe(true);
-    expect(manifest.map((tool) => serviceToolMetadata[tool.name].sideEffectClass)).toEqual(["none", "none"]);
+    expect(manifest.map((tool) => tool.name)).toEqual(["audit_read", "query_answer"]);
+    expect(serviceToolNames).toEqual(["audit.read", "query.answer"]);
+    expect(serviceToolNames.every((toolName) => Object.hasOwn(serviceTools, toolName))).toBe(true);
+    expect(serviceToolNames.map((toolName) => serviceToolMetadata[toolName].sideEffectClass)).toEqual(["none", "none"]);
   });
 
   it("reads audit entries through a bounded service tool", () => {
@@ -250,3 +256,7 @@ describe("integration contract", () => {
     });
   });
 });
+
+function toServiceToolName(name: keyof typeof realtimeTransportToolMap): (typeof realtimeTransportToolMap)[keyof typeof realtimeTransportToolMap] {
+  return realtimeTransportToolMap[name];
+}
