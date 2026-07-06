@@ -13,6 +13,7 @@ import {
   buildEvidencePacketAvailabilityLabel,
   countEvidenceSourceLabels,
   buildCopilotDrawerTrigger,
+  deriveWorklistApprovalDisplay,
   resolveMayaWorklistReasonDetail,
   buildOverviewSummaryCards,
   buildOverviewVerdictFilterOptions,
@@ -535,6 +536,34 @@ describe("Maya workspace derived helpers", () => {
     });
 
     expect(approved.at(-1)).toEqual(expect.objectContaining({ state: "done" }));
+  });
+
+  it("shows real line-level approval without marking a grouped case complete", () => {
+    const display = deriveWorklistApprovalDisplay(
+      workItem({
+        lineCount: 3,
+        lineIds: ["S1-L1", "S1-L2", "S1-L3"]
+      }),
+      ["S1-L2"]
+    );
+
+    expect(display).toEqual({
+      isTerminal: false,
+      label: "1/3 lines decided",
+      status: "line_human_decided",
+      title: "Human decision recorded for S1-L2. Group status remains Awaiting reviewer until every line is decided."
+    });
+  });
+
+  it("shows a terminal local approval label for a single-line case", () => {
+    const display = deriveWorklistApprovalDisplay(workItem({ lineCount: 1, lineIds: ["S3-L1"] }), ["S3-L1"]);
+
+    expect(display).toEqual({
+      isTerminal: true,
+      label: "Human decision recorded",
+      status: "human_decided",
+      title: "Human decision recorded for S3-L1."
+    });
   });
 
   it("builds editable email drafts from real case facts and cited records", () => {

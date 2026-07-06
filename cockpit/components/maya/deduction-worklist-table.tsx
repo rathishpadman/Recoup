@@ -18,7 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { mayaAccent } from "./maya-accent.ts";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
-import { resolveMayaWorklistReason } from "./maya-workspace-derived.ts";
+import { deriveWorklistApprovalDisplay, resolveMayaWorklistReason } from "./maya-workspace-derived.ts";
 import { RecommendedActionCell } from "./recommended-action-cell.tsx";
 import type { MayaWorklistItem } from "./types.ts";
 import { verdictBadgeVariant } from "./verdict-badge-variant.ts";
@@ -27,6 +27,7 @@ interface DeductionWorklistTableProps {
   items: MayaWorklistItem[];
   onOpenItem: (item: MayaWorklistItem) => void;
   onSelectItem: (item: MayaWorklistItem) => void;
+  locallyDecidedLineIds?: readonly string[];
   selectedLineId?: string;
   variant?: "rail" | "table";
 }
@@ -48,6 +49,7 @@ function worklistCaseLabel(items: readonly MayaWorklistItem[], item: MayaWorklis
 
 export function DeductionWorklistTable({
   items,
+  locallyDecidedLineIds = [],
   onOpenItem,
   onSelectItem,
   selectedLineId,
@@ -166,7 +168,7 @@ export function DeductionWorklistTable({
                           <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
                             {item.evidenceScoreLabel}
                           </Badge>
-                          <WorklistApprovalStatusBadge item={item} />
+                          <WorklistApprovalStatusBadge item={item} locallyDecidedLineIds={locallyDecidedLineIds} />
                         </span>
                       </span>
                     </Button>
@@ -288,7 +290,7 @@ export function DeductionWorklistTable({
                         <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
                           {item.evidenceScoreLabel}
                         </Badge>
-                        <WorklistApprovalStatusBadge item={item} />
+                        <WorklistApprovalStatusBadge item={item} locallyDecidedLineIds={locallyDecidedLineIds} />
                       </span>
                     </span>
                   </Button>
@@ -416,7 +418,7 @@ export function DeductionWorklistTable({
                           >
                             {item.routingLabel}
                           </span>
-                          <WorklistApprovalStatusBadge item={item} />
+                          <WorklistApprovalStatusBadge item={item} locallyDecidedLineIds={locallyDecidedLineIds} />
                         </div>
                         <Button
                           aria-label={`Open investigation for ${item.workItemLabel}`}
@@ -457,16 +459,24 @@ export function DeductionWorklistTable({
   );
 }
 
-function WorklistApprovalStatusBadge({ item }: { item: MayaWorklistItem }) {
+function WorklistApprovalStatusBadge({
+  item,
+  locallyDecidedLineIds
+}: {
+  item: MayaWorklistItem;
+  locallyDecidedLineIds: readonly string[];
+}) {
+  const display = deriveWorklistApprovalDisplay(item, locallyDecidedLineIds);
+
   return (
     <Badge
       className="h-5 max-w-full justify-start truncate px-1.5 text-[10px]"
-      data-approval-status={item.approvalStatus}
+      data-approval-status={display.status}
       data-testid="maya-worklist-approval-status"
-      title={item.approvalStatusLabel}
-      variant={item.approvalStatus === "human_decided" ? "secondary" : "outline"}
+      title={display.title}
+      variant={display.status === "pending_human" ? "outline" : "secondary"}
     >
-      <span className="min-w-0 truncate">{item.approvalStatusLabel}</span>
+      <span className="min-w-0 truncate">{display.label}</span>
     </Badge>
   );
 }

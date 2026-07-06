@@ -328,8 +328,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).not.toContain("onResponse={() => undefined}");
     expect(caseWorkspace).not.toContain("CitedAnswerCard");
     expect(caseWorkspace).not.toContain("fetch(");
-    expect(worklistTable).toContain("item.approvalStatusLabel");
-    expect(worklistTable).toContain('item.approvalStatus === "human_decided"');
+    expect(worklistTable).toContain("deriveWorklistApprovalDisplay");
+    expect(worklistTable).toContain("locallyDecidedLineIds");
     expect(worklistTable).not.toMatch(/\b(?:closed|completed|case closure|routed to billing|sent to ERP)\b/iu);
     const auditPanel = readFileSync("cockpit/components/maya/audit-confirmation-panel.tsx", "utf8");
     expect(auditPanel).toContain("AUDIT_HASH_PATTERN = /^[a-fA-F0-9]{64}$/u");

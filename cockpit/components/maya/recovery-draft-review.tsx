@@ -100,6 +100,7 @@ export function RecoveryDraftReview({
     committedApproval.decision === "approve" &&
     committedApproval.actionId === draft.actionId &&
     selectedWorklistItem !== undefined;
+  const approvalStatusLabel = committedApproval?.status === "human_decided" ? "Human decision recorded" : draft.statusLabel;
   const canOpenApproval = approvalActions.length > 0 && evidenceReviewed;
   const draftApprovalEligibility = (draft as { approvalEligibility?: { available?: boolean; statusLabel?: string } }).approvalEligibility;
   const evidenceReviewEligibilityAvailable = (draftApprovalEligibility?.available ?? false) && evidenceReviewed;
@@ -152,7 +153,7 @@ export function RecoveryDraftReview({
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle className="text-2xl leading-tight">Outcome</CardTitle>
-          <Badge variant="secondary">{draft.statusLabel}</Badge>
+          <Badge variant="secondary">{approvalStatusLabel}</Badge>
           <Badge variant="outline">Human approval required</Badge>
         </div>
         <CardDescription>External send gated.</CardDescription>
@@ -217,7 +218,7 @@ export function RecoveryDraftReview({
             <section className="grid gap-2" data-testid="maya-draft-message-section">
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-base">Draft letter preview</CardTitle>
-                <Badge variant="outline">{draft.statusLabel}</Badge>
+                <Badge variant="outline">{approvalStatusLabel}</Badge>
               </div>
               {draftPreviews.length === 0 ? (
                 <Alert data-testid="maya-draft-letter-preview">

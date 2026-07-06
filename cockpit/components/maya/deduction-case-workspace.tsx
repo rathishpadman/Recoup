@@ -54,6 +54,7 @@ interface DeductionCaseWorkspaceProps {
   hasBackendDetail: boolean;
   journey: MayaJourneyItem[];
   multimodalDock: MayaMultimodalDock;
+  onApprovalResponse?: ((lineId: string, response: ApprovalGateResponse) => void) | undefined;
   onQueryDockIntentConsumed?: (() => void) | undefined;
   onReturnToWorklist: () => void;
   onSelectLine: (lineId: string) => void;
@@ -72,6 +73,7 @@ export function DeductionCaseWorkspace({
   detail,
   hasBackendDetail,
   multimodalDock,
+  onApprovalResponse,
   onQueryDockIntentConsumed,
   onReturnToWorklist,
   onSelectLine,
@@ -115,6 +117,13 @@ export function DeductionCaseWorkspace({
     detail,
     ...(selectedWorklistItem === undefined ? {} : { workItem: selectedWorklistItem })
   });
+  const handleApprovalResponse = React.useCallback(
+    (response: ApprovalGateResponse) => {
+      setApprovalResponse(response);
+      onApprovalResponse?.(selected.lineId, response);
+    },
+    [onApprovalResponse, selected.lineId]
+  );
   React.useEffect(() => {
     setApprovalResponse(undefined);
     setQueryResponse(undefined);
@@ -298,7 +307,7 @@ export function DeductionCaseWorkspace({
             approvalActions={selected.approvalActions}
             draft={selected.draft}
             evidencePack={selected.evidencePack}
-            onApprovalResponse={setApprovalResponse}
+            onApprovalResponse={handleApprovalResponse}
             approvalReceipt={approvalReceipt}
             selectedLineId={selected.lineId}
             selectedWorklistItem={detail.workItem}

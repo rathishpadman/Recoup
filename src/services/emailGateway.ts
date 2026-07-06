@@ -309,7 +309,13 @@ function recipientForGroup(config: RecoupEmailConfig, group: EmailRecipientGroup
 }
 
 function emailSendLedgerKey(draft: RecoupEmailDraft): string {
-  return `${draft.actionId}\u0000${draft.lineId}\u0000${draft.recipientGroup}`;
+  return [
+    draft.actionId,
+    draft.lineId,
+    draft.recipientGroup,
+    sha256Hex(draft.subject),
+    sha256Hex(draft.body)
+  ].join("\u0000");
 }
 
 function resendIdempotencyKey(draft: RecoupEmailDraft): string {

@@ -137,6 +137,13 @@ export interface MayaResolvedWorklistReason {
   text: string;
 }
 
+export interface MayaWorklistApprovalDisplay {
+  isTerminal: boolean;
+  label: string;
+  status: "human_decided" | "line_human_decided" | MayaWorklistItem["approvalStatus"];
+  title: string;
+}
+
 export interface BuildQueryEvidenceSnapshotInput {
   evidencePackRecordIds: readonly string[];
   queryScope: "line" | "workspace";
@@ -544,6 +551,47 @@ export function buildOutcomeActionPackages(input: BuildOutcomeActionPackagesInpu
     statusLabel: action.statusLabel ?? input.draft.statusLabel,
     title: action.actionLabel
   }));
+}
+
+export function deriveWorklistApprovalDisplay(
+  item: MayaWorklistItem,
+  locallyDecidedLineIds: readonly string[] = []
+): MayaWorklistApprovalDisplay {
+  if (item.approvalStatus === "human_decided") {
+    return {
+      isTerminal: true,
+      label: item.approvalStatusLabel,
+      status: "human_decided",
+      title: item.approvalStatusLabel
+    };
+  }
+
+  const itemLineIds = dedupeStrings(item.lineIds.length > 0 ? item.lineIds : [item.lineId]);
+  const locallyDecided = itemLineIds.filter((lineId) => locallyDecidedLineIds.includes(lineId));
+  if (locallyDecided.length === 0) {
+    return {
+      isTerminal: false,
+      label: item.approvalStatusLabel,
+      status: item.approvalStatus,
+      title: item.approvalStatusLabel
+    };
+  }
+
+  if (locallyDecided.length >= itemLineIds.length) {
+    return {
+      isTerminal: true,
+      label: "Human decision recorded",
+      status: "human_decided",
+      title: `Human decision recorded for ${itemLineIds.join(", ")}.`
+    };
+  }
+
+  return {
+    isTerminal: false,
+    label: `${locallyDecided.length.toString()}/${itemLineIds.length.toString()} lines decided`,
+    status: "line_human_decided",
+    title: `Human decision recorded for ${locallyDecided.join(", ")}. Group status remains ${item.approvalStatusLabel} until every line is decided.`
+  };
 }
 
 export function buildDraftLetterPreview(input: BuildDraftLetterPreviewInput): MayaDraftLetterPreview | undefined {

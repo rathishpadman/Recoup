@@ -182,7 +182,8 @@ async function main(): Promise<void> {
     await timedStep("submit approval in browser", async () => {
       await submitBrowserDecision(page, "approve", { closeDialog: true });
       const receipt = assertCommittedReceipt(await fetchDetail(readApiUrl, targets.approve.lineId), targets.approve, "approve");
-      return { detail: `${targets.approve.lineId}; hash ${receipt.auditEntryHash.slice(0, 8)}` };
+      const localBadge = await assertSelectedWorklistApprovalBadgeUpdated(page, targets.approve);
+      return { detail: `${targets.approve.lineId}; hash ${receipt.auditEntryHash.slice(0, 8)}; ${localBadge}` };
     });
 
     await timedStep("send approved email and read delivery status", async () => {
@@ -748,6 +749,22 @@ async function assertEmailDeliveryStatusReadback(
   } finally {
     page.off("request", apiEmailRequestListener);
   }
+}
+
+async function assertSelectedWorklistApprovalBadgeUpdated(page: Page, target: DecisionTarget): Promise<string> {
+  const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${target.lineId}"]`).first();
+  await row.scrollIntoViewIfNeeded();
+  const badge = row.getByTestId("maya-worklist-approval-status").first();
+  await badge.waitFor({ state: "visible", timeout: 30_000 });
+  const label = (await badge.innerText()).trim();
+  const status = await badge.getAttribute("data-approval-status");
+
+  assert(label !== "Awaiting reviewer", "Approved selected line still showed a bare Awaiting reviewer worklist status.");
+  assert(
+    status === "line_human_decided" || status === "human_decided",
+    `Approved selected line showed unexpected worklist approval status ${status ?? "missing"}.`
+  );
+  return `${status}; ${label}`;
 }
 
 function parseProviderEmailIdFromSentLabel(sentLabel: string): string | undefined {

@@ -61,6 +61,7 @@ import {
   isCurrentWorkItemDetailRequest
 } from "./work-item-detail-request-gate.ts";
 import type {
+  ApprovalGateResponse,
   MayaForensicsSurfaceProps,
   MayaQueryPromptDockContract,
   MayaSourceTile,
@@ -536,6 +537,7 @@ export function MayaForensicsSurface({
   const [overviewCaseFilter, setOverviewCaseFilter] = React.useState("");
   const [overviewCaseSort, setOverviewCaseSort] = React.useState<OverviewCaseConcentrationSortState>({});
   const [overviewVerdictFilter, setOverviewVerdictFilter] = React.useState<MayaOverviewVerdictFilter>("all");
+  const [locallyDecidedLineIds, setLocallyDecidedLineIds] = React.useState<string[]>([]);
   const detailRequestSequence = React.useRef(0);
   const backendSelectedWorklistItem = React.useMemo(
     () => model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)),
@@ -689,6 +691,14 @@ export function MayaForensicsSurface({
     setAgentDockOpenLineId(undefined);
   }, []);
 
+  const handleCaseApprovalResponse = React.useCallback((lineId: string, response: ApprovalGateResponse) => {
+    if (response.status !== "human_decided") {
+      return;
+    }
+
+    setLocallyDecidedLineIds((current) => (current.includes(lineId) ? current : [...current, lineId]));
+  }, []);
+
   const handleOverviewCaseSort = React.useCallback((key: OverviewCaseConcentrationSortKey) => {
     setOverviewCaseSort((current) => nextOverviewCaseSortState(current, key));
   }, []);
@@ -734,6 +744,7 @@ export function MayaForensicsSurface({
     );
     setReturnContextLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
     setAgentDockOpenLineId((current) => (worklistContainsLine(model.worklist, current) ? current : undefined));
+    setLocallyDecidedLineIds((current) => current.filter((lineId) => worklistContainsLine(model.worklist, lineId)));
     if (!worklistContainsLine(model.worklist, model.selected.lineId)) {
       setOverviewQueryDockOpen(false);
     }
@@ -1227,6 +1238,7 @@ export function MayaForensicsSurface({
         <section className="min-w-0" aria-label="Maya queue">
           <DeductionWorklistTable
             items={model.worklist}
+            locallyDecidedLineIds={locallyDecidedLineIds}
             onOpenItem={(item) => {
               void openInvestigationForItem(item);
             }}
@@ -1407,6 +1419,7 @@ export function MayaForensicsSurface({
           <aside className="min-w-0" data-testid="maya-case-worklist-rail">
             <DeductionWorklistTable
               items={model.worklist}
+              locallyDecidedLineIds={locallyDecidedLineIds}
               onOpenItem={(item) => {
                 void openInvestigationForItem(item);
               }}
@@ -1432,6 +1445,7 @@ export function MayaForensicsSurface({
               hasBackendDetail={true}
               journey={activeCaseDetail.mayaJourney}
               multimodalDock={activeCaseDetail.multimodalDock}
+              onApprovalResponse={handleCaseApprovalResponse}
               onQueryDockIntentConsumed={handleQueryDockIntentConsumed}
               onReturnToWorklist={handleReturnToWorklist}
               onSelectLine={handleSelectCaseLine}
