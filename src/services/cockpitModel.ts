@@ -26,6 +26,7 @@ import { money, type Money } from "../types/money.js";
 import { buildCockpitDemoLoginPersonas } from "../../config/cockpitDemoProfiles.js";
 import { assertBusinessProvenance, type MayaFieldProvenance } from "./mayaDataProvenance.js";
 import type { McpReadinessStatus } from "./mcpHealth.js";
+import { settlementRunIdForSource } from "./settlementRunIdentity.js";
 
 export type ApprovalAction = "approve" | "modify" | "reject";
 export type ApprovalLifecycleStatus = "pending_human" | "human_decided";
@@ -99,6 +100,7 @@ export interface ApprovalEligibilityCockpitModel {
 
 export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
+  settlementRunId: string;
   kpiStrip: Array<{
     label: string;
     provenance: MayaFieldProvenance;
@@ -688,6 +690,7 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
 
   return {
     surface: "forensics-analyst",
+    settlementRunId: settlementRunIdForSource(dataset),
     kpiStrip: [
       {
         label: "Open work items",

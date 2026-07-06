@@ -27,6 +27,7 @@ import {
   buildMemorySummaryModel,
   buildTraceModel
 } from "../../src/services/cockpitModel.js";
+import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { buildSourceHealthFromConnectorReadiness } from "../../src/services/sourceHealth.js";
 import type {
   ServiceInvocationContext,
@@ -199,6 +200,14 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.actionInbox.some((action) => action.actionType === "route-billing")).toBe(true);
     expect(model.recoveryTracker.recoveryLines).toBe(13);
     expect(model.recoveryTracker.billingLines).toBe(7);
+  });
+
+  it("exposes a deterministic settlement run identity for workspace Copilot queries", () => {
+    const model = buildForensicsCockpitModel({ governedConfig, ...sourceOptions });
+    const settlementRunId = settlementRunIdForSource(source.loadSettlementRun());
+
+    expect(settlementRunId).toMatch(/^settlement-run:42:[a-f0-9]{16}$/u);
+    expect((model as { settlementRunId?: unknown }).settlementRunId).toBe(settlementRunId);
   });
 
   it("exposes canonical evidence document and reconciliation receipt provenance for the selected case", () => {

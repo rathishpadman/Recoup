@@ -374,8 +374,8 @@ function overviewVerdictSummary(worklist: readonly MayaWorklistItem[]): string {
 }
 
 function readModelSettlementRunId(model: MayaForensicsSurfaceProps["model"]): string | undefined {
-  const value = (model as { settlementRunId?: unknown }).settlementRunId;
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+  const value = model.settlementRunId.trim();
+  return value.length > 0 ? value : undefined;
 }
 
 function overviewFreshnessLine(

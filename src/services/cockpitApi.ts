@@ -78,7 +78,9 @@ import { assertApprovalReasonSafe } from "./approvals.js";
 import { handleRealtimeToolCall, requestRealtimeClientSecret } from "./realtimeSession.js";
 import {
   ForensicsQueryLineNotFoundError,
+  ForensicsWorkspaceSettlementRunMismatchError,
   runForensicsQuerySessionWithLiveAgents,
+  runForensicsWorkspaceQuerySession,
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
 import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
@@ -203,13 +205,22 @@ const realtimeClientSecretRequestSchema = z
       });
     }
   });
-const forensicsQueryRequestSchema = z
+const forensicsSelectedQueryRequestSchema = z
   .object({
     question: z.string().trim().min(1, "Forensics query question is required.").max(500, "Forensics query question is too long."),
     recordIds: z.array(z.string().trim().min(1)).min(1, "Forensics query selected recordIds are required."),
     selectedLineId: z.string().trim().min(1, "Forensics query selectedLineId is required.")
   })
   .strict();
+const forensicsWorkspaceQueryRequestSchema = z
+  .object({
+    question: z.string().trim().min(1, "Forensics query question is required.").max(500, "Forensics query question is too long."),
+    scope: z.literal("workspace"),
+    settlementRunId: z.string().trim().min(1, "Forensics query settlementRunId is required.")
+  })
+  .strict();
+const forensicsQueryRequestSchema = z.union([forensicsWorkspaceQueryRequestSchema, forensicsSelectedQueryRequestSchema]);
+type ForensicsSelectedQueryRequest = z.infer<typeof forensicsSelectedQueryRequestSchema>;
 const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
@@ -1548,6 +1559,30 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (runContext === undefined) {
       return;
     }
+    if ("scope" in parsedRequest.data) {
+      try {
+        response.json(
+          runForensicsWorkspaceQuerySession({
+            governedConfig: runContext.governedConfig,
+            question: parsedRequest.data.question,
+            ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
+            serviceContext: runContext.serviceContext,
+            settlementRunId: parsedRequest.data.settlementRunId,
+            source: runContext.source
+          })
+        );
+      } catch (error) {
+        if (error instanceof ForensicsWorkspaceSettlementRunMismatchError) {
+          response.status(409).json({ error: error.message });
+          return;
+        }
+
+        throw error;
+      }
+      return;
+    }
+
+    const selectedQueryRequest = forensicsSelectedQueryRequestSchema.parse(parsedRequest.data);
     const runControl = await loadRequiredRunControl(request, response);
     if (runControl === undefined) {
       return;
@@ -1585,16 +1620,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       const memoryRecall = await loadMayaForensicsQueryRecallContext({
         env: runtimeEnv,
         memoryFetcher: options.memoryFetcher,
-        selectedLineId: parsedRequest.data.selectedLineId
+        selectedLineId: selectedQueryRequest.selectedLineId
       });
       const queryResponse = await runForensicsQuerySessionWithLiveAgents({
         governedConfig: runContext.governedConfig,
         liveAgentTrace,
         ...(memoryRecall === undefined ? {} : { memoryRecall }),
-        question: parsedRequest.data.question,
+        question: selectedQueryRequest.question,
         ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
-        recordIds: uniqueRecordIds(parsedRequest.data.recordIds),
-        selectedLineId: parsedRequest.data.selectedLineId,
+        recordIds: uniqueRecordIds(selectedQueryRequest.recordIds),
+        selectedLineId: selectedQueryRequest.selectedLineId,
         serviceContext: runContext.serviceContext,
         source: runContext.source
       });
@@ -1602,37 +1637,37 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       await Promise.all([
         awaitBoundedForensicsQueryOptionalPersistence({
           correlationId: queryCorrelationId,
-          selectedLineId: parsedRequest.data.selectedLineId,
+          selectedLineId: selectedQueryRequest.selectedLineId,
           task: persistMayaForensicsQueryScopeMemory({
             env: runtimeEnv,
             memoryFetcher: options.memoryFetcher,
             queryResponse,
-            request: parsedRequest.data,
+            request: selectedQueryRequest,
             sessionId
           }),
           taskName: "maya_query_scope_memory"
         }),
         awaitBoundedForensicsQueryOptionalPersistence({
           correlationId: queryCorrelationId,
-          selectedLineId: parsedRequest.data.selectedLineId,
+          selectedLineId: selectedQueryRequest.selectedLineId,
           task: persistMayaForensicsCaseRecallMemory({
             env: runtimeEnv,
             memoryFetcher: options.memoryFetcher,
             queryResponse,
-            request: parsedRequest.data,
+            request: selectedQueryRequest,
             sessionId
           }),
           taskName: "maya_query_case_recall_memory"
         }),
         awaitBoundedForensicsQueryOptionalPersistence({
           correlationId: queryCorrelationId,
-          selectedLineId: parsedRequest.data.selectedLineId,
+          selectedLineId: selectedQueryRequest.selectedLineId,
           task: persistForensicsQueryTokenUsageReceipt({
             correlationId: queryCorrelationId,
             env: runtimeEnv,
             memoryFetcher: options.memoryFetcher,
             queryResponse,
-            request: parsedRequest.data
+            request: selectedQueryRequest
           }),
           taskName: "maya_query_token_usage_receipt"
         })
@@ -1763,7 +1798,7 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
   env: RuntimeEnv;
   memoryFetcher: SupabaseMemoryFetch | undefined;
   queryResponse: ForensicsQuerySessionResponse;
-  request: z.infer<typeof forensicsQueryRequestSchema>;
+  request: ForensicsSelectedQueryRequest;
 }): Promise<void> {
   try {
     const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
@@ -1957,7 +1992,7 @@ async function persistMayaForensicsQueryScopeMemory(input: {
   env: RuntimeEnv;
   memoryFetcher: SupabaseMemoryFetch | undefined;
   queryResponse: ForensicsQuerySessionResponse;
-  request: z.infer<typeof forensicsQueryRequestSchema>;
+  request: ForensicsSelectedQueryRequest;
   sessionId: string;
 }): Promise<void> {
   try {
@@ -2009,7 +2044,7 @@ async function persistMayaForensicsCaseRecallMemory(input: {
   env: RuntimeEnv;
   memoryFetcher: SupabaseMemoryFetch | undefined;
   queryResponse: ForensicsQuerySessionResponse;
-  request: z.infer<typeof forensicsQueryRequestSchema>;
+  request: ForensicsSelectedQueryRequest;
   sessionId: string;
 }): Promise<void> {
   try {

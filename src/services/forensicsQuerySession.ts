@@ -18,6 +18,7 @@ import {
 } from "../agents/forensics.js";
 import { liveSdkAgentHookDeterministicBasis, type AgentHookAuditReceipt } from "./conductor.js";
 import type { ServiceInvocationContext } from "./serviceLayer.js";
+import { settlementRunIdForSource } from "./settlementRunIdentity.js";
 
 export type { ForensicsQueryTraceEvent, ForensicsQueryTracePhase };
 
@@ -38,6 +39,7 @@ export const liveForensicsQueryAnswerGuardBasis =
 const liveForensicsQueryRequiredBasis = "OpenAI Agents SDK live trace required for Maya query answers." as const;
 const liveForensicsQuerySessionBasis =
   "runForensicsInvestigation + evidence source reads + deterministic hook audit trace + OpenAI Agents SDK live trace" as const;
+const workspaceForensicsQueryBasis = "current settlement run read-model + deterministic forensics decisions" as const;
 
 export type ForensicsQueryLiveAgentTraceOptions = Pick<
   StreamLiveForensicsTraceOptions,
@@ -87,6 +89,16 @@ export interface ForensicsQuerySessionInput {
   source: SourcePort;
 }
 
+export interface ForensicsWorkspaceQuerySessionInput {
+  governedConfig: GovernedConfigValues;
+  question: string;
+  runForensics?: (options: RunForensicsInvestigationOptions) => ForensicsRun;
+  settlementRunId: string;
+  reconciliation?: RunForensicsInvestigationOptions["reconciliation"];
+  serviceContext: ServiceInvocationContext;
+  source: SourcePort;
+}
+
 export interface ForensicsQueryCitation {
   deterministicBasis: string;
   documentId?: string;
@@ -99,7 +111,7 @@ export type ForensicsQuerySessionResponse =
   | {
       answer: string;
       citations: ForensicsQueryCitation[];
-      deterministicBasis: typeof forensicsQueryDeterministicBasis | typeof liveForensicsQuerySessionBasis;
+      deterministicBasis: typeof forensicsQueryDeterministicBasis | typeof liveForensicsQuerySessionBasis | typeof workspaceForensicsQueryBasis;
       modelExecution?: ForensicsQueryModelExecution;
       trace: SourceAnnotatedForensicsQueryTraceEvent[];
     }
@@ -126,6 +138,180 @@ export class ForensicsQueryLineNotFoundError extends Error {
     this.name = "ForensicsQueryLineNotFoundError";
     this.lineId = lineId;
   }
+}
+
+export class ForensicsWorkspaceSettlementRunMismatchError extends Error {
+  readonly currentSettlementRunId: string;
+
+  constructor(currentSettlementRunId: string) {
+    super("Maya workspace query requires the current settlement run.");
+    this.name = "ForensicsWorkspaceSettlementRunMismatchError";
+    this.currentSettlementRunId = currentSettlementRunId;
+  }
+}
+
+export function runForensicsWorkspaceQuerySession(
+  input: ForensicsWorkspaceQuerySessionInput
+): ForensicsQuerySessionResponse {
+  const question = input.question.trim();
+  if (question.length === 0) {
+    throw new Error("Forensics workspace query requires question.");
+  }
+
+  const settlementRun = input.source.loadSettlementRun();
+  const currentSettlementRunId = settlementRunIdForSource(settlementRun);
+  if (input.settlementRunId.trim() !== currentSettlementRunId) {
+    throw new ForensicsWorkspaceSettlementRunMismatchError(currentSettlementRunId);
+  }
+
+  const run = (input.runForensics ?? runForensicsInvestigation)({
+    governedConfig: input.governedConfig,
+    ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+    serviceContext: input.serviceContext,
+    source: input.source
+  });
+  if (run.decisions.length === 0) {
+    return blockedQueryResponse();
+  }
+
+  const caseSummaries = buildWorkspaceCaseSummaries(run.decisions);
+  if (caseSummaries.length === 0) {
+    return blockedQueryResponse();
+  }
+
+  const citations = buildWorkspaceQueryCitations(caseSummaries);
+  const citedRecordIds = citations.map((citation) => citation.recordId);
+  return {
+    answer: buildDeterministicWorkspaceQueryAnswer({
+      caseSummaries,
+      citationRecordIds: citedRecordIds
+    }),
+    citations,
+    deterministicBasis: workspaceForensicsQueryBasis,
+    trace: buildWorkspaceQueryTrace(citedRecordIds)
+  };
+}
+
+interface WorkspaceCaseSummary {
+  basis: string;
+  caseId: string;
+  lineIds: string[];
+  recordIds: string[];
+  routing: string;
+  verdict: string;
+}
+
+function buildWorkspaceCaseSummaries(decisions: readonly DeductionDecision[]): WorkspaceCaseSummary[] {
+  const byCaseId = new Map<string, DeductionDecision[]>();
+  for (const decision of decisions) {
+    const caseId = workspaceCaseIdFromLineId(decision.lineId);
+    byCaseId.set(caseId, [...(byCaseId.get(caseId) ?? []), decision]);
+  }
+
+  return [...byCaseId.entries()].map(([caseId, caseDecisions]) => {
+    const representative = caseDecisions[0];
+    if (representative === undefined) {
+      throw new Error(`Workspace case ${caseId} has no deterministic forensics decision.`);
+    }
+
+    return {
+      basis: representative.basis,
+      caseId,
+      lineIds: caseDecisions.map((decision) => decision.lineId),
+      recordIds: dedupeRecordIds(
+        caseDecisions.flatMap((decision) => [
+          decision.lineId,
+          ...decision.recordIds,
+          ...decision.evidenceDocuments.flatMap((document) => document.recordIds)
+        ])
+      ),
+      routing: representative.routing,
+      verdict: representative.verdict
+    };
+  });
+}
+
+function buildWorkspaceQueryCitations(caseSummaries: readonly WorkspaceCaseSummary[]): ForensicsQueryCitation[] {
+  return caseSummaries.flatMap((summary) =>
+    summary.recordIds.map((recordId) => ({
+      deterministicBasis: workspaceForensicsQueryBasis,
+      documentId: summary.caseId,
+      recordId,
+      source: recordId === summary.caseId || summary.lineIds.includes(recordId) ? "source_backed" : "derived_backend",
+      summary: `${summary.caseId} ${summary.verdict} verdict routed to ${summary.routing}: ${summary.basis}`
+    }))
+  );
+}
+
+function buildDeterministicWorkspaceQueryAnswer(input: {
+  caseSummaries: readonly WorkspaceCaseSummary[];
+  citationRecordIds: readonly string[];
+}): string {
+  const validCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "valid");
+  const invalidCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "invalid");
+  const partialCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "partial");
+  const billingCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "billing");
+  const recoveryCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "recovery");
+  const citedRecordIds = dedupeRecordIds(input.citationRecordIds);
+
+  return [
+    `The current settlement run has ${input.caseSummaries.length.toString()} deduction cases.`,
+    `Agents returned ${validCount.toString()} valid, ${invalidCount.toString()} invalid, and ${partialCount.toString()} partial verdicts from the read-model.`,
+    `${billingCount.toString()} cases route to Billing and ${recoveryCount.toString()} cases route to Recovery.`,
+    `The answer is limited to cited settlement and evidence record IDs: ${citedRecordIds.join(", ")}.`
+  ].join(" ");
+}
+
+function buildWorkspaceQueryTrace(citedRecordIds: readonly string[]): SourceAnnotatedForensicsQueryTraceEvent[] {
+  const recordIds = dedupeRecordIds(citedRecordIds);
+  return [
+    workspaceTraceEvent("supervisor", "Settlement run accepted", "Workspace query matched the current settlement run.", recordIds),
+    workspaceTraceEvent("query", "Question normalized", "Workspace question was normalized for a settlement-run report.", recordIds),
+    workspaceTraceEvent("retrieval", "Evidence packet read", "Settlement line and evidence record IDs were read from the current source snapshot.", recordIds),
+    workspaceTraceEvent("decision", "Decision rollup checked", "Deterministic forensics decisions supplied the workspace verdict and routing rollup.", recordIds)
+  ];
+}
+
+function workspaceTraceEvent(
+  phase: ForensicsQueryTracePhase,
+  label: string,
+  message: string,
+  recordIds: readonly string[]
+): SourceAnnotatedForensicsQueryTraceEvent {
+  const hook =
+    phase === "supervisor"
+      ? "agent_start"
+      : phase === "decision"
+        ? "agent_end"
+        : phase === "query"
+          ? "agent_tool_start"
+          : "agent_tool_end";
+
+  return {
+    agentName: "Recoup Copilot",
+    deterministicBasis: workspaceForensicsQueryBasis,
+    hook,
+    label,
+    message,
+    phase,
+    receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+    recordIds: [...recordIds],
+    retrievalSource: "source_backed",
+    sourceKind: "derived_backend",
+    ...(phase === "retrieval" ? { toolName: "settlement.run.read" } : {})
+  };
+}
+
+function countWorkspaceCasesBy(
+  caseSummaries: readonly WorkspaceCaseSummary[],
+  key: "routing" | "verdict",
+  value: string
+): number {
+  return caseSummaries.filter((summary) => summary[key] === value).length;
+}
+
+function workspaceCaseIdFromLineId(lineId: string): string {
+  return lineId.match(/^(S[1-8])-/u)?.[1] ?? lineId;
 }
 
 export function runForensicsQuerySession(input: ForensicsQuerySessionInput): ForensicsQuerySessionResponse {

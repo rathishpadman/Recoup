@@ -27,6 +27,7 @@ import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { materializeRealEvidenceDataset } from "../../src/services/evidenceMaterializer.js";
 import { reconcileDeductionClaim } from "../../src/services/reconciliationEngine.js";
 import { invokeServiceTool } from "../../src/services/serviceLayer.js";
+import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { recoupCorrelationIdHeader } from "../../src/middleware/logging.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
 
@@ -961,6 +962,57 @@ describe("S5 cockpit API", () => {
       expect(body.citations.map((citation) => citation.recordId)).toEqual(
         expect.arrayContaining(["S6-L1", "INV-S6-1", "SAP-INV-S6-1"])
       );
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves workspace forensic query sessions from the current settlement run only", async () => {
+    const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "What did the agents conclude across the settlement run?",
+          scope: "workspace",
+          settlementRunId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        deterministicBasis?: string;
+        trace: Array<{ phase: string; recordIds: string[] }>;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("8 deduction cases");
+      expect(body.answer).toContain("3 valid");
+      expect(body.answer).toContain("4 invalid");
+      expect(body.answer).toContain("1 partial");
+      expect(body.deterministicBasis).toBe("current settlement run read-model + deterministic forensics decisions");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(
+        expect.arrayContaining(["S1-L1", "S2-L1", "S3-L1", "S4-L1", "S5-L1", "S6-L1", "S7-L1", "S8-L1"])
+      );
+      expect(body.trace.map((event) => event.phase)).toEqual(["supervisor", "query", "retrieval", "decision"]);
+
+      const stale = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "What did the agents conclude across the settlement run?",
+          scope: "workspace",
+          settlementRunId: "settlement-run:42:stale"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const staleBody = (await stale.json()) as { error: string };
+
+      expect(stale.status).toBe(409);
+      expect(staleBody.error).toBe("Maya workspace query requires the current settlement run.");
     } finally {
       await close(server);
     }

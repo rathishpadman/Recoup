@@ -160,11 +160,17 @@ export type ForensicsQueryModelExecution =
       reason: string;
     };
 
-export interface ForensicsQueryRequest {
-  question: string;
-  recordIds: string[];
-  selectedLineId: string;
-}
+export type ForensicsQueryRequest =
+  | {
+      question: string;
+      recordIds: string[];
+      selectedLineId: string;
+    }
+  | {
+      question: string;
+      scope: "workspace";
+      settlementRunId: string;
+    };
 
 export interface ForensicsQueryResponse {
   answer?: string;
@@ -218,6 +224,7 @@ export interface ApprovalAuditReceipt {
 
 export interface ForensicsCockpitModel {
   surface: "forensics-analyst";
+  settlementRunId: string;
   kpiStrip: Array<{
     label: string;
     provenance: MayaFieldProvenance;

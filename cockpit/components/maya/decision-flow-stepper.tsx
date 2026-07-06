@@ -1,13 +1,12 @@
 "use client";
 
 import {
-  BadgeCheckIcon,
   CheckCircle2Icon,
   CheckSquareIcon,
+  CircleCheckBigIcon,
   FileTextIcon,
   RouteIcon,
-  SearchIcon,
-  type LucideIcon
+  SearchIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mayaAccent } from "./maya-accent.ts";
@@ -77,26 +76,20 @@ export function DecisionFlowStepper({ steps }: { steps: readonly MayaDecisionFlo
 }
 
 function DecisionFlowIcon({ stepKey }: { stepKey: MayaDecisionFlowStep["key"] }) {
-  const Icon = decisionFlowIcon(stepKey);
-
-  return <Icon aria-hidden="true" className="size-7" />;
-}
-
-function decisionFlowIcon(stepKey: MayaDecisionFlowStep["key"]): LucideIcon {
   if (stepKey === "scenario") {
-    return FileTextIcon;
+    return <FileTextIcon aria-hidden="true" className="size-7" />;
   }
   if (stepKey === "agents") {
-    return SearchIcon;
+    return <SearchIcon aria-hidden="true" className="size-7" />;
   }
   if (stepKey === "verdict") {
-    return BadgeCheckIcon;
+    return <CircleCheckBigIcon aria-hidden="true" className="size-7" />;
   }
   if (stepKey === "action") {
-    return RouteIcon;
+    return <RouteIcon aria-hidden="true" className="size-7" />;
   }
 
-  return CheckSquareIcon;
+  return <CheckSquareIcon aria-hidden="true" className="size-7" />;
 }
 
 function decisionFlowCircleClass(step: MayaDecisionFlowStep): string {
