@@ -450,21 +450,25 @@ function missingPromptChipAccessibilityRequirements(source: string): string[] {
   return missing;
 }
 
-function missingBlockedQuerySnapshotProvenanceRequirements(source: string): string[] {
-  const snapshotMapper = findFunctionDefinition(stripComments(source), "toQueryEvidenceSnapshot");
+function missingBlockedQuerySnapshotProvenanceRequirements(queryDockSource: string, derivedSource: string): string[] {
+  if (!/\bbuildQueryEvidenceSnapshot\s*\(/u.test(stripComments(queryDockSource))) {
+    return ["query dock does not use buildQueryEvidenceSnapshot"];
+  }
+
+  const snapshotMapper = findFunctionDefinition(stripComments(derivedSource), "buildQueryEvidenceSnapshot");
   if (snapshotMapper === undefined) {
-    return ["query dock is missing toQueryEvidenceSnapshot"];
+    return ["maya-workspace-derived is missing buildQueryEvidenceSnapshot"];
   }
 
   const missing: string[] = [];
   if (/return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u.test(snapshotMapper.body)) {
     missing.push("blocked query snapshot discards backend citations");
   }
-  if (!/\bcitations\s*:\s*response\.citations\b/u.test(snapshotMapper.body)) {
+  if (!/\bcitations\s*:\s*input\.response\.citations\b/u.test(snapshotMapper.body)) {
     missing.push("blocked query snapshot does not preserve backend response.citations");
   }
   if (
-    !/\bconst\s+blockedRecordIds\s*=\s*dedupeRecordIds\s*\(\s*\[[\s\S]{0,600}\.\.\.citedRecordIds[\s\S]{0,600}\.\.\.selectedScopeRecordIds/u.test(
+    !/\bconst\s+blockedRecordIds\s*=\s*dedupe(?:Strings|RecordIds)\s*\(\s*\[[\s\S]{0,600}\.\.\.citedRecordIds[\s\S]{0,600}\.\.\.selectedScopeRecordIds/u.test(
       snapshotMapper.body
     )
   ) {
@@ -2120,15 +2124,16 @@ describe("Maya shadcn human QA contract", () => {
         surface.includes("maya-recoup-agent-float") && surface.includes("maya-recoup-agent-button"),
       e2eClicksLauncher: e2e.includes('page.getByTestId("recoup-agent-launcher").click()'),
       e2eChecksFloatingPosition: e2e.includes(
-        "Recoup Copilot launcher must sit in an independent Overview command rail, below the top header and outside data rows"
+        "Recoup Copilot launcher must pin to the bottom-right viewport edge as an independent floating entry point"
       ),
-      cssPinsLauncherLowerWorkspaceRail:
+      cssPinsLauncherBottomRightViewport:
         launcherCss.includes(".maya-recoup-agent-float") &&
         launcherCss.includes("display: flex;") &&
         launcherCss.includes("pointer-events: none;") &&
-        !launcherCss.includes("position: fixed;") &&
-        !launcherCss.includes("bottom:") &&
-        !launcherCss.includes("right:") &&
+        launcherCss.includes("position: fixed;") &&
+        launcherCss.includes("bottom:") &&
+        launcherCss.includes("right:") &&
+        launcherCss.includes("z-index:") &&
         surface.includes('placement="overview"'),
       e2eCoversNoReplayAfterNormalOpen: e2e.includes("Recoup Copilot launcher signal must not replay"),
       e2eVerifiesGroundedDock: e2e.includes('data-testid="maya-query-dock"') && e2e.includes("Recoup Copilot launcher")
@@ -2143,7 +2148,7 @@ describe("Maya shadcn human QA contract", () => {
       launcherUsesFloatingShell: true,
       e2eClicksLauncher: true,
       e2eChecksFloatingPosition: true,
-      cssPinsLauncherLowerWorkspaceRail: true,
+      cssPinsLauncherBottomRightViewport: true,
       e2eCoversNoReplayAfterNormalOpen: true,
       e2eVerifiesGroundedDock: true
     });
@@ -2304,7 +2309,10 @@ describe("Maya shadcn human QA contract", () => {
         ),
       missingPromptChipKeyIdentityRequirements: missingPromptChipKeyIdentityRequirements(queryDock),
       missingPromptChipAccessibilityRequirements: missingPromptChipAccessibilityRequirements(queryDock),
-      missingBlockedQuerySnapshotProvenanceRequirements: missingBlockedQuerySnapshotProvenanceRequirements(queryDock),
+      missingBlockedQuerySnapshotProvenanceRequirements: missingBlockedQuerySnapshotProvenanceRequirements(
+        queryDock,
+        readMayaComponent("maya-workspace-derived.ts")
+      ),
       missingStrictQueryResponseCallbackRequirements: missingStrictQueryResponseCallbackRequirements(queryDock),
       missingQueryCloseResetRequirements: missingQueryCloseResetRequirements(queryDock),
       missingStableQueryCloseLifecycleRequirements: missingStableQueryCloseLifecycleRequirements(queryDock),
@@ -2338,7 +2346,8 @@ describe("Maya shadcn human QA contract", () => {
       missingAssistantCitationRequirements: missingAssistantCitationRequirements(chatSource),
       noSpanishReadyPrimaryCopy: !/Spanish ready/u.test(queryDock),
       noRunningTracePanelInPrimaryLayer: !/isRunning\s*\?\s*\([\s\S]{0,900}<AgentTracePanel/u.test(stripComments(queryDock)),
-      runningBubbleUsesEvidenceCheckingCopy: /Maya is checking evidence/u.test(queryDock),
+      runningBubbleUsesEvidenceCheckingCopy:
+        /\bbuildConductorRunningLine\b/u.test(queryDock) || /Maya is checking evidence/u.test(queryDock),
       modernChatStyles:
         styles.includes('[data-testid="maya-query-conversation"]') &&
         styles.includes('[data-testid="maya-submitted-query"]') &&

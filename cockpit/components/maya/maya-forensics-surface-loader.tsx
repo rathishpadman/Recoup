@@ -408,6 +408,8 @@ function isForensicsCockpitModel(value: unknown): value is ForensicsCockpitModel
   return (
     isRecord(value) &&
     value.surface === "forensics-analyst" &&
+    typeof value.settlementRunId === "string" &&
+    value.settlementRunId.trim().length > 0 &&
     Array.isArray(value.kpiStrip) &&
     Array.isArray(value.worklist) &&
     isRecord(value.selected) &&

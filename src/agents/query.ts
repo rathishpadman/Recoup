@@ -42,11 +42,48 @@ export interface DeterministicForensicsQueryAnswerInput {
 
 export function buildDeterministicForensicsQueryAnswer(input: DeterministicForensicsQueryAnswerInput): string {
   const citationRecordIds = dedupeRecordIds(input.citationRecordIds);
+  const intent = classifySelectedEvidenceQueryIntent(input.question);
+  const selectedLineLead = `Line ${input.selectedLineId}`;
+  const verdictLead = `${selectedLineLead} is ${input.verdict} and routed to ${input.routing}.`;
+  const citationLead = `The answer is limited to cited record IDs: ${citationRecordIds.join(", ")}.`;
+
+  if (intent === "approval_gate") {
+    return [
+      `Before Maya opens approval for ${input.selectedLineId}, the current finding remains ${input.verdict} and routes to ${input.routing}.`,
+      `Deterministic basis: ${input.basis}`,
+      "External action stays gated behind human approval.",
+      citationLead
+    ].join(" ");
+  }
+
+  if (intent === "route") {
+    return [
+      `${selectedLineLead} belongs with ${input.routing}.`,
+      `The current ${input.verdict} finding is supported by: ${input.basis}`,
+      citationLead
+    ].join(" ");
+  }
+
+  if (intent === "counterfactual_validity") {
+    return [
+      `A valid deduction would need cited evidence that overturns the current finding for ${input.selectedLineId}.`,
+      `Instead, the selected evidence supports the ${input.verdict} verdict and ${input.routing} route: ${input.basis}`,
+      citationLead
+    ].join(" ");
+  }
+
+  if (intent === "customer_challenge") {
+    return [
+      `To respond on ${input.selectedLineId}, use the cited evidence supporting the ${input.verdict} verdict and ${input.routing} route.`,
+      `Deterministic basis: ${input.basis}`,
+      citationLead
+    ].join(" ");
+  }
 
   return [
-    `Line ${input.selectedLineId} is ${input.verdict} and routed to ${input.routing} by deterministic forensics orchestration.`,
+    verdictLead,
     `Basis: ${input.basis}`,
-    `The answer is limited to cited record IDs: ${citationRecordIds.join(", ")}.`
+    citationLead
   ].join(" ");
 }
 
@@ -152,4 +189,52 @@ function sameRecordIdCitationParity(recordIds: readonly string[]): CitationParit
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {
   return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
+}
+
+type SelectedEvidenceQueryIntent = "approval_gate" | "counterfactual_validity" | "customer_challenge" | "generic" | "route";
+
+function classifySelectedEvidenceQueryIntent(question: string): SelectedEvidenceQueryIntent {
+  const normalizedQuestion = question.trim().toLowerCase();
+  if (normalizedQuestion.length === 0) {
+    return "generic";
+  }
+
+  if (
+    normalizedQuestion.includes("approval") ||
+    normalizedQuestion.includes("manager") ||
+    normalizedQuestion.includes("human review") ||
+    normalizedQuestion.includes("human approval")
+  ) {
+    return "approval_gate";
+  }
+
+  if (
+    normalizedQuestion.includes("billing correction") ||
+    normalizedQuestion.includes("recovery pursuit") ||
+    normalizedQuestion.includes("what route") ||
+    normalizedQuestion.includes("which route") ||
+    normalizedQuestion.includes("drives that route") ||
+    normalizedQuestion.includes("route")
+  ) {
+    return "route";
+  }
+
+  if (
+    normalizedQuestion.includes("what would make this a valid deduction") ||
+    normalizedQuestion.includes("valid-deduction pattern") ||
+    normalizedQuestion.includes("valid deduction pattern")
+  ) {
+    return "counterfactual_validity";
+  }
+
+  if (
+    normalizedQuestion.includes("customer says") ||
+    normalizedQuestion.includes("challenge") ||
+    normalizedQuestion.includes("what proof supports") ||
+    normalizedQuestion.includes("what evidence supports")
+  ) {
+    return "customer_challenge";
+  }
+
+  return "generic";
 }

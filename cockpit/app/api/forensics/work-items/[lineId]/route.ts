@@ -37,14 +37,15 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
   });
   if (
     cached !== undefined &&
-    cachedWorkItemDetailMatchesLine(cached.payload, lineId) &&
+    cachedWorkItemDetailCanBeReused(cached.payload, lineId) &&
     (await cachedWorkItemDetailApprovalStateIsFresh(runtimeEnv, cached.payload))
   ) {
+    const responsePayload = await augmentGroupedWorkItemDetailFromSiblingCaches(runtimeEnv, cached.payload, lineId);
     refreshReadModelAfterResponse(runtimeEnv, authHeaders, {
       method: "GET",
       path: `/forensics/work-items/${encodeURIComponent(lineId)}`
     });
-    return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+    return readModelJsonResponse(responsePayload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
   }
 
   try {
@@ -59,23 +60,38 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
     const body = await upstream.text();
     if (upstream.ok) {
       const payload = parseWorkItemDetailPayload(body);
-      if (payload !== undefined) {
+      if (payload === undefined || !workItemDetailPayloadMatchesLine(payload, lineId)) {
+        return Response.json({ error: "Forensics work item detail service unavailable." }, { headers: noStoreHeaders(), status: 502 });
+      }
+      const responsePayload = await augmentGroupedWorkItemDetailFromSiblingCaches(runtimeEnv, payload, lineId);
+      const selected = readRecord(responsePayload.selected);
+      const workItem = readRecord(responsePayload.workItem);
+      const workItemLineIds = readNonEmptyStringArray(workItem?.lineIds);
+      if (selected !== undefined && cachedWorkItemDetailHasCanonicalEvidenceProof(selected, workItemLineIds)) {
         await publishCachedReadModelPayload(runtimeEnv, {
           modelKey,
-          payload,
+          payload: responsePayload,
           payloadSurface: "forensics-work-item-detail",
           previousSourceRecordIds: [],
           rowSurface: "forensics-analyst",
-          sourceRecordIds: collectWorkItemDetailRecordIds(payload, lineId)
+          sourceRecordIds: collectWorkItemDetailRecordIds(responsePayload, lineId)
         });
       }
+
+      return new Response(JSON.stringify(responsePayload), {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": upstream.headers.get("content-type") ?? "application/json",
+          [readModelCacheHeader]: upstream.headers.get(readModelCacheHeader) ?? "miss"
+        },
+        status: upstream.status
+      });
     }
 
     return new Response(body, {
       headers: {
         "cache-control": "no-store",
-        "content-type": upstream.headers.get("content-type") ?? "application/json",
-        ...(upstream.ok ? { [readModelCacheHeader]: upstream.headers.get(readModelCacheHeader) ?? "miss" } : {})
+        "content-type": upstream.headers.get("content-type") ?? "application/json"
       },
       status: upstream.status
     });
@@ -107,22 +123,36 @@ function parseWorkItemDetailPayload(body: string): Record<string, unknown> | und
   return undefined;
 }
 
-function cachedWorkItemDetailMatchesLine(payload: Record<string, unknown>, lineId: string): boolean {
+function cachedWorkItemDetailCanBeReused(payload: Record<string, unknown>, lineId: string): boolean {
+  const selected = readRecord(payload.selected);
+  const workItem = readRecord(payload.workItem);
+  if (selected === undefined || workItem === undefined || !workItemDetailPayloadMatchesLine(payload, lineId)) {
+    return false;
+  }
+
+  const lineIds = readNonEmptyStringArray(workItem.lineIds);
+  return cachedWorkItemDetailHasCanonicalEvidenceProof(selected, lineIds);
+}
+
+function workItemDetailPayloadMatchesLine(payload: Record<string, unknown>, lineId: string): boolean {
   const selected = readRecord(payload.selected);
   const workItem = readRecord(payload.workItem);
   if (selected === undefined || workItem === undefined) {
     return false;
   }
 
-  const lineIds = Array.isArray(workItem.lineIds) ? workItem.lineIds : [];
+  const lineIds = Array.isArray(workItem.lineIds) ? workItem.lineIds.filter((value): value is string => typeof value === "string") : [];
+  const workItemLineId = readNonEmptyString(workItem.lineId);
+  const workItemId = readNonEmptyString(workItem.workItemId);
 
   return (
     payload.lineId === lineId &&
     selected.lineId === lineId &&
-    workItem.lineId === lineId &&
-    workItem.workItemId === lineId &&
     lineIds.includes(lineId) &&
-    cachedWorkItemDetailHasCanonicalEvidenceProof(selected)
+    workItemLineId !== undefined &&
+    workItemId !== undefined &&
+    workItemLineId === workItemId &&
+    lineIds.includes(workItemLineId)
   );
 }
 
@@ -249,42 +279,182 @@ function parseJson(value: string): unknown {
   return JSON.parse(value) as unknown;
 }
 
-function cachedWorkItemDetailHasCanonicalEvidenceProof(selected: Record<string, unknown>): boolean {
-  const evidencePack = readRecord(selected.evidencePack);
-  const documents = Array.isArray(evidencePack?.documents) ? evidencePack.documents : [];
-  const hasCanonicalDocument = documents.some((document) => {
-    const record = readRecord(document);
+async function augmentGroupedWorkItemDetailFromSiblingCaches(
+  runtimeEnv: RuntimeEnv,
+  payload: Record<string, unknown>,
+  requestedLineId: string
+): Promise<Record<string, unknown>> {
+  const selected = readRecord(payload.selected);
+  const evidencePack = readRecord(selected?.evidencePack);
+  const workItem = readRecord(payload.workItem);
+  if (selected === undefined || evidencePack === undefined || workItem === undefined) {
+    return payload;
+  }
 
-    return (
-      record !== undefined &&
-      isNonEmptyString(record.evidenceId) &&
-      isNonEmptyString(record.receiptId) &&
-      isContentHash(record.contentHash)
-    );
-  });
-  const hasPodDocumentLink = documents.some((document) => {
-    const record = readRecord(document);
+  const lineIds = readNonEmptyStringArray(workItem.lineIds);
+  const workItemLineId = readNonEmptyString(workItem.lineId);
+  const workItemId = readNonEmptyString(workItem.workItemId);
+  if (
+    lineIds.length <= 1 ||
+    workItemLineId === undefined ||
+    workItemId === undefined ||
+    !lineIds.includes(requestedLineId)
+  ) {
+    return payload;
+  }
 
-    return (
-      record !== undefined &&
-      readDocumentType(record.documentType) === "pod" &&
-      isNonEmptyString(record.evidenceId) &&
-      isNonEmptyString(record.receiptId) &&
-      isContentHash(record.contentHash) &&
-      isNonEmptyString(record.storageUri) &&
-      isNonEmptyString(record.storageHref)
-    );
-  });
+  let mergedRecordIds = readNonEmptyStringArray(evidencePack.recordIds);
+  let mergedDocuments = readRecordArray(evidencePack.documents);
+  const documentKeys = new Set(mergedDocuments.map(evidenceDocumentKey));
+  let changed = false;
 
-  return hasCanonicalDocument && hasPodDocumentLink;
+  for (const siblingLineId of lineIds) {
+    if (siblingLineId === requestedLineId) {
+      continue;
+    }
+
+    const siblingCached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsWorkItemReadModelKey(siblingLineId), "forensics-analyst", {
+      payloadSurface: "forensics-work-item-detail"
+    });
+    if (siblingCached === undefined || !cachedWorkItemDetailCanBeReused(siblingCached.payload, siblingLineId)) {
+      continue;
+    }
+
+    const siblingSelected = readRecord(siblingCached.payload.selected);
+    const siblingWorkItem = readRecord(siblingCached.payload.workItem);
+    const siblingEvidencePack = readRecord(siblingSelected?.evidencePack);
+    if (
+      siblingSelected === undefined ||
+      siblingWorkItem === undefined ||
+      siblingEvidencePack === undefined ||
+      readNonEmptyString(siblingWorkItem.lineId) !== workItemLineId ||
+      readNonEmptyString(siblingWorkItem.workItemId) !== workItemId
+    ) {
+      continue;
+    }
+
+    const nextRecordIds = dedupeStrings([...mergedRecordIds, ...readNonEmptyStringArray(siblingEvidencePack.recordIds)]);
+    if (nextRecordIds.length !== mergedRecordIds.length) {
+      mergedRecordIds = nextRecordIds;
+      changed = true;
+    }
+
+    for (const siblingDocument of readRecordArray(siblingEvidencePack.documents)) {
+      const siblingDocumentKey = evidenceDocumentKey(siblingDocument);
+      if (documentKeys.has(siblingDocumentKey)) {
+        continue;
+      }
+      documentKeys.add(siblingDocumentKey);
+      mergedDocuments = [...mergedDocuments, siblingDocument];
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    return payload;
+  }
+
+  const nextPayload = structuredClone(payload);
+  const nextSelected = readRecord(nextPayload.selected);
+  const nextEvidencePack = readRecord(nextSelected?.evidencePack);
+  if (nextSelected === undefined || nextEvidencePack === undefined) {
+    return payload;
+  }
+
+  nextEvidencePack.recordIds = mergedRecordIds;
+  nextEvidencePack.documents = mergedDocuments;
+  const nextProvenance = readRecord(nextEvidencePack.provenance);
+  if (nextProvenance !== undefined) {
+    nextProvenance.recordIds = dedupeStrings([...readNonEmptyStringArray(nextProvenance.recordIds), ...mergedRecordIds]);
+  }
+
+  return nextPayload;
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function cachedWorkItemDetailHasCanonicalEvidenceProof(
+  selected: Record<string, unknown>,
+  workItemLineIds: readonly string[]
+): boolean {
+  const evidencePack = readRecord(selected.evidencePack);
+  const documents = Array.isArray(evidencePack?.documents) ? evidencePack.documents : [];
+  const packetRecordIds = readNonEmptyStringArray(evidencePack?.recordIds);
+  const packetProvenance = readRecord(evidencePack?.provenance);
+  const packetProvenanceRecordIds = readNonEmptyStringArray(packetProvenance?.recordIds);
+  const requiresGroupedScopeProof = workItemLineIds.length > 1;
+  if (documents.length === 0) {
+    return false;
+  }
+
+  if (
+    requiresGroupedScopeProof &&
+    !workItemLineIds.every(
+      (lineId) => packetRecordIds.includes(lineId) && packetProvenanceRecordIds.includes(lineId)
+    )
+  ) {
+    return false;
+  }
+
+  return documents.every((document) => {
+    const record = readRecord(document);
+    const evidenceId = readNonEmptyString(record?.evidenceId);
+    const receiptId = readNonEmptyString(record?.receiptId);
+    const contentHash = readNonEmptyString(record?.contentHash);
+    const storageUri = readNonEmptyString(record?.storageUri);
+    const storageHref = readNonEmptyString(record?.storageHref);
+
+    return (
+      record !== undefined &&
+      evidenceId !== undefined &&
+      receiptId !== undefined &&
+      contentHash !== undefined &&
+      isContentHash(contentHash) &&
+      storageHref !== undefined &&
+      (storageUri === undefined || storageUri === buildCanonicalEvidenceDocumentStorageUri(evidenceId)) &&
+      isSupportedEvidenceHref(storageHref, evidenceId)
+    );
+  });
+}
+
+function buildCanonicalEvidenceDocumentHref(evidenceId: string): string {
+  return `/api/forensics/evidence-documents/${encodeURIComponent(evidenceId)}`;
+}
+
+function buildCanonicalEvidenceDocumentStorageUri(evidenceId: string): string {
+  return `supabase://recoup_evidence_documents/${evidenceId}`;
+}
+
+function isSupportedEvidenceHref(value: string, evidenceId: string): boolean {
+  const normalizedHref = value.trim();
+  if (/^https?:\/\//iu.test(normalizedHref)) {
+    return true;
+  }
+
+  return normalizedHref === buildCanonicalEvidenceDocumentHref(evidenceId);
 }
 
 function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readNonEmptyStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== undefined) : [];
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function evidenceDocumentKey(document: Record<string, unknown>): string {
+  return (
+    readNonEmptyString(document.evidenceId) ??
+    readNonEmptyString(document.documentId) ??
+    readNonEmptyString(document.sourceRecordId) ??
+    JSON.stringify(document)
+  );
 }
 
 function isContentHash(value: unknown): value is string {
@@ -297,10 +467,6 @@ function normalizeSupabaseUrl(value: string): string {
 
 function isSafeTableName(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]{0,62}$/u.test(value);
-}
-
-function readDocumentType(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function collectWorkItemDetailRecordIds(payload: Record<string, unknown>, lineId: string): string[] {

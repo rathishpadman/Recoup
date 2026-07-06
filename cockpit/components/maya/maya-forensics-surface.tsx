@@ -374,7 +374,7 @@ function overviewVerdictSummary(worklist: readonly MayaWorklistItem[]): string {
 }
 
 function readModelSettlementRunId(model: MayaForensicsSurfaceProps["model"]): string | undefined {
-  const value = model.settlementRunId.trim();
+  const value = typeof model.settlementRunId === "string" ? model.settlementRunId.trim() : "";
   return value.length > 0 ? value : undefined;
 }
 
@@ -545,6 +545,7 @@ export function MayaForensicsSurface({
   const [returnContextLineId, setReturnContextLineId] = React.useState<string | undefined>();
   const [agentDockOpenLineId, setAgentDockOpenLineId] = React.useState<string | undefined>();
   const [overviewQueryDockOpen, setOverviewQueryDockOpen] = React.useState(false);
+  const [caseQueryDockOpen, setCaseQueryDockOpen] = React.useState(false);
   const [overviewSourceReadinessOpen, setOverviewSourceReadinessOpen] = React.useState(false);
   const [overviewCaseFilter, setOverviewCaseFilter] = React.useState("");
   const [overviewCaseSort, setOverviewCaseSort] = React.useState<OverviewCaseConcentrationSortState>({});
@@ -577,12 +578,20 @@ export function MayaForensicsSurface({
       : undefined;
   const agentLaunchItem = activeCaseDetail?.workItem ?? openedCaseWorklistItem ?? visibleSelectedWorklistItem;
   const businessFreshnessBanner = <ForensicsBusinessFreshnessBanner businessFreshness={businessFreshness} />;
+  const overviewWorkspaceRecordIds = React.useMemo(
+    () =>
+      dedupeStrings([
+        ...model.worklist.flatMap((item) => [item.lineId, ...item.lineIds, ...item.provenance.recordIds]),
+        ...model.selected.evidencePack.recordIds
+      ]),
+    [model.selected.evidencePack.recordIds, model.worklist]
+  );
   const overviewCopilotDock = React.useMemo<MayaQueryPromptDockContract>(
     () => ({
       ...model.multimodalDock,
-      promptSuggestions: buildOverviewCopilotPromptSuggestions(model.worklist, model.selected.evidencePack.recordIds)
+      promptSuggestions: buildOverviewCopilotPromptSuggestions(model.worklist, overviewWorkspaceRecordIds)
     }),
-    [model.multimodalDock, model.selected.evidencePack.recordIds, model.worklist]
+    [model.multimodalDock, model.worklist, overviewWorkspaceRecordIds]
   );
 
   const handleOverviewQueryResponse = React.useCallback((response: QueryEvidenceResponse) => {
@@ -598,6 +607,7 @@ export function MayaForensicsSurface({
     setActiveSection("worklist");
     setReturnContextLineId(undefined);
     setOverviewQueryDockOpen(false);
+    setCaseQueryDockOpen(false);
     setOpenedCaseWorklistItem(item);
     setOpenedCaseDetail(undefined);
     setWorkItemDetailLoadState({ lineId: requestedLineId, state: "loading" });
@@ -626,6 +636,35 @@ export function MayaForensicsSurface({
       setOpenedCaseDetail(undefined);
       setWorkItemDetailLoadState(toWorkItemDetailLoadError(requestedLineId, error));
       setAgentDockOpenLineId(undefined);
+      setCaseQueryDockOpen(false);
+    }
+  }, []);
+
+  const refreshOpenedCaseDetail = React.useCallback(async (item: MayaWorklistItem, requestedLineId: string) => {
+    const requestId = beginWorkItemDetailRequest(detailRequestSequence);
+    setOpenedCaseWorklistItem(item);
+    setWorkItemDetailLoadState({ lineId: requestedLineId, state: "loading" });
+
+    try {
+      const detail = await fetchForensicsWorkItemDetail(requestedLineId);
+      if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
+        return;
+      }
+      assertWorkItemDetailIdentity(detail, requestedLineId, item);
+
+      setOpenedCaseDetail(detail);
+      setOpenedCaseWorklistItem(detail.workItem);
+      setLocallyDecidedLineIds((current) => reconcileLocalDecisionLine(current, detail.lineId, detailHasHumanDecision(detail)));
+      setWorkItemDetailLoadState(undefined);
+    } catch (error) {
+      if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
+        return;
+      }
+
+      setOpenedCaseDetail(undefined);
+      setWorkItemDetailLoadState(toWorkItemDetailLoadError(requestedLineId, error));
+      setAgentDockOpenLineId((current) => (current === requestedLineId ? undefined : current));
+      setCaseQueryDockOpen(false);
     }
   }, []);
 
@@ -660,6 +699,7 @@ export function MayaForensicsSurface({
       setWorkItemDetailLoadState(undefined);
       setAgentDockOpenLineId(undefined);
       setOverviewQueryDockOpen(false);
+      setCaseQueryDockOpen(false);
     },
     []
   );
@@ -678,6 +718,7 @@ export function MayaForensicsSurface({
     setWorkItemDetailLoadState(undefined);
     setAgentDockOpenLineId(undefined);
     setOverviewQueryDockOpen(false);
+    setCaseQueryDockOpen(false);
   }, [openedCaseWorklistItem]);
 
   const handleLaunchRecoupAgent = React.useCallback(() => {
@@ -725,6 +766,7 @@ export function MayaForensicsSurface({
     setReturnContextLineId(undefined);
     setAgentDockOpenLineId(undefined);
     setOverviewQueryDockOpen(false);
+    setCaseQueryDockOpen(false);
   }, []);
 
   React.useEffect(() => {
@@ -760,10 +802,29 @@ export function MayaForensicsSurface({
   }, [model.worklist, modelVersion]);
 
   React.useEffect(() => {
+    if (openedCaseDetail === undefined || openedCaseWorklistItem === undefined) {
+      return;
+    }
+
+    const refreshedWorkItem = reconcileWorklistItemFromModel(model.worklist, openedCaseWorklistItem);
+    if (refreshedWorkItem === undefined || !refreshedWorkItem.lineIds.includes(openedCaseDetail.lineId)) {
+      return;
+    }
+
+    void refreshOpenedCaseDetail(refreshedWorkItem, openedCaseDetail.lineId);
+  }, [model.worklist, modelVersion, openedCaseDetail?.lineId, openedCaseWorklistItem?.workItemId, refreshOpenedCaseDetail]);
+
+  React.useEffect(() => {
     if (openedCaseWorklistItem === undefined && returnContextLineId !== undefined) {
       window.scrollTo({ behavior: "auto", left: 0, top: 0 });
     }
   }, [openedCaseWorklistItem, returnContextLineId]);
+
+  React.useEffect(() => {
+    if (openedCaseWorklistItem === undefined) {
+      setCaseQueryDockOpen(false);
+    }
+  }, [openedCaseWorklistItem]);
 
   function renderMayaRootSection(): React.ReactNode {
     switch (activeSection) {
@@ -1422,7 +1483,7 @@ export function MayaForensicsSurface({
         support={`${caseWorklistItem.customerLabel} / ${caseWorklistItem.workItemLabel}`}
         worklistCount={model.worklist.length}
       >
-        <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />
+        {caseQueryDockOpen ? null : <RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />}
         {businessFreshnessBanner}
         <section className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[300px_minmax(0,1fr)]" aria-label="Maya case overview">
           <aside className="min-w-0" data-testid="maya-case-worklist-rail">
@@ -1455,6 +1516,7 @@ export function MayaForensicsSurface({
               journey={activeCaseDetail.mayaJourney}
               multimodalDock={activeCaseDetail.multimodalDock}
               onApprovalResponse={handleCaseApprovalResponse}
+              onQueryDockOpenChange={setCaseQueryDockOpen}
               onQueryDockIntentConsumed={handleQueryDockIntentConsumed}
               onReturnToWorklist={handleReturnToWorklist}
               onSelectLine={handleSelectCaseLine}
@@ -1527,7 +1589,7 @@ export function MayaForensicsSurface({
         onResponse={handleOverviewQueryResponse}
         open={overviewQueryDockOpen}
         queryScope="workspace"
-        recordIds={model.selected.evidencePack.recordIds}
+        recordIds={overviewWorkspaceRecordIds}
         selectedLine={model.selected.lineId}
         {...(overviewSettlementRunId === undefined ? {} : { settlementRunId: overviewSettlementRunId })}
       />

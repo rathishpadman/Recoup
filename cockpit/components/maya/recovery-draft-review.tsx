@@ -79,6 +79,7 @@ export function RecoveryDraftReview({
   selectedLineId,
   selectedWorklistItem
 }: RecoveryDraftReviewProps) {
+  const [open, setOpen] = React.useState(false);
   const [approvalDialogOpen, setApprovalDialogOpen] = React.useState(false);
   const [emailDialogOpen, setEmailDialogOpen] = React.useState(false);
   const [emailDraft, setEmailDraft] = React.useState<MayaEmailDraft | undefined>();
@@ -116,6 +117,8 @@ export function RecoveryDraftReview({
     draft,
     selectedLineId
   });
+  const recommendedActionVerdictLabel = routingBanner?.verdictLabel ?? selectedWorklistItem?.verdictLabel;
+  const recommendedActionSummary = routingBanner?.routeLine ?? draft.actionLabel;
   const draftPreviews =
     selectedWorklistItem === undefined
       ? []
@@ -131,6 +134,7 @@ export function RecoveryDraftReview({
         });
 
   React.useEffect(() => {
+    setOpen(false);
     setApprovalDialogOpen(false);
     setEmailDialogOpen(false);
     setEmailDraft(undefined);
@@ -149,21 +153,45 @@ export function RecoveryDraftReview({
   }, [draft.actionId, selectedLineId]);
 
   return (
-    <section className="flex min-w-0 flex-col gap-3" data-testid="maya-recovery-draft-review">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle className="text-2xl leading-tight">Outcome</CardTitle>
-          <Badge variant="secondary">{approvalStatusLabel}</Badge>
-          <Badge variant="outline">Human approval required</Badge>
-        </div>
-        <CardDescription>External send gated.</CardDescription>
-      </div>
-
+    <Collapsible
+      className="grid min-w-0 gap-0 rounded-lg border bg-card shadow-[var(--shadow-sm)]"
+      data-testid="maya-recovery-draft-review"
+      onOpenChange={setOpen}
+      open={open}
+    >
+      <CollapsibleTrigger asChild>
+        <Button
+          className="h-auto w-full justify-between gap-3 px-4 py-3 text-left"
+          data-testid="maya-recommended-action-trigger"
+          type="button"
+          variant="ghost"
+        >
+          <span className="grid min-w-0 flex-1 gap-1 text-left">
+            <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
+              <span className="font-semibold">Recommended Action</span>
+              {recommendedActionVerdictLabel === undefined ? null : <Badge variant="outline">{recommendedActionVerdictLabel}</Badge>}
+              {routingBanner?.title === undefined ? null : (
+                <Badge className="max-w-full truncate" title={routingBanner.title} variant="secondary">
+                  {routingBanner.title}
+                </Badge>
+              )}
+              {routingBanner?.amountLabel === undefined ? null : (
+                <Badge variant="outline">{routingBanner.amountLabel}</Badge>
+              )}
+              <Badge variant="secondary">{approvalStatusLabel}</Badge>
+              <Badge variant="outline">Human approval required</Badge>
+            </span>
+            <span className="truncate text-sm text-muted-foreground">{recommendedActionSummary}</span>
+          </span>
+          <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0" />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t p-4">
       {routingBanner === undefined ? (
         <Alert data-testid="maya-outcome-routing-banner">
           <TriangleAlertIcon aria-hidden="true" data-icon="inline-start" />
           <AlertTitle>Routing unavailable</AlertTitle>
-          <AlertDescription>The selected work item is unavailable for this outcome.</AlertDescription>
+          <AlertDescription>The selected work item is unavailable for this recommended action.</AlertDescription>
         </Alert>
       ) : (
         <Alert className={cn("border", mayaAccent.proofPanel)} data-testid="maya-outcome-routing-banner">
@@ -183,7 +211,7 @@ export function RecoveryDraftReview({
           <CardHeader className="gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="grid gap-1">
-                <CardTitle>Recommended action</CardTitle>
+                <CardTitle>Recommended Action</CardTitle>
                 <CardDescription>Gated for review.</CardDescription>
               </div>
               <SourceRecordDetails
@@ -330,6 +358,7 @@ export function RecoveryDraftReview({
           </CardContent>
         </Card>
       </div>
+      </CollapsibleContent>
 
       <EmailDraftDialog
         body={emailBody}
@@ -372,7 +401,7 @@ export function RecoveryDraftReview({
         open={approvalDialogOpen}
         recordIds={evidencePack.recordIds}
       />
-    </section>
+    </Collapsible>
   );
 
   function openEmailDraft(recipientGroup: "billing" | "recovery"): void {

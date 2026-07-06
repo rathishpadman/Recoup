@@ -101,6 +101,7 @@ describe("S5 cockpit business-logic boundary", () => {
   it("wires Maya shadcn query and approval through credential-gated browser/API boundaries", () => {
     const mayaSources = readTree("cockpit/components/maya", [".ts", ".tsx"]);
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const derived = readFileSync("cockpit/components/maya/maya-workspace-derived.ts", "utf8");
     const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
     const approvalDialog = readFileSync("cockpit/components/maya/approval-gate-dialog.tsx", "utf8");
     const caseWorkspace = readFileSync("cockpit/components/maya/deduction-case-workspace.tsx", "utf8");
@@ -165,12 +166,15 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain("submittedQuestion");
     expect(queryDock).toContain("setSubmittedQuestion(trimmedQuestion)");
     expect(queryDock).toContain('data-testid="maya-submitted-query"');
-    expect(queryDock).toContain("const blockedRecordIds");
-    expect(queryDock).toContain("citations: response.citations");
-    expect(queryDock).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
-    const backendQuerySnapshot = queryDock.slice(
-      queryDock.indexOf("function toQueryEvidenceSnapshot"),
-      queryDock.indexOf("function buildSelectedEvidenceIdentity")
+    expect(queryDock).toContain("buildQueryEvidenceSnapshot({");
+    expect(queryDock).not.toContain("function toQueryEvidenceSnapshot");
+    expect(derived).toContain("export function buildQueryEvidenceSnapshot");
+    expect(derived).toContain("const blockedRecordIds");
+    expect(derived).toContain("citations: input.response.citations");
+    expect(derived).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
+    const backendQuerySnapshot = derived.slice(
+      derived.indexOf("export function buildQueryEvidenceSnapshot"),
+      derived.indexOf("export function deriveDecisionFlowSteps")
     );
     expect(backendQuerySnapshot).not.toMatch(
       /return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u
@@ -309,7 +313,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(caseWorkspace).toContain("setQueryResponse");
     expect(caseWorkspace).toContain("setQueryResponse(undefined)");
     expect(caseWorkspace).toContain("response={queryResponse}");
-    expect(caseWorkspace).toContain("recordIds={selected.evidencePack.recordIds}");
+    expect(caseWorkspace).toContain("caseScopedQueryRecordIds");
+    expect(caseWorkspace).toContain("recordIds={caseScopedQueryRecordIds}");
     expect(caseWorkspace).toContain("evidencePack={selected.evidencePack}");
     expect(caseWorkspace).toContain('data-testid="maya-case-detail-b6-outcome"');
     expect(recoveryDraftReview).toContain('data-testid="maya-outcome-action-packages"');
@@ -405,6 +410,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(recoveryDraftReview).toContain("evidencePack: MayaEvidencePack");
     expect(recoveryDraftReview).toContain("selectedWorklistItem: MayaWorklistItem | undefined");
     expect(recoveryDraftReview).toContain("canOpenApproval");
+    expect(recoveryDraftReview).toContain("routingBanner?.title");
+    expect(recoveryDraftReview).toContain("routingBanner?.amountLabel");
     expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"modify\")");
     expect(recoveryDraftReview).not.toContain("approvalActions.find((action) => action.decision === \"reject\")");
     expect(recoveryDraftReview).toContain('testId="maya-draft-source-details"');
@@ -417,6 +424,8 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(recoveryDraftReview).not.toContain("Reject draft");
     expect(recoveryDraftReview).not.toContain("/api/approval");
     expect(recoveryDraftReview).toContain('fetch("/api/email"');
+    expect(caseWorkspace).toContain('DetailGapCard title="Recommended Action unavailable"');
+    expect(caseWorkspace).not.toContain('DetailGapCard title="Outcome unavailable"');
     expect(emailDraftDialog).toContain("<Textarea");
     expect(emailDraftDialog).toContain("<input");
     expect(emailDraftDialog).not.toMatch(/contentEditable|type="number"/iu);

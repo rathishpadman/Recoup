@@ -2347,7 +2347,15 @@ function isReadModelPayloadForSurface(
   value: unknown,
   surface: "connector-readiness" | "forensics-analyst"
 ): value is Record<string, unknown> {
-  return isRecord(value) && value.surface === surface;
+  if (!isRecord(value) || value.surface !== surface) {
+    return false;
+  }
+
+  if (surface === "forensics-analyst") {
+    return typeof value.settlementRunId === "string" && value.settlementRunId.trim().length > 0;
+  }
+
+  return true;
 }
 
 function collectReadModelSourceRecordIds(model: Record<string, unknown>): string[] {

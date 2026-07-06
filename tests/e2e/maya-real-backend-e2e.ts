@@ -12,6 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page, type Request as PlaywrightRequest, type Response as PlaywrightResponse } from "playwright";
 import {
+  buildCaseScopedQueryRecordIds,
   buildCitedRecordChips,
   buildDraftLetterPreview,
   buildEvidenceFactCard,
@@ -1005,11 +1006,15 @@ function assertMayaFieldProvenance(
 }
 
 function assertCanonicalEvidenceMetadata(document: EvidenceDocumentModel, lineId: string): void {
+  const expectedReceiptLineId = canonicalEvidenceLineId(document) ?? lineId;
   assert(
     document.evidenceId !== undefined && /^EVD-[A-Z0-9-]+$/u.test(document.evidenceId),
     `Maya detail ${lineId} evidence document ${document.documentId} omitted canonical evidenceId.`
   );
-  assert(document.receiptId === `RECON-${lineId}`, `Maya detail ${lineId} evidence document ${document.documentId} omitted RECON receipt.`);
+  assert(
+    document.receiptId === `RECON-${expectedReceiptLineId}`,
+    `Maya detail ${lineId} evidence document ${document.documentId} omitted RECON receipt for ${expectedReceiptLineId}.`
+  );
   assert(
     document.contentHash !== undefined && /^[a-f0-9]{64}$/u.test(document.contentHash),
     `Maya detail ${lineId} evidence document ${document.documentId} omitted canonical content hash.`
@@ -1069,12 +1074,24 @@ async function openCaseDetailSection(page: Page, testId: string, label: string):
 
 async function openEvidenceTab(page: Page): Promise<void> {
   await openCaseDetailSection(page, "maya-case-detail-b4-evidence", "Maya evidence section");
+  const drawer = page.getByTestId("maya-evidence-fact-cards");
   await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya evidence fact cards");
+  const trigger = drawer.getByTestId("maya-evidence-fact-cards-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-card"]', "Maya evidence fact card");
 }
 
 async function openDraftReviewSection(page: Page): Promise<void> {
   await openCaseDetailSection(page, "maya-case-detail-b6-outcome", "Maya draft review section");
+  const review = page.getByTestId("maya-recovery-draft-review");
   await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya recovery draft review");
+  const trigger = review.getByTestId("maya-recommended-action-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-outcome-action-packages"]', "Maya recommended action packages");
 }
 
 async function openAgentInvestigationDrawer(page: Page): Promise<void> {
@@ -1495,11 +1512,12 @@ function assertQueryResponseBackedByTrace(
 async function assertVisibleSelectedEvidenceScope(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
   const selectedContextText = normalizeUiText(await page.getByTestId("maya-selected-evidence-context").innerText());
   const selectedLineText = normalizeUiText(await page.getByTestId("maya-query-selected-line").innerText());
+  const expectedQueryRecordIds = expectedSelectedCaseQueryRecordIds(detail);
   assert(
     selectedLineText.includes("Selected case"),
     `Maya query dock selected line ${selectedLineText} did not use business selected-case copy.`
   );
-  for (const recordId of detail.selected.evidencePack.recordIds) {
+  for (const recordId of expectedQueryRecordIds) {
     if (recordId !== detail.selected.lineId) {
       assert(
         !selectedContextText.includes(normalizeUiText(recordId)),
@@ -1519,9 +1537,14 @@ async function assertVisibleSelectedEvidenceScope(page: Page, detail: ForensicsW
   )).sort();
   assertSameRecordIds(
     renderedRecordIds,
-    [...detail.selected.evidencePack.recordIds].sort(),
+    [...expectedQueryRecordIds].sort(),
     "Maya query dock visible selected evidence scope"
   );
+}
+
+function canonicalEvidenceLineId(document: EvidenceDocumentModel): string | undefined {
+  const match = /S\d+-L\d+/u.exec(`${document.evidenceId ?? ""} ${document.documentId} ${document.sourceRecordId ?? ""}`);
+  return match?.[0];
 }
 
 async function assertRenderedPromptChipsMatchBackend(page: Page, detail: ForensicsWorkItemDetailModel): Promise<void> {
@@ -1581,7 +1604,7 @@ function assertBrowserSubmittedQueryScope(
   assert(Array.isArray(submittedRecordIds), "Maya browser submitted query without selected recordIds.");
   assertSameRecordIds(
     submittedRecordIds.map((recordId) => String(recordId)).sort(),
-    [...detail.selected.evidencePack.recordIds].sort(),
+    [...expectedSelectedCaseQueryRecordIds(detail)].sort(),
     `Maya browser submitted selected evidence scope for ${workItem.id}`
   );
 }
@@ -1605,7 +1628,7 @@ function isSubmittedQueryScope(
 
   return sameRecordIds(
     submitted.recordIds.map((recordId) => String(recordId)).sort(),
-    [...detail.selected.evidencePack.recordIds].sort()
+    [...expectedSelectedCaseQueryRecordIds(detail)].sort()
   );
 }
 
@@ -2992,6 +3015,7 @@ async function assertRenderedQueryDockMatchesBackend(page: Page, detail: Forensi
   await expectVisibleLocator(page, '[data-testid="maya-query-dock"]', "Maya query dock");
   const sourceDetails = page.getByTestId("maya-query-source-details");
   const sourceDetailsTrigger = sourceDetails.getByRole("button", { name: /Evidence details/u });
+  const expectedQueryRecordIds = expectedSelectedCaseQueryRecordIds(detail);
   if ((await sourceDetailsTrigger.getAttribute("aria-expanded")) !== "true") {
     await sourceDetailsTrigger.click();
   }
@@ -3001,7 +3025,7 @@ async function assertRenderedQueryDockMatchesBackend(page: Page, detail: Forensi
     `Maya query compact context leaked backend selected line ${detail.selected.lineId}.`
   );
   const renderedDockText = normalizeUiText(await page.getByTestId("maya-query-dock").innerText());
-  for (const recordId of detail.selected.evidencePack.recordIds) {
+  for (const recordId of expectedQueryRecordIds) {
     assert(renderedDockText.includes(normalizeUiText(recordId)), `Maya query dock omitted backend recordId ${recordId}.`);
   }
   for (const document of detail.selected.evidencePack.documents) {
@@ -3735,7 +3759,7 @@ function assertCitationsStayWithinSelectedEvidenceScope(
   detail: ForensicsWorkItemDetailModel,
   context: string
 ): void {
-  const selectedRecordIds = new Set([detail.selected.lineId, ...detail.selected.evidencePack.recordIds]);
+  const selectedRecordIds = new Set(expectedSelectedCaseQueryRecordIds(detail));
   for (const citation of response.citations) {
     assert(
       selectedRecordIds.has(citation.recordId),
@@ -3749,6 +3773,10 @@ function assertSameRecordIds(left: readonly string[], right: readonly string[], 
   right.forEach((recordId, index) => {
     assert(left[index] === recordId, `${context}: expected recordId ${recordId} at ${index.toString()}, received ${left[index] ?? "missing"}.`);
   });
+}
+
+function expectedSelectedCaseQueryRecordIds(detail: ForensicsWorkItemDetailModel): string[] {
+  return buildCaseScopedQueryRecordIds(detail.workItem, { selectedEvidenceRecordIds: detail.selected.evidencePack.recordIds });
 }
 
 function escapeAttributeValue(value: string): string {

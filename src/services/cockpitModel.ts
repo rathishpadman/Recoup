@@ -683,9 +683,32 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
     .filter((decision) => decision.routing === "billing")
     .map((decision) => decision.lineId);
   const actionRecordIds = uniqueStrings(run.actions.flatMap((action) => action.recordIds));
-  const retrievalStatus = buildRetrievalStatusRows(selectedDecision.evidenceDocuments);
+
+  const worklist = buildDeductionWorklist(
+    dataset,
+    run.decisions,
+    run.actions,
+    options?.approvalRecords,
+    options?.reconciliation?.receipts
+  );
+  const selectedWorkItem = worklist.find(
+    (item) => item.lineId === selectedDecision.lineId || item.lineIds.includes(selectedDecision.lineId)
+  );
+  const selectedWorkItemDecisions =
+    selectedWorkItem === undefined
+      ? [selectedDecision]
+      : run.decisions.filter((decision) => selectedWorkItem.lineIds.includes(decision.lineId));
+  const selected = buildSelectedForensicsCase(
+    selectedDecision,
+    selectedAction,
+    findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId),
+    approvalRecordSource,
+    options?.reconciliation,
+    selectedWorkItemDecisions
+  );
+  const retrievalStatus = buildRetrievalStatusRows(selected.evidencePack.documents);
   const evidenceSourceRecordIds = uniqueStrings(
-    selectedDecision.evidenceDocuments.flatMap((document) => document.recordIds)
+    selected.evidencePack.documents.flatMap((document) => document.provenance.recordIds)
   );
 
   return {
@@ -755,24 +778,12 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
           sourceKind: "derived_backend",
           sourceName: "Selected evidence source rollup",
           recordIds: evidenceSourceRecordIds,
-          deterministicBasis: "unique source labels from selected decision evidenceDocuments returned by runForensicsInvestigation"
+          deterministicBasis: "unique source labels from selected evidence pack documents returned for the grouped work item"
         })
       }
     ],
-    worklist: buildDeductionWorklist(
-      dataset,
-      run.decisions,
-      run.actions,
-      options?.approvalRecords,
-      options?.reconciliation?.receipts
-    ),
-    selected: buildSelectedForensicsCase(
-      selectedDecision,
-      selectedAction,
-      findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId),
-      approvalRecordSource,
-      options?.reconciliation
-    ),
+    worklist,
+    selected,
     actionInbox: buildForensicsActionInbox(run.actions),
     multimodalDock: {
       languageLabel: "Spanish ready",
@@ -925,13 +936,16 @@ export function buildForensicsWorkItemDetailCockpitModel(
   }
 
   const approvalReceipt = findApprovalReceipt(options?.approvalRecords ?? [], selectedAction.actionId);
+  const selectedWorkItemDecisions = run.decisions.filter((decision) => workItem.lineIds.includes(decision.lineId));
   const selected = buildSelectedForensicsCase(
     selectedDecision,
     selectedAction,
     approvalReceipt,
     approvalRecordSource,
-    options?.reconciliation
+    options?.reconciliation,
+    selectedWorkItemDecisions
   );
+  const retrievalStatus = buildRetrievalStatusRows(selected.evidencePack.documents);
   const actionInbox = buildForensicsActionInbox(run.actions);
   const recommendedAction = actionInbox.find((action) => action.lineId === lineId);
   if (recommendedAction === undefined) {
@@ -979,7 +993,7 @@ export function buildForensicsWorkItemDetailCockpitModel(
     actionInbox,
     multimodalDock: buildSelectedMultimodalDock(selectedDecision, run.trace),
     mayaJourney: buildSelectedMayaJourney(dataset, selectedDecision),
-    retrievalStatus: buildRetrievalStatusRows(selectedDecision.evidenceDocuments)
+    retrievalStatus
   };
 }
 
@@ -1623,7 +1637,10 @@ function buildDeductionWorklist(
     }
 
     const total = lines.reduce((sum, line) => sum.plus(line.amount), dataset.zeroMoney);
-    const recordIds = uniqueStrings(groupDecisions.flatMap((decision) => decision.recordIds));
+    const recordIds = uniqueStrings([
+      ...groupDecisions.flatMap((decision) => decision.recordIds),
+      ...groupDecisions.flatMap((decision) => decision.evidenceDocuments.flatMap((document) => document.recordIds))
+    ]);
     const groupActions = lines
       .map((line) => actionByLineId.get(line.lineId))
       .filter((action): action is ReturnType<typeof runForensicsInvestigation>["actions"][number] => action !== undefined);
@@ -2112,7 +2129,8 @@ function buildSelectedForensicsCase(
   selectedAction: ReturnType<typeof runForensicsInvestigation>["actions"][number],
   approvalReceipt: ApprovalAuditReceipt | undefined,
   approvalRecordSource: ApprovalRecordSourceMetadata,
-  reconciliation: ForensicsReconciliationOptions | undefined
+  reconciliation: ForensicsReconciliationOptions | undefined,
+  relatedDecisions: readonly DeductionDecision[] = [selectedDecision]
 ): ForensicsCockpitModel["selected"] {
   const approvalEligibility = buildApprovalEligibility(
     selectedDecision,
@@ -2120,7 +2138,7 @@ function buildSelectedForensicsCase(
     approvalReceipt,
     approvalRecordSource
   );
-  const evidencePack = buildSelectedEvidencePack(selectedDecision, reconciliation);
+  const evidencePack = buildSelectedEvidencePack(selectedDecision, relatedDecisions, reconciliation);
 
   return {
     lineId: selectedDecision.lineId,
@@ -2152,55 +2170,122 @@ function buildSelectedForensicsCase(
 
 function buildSelectedEvidencePack(
   selectedDecision: DeductionDecision,
+  relatedDecisions: readonly DeductionDecision[],
   reconciliation: ForensicsReconciliationOptions | undefined
 ): ForensicsCockpitModel["selected"]["evidencePack"] {
-  const receipt = reconciliation?.receipts?.find((candidate) => candidate.lineId === selectedDecision.lineId);
-  const canonicalDocuments = canonicalEvidenceDocumentsForDecision(selectedDecision, reconciliation, receipt);
-  if (receipt !== undefined && canonicalDocuments.length > 0) {
+  const workItemDecisions = scopedSelectedWorkItemDecisions(selectedDecision, relatedDecisions);
+  const receiptsByLineId = selectedEvidenceReceiptsByLineId(workItemDecisions, reconciliation);
+  const canonicalDocuments = canonicalEvidenceDocumentsForWorkItem(reconciliation, receiptsByLineId);
+  if (canonicalDocuments.length > 0) {
     const recordIds = uniqueStrings([
-      ...selectedDecision.recordIds,
-      receipt.receiptId,
-      ...receipt.evidenceIds,
+      ...workItemDecisions.flatMap((decision) => decision.recordIds),
+      ...workItemDecisions.flatMap((decision) => decision.evidenceDocuments.flatMap((document) => document.recordIds)),
+      ...[...receiptsByLineId.values()].flatMap((receipt) => [receipt.receiptId, ...receipt.evidenceIds]),
       ...canonicalDocuments.flatMap((document) => [document.evidenceId, document.sourceRecordId])
     ]);
+    const workItemLineIds = workItemDecisions.map((decision) => decision.lineId);
 
     return {
       provenance: businessProvenance("selected.evidencePack", {
         sourceKind: "derived_backend",
-        sourceName: "Forensics selected decision canonical evidence pack",
+        sourceName: "Forensics selected work item canonical evidence pack",
         recordIds,
-        deterministicBasis: `reconciliation receipt ${receipt.receiptId} joined to canonical evidence documents for decision ${selectedDecision.decisionId}`
+        deterministicBasis: `work item lines ${workItemLineIds.join(", ")} joined to canonical evidence documents across ${String(receiptsByLineId.size)} reconciliation receipts`
       }),
       recordIds,
-      documents: canonicalDocuments.map((document, index) => canonicalEvidenceDocumentView(document, index, receipt))
+      documents: canonicalDocuments.map((document, index) => {
+        const lineId = evidenceDocumentLineId(document);
+        const receipt = lineId === undefined ? undefined : receiptsByLineId.get(lineId);
+        if (receipt === undefined) {
+          throw new Error(`Missing reconciliation receipt for canonical evidence document ${document.evidenceId}.`);
+        }
+
+        return canonicalEvidenceDocumentView(document, index, receipt);
+      })
     };
   }
+  const fallbackDocuments = mergedSelectedEvidenceDocuments(workItemDecisions);
+  const fallbackRecordIds = uniqueStrings([
+    ...workItemDecisions.flatMap((decision) => decision.recordIds),
+    ...fallbackDocuments.flatMap((document) => document.recordIds)
+  ]);
+  const workItemDecisionIds = workItemDecisions.map((decision) => decision.decisionId);
 
   return {
     provenance: businessProvenance("selected.evidencePack", {
       sourceKind: "derived_backend",
-      sourceName: "Forensics selected decision evidence pack",
-      recordIds: selectedDecision.recordIds,
-      deterministicBasis: `requested decision ${selectedDecision.decisionId} evidenceDocuments from runForensicsInvestigation`
+      sourceName: "Forensics selected work item evidence pack",
+      recordIds: fallbackRecordIds,
+      deterministicBasis: `requested work item decisions ${workItemDecisionIds.join(", ")} evidenceDocuments from runForensicsInvestigation`
     }),
-    recordIds: selectedDecision.recordIds,
-    documents: selectedDecision.evidenceDocuments.map((document, index) => evidenceDocumentView(document, index))
+    recordIds: fallbackRecordIds,
+    documents: fallbackDocuments.map((document, index) => evidenceDocumentView(document, index))
   };
 }
 
-function canonicalEvidenceDocumentsForDecision(
+function scopedSelectedWorkItemDecisions(
   selectedDecision: DeductionDecision,
+  relatedDecisions: readonly DeductionDecision[]
+): DeductionDecision[] {
+  const decisionsByLineId = new Map<string, DeductionDecision>();
+  for (const decision of [selectedDecision, ...relatedDecisions]) {
+    if (!decisionsByLineId.has(decision.lineId)) {
+      decisionsByLineId.set(decision.lineId, decision);
+    }
+  }
+
+  return [...decisionsByLineId.values()];
+}
+
+function selectedEvidenceReceiptsByLineId(
+  decisions: readonly DeductionDecision[],
+  reconciliation: ForensicsReconciliationOptions | undefined
+): Map<string, NonNullable<ForensicsReconciliationOptions["receipts"]>[number]> {
+  const receiptsByLineId = new Map<string, NonNullable<ForensicsReconciliationOptions["receipts"]>[number]>();
+  for (const decision of decisions) {
+    const receipt = reconciliation?.receipts?.find((candidate) => candidate.lineId === decision.lineId);
+    if (receipt !== undefined) {
+      receiptsByLineId.set(decision.lineId, receipt);
+    }
+  }
+
+  return receiptsByLineId;
+}
+
+function canonicalEvidenceDocumentsForWorkItem(
   reconciliation: ForensicsReconciliationOptions | undefined,
-  receipt: NonNullable<ForensicsReconciliationOptions["receipts"]>[number] | undefined
+  receiptsByLineId: ReadonlyMap<string, NonNullable<ForensicsReconciliationOptions["receipts"]>[number]>
 ): CanonicalEvidenceDocument[] {
-  if (reconciliation?.evidenceDataset === undefined || receipt === undefined) {
+  if (reconciliation?.evidenceDataset === undefined || receiptsByLineId.size === 0) {
     return [];
   }
 
-  const receiptEvidenceIds = new Set(receipt.evidenceIds);
   return reconciliation.evidenceDataset.documents
-    .filter((document) => receiptEvidenceIds.has(document.evidenceId) && evidenceDocumentLineId(document) === selectedDecision.lineId)
+    .filter((document) => {
+      const lineId = evidenceDocumentLineId(document);
+      if (lineId === undefined) {
+        return false;
+      }
+
+      const receipt = receiptsByLineId.get(lineId);
+      return receipt !== undefined && receipt.evidenceIds.includes(document.evidenceId);
+    })
     .sort((left, right) => canonicalEvidenceDocumentSortKey(left).localeCompare(canonicalEvidenceDocumentSortKey(right)));
+}
+
+function mergedSelectedEvidenceDocuments(
+  decisions: readonly DeductionDecision[]
+): DeductionDecision["evidenceDocuments"] {
+  const documentsById = new Map<string, DeductionDecision["evidenceDocuments"][number]>();
+  for (const decision of decisions) {
+    for (const document of decision.evidenceDocuments) {
+      if (!documentsById.has(document.documentId)) {
+        documentsById.set(document.documentId, document);
+      }
+    }
+  }
+
+  return [...documentsById.values()];
 }
 
 function canonicalEvidenceDocumentView(
@@ -2212,7 +2297,7 @@ function canonicalEvidenceDocumentView(
   const sourceName = canonicalEvidenceSourceName(document);
   const comparisonBasis = `canonical evidence document comparison via receipt ${receipt.receiptId}; evidence ${document.evidenceId}; contentHash ${document.contentHash}`;
   const storageUri = canonicalEvidenceStorageUri(document);
-  const storageHref = canonicalEvidenceStorageHref(storageUri, document.evidenceId);
+  const storageHref = canonicalEvidenceStorageHref(document, storageUri);
 
   return {
     citationId: canonicalEvidenceCitationId(document, index),
@@ -2246,32 +2331,19 @@ function canonicalEvidenceDocumentView(
 
 function canonicalEvidenceStorageUri(document: CanonicalEvidenceDocument): string | undefined {
   const configuredStorageUri = document.storageUri?.trim() ?? "";
-  if (configuredStorageUri.length > 0) {
-    return configuredStorageUri;
-  }
-  if (
-    document.provenance === "source_generated" &&
-    (document.documentType === "pod" || document.documentType === "sap_invoice" || document.documentType === "remittance_advice")
-  ) {
-    return `supabase://recoup_evidence_documents/${document.evidenceId}`;
-  }
-
-  return undefined;
+  return configuredStorageUri.length > 0 ? configuredStorageUri : undefined;
 }
 
-function canonicalEvidenceStorageHref(storageUri: string | undefined, evidenceId: string): string | undefined {
+function canonicalEvidenceStorageHref(
+  document: CanonicalEvidenceDocument,
+  storageUri: string | undefined
+): string | undefined {
   const normalizedStorageUri = storageUri?.trim() ?? "";
-  if (normalizedStorageUri.length === 0) {
-    return undefined;
-  }
-  if (normalizedStorageUri === `supabase://recoup_evidence_documents/${evidenceId}`) {
-    return `/api/forensics/evidence-documents/${encodeURIComponent(evidenceId)}`;
-  }
   if (/^https?:/iu.test(normalizedStorageUri)) {
     return normalizedStorageUri;
   }
 
-  return undefined;
+  return `/api/forensics/evidence-documents/${encodeURIComponent(document.evidenceId)}`;
 }
 
 function buildApprovalEligibility(
@@ -2456,17 +2528,17 @@ function buildSelectedMayaJourney(
 }
 
 function buildRetrievalStatusRows(
-  evidenceDocuments: DeductionDecision["evidenceDocuments"]
+  evidenceDocuments: ForensicsCockpitModel["selected"]["evidencePack"]["documents"]
 ): ForensicsCockpitModel["retrievalStatus"] {
-  const documentsBySourceLabel = new Map<string, DeductionDecision["evidenceDocuments"]>();
+  const documentsBySourceLabel = new Map<string, ForensicsCockpitModel["selected"]["evidencePack"]["documents"]>();
 
   for (const document of evidenceDocuments) {
-    const sourceLabel = evidenceDocumentSourceLabel(document);
+    const sourceLabel = document.sourceLabel;
     documentsBySourceLabel.set(sourceLabel, [...(documentsBySourceLabel.get(sourceLabel) ?? []), document]);
   }
 
   return [...documentsBySourceLabel.entries()].map(([sourceLabel, documents]) => {
-    const recordIds = uniqueStrings(documents.flatMap((document) => document.recordIds));
+    const recordIds = uniqueStrings(documents.flatMap((document) => document.provenance.recordIds));
 
     return {
       source: sourceLabel,
@@ -2476,7 +2548,7 @@ function buildRetrievalStatusRows(
         sourceKind: "derived_backend",
         sourceName: `${sourceLabel} selected evidence records`,
         recordIds,
-        deterministicBasis: "grouped selected decision evidenceDocuments by sourceLabel; trace status events lack row-level record IDs"
+        deterministicBasis: "grouped selected evidence pack documents by sourceLabel"
       })
     };
   });

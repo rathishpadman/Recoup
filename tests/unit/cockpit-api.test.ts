@@ -1255,6 +1255,49 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("keeps workspace query citations within the overview worklist citation scope", async () => {
+    const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const model = (await modelResponse.json()) as {
+        selected: { evidencePack: { recordIds: string[] } };
+        worklist: Array<{
+          lineId: string;
+          lineIds: string[];
+          provenance: { recordIds: string[] };
+        }>;
+      };
+      const workspaceScopeRecordIds = [
+        ...new Set([
+          ...model.worklist.flatMap((item) => [item.lineId, ...item.lineIds, ...item.provenance.recordIds]),
+          ...model.selected.evidencePack.recordIds
+        ])
+      ];
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "What did the agents conclude across the settlement run?",
+          scope: "workspace",
+          settlementRunId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        citations: Array<{ recordId: string }>;
+      };
+
+      expect(modelResponse.status).toBe(200);
+      expect(response.status).toBe(200);
+      expect(body.citations.length).toBeGreaterThan(0);
+      expect(body.citations.every((citation) => workspaceScopeRecordIds.includes(citation.recordId))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("persists a sanitized Supabase token-usage receipt for successful live forensic query sessions", async () => {
     const correlationId = "maya-query-token-receipt-1";
     const rawModelText = "Raw model text with sk-rawmodelsecret that must stay suppressed.";
@@ -2342,11 +2385,71 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("rebuilds the Maya forensics read model when the cached payload omits settlementRunId", async () => {
+    const calls: string[] = [];
+    const stalePayload = {
+      cachedAtIso: "2026-06-29T00:00:00.000Z",
+      selected: { lineId: "S6-L1" },
+      staleFixture: true,
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1", recordIds: ["S6-L1", "INV-S6-1"] }]
+    };
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_RECONCILIATION_MODE: "authoritative"
+        },
+        memoryFetcher: readModelStoreAndSourceFetcher(calls, {
+          generated_at: "2026-06-29T00:00:00.000Z",
+          model_key: "maya:forensics:v1",
+          payload_hash: sha256CanonicalJson(stalePayload),
+          payload_json: stalePayload,
+          persona: "maya",
+          source_record_ids_json: ["recoup_deduction_claims", "S6-L1"],
+          source_refreshed_at: "2026-06-29T00:00:00.000Z",
+          surface: "forensics-analyst"
+        })
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+
+    try {
+      const first = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const firstBody = (await first.json()) as { settlementRunId?: unknown; staleFixture?: boolean; surface?: string };
+      const second = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const secondBody = (await second.json()) as typeof firstBody;
+      const readModelWrites = calls.filter(
+        (url) => new URL(url).pathname.split("/").at(-1) === "recoup_cockpit_read_models" && url.includes("on_conflict")
+      );
+
+      expect(first.status).toBe(200);
+      expect(first.headers.get("x-recoup-read-model-cache")).toBe("miss");
+      expect(firstBody.surface).toBe("forensics-analyst");
+      expect(typeof firstBody.settlementRunId).toBe("string");
+      expect((firstBody.settlementRunId as string).trim().length).toBeGreaterThan(0);
+      expect(firstBody.staleFixture).toBeUndefined();
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-recoup-read-model-cache")).toBe("hit");
+      expect(secondBody).toEqual(firstBody);
+      expect(readModelWrites).toHaveLength(1);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("marks the Maya forensics read model stale when current receipt hashes no longer match the cached fingerprint", async () => {
     const calls: string[] = [];
     const stalePayload = {
       cachedAtIso: "2026-06-29T00:00:00.000Z",
       selected: { lineId: "S6-L1" },
+      settlementRunId: "settlement-run:42:stale",
       staleFixture: true,
       surface: "forensics-analyst",
       worklist: [{ lineId: "S6-L1", recordIds: ["S6-L1", "INV-S6-1"] }]

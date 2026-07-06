@@ -664,6 +664,7 @@ async function assertEmailDeliveryStatusReadback(
   page: Page,
   target: DecisionTarget
 ): Promise<{ lastEvent: string; providerEmailId: string }> {
+  await openRecommendedActionDrawer(page);
   let sendRequestBody: Record<string, unknown> | undefined;
   let statusReadUrl: URL | undefined;
   let statusReadHeaders: Record<string, string> | undefined;
@@ -889,6 +890,7 @@ function reasonForDecision(decision: ApprovalDecision): string {
 }
 
 async function openApprovalDialog(page: Page): Promise<void> {
+  await openRecommendedActionDrawer(page);
   const reviewToggle = page.locator('[data-testid="maya-evidence-reviewed-toggle"]');
   if (await reviewToggle.isVisible()) {
     await reviewToggle.check();
@@ -898,6 +900,16 @@ async function openApprovalDialog(page: Page): Promise<void> {
   await openApproval.click();
   const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
   await dialog.waitFor({ state: "visible", timeout: 30_000 });
+}
+
+async function openRecommendedActionDrawer(page: Page): Promise<void> {
+  const review = page.getByTestId("maya-recovery-draft-review");
+  await review.scrollIntoViewIfNeeded();
+  const trigger = review.getByTestId("maya-recommended-action-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await page.locator('[data-testid="maya-outcome-action-packages"]').waitFor({ state: "visible", timeout: 30_000 });
 }
 
 async function closeApprovalDialog(page: Page): Promise<void> {

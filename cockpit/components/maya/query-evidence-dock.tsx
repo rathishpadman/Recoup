@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2Icon, FileTextIcon, Loader2Icon, MicIcon, SearchIcon, SparklesIcon } from "lucide-react";
+import { AlertCircleIcon, CheckCircle2Icon, FileTextIcon, Loader2Icon, MicIcon, SearchIcon, SparklesIcon } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,9 @@ import { mayaAccent } from "./maya-accent.ts";
 import {
   buildAgentChecklistRows,
   buildConductorSummary,
+  buildConductorRunningLine,
   buildCopilotDrawerTrigger,
+  buildQueryEvidenceSnapshot,
   buildCopilotVerdictBand,
   resolveMayaWorklistReason,
   countEvidenceSourceLabels,
@@ -77,14 +79,6 @@ interface QueryEvidenceDockProps {
 interface QueryEvidenceSnapshotEnvelope {
   evidenceIdentity: string;
   response: QueryEvidenceResponse;
-}
-
-interface ToQueryEvidenceSnapshotInput {
-  evidencePackRecordIds: readonly string[];
-  queryScope: "line" | "workspace";
-  recordIds: readonly string[];
-  response: QueryEvidenceBackendResponse;
-  selectedLine: string;
 }
 
 export function QueryEvidenceDock({
@@ -336,7 +330,7 @@ export function QueryEvidenceDock({
       publishForToken(
         activeStartToken,
         activeEvidenceIdentity,
-        toQueryEvidenceSnapshot({
+        buildQueryEvidenceSnapshot({
           evidencePackRecordIds: activeEvidencePack.recordIds,
           queryScope: activeQueryScope,
           recordIds: activeRecordIds,
@@ -671,6 +665,7 @@ export function QueryEvidenceDock({
                     mode={activeQueryMode ?? "text"}
                     selectedLine={activeQueryScope === "workspace" ? undefined : activeSelectedLine}
                     selectedWorklistItem={activeSelectedWorklistItem}
+                    submittedQuestion={submittedQuestion}
                     snapshot={snapshot}
                   />
                 </>
@@ -709,6 +704,7 @@ export function QueryEvidenceDock({
                   mode={activeQueryMode ?? "text"}
                   selectedLine={activeQueryScope === "workspace" ? undefined : activeSelectedLine}
                   selectedWorklistItem={activeSelectedWorklistItem}
+                  submittedQuestion={submittedQuestion}
                   snapshot={snapshot}
                 />
               ) : (
@@ -797,6 +793,7 @@ function CopilotStoryPanel({
   mode,
   selectedLine,
   selectedWorklistItem,
+  submittedQuestion,
   snapshot
 }: {
   dock: MayaQueryPromptDockContract;
@@ -804,22 +801,43 @@ function CopilotStoryPanel({
   mode: QueryMode;
   selectedLine: string | undefined;
   selectedWorklistItem: MayaWorklistItem | undefined;
+  submittedQuestion: string;
   snapshot: QueryEvidenceResponse;
 }) {
   const fallbackAgentNames = snapshot.modelExecution?.mode === "live_openai_agents"
     ? snapshot.modelExecution.agentNames
     : dock.subAgents.map((agent) => agent.name);
   const checklistRows = buildAgentChecklistRows({
+    evidenceDocuments: evidencePack.documents,
     fallbackAgentNames,
+    message: snapshot.message,
+    question: submittedQuestion,
     status: snapshot.status,
     trace: snapshot.trace
   });
   const conductorSummary = buildConductorSummary({
     ...(selectedWorklistItem?.customerLabel === undefined ? {} : { customerLabel: selectedWorklistItem.customerLabel }),
     evidenceDocuments: evidencePack.documents,
-    ...(selectedLine === undefined ? {} : { selectedLineLabel: "selected deduction" }),
+    question: submittedQuestion,
+    queryScope: selectedLine === undefined ? "workspace" : "line",
+    ...(selectedLine === undefined ? {} : { selectedLineLabel: selectedLine }),
     subAgentNames: fallbackAgentNames
   });
+  const runningLine = buildConductorRunningLine({
+    evidenceDocuments: evidencePack.documents,
+    question: submittedQuestion,
+    queryScope: selectedLine === undefined ? "workspace" : "line"
+  });
+  const checklistStatusLabel =
+    snapshot.status === "connecting"
+      ? "Specialist checks running"
+      : snapshot.status === "blocked" && snapshot.message.startsWith("Query stopped;")
+        ? "Query stopped"
+      : snapshot.status === "blocked"
+        ? "Specialist checks blocked"
+      : snapshot.status === "answered"
+        ? "Specialist checks complete"
+        : "Specialist checks require review";
   const verdictBand =
     selectedWorklistItem === undefined
       ? undefined
@@ -845,7 +863,7 @@ function CopilotStoryPanel({
             <span className="text-sm font-semibold">Conductor</span>
             <p className="text-sm leading-6 text-muted-foreground">{conductorSummary}</p>
             {snapshot.status === "connecting" ? (
-              <p className="text-sm leading-6 text-muted-foreground">Maya is checking evidence against the selected packet.</p>
+              <p className="text-sm leading-6 text-muted-foreground">{runningLine}</p>
             ) : null}
             {snapshot.answer === undefined ? null : (
               <p className="text-sm leading-6" data-testid="maya-query-assistant-answer">
@@ -859,9 +877,7 @@ function CopilotStoryPanel({
         </div>
 
         <div className="grid gap-2" data-testid="maya-copilot-agent-checklist">
-          <span className="text-xs font-semibold text-muted-foreground">
-            {snapshot.status === "connecting" ? "Agents running" : "Agents complete"}
-          </span>
+          <span className="text-xs font-semibold text-muted-foreground">{checklistStatusLabel}</span>
           {checklistRows.length === 0 ? (
             <span className="text-sm text-muted-foreground">Agent checklist unavailable.</span>
           ) : (
@@ -873,6 +889,10 @@ function CopilotStoryPanel({
                 <span className="min-w-0 flex-1 truncate">{row.agentName}</span>
                 {row.state === "complete" ? (
                   <CheckCircle2Icon aria-hidden="true" className="size-4 text-success" />
+                ) : row.state === "stopped" ? (
+                  <Loader2Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+                ) : row.state === "blocked" ? (
+                  <AlertCircleIcon aria-hidden="true" className="size-4 text-destructive" />
                 ) : (
                   <Loader2Icon aria-hidden="true" className="size-4 animate-spin text-muted-foreground" />
                 )}
@@ -895,14 +915,14 @@ function CopilotStoryPanel({
           {snapshot.citations.length === 0 ? (
             <Badge variant="outline">No citations</Badge>
           ) : (
-            snapshot.citations.map((citation) => {
+            snapshot.citations.map((citation, index) => {
               const semanticBadge = semanticBadgeForCitation(citation, evidencePack.documents);
               return (
                 <div
                   className={cn("grid gap-1 rounded-md border p-2 text-sm", COPILOT_SOFT_PANEL_CLASS)}
                   data-record-id={citation.recordId}
                   data-testid="maya-copilot-citation-row"
-                  key={citation.recordId}
+                  key={`${citation.recordId}-${citation.documentId ?? "citation"}-${index.toString()}`}
                 >
                   <div className="flex flex-wrap gap-1.5">
                     <Badge className={cn("max-w-full truncate", mayaAccent.pill)} data-testid="maya-query-citation-record" title={citation.recordId} variant="secondary">
@@ -1160,60 +1180,6 @@ function toVoiceQueryEvidenceSnapshot(input: {
     recordIds,
     status: "blocked",
     trace: []
-  };
-}
-
-function toQueryEvidenceSnapshot(input: ToQueryEvidenceSnapshotInput): QueryEvidenceResponse {
-  const { evidencePackRecordIds, queryScope, recordIds, response, selectedLine } = input;
-  const citedRecordIds = dedupeRecordIds(response.citations.map((citation) => citation.recordId));
-  const selectedScopeRecordIds =
-    queryScope === "workspace"
-      ? citedRecordIds
-      : dedupeRecordIds([selectedLine, ...recordIds, ...evidencePackRecordIds]);
-  const selectedScope = new Set(selectedScopeRecordIds);
-  const citationsWithinSelectedScope = response.citations.every((citation) =>
-    selectedScope.has(citation.recordId.trim())
-  );
-  const citationsHaveBasis = response.citations.every((citation) => citation.deterministicBasis.trim().length > 0);
-  const blockedRecordIds = dedupeRecordIds([...citedRecordIds, ...selectedScopeRecordIds]);
-  const hasAnswer =
-    response.answer !== undefined &&
-    response.answer.trim().length > 0 &&
-    response.deterministicBasis !== undefined &&
-    response.deterministicBasis.trim().length > 0 &&
-    response.citations.length > 0 &&
-    response.trace.length > 0 &&
-    citationsWithinSelectedScope &&
-    citationsHaveBasis;
-  let message = "Forensics query returned no cited answer.";
-  if (hasAnswer) {
-    message = queryScope === "workspace" ? "Cited answer returned from workspace evidence." : "Cited answer returned from selected evidence.";
-  } else if (!citationsWithinSelectedScope) {
-    message = "Forensics query cited records outside the selected evidence packet.";
-  }
-  const modelExecutionField =
-    response.modelExecution === undefined ? {} : { modelExecution: response.modelExecution };
-
-  if (hasAnswer && response.answer !== undefined && response.deterministicBasis !== undefined) {
-    return {
-      ...modelExecutionField,
-      answer: response.answer,
-      citations: response.citations,
-      deterministicBasis: response.deterministicBasis,
-      message,
-      recordIds: citedRecordIds,
-      status: "answered",
-      trace: response.trace
-    };
-  }
-
-  return {
-    ...modelExecutionField,
-    citations: response.citations,
-    message,
-    recordIds: blockedRecordIds,
-    status: "blocked",
-    trace: response.trace
   };
 }
 

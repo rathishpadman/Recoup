@@ -46,6 +46,12 @@ interface ForensicsE2EModel {
     evidenceScoreLabel: string;
     lineId: string;
     lineIds: string[];
+    provenance: {
+      deterministicBasis: string;
+      recordIds: string[];
+      sourceKind: string;
+      sourceName: string;
+    };
     queueLabel: string;
     recommendedActionLabel: string;
     reason: string;
@@ -800,6 +806,12 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
         `Overview Recoup Copilot case picker record IDs must include picked case line ${lineId}.`
       );
     }
+    for (const recordId of new Set(casePickerTarget.provenance.recordIds)) {
+      assert(
+        (caseQueryBody["recordIds"] as unknown[]).includes(recordId),
+        `Overview Recoup Copilot case picker record IDs must include selected-case provenance record ${recordId}.`
+      );
+    }
     await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Overview case-scoped Copilot verdict band");
     const pickedCaseStory = await page.getByTestId("maya-query-dock").innerText();
     assert(
@@ -882,6 +894,7 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
   const viewportSize = page.viewportSize();
   assert(launcherRect !== null, `${label} Recoup Copilot launcher must expose a measurable viewport rect`);
   assert(viewportSize !== null, `${label} Recoup Copilot launcher viewport check requires a viewport`);
+  const rightInset = viewportSize.width - (launcherRect.x + launcherRect.width);
   const bottomInset = viewportSize.height - (launcherRect.y + launcherRect.height);
   assert(
     launcherRect.x >= 0 &&
@@ -890,10 +903,14 @@ async function assertRecoupAgentLauncherPlacement(page: Page, label: string): Pr
       launcherRect.y + launcherRect.height <= viewportSize.height,
     `${label} Recoup Copilot launcher must be fully visible in the current viewport before click; rect=${JSON.stringify(launcherRect)}`
   );
-  const desktopPlacement = viewportSize.width >= 768 ? launcherRect.x > viewportSize.width / 2 : launcherRect.x >= 0;
+  const desktopPlacement = viewportSize.width >= 768 ? launcherRect.x > viewportSize.width / 2 : launcherRect.x >= viewportSize.width / 3;
   assert(
-    launcherRect.y >= 96 && bottomInset > viewportSize.height / 2 && desktopPlacement,
-    `${label} Recoup Copilot launcher must sit in an independent Overview command rail, below the top header and outside data rows; rect=${JSON.stringify(
+    rightInset >= 8 &&
+      rightInset <= 56 &&
+      bottomInset >= 8 &&
+      bottomInset <= 72 &&
+      desktopPlacement,
+    `${label} Recoup Copilot launcher must pin to the bottom-right viewport edge as an independent floating entry point; rect=${JSON.stringify(
       launcherRect
     )} viewport=${JSON.stringify(viewportSize)}`
   );
@@ -2272,7 +2289,13 @@ async function scrollToMayaCaseSection(page: Page, testId: string, label: string
 
 async function openMayaEvidenceSection(page: Page): Promise<void> {
   await scrollToMayaCaseSection(page, "maya-case-detail-b4-evidence", "Maya evidence section");
+  const drawer = page.getByTestId("maya-evidence-fact-cards");
   await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-cards"]', "Maya evidence fact cards");
+  const trigger = drawer.getByTestId("maya-evidence-fact-cards-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-evidence-fact-card"]', "Maya evidence fact card");
 }
 
 async function openMayaInvestigationSection(page: Page): Promise<void> {
@@ -2295,7 +2318,13 @@ async function openMayaAgentTraceDepthDrawer(page: Page): Promise<void> {
 
 async function openMayaDraftReviewSection(page: Page): Promise<void> {
   await scrollToMayaCaseSection(page, "maya-case-detail-b6-outcome", "Maya draft review section");
+  const drawer = page.getByTestId("maya-recovery-draft-review");
   await expectVisibleLocator(page, '[data-testid="maya-recovery-draft-review"]', "Maya draft review");
+  const trigger = drawer.getByTestId("maya-recommended-action-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expectVisibleLocator(page, '[data-testid="maya-outcome-action-package"]', "Maya draft review action package");
 }
 
 async function openMayaAuditDepthDrawer(page: Page): Promise<void> {
@@ -2459,6 +2488,18 @@ async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Prom
     const drawerIds = [
       "maya-case-depth-drawer-audit-provenance"
     ];
+    const sectionDisclosureSpecs = [
+      {
+        label: "Evidence retrieved",
+        rootTestId: "maya-evidence-fact-cards",
+        triggerTestId: "maya-evidence-fact-cards-trigger"
+      },
+      {
+        label: "Recommended Action",
+        rootTestId: "maya-recovery-draft-review",
+        triggerTestId: "maya-recommended-action-trigger"
+      }
+    ];
     const workspace = document.querySelector<HTMLElement>('[data-testid="maya-case-workspace"]');
     if (workspace === null) {
       return {
@@ -2471,6 +2512,7 @@ async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Prom
         ordered: false,
         roleTabCount: document.querySelectorAll('[role="tab"]').length,
         roleTablistCount: document.querySelectorAll('[role="tablist"]').length,
+        sectionDisclosures: [],
         sectionIdsFound: [],
         unexpectedDrawerIds: []
       };
@@ -2507,6 +2549,21 @@ async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Prom
         triggerText: trigger?.innerText.replace(/\s+/gu, " ").trim() ?? ""
       };
     });
+    const sectionDisclosures = sectionDisclosureSpecs.map((spec) => {
+      const root = workspace.querySelector<HTMLElement>(`[data-testid="${spec.rootTestId}"]`);
+      const trigger = root?.querySelector<HTMLElement>(`[data-testid="${spec.triggerTestId}"]`) ?? null;
+      const content = root?.querySelector<HTMLElement>('[data-slot="collapsible-content"]') ?? null;
+      const rect = content?.getBoundingClientRect();
+
+      return {
+        contentState: content?.getAttribute("data-state") ?? "",
+        contentVisible: content !== null && rect !== undefined && rect.width > 0 && rect.height > 0,
+        label: spec.label,
+        rootState: root?.getAttribute("data-state") ?? "",
+        triggerExpanded: trigger?.getAttribute("aria-expanded") ?? "",
+        triggerText: trigger?.innerText.replace(/\s+/gu, " ").trim() ?? ""
+      };
+    });
     const depthDrawerContainer = workspace.querySelector<HTMLElement>(
       '[data-testid="maya-case-detail-b7-depth-drawers"]'
     );
@@ -2539,6 +2596,7 @@ async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Prom
       ordered,
       roleTabCount: document.querySelectorAll('[role="tab"]').length,
       roleTablistCount: document.querySelectorAll('[role="tablist"]').length,
+      sectionDisclosures,
       sectionIdsFound: sections.map((section) => section?.dataset.testid ?? ""),
       unexpectedDrawerIds
     };
@@ -2567,6 +2625,19 @@ async function assertMayaSinglePageCaseSkeleton(page: Page, label: string): Prom
     assert(
       /^[^.]+(?:\u00b7|\u00c2\u00b7)[^.]+$/u.test(drawer.triggerText),
       `${label} ${drawer.drawerId} trigger must be fact-bearing only; saw "${drawer.triggerText}"`
+    );
+  }
+  for (const disclosure of result.sectionDisclosures) {
+    assert(disclosure.rootState === "closed", `${label} ${disclosure.label} drawer must start data-state=closed; saw ${disclosure.rootState}`);
+    assert(disclosure.triggerExpanded === "false", `${label} ${disclosure.label} trigger must start aria-expanded=false`);
+    assert(
+      disclosure.contentState === "closed",
+      `${label} ${disclosure.label} content must start data-state=closed; saw ${disclosure.contentState}`
+    );
+    assert(!disclosure.contentVisible, `${label} ${disclosure.label} collapsed content must not be visible`);
+    assert(
+      disclosure.triggerText.includes(disclosure.label),
+      `${label} ${disclosure.label} trigger must keep the visible drawer label; saw "${disclosure.triggerText}"`
     );
   }
   assert(!/\bdata proof\b|\bdecision proof\b/iu.test(result.bodyText), `${label} must not expose data/decision proof chips in the header`);
@@ -3308,7 +3379,7 @@ async function assertBeat4DraftTabFidelity(
   await page.locator('[data-testid="maya-draft-source-details"]').getByRole("button", { name: /^Details$/u }).click();
   const draftSourceDetailsText = await page.locator('[data-testid="maya-draft-source-details"]').innerText();
   assert(draftSourceDetailsText.includes(model.selected.lineId), "Beat 4 Draft evidence details must retain backend record IDs");
-  assert(result.text.includes("Recommended action"), "Beat 4 Draft section must use current recommended-action package copy");
+  assert(result.text.includes("Recommended Action"), "Beat 4 Draft section must use current recommended-action package copy");
   assert(result.text.includes("Draft letter preview"), "Beat 4 Draft section must expose the prepared email draft preview");
   assert(!result.text.includes("Action ID"), "Beat 4 Draft section must not expose raw Action ID labels");
   assert(!result.text.includes("Action type"), "Beat 4 Draft section must not expose raw Action type labels");
@@ -3369,7 +3440,7 @@ async function assertBeat9DraftReviewFidelity(
     };
   });
 
-  assert(result.text.includes("Outcome"), "Beat 9 must show the outcome title");
+  assert(result.text.includes("Recommended Action"), "Beat 9 must show the recommended-action title");
   assert(result.text.includes("Human approval required"), "Beat 9 must show the human-approval gate");
   assert(result.text.includes("External send gated"), "Beat 9 must keep HITL posture visible");
   assert(result.text.includes(model.selected.draft.actionLabel), "Beat 9 must render the backend draft label");
@@ -4315,7 +4386,7 @@ async function assertBeat8VoiceQueryFidelity(
     }, recordIds);
     assert(answeredState.mode === "voice", `Voice answer must render in the Copilot story panel with data-query-mode=voice; saw ${answeredState.mode}`);
     assert(answeredState.text.includes(voiceAnswer), "Voice answer must render the cited realtime answer text");
-    assert(answeredState.text.includes("Agents complete"), "Voice answer must render the agents-complete checklist");
+    assert(answeredState.text.includes("Specialist checks complete"), "Voice answer must render the completed specialist checklist");
     assert(answeredState.citationCount >= 1, "Voice answer must retain at least one citation");
     assert(answeredState.missingRecordIds.length === 0, `Voice answer citations missing ${answeredState.missingRecordIds.join(", ")}`);
 

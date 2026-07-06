@@ -171,8 +171,12 @@ export async function openMayaEvidenceDossier(page: Page, baseUrl: string, lineI
     await page.getByTestId("maya-local-row-action-open").click();
   }
   await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 30_000 });
-  await page.getByRole("tab", { name: /^Evidence$/u }).click();
+  await page.locator('[data-testid="maya-case-detail-b4-evidence"]').scrollIntoViewIfNeeded();
   await page.locator('[data-testid="maya-evidence-fact-cards"]').waitFor({ state: "visible", timeout: 30_000 });
+  const trigger = page.getByTestId("maya-evidence-fact-cards-trigger");
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
   await waitForVisibleTextWithin(page, '[data-testid="maya-evidence-fact-cards"]', "Document", 30_000);
   await page
     .locator('[data-testid="maya-evidence-fact-card"]')

@@ -548,6 +548,256 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("accepts grouped sibling-line Maya work-item detail when the work item stays anchored to the group root", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const freshBackendDetail = {
+      lineId: "S1-L2",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "d".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S1-L2",
+              receiptId: "RECON-S1-L2",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S1-L2",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S1-L2"
+            }
+          ],
+          provenance: {
+            recordIds: ["S1-L1", "S1-L2", "S1-L3", "EVD-POD-S1-L2", "RECON-S1-L2"]
+          },
+          recordIds: ["S1-L1", "S1-L2", "S1-L3", "EVD-POD-S1-L2", "RECON-S1-L2"]
+        },
+        lineId: "S1-L2"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: {
+        lineId: "S1-L1",
+        lineIds: ["S1-L1", "S1-L2", "S1-L3"],
+        workItemId: "S1-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S1-L2") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S1-L2", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S1-L2" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.lineId).toBe("S1-L2");
+    expect(body.workItem.lineId).toBe("S1-L1");
+    expect(body.workItem.workItemId).toBe("S1-L1");
+    expect(body.workItem.lineIds).toEqual(["S1-L1", "S1-L2", "S1-L3"]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock.mock.calls.map(([input]) => fetchInputUrl(input))).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("model_key=eq.maya%3Aforensics%3Awork-item%3AS1-L1%3Av1"),
+        expect.stringContaining("model_key=eq.maya%3Aforensics%3Awork-item%3AS1-L3%3Av1")
+      ])
+    );
+  });
+
+  it("augments a grouped root-line cached detail from sibling cached evidence rows", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const rootCachedDetail = {
+      lineId: "S3-L1",
+      recoveryDraft: {
+        actionId: "ACT-S3-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "a".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S3-L1",
+              receiptId: "RECON-S3-L1",
+              sourceRecordId: "POD-S3-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+            }
+          ],
+          provenance: {
+            recordIds: ["S3-L1", "S3-L2", "CLAIM-S3-L1", "EVD-POD-S3-L1", "RECON-S3-L1", "POD-S3-L1"]
+          },
+          recordIds: ["S3-L1", "S3-L2", "CLAIM-S3-L1", "EVD-POD-S3-L1", "RECON-S3-L1", "POD-S3-L1"]
+        },
+        lineId: "S3-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: {
+        lineId: "S3-L1",
+        lineIds: ["S3-L1", "S3-L2"],
+        workItemId: "S3-L1"
+      }
+    };
+    const siblingCachedDetail = {
+      ...rootCachedDetail,
+      lineId: "S3-L2",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "a".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S3-L1",
+              receiptId: "RECON-S3-L1",
+              sourceRecordId: "POD-S3-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+            },
+            {
+              contentHash: "b".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S3-L2",
+              receiptId: "RECON-S3-L2",
+              sourceRecordId: "POD-S3-L2",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L2",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L2"
+            },
+            {
+              contentHash: "c".repeat(64),
+              documentType: "remittance_advice",
+              evidenceId: "EVD-REMIT-S3-L2",
+              receiptId: "RECON-S3-L2",
+              sourceRecordId: "REMIT-S3-L2",
+              storageHref: "/api/forensics/evidence-documents/EVD-REMIT-S3-L2",
+              storageUri: "supabase://recoup_evidence_documents/EVD-REMIT-S3-L2"
+            }
+          ],
+          recordIds: [
+            "S3-L1",
+            "S3-L2",
+            "CLAIM-S3-L1",
+            "CLAIM-S3-L2",
+            "EVD-POD-S3-L1",
+            "EVD-POD-S3-L2",
+            "EVD-REMIT-S3-L2",
+            "RECON-S3-L1",
+            "RECON-S3-L2",
+            "POD-S3-L1",
+            "POD-S3-L2",
+            "REMIT-S3-L2"
+          ],
+          provenance: {
+            recordIds: [
+              "S3-L1",
+              "S3-L2",
+              "CLAIM-S3-L1",
+              "CLAIM-S3-L2",
+              "EVD-POD-S3-L1",
+              "EVD-POD-S3-L2",
+              "EVD-REMIT-S3-L2",
+              "RECON-S3-L1",
+              "RECON-S3-L2",
+              "POD-S3-L1",
+              "POD-S3-L2",
+              "REMIT-S3-L2"
+            ]
+          }
+        },
+        lineId: "S3-L2"
+      }
+    };
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(fetchInputUrl(input));
+      if (url.pathname.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        const modelKey = url.searchParams.get("model_key");
+        if (modelKey === "eq.maya:forensics:work-item:S3-L1:v1") {
+          return Promise.resolve(
+            Response.json([
+              {
+                generated_at: "2026-07-06T00:00:00.000Z",
+                model_key: "maya:forensics:work-item:S3-L1:v1",
+                payload_hash: "a".repeat(64),
+                payload_json: rootCachedDetail,
+                persona: "maya",
+                source_record_ids_json: ["S3-L1", "recoup_deduction_lines"],
+                source_refreshed_at: "2026-07-06T00:00:00.000Z",
+                surface: "forensics-analyst"
+              }
+            ])
+          );
+        }
+        if (modelKey === "eq.maya:forensics:work-item:S3-L2:v1") {
+          return Promise.resolve(
+            Response.json([
+              {
+                generated_at: "2026-07-06T00:00:00.000Z",
+                model_key: "maya:forensics:work-item:S3-L2:v1",
+                payload_hash: "b".repeat(64),
+                payload_json: siblingCachedDetail,
+                persona: "maya",
+                source_record_ids_json: ["S3-L2", "recoup_deduction_lines"],
+                source_refreshed_at: "2026-07-06T00:00:00.000Z",
+                surface: "forensics-analyst"
+              }
+            ])
+          );
+        }
+
+        return Promise.resolve(Response.json([]));
+      }
+      if (url.pathname.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (fetchInputUrl(input) === "http://recoup-api.test/forensics/work-items/S3-L1") {
+        return new Promise<Response>(() => {});
+      }
+
+      throw new Error(`Unexpected fetch ${fetchInputUrl(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S3-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S3-L1" } }
+    );
+    const body = (await response.json()) as typeof rootCachedDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+    expect(body.selected.evidencePack.recordIds).toEqual(
+      expect.arrayContaining(["CLAIM-S3-L2", "EVD-POD-S3-L2", "EVD-REMIT-S3-L2", "RECON-S3-L2", "POD-S3-L2", "REMIT-S3-L2"])
+    );
+    expect(body.selected.evidencePack.documents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ evidenceId: "EVD-POD-S3-L2", receiptId: "RECON-S3-L2" }),
+        expect.objectContaining({ evidenceId: "EVD-REMIT-S3-L2", receiptId: "RECON-S3-L2" })
+      ])
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("bypasses cached Maya work-item detail when approval memory has a newer receipt", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedDetail = {
@@ -760,6 +1010,21 @@ describe("Realtime Next proxy routes", () => {
     };
     const freshBackendDetail = {
       ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "a".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
       workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -836,6 +1101,7 @@ describe("Realtime Next proxy routes", () => {
               documentType: "pod",
               evidenceId: "EVD-POD-S6-L1",
               receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
               storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
             }
           ]
@@ -886,6 +1152,443 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
     expect(body.selected.evidencePack.documents[0]?.evidenceId).toBe("EVD-POD-S6-L1");
+    expect(body.selected.evidencePack.documents[0]?.storageHref).toBe("/api/forensics/evidence-documents/EVD-POD-S6-L1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses cached Maya work-item detail when any canonical evidence document is missing its real storage link", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S4-L1",
+      recoveryDraft: {
+        actionId: "ACT-S4-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S4-L1",
+              receiptId: "RECON-S4-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S4-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S4-L1"
+            },
+            {
+              contentHash: "d".repeat(64),
+              documentType: "contract_sla",
+              evidenceId: "EVD-CONTRACT-SLA-S4-L1",
+              receiptId: "RECON-S4-L1"
+            }
+          ]
+        },
+        lineId: "S4-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S4-L1", lineIds: ["S4-L1"], workItemId: "S4-L1" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S4-L1",
+              receiptId: "RECON-S4-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S4-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S4-L1"
+            },
+            {
+              contentHash: "d".repeat(64),
+              documentType: "contract_sla",
+              evidenceId: "EVD-CONTRACT-SLA-S4-L1",
+              receiptId: "RECON-S4-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-CONTRACT-SLA-S4-L1"
+            }
+          ]
+        },
+        lineId: "S4-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S4-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S4-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S4-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S4-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S4-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.evidencePack.documents[1]?.storageHref).toBe(
+      "/api/forensics/evidence-documents/EVD-CONTRACT-SLA-S4-L1"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses cached Maya work-item detail when a canonical evidence document storage link does not match its evidence ID", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S4-L1",
+      recoveryDraft: {
+        actionId: "ACT-S4-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S4-L1",
+              receiptId: "RECON-S4-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S4-L9",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S4-L1"
+            }
+          ]
+        },
+        lineId: "S4-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S4-L1", lineIds: ["S4-L1"], workItemId: "S4-L1" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S4-L1",
+              receiptId: "RECON-S4-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S4-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S4-L1"
+            }
+          ]
+        },
+        lineId: "S4-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S4-L1:v1",
+              payload_hash: "c".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S4-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S4-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S4-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S4-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.evidencePack.documents[0]?.storageHref).toBe("/api/forensics/evidence-documents/EVD-POD-S4-L1");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses cached Maya work-item detail when cached selected evidence scope omits sibling work-item lines", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S8-L1",
+      recoveryDraft: {
+        actionId: "ACT-S8-L1"
+      },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "payment_history",
+              evidenceId: "EVD-PAYMENT-HISTORY-S8-L1",
+              receiptId: "RECON-S8-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-PAYMENT-HISTORY-S8-L1"
+            }
+          ],
+          provenance: {
+            recordIds: ["S8-L1"]
+          },
+          recordIds: ["S8-L1"]
+        },
+        lineId: "S8-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S8-L1", lineIds: ["S8-L1", "S8-L2"], workItemId: "S8-L1" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "c".repeat(64),
+              documentType: "payment_history",
+              evidenceId: "EVD-PAYMENT-HISTORY-S8-L1",
+              receiptId: "RECON-S8-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-PAYMENT-HISTORY-S8-L1"
+            }
+          ],
+          provenance: {
+            recordIds: ["S8-L1", "S8-L2"]
+          },
+          recordIds: ["S8-L1", "S8-L2"]
+        },
+        lineId: "S8-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S8-L1:v1",
+              payload_hash: "b".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S8-L1", "S8-L2", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S8-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S8-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S8-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.evidencePack.recordIds).toEqual(expect.arrayContaining(["S8-L1", "S8-L2"]));
+    expect(body.selected.evidencePack.provenance.recordIds).toEqual(expect.arrayContaining(["S8-L1", "S8-L2"]));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("serves fresh Maya work-item detail without caching when canonical evidence proof is missing", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const freshBackendDetail = {
+      lineId: "S5-L1",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "e".repeat(64),
+              documentType: "contract_sla",
+              evidenceId: "EVD-CONTRACT-SLA-S5-L1",
+              receiptId: "RECON-S5-L1"
+            }
+          ]
+        },
+        lineId: "S5-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S5-L1", lineIds: ["S5-L1"], workItemId: "S5-L1" }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S5-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S5-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S5-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual(freshBackendDetail);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bypasses cached Maya work-item detail when a canonical evidence document storage URI does not match its evidence ID", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleCachedDetail = {
+      lineId: "S5-L1",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "e".repeat(64),
+              documentType: "contract_sla",
+              evidenceId: "EVD-CONTRACT-SLA-S5-L1",
+              receiptId: "RECON-S5-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-CONTRACT-SLA-S5-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-CONTRACT-SLA-S5-L9"
+            }
+          ]
+        },
+        lineId: "S5-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S5-L1", lineIds: ["S5-L1"], workItemId: "S5-L1" }
+    };
+    const freshBackendDetail = {
+      ...staleCachedDetail,
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "e".repeat(64),
+              documentType: "contract_sla",
+              evidenceId: "EVD-CONTRACT-SLA-S5-L1",
+              receiptId: "RECON-S5-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-CONTRACT-SLA-S5-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-CONTRACT-SLA-S5-L1"
+            }
+          ]
+        },
+        lineId: "S5-L1"
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(
+          Response.json([
+            {
+              generated_at: "2026-06-29T00:00:00.000Z",
+              model_key: "maya:forensics:work-item:S5-L1:v1",
+              payload_hash: "d".repeat(64),
+              payload_json: staleCachedDetail,
+              persona: "maya",
+              source_record_ids_json: ["S5-L1", "recoup_deduction_lines"],
+              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              surface: "forensics-analyst"
+            }
+          ])
+        );
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S5-L1") {
+        return Promise.resolve(Response.json(freshBackendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S5-L1", {
+        headers: {
+          cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}`
+        },
+        method: "GET"
+      }),
+      { params: { lineId: "S5-L1" } }
+    );
+    const body = (await response.json()) as typeof freshBackendDetail;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(body.selected.evidencePack.documents[0]?.storageUri).toBe("supabase://recoup_evidence_documents/EVD-CONTRACT-SLA-S5-L1");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -944,10 +1647,30 @@ describe("Realtime Next proxy routes", () => {
 
   it("forwards Forensics work-item detail requests from a valid Maya demo-session cookie", async () => {
     stubRouteEnv(mayaEnvPatch);
+    const backendDetail = {
+      lineId: "S6-L1",
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "a".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
+    };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       void input;
       void init;
-      return Promise.resolve(Response.json({ lineId: "S6-L1", surface: "forensics-work-item-detail" }));
+      return Promise.resolve(Response.json(backendDetail));
     });
     vi.stubGlobal("fetch", fetchMock);
     const signedSession = createMayaSessionCookie();
@@ -961,11 +1684,11 @@ describe("Realtime Next proxy routes", () => {
       }),
       { params: { lineId: "S6-L1" } }
     );
-    const body = (await response.json()) as { lineId: string; surface: string };
+    const body = (await response.json()) as typeof backendDetail;
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({ lineId: "S6-L1", surface: "forensics-work-item-detail" });
+    expect(body).toEqual(backendDetail);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe("http://recoup-api.test/forensics/work-items/S6-L1");
@@ -980,7 +1703,21 @@ describe("Realtime Next proxy routes", () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const backendDetail = {
       lineId: "S6-L1",
-      selected: { lineId: "S6-L1" },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "a".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S6-L1",
+              receiptId: "RECON-S6-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S6-L1",
+              storageUri: "supabase://recoup_evidence_documents/EVD-POD-S6-L1"
+            }
+          ]
+        },
+        lineId: "S6-L1"
+      },
       surface: "forensics-work-item-detail",
       workItem: { lineId: "S6-L1", lineIds: ["S6-L1"], workItemId: "S6-L1" }
     };

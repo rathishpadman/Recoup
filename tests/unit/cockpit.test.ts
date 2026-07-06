@@ -253,6 +253,146 @@ describe("S5 Forensics cockpit model", () => {
     expect(JSON.stringify(model.selected)).not.toContain("rule_input_json");
   });
 
+  it("exposes a real evidence document URL for every authoritative Maya case evidence document", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const lineIds = ["S1-L1", "S2-L1", "S3-L1", "S4-L1", "S5-L1", "S6-L1", "S7-L1", "S8-L1"] as const;
+
+    for (const lineId of lineIds) {
+      const detail = buildForensicsWorkItemDetailCockpitModel(
+        {
+          governedConfig,
+          reconciliation: {
+            evidenceDataset,
+            mode: "authoritative",
+            receipts
+          },
+          ...sourceOptions
+        },
+        lineId
+      );
+
+      expect(detail.selected.evidencePack.documents.length).toBeGreaterThan(0);
+      for (const document of detail.selected.evidencePack.documents) {
+        const evidenceId = document.evidenceId;
+        expect(evidenceId, `${lineId} evidence document is missing an evidenceId`).toBeDefined();
+        if (evidenceId === undefined) {
+          continue;
+        }
+        const sourceDocument = evidenceDataset.documents.find((candidate) => candidate.evidenceId === evidenceId);
+        expect(sourceDocument, `${lineId} ${evidenceId} missing source evidence row`).toBeDefined();
+        const sourceStorageUri = sourceDocument?.storageUri?.trim();
+        if (sourceStorageUri === undefined || sourceStorageUri.length === 0) {
+          expect(document.storageUri, `${lineId} ${evidenceId} should not fabricate storageUri`).toBeUndefined();
+        } else {
+          expect(document.storageUri, `${lineId} ${evidenceId} missing real storageUri`).toBe(sourceStorageUri);
+        }
+        expect(document.storageHref, `${lineId} ${evidenceId} missing storageHref`).toBe(`/api/forensics/evidence-documents/${evidenceId}`);
+      }
+    }
+  });
+
+  it("keeps the evidence viewer URL without fabricating storageUri metadata for contract evidence", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      {
+        governedConfig,
+        reconciliation: {
+          evidenceDataset,
+          mode: "authoritative",
+          receipts
+        },
+        ...sourceOptions
+      },
+      "S4-L1"
+    );
+    const contractDocument = detail.selected.evidencePack.documents.find(
+      (document) => document.evidenceId === "EVD-CONTRACT-SLA-S4-L1"
+    );
+
+    expect(contractDocument).toMatchObject({
+      evidenceId: "EVD-CONTRACT-SLA-S4-L1",
+      storageHref: "/api/forensics/evidence-documents/EVD-CONTRACT-SLA-S4-L1"
+    });
+    expect(contractDocument?.storageUri).toBeUndefined();
+  });
+
+  it("expands selected work-item detail evidence packets to the full grouped case scope", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      {
+        governedConfig,
+        reconciliation: {
+          evidenceDataset,
+          mode: "authoritative",
+          receipts
+        },
+        ...sourceOptions
+      },
+      "S1-L1"
+    );
+    const siblingLineIds = detail.workItem.lineIds.filter((candidate) => candidate !== detail.selected.lineId);
+
+    expect(siblingLineIds).toEqual(expect.arrayContaining(["S1-L2", "S1-L3"]));
+    expect(siblingLineIds.length).toBeGreaterThanOrEqual(2);
+    expect(detail.selected.evidencePack.recordIds).toEqual(expect.arrayContaining(detail.workItem.provenance.recordIds));
+
+    for (const siblingLineId of siblingLineIds) {
+      expect(detail.selected.evidencePack.recordIds).toContain(siblingLineId);
+      expect(
+        detail.selected.evidencePack.documents.some(
+          (document) =>
+            document.documentId.endsWith(siblingLineId) ||
+            ("sourceRecordId" in document &&
+              typeof document.sourceRecordId === "string" &&
+              document.sourceRecordId.endsWith(siblingLineId))
+        )
+      ).toBe(true);
+    }
+  });
+
+  it("keeps evidence source readouts aligned with the grouped selected evidence pack", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const model = buildForensicsCockpitModel({
+      governedConfig,
+      reconciliation: {
+        evidenceDataset,
+        mode: "authoritative",
+        receipts
+      },
+      ...sourceOptions
+    });
+    const groupedSources = [...new Set(model.selected.evidencePack.documents.map((document) => document.sourceLabel))].sort();
+    const detail = buildForensicsWorkItemDetailCockpitModel(
+      {
+        governedConfig,
+        reconciliation: {
+          evidenceDataset,
+          mode: "authoritative",
+          receipts
+        },
+        ...sourceOptions
+      },
+      model.selected.lineId
+    );
+
+    expect(groupedSources).toEqual(["3PL POD", "Remittance"]);
+    expect(model.retrievalStatus.map((row) => row.source).sort()).toEqual(groupedSources);
+    expect(model.kpiStrip.find((kpi) => kpi.label === "Evidence sources")?.support).toBe(groupedSources.join(", "));
+    expect(detail.retrievalStatus.map((row) => row.source).sort()).toEqual(groupedSources);
+  });
+
   it("does not label generated SAP-shaped fallback evidence as live SAP retrieval", () => {
     const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
     const receipts = evidenceDataset.claims.map((claim) =>
@@ -341,7 +481,7 @@ describe("S5 Forensics cockpit model", () => {
     expect(loader).not.toContain("key={state.modelVersion}");
   });
 
-  it("preserves opened Maya work-item detail when live model refresh still contains the line group", () => {
+  it("re-fetches opened Maya work-item detail when live model refresh still contains the line group", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const refreshEffectStart = surface.indexOf("setSelectedWorklistItem((current) => reconcileWorklistItemFromModel");
     const refreshEffectEnd = surface.indexOf("}, [model.worklist, modelVersion]);", refreshEffectStart);
@@ -351,8 +491,9 @@ describe("S5 Forensics cockpit model", () => {
     expect(refreshEffectSource).toContain("setOpenedCaseWorklistItem((current) => reconcileWorklistItemFromModel");
     expect(refreshEffectSource).toContain("setOpenedCaseDetail((current) => {");
     expect(refreshEffectSource).toContain("return current;");
-    expect(refreshEffectSource).not.toContain("cancelWorkItemDetailRequest(detailRequestSequence)");
-    expect(refreshEffectSource).not.toContain("setOpenedCaseDetail(undefined)");
+    expect(surface).toContain("const refreshOpenedCaseDetail = React.useCallback");
+    expect(surface).toContain("void refreshOpenedCaseDetail(refreshedWorkItem, openedCaseDetail.lineId);");
+    expect(surface).toContain("setWorkItemDetailLoadState({ lineId: requestedLineId, state: \"loading\" });");
   });
 
   it("renders canonical evidence provenance fields without rule_input_json business copy", () => {

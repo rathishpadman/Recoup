@@ -109,6 +109,8 @@ export interface MayaCopilotCaseOption {
 export interface MayaConductorSummaryInput {
   customerLabel?: string;
   evidenceDocuments: readonly MayaEvidenceDocument[];
+  question?: string;
+  queryScope?: "line" | "workspace";
   selectedLineLabel?: string;
   subAgentNames: readonly string[];
 }
@@ -116,7 +118,7 @@ export interface MayaConductorSummaryInput {
 export interface MayaAgentChecklistRow {
   agentName: string;
   key: string;
-  state: "complete" | "running";
+  state: "blocked" | "complete" | "running" | "stopped";
 }
 
 export interface MayaCopilotVerdictBand {
@@ -136,6 +138,17 @@ export interface MayaResolvedWorklistReason {
   sourceLabel: "Deduction reason" | "Deterministic basis" | "Deterministic fallback" | "Stored narrative";
   text: string;
 }
+
+type MayaCopilotQuestionFocus =
+  | "approval_gate"
+  | "carrier"
+  | "contract"
+  | "general"
+  | "pod"
+  | "remittance"
+  | "route"
+  | "sap"
+  | "tpm";
 
 export interface MayaWorklistApprovalDisplay {
   isTerminal: boolean;
@@ -661,74 +674,129 @@ export function buildCopilotCaseOptions(worklist: readonly MayaWorklistItem[]): 
     customerLabel: item.customerLabel,
     label: `${item.customerLabel} - ${item.workItemLabel}`,
     lineId: item.lineId,
-    recordIds: buildCopilotCaseQueryRecordIds(item),
+    recordIds: buildCaseScopedQueryRecordIds(item),
     workItem: item,
     workItemLabel: item.workItemLabel
   }));
 }
 
-function buildCopilotCaseQueryRecordIds(item: MayaWorklistItem): string[] {
-  return dedupeStrings([
-    ...item.lineIds,
-    ...item.provenance.recordIds.filter(
-      (recordId) => !isInternalAuditOnlyQueryRecordId(recordId) && !isSiblingLineSpecificQueryRecordId(recordId, item)
-    )
-  ]);
-}
-
-function isInternalAuditOnlyQueryRecordId(recordId: string): boolean {
-  return /^CLAIM-/u.test(recordId) || /^TOOLS-DATA(?::|-)/u.test(recordId) || /^USCU_/u.test(recordId);
-}
-
-function isSiblingLineSpecificQueryRecordId(recordId: string, item: MayaWorklistItem): boolean {
-  return item.lineIds.some((lineId) => lineId !== item.lineId && recordId.includes(lineId));
+export function buildCaseScopedQueryRecordIds(
+  item: MayaWorklistItem,
+  options: { selectedEvidenceRecordIds?: readonly string[] } = {}
+): string[] {
+  const lineIds = item.lineIds.length > 0 ? item.lineIds : [item.lineId];
+  return dedupeStrings([...lineIds, ...item.provenance.recordIds, ...(options.selectedEvidenceRecordIds ?? [])]);
 }
 
 export function buildConductorSummary(input: MayaConductorSummaryInput): string {
-  const agentNames = dedupeStrings(input.subAgentNames);
   const sourceLabels = dedupeStrings(input.evidenceDocuments.map((document) => document.sourceLabel));
+  const selectedLineLabel = humanizeConductorSubjectLabel(input.selectedLineLabel);
   const subjectParts = [
-    input.selectedLineLabel?.trim(),
+    selectedLineLabel,
     input.customerLabel?.trim()
   ].filter((part): part is string => part !== undefined && part.length > 0);
+  const focus = deriveCopilotQuestionFocus(input.question, input.evidenceDocuments);
   const sentences: string[] = [];
 
   if (subjectParts.length > 0) {
     sentences.push(`Re-checking the overnight verdict for ${subjectParts.join(" - ")} — pulling the cited evidence.`);
   }
 
-  if (agentNames.length > 0) {
-    const sourceClause = sourceLabels.length > 0 ? ` across ${formatSourceList(sourceLabels)}` : "";
-    sentences.push(`Conductor is coordinating ${agentNames.length.toString()} specialist agents${sourceClause}.`);
+  if (input.question?.trim().length) {
+    sentences.push(buildConductorFocusSentence(focus, input.queryScope));
+  }
+
+  if (sourceLabels.length > 0) {
+    sentences.push(`Sources in scope: ${formatSourceList(sourceLabels)}.`);
   }
 
   return sentences.length === 0 ? "Conductor is checking cited evidence." : sentences.join(" ");
 }
 
+function humanizeConductorSubjectLabel(label: string | undefined): string | undefined {
+  const trimmed = label?.trim();
+  if (trimmed === undefined || trimmed.length === 0) {
+    return undefined;
+  }
+
+  return looksLikeBackendRecordId(trimmed) ? "selected deduction" : trimmed;
+}
+
+function looksLikeBackendRecordId(value: string): boolean {
+  return /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/u.test(value);
+}
+
 export function buildAgentChecklistRows(input: {
+  evidenceDocuments: readonly MayaEvidenceDocument[];
   fallbackAgentNames: readonly string[];
+  message?: string;
+  question?: string;
   status: QueryEvidenceResponse["status"] | undefined;
   trace: readonly QueryEvidenceResponse["trace"][number][];
 }): MayaAgentChecklistRow[] {
-  const traceAgentNames = dedupeStrings(
-    input.trace
-      .filter((event) => event.hook === "agent_start")
-      .map((event) => event.agentName)
+  const focus = deriveCopilotQuestionFocus(input.question, input.evidenceDocuments);
+  const labels = buildChecklistLabels(focus);
+  const isBlocked = input.status === "blocked";
+  const isStopped = isBlocked && input.message?.startsWith("Query stopped;") === true;
+  const isAnswered = input.status === "answered";
+  const completedPhases = new Set(
+    input.trace.filter((event) => event.hook === "agent_end").map((event) => event.phase)
   );
-  const agentNames = traceAgentNames.length > 0 ? traceAgentNames : dedupeStrings(input.fallbackAgentNames);
-  const completedAgents = new Set(
-    input.trace
-      .filter((event) => event.hook === "agent_end")
-      .map((event) => event.agentName.trim())
-      .filter((agentName) => agentName.length > 0)
-  );
-  const isSettled = input.status !== undefined && input.status !== "connecting";
-
-  return agentNames.map((agentName) => ({
+  const phaseStates: MayaAgentChecklistRow["state"][] = [
+    isStopped
+      ? "stopped"
+      : isBlocked
+      ? "blocked"
+      : isAnswered || completedPhases.has("supervisor") || completedPhases.has("query")
+        ? "complete"
+        : "running",
+    isStopped ? "stopped" : isBlocked ? "blocked" : isAnswered || completedPhases.has("retrieval") ? "complete" : "running",
+    isStopped ? "stopped" : isBlocked ? "blocked" : isAnswered || completedPhases.has("decision") ? "complete" : "running"
+  ];
+  const rows = labels.map((agentName, index) => ({
     agentName,
     key: `agent-${agentName}`,
-    state: isSettled || completedAgents.has(agentName) ? "complete" : "running"
+    state: phaseStates[index] ?? "running"
   }));
+
+  if (rows.length > 0) {
+    return rows;
+  }
+
+  return dedupeStrings(input.fallbackAgentNames).map((agentName) => ({
+    agentName,
+    key: `agent-${agentName}`,
+    state: isStopped ? "stopped" : isBlocked ? "blocked" : isAnswered ? "complete" : "running"
+  }));
+}
+
+export function buildConductorRunningLine(input: {
+  evidenceDocuments: readonly MayaEvidenceDocument[];
+  question?: string;
+  queryScope?: "line" | "workspace";
+}): string {
+  const focus = deriveCopilotQuestionFocus(input.question, input.evidenceDocuments);
+  const scopePhrase = input.queryScope === "workspace" ? "the workspace evidence packet" : "this selected case";
+  switch (focus) {
+    case "approval_gate":
+      return `Maya is checking evidence behind the current route and human approval gate for ${scopePhrase}.`;
+    case "route":
+      return `Maya is checking evidence behind the current route for ${scopePhrase}.`;
+    case "sap":
+      return `Maya is checking evidence from SAP OData for ${scopePhrase}.`;
+    case "contract":
+      return `Maya is checking evidence from the contract packet for ${scopePhrase}.`;
+    case "tpm":
+      return `Maya is checking evidence from TPM for ${scopePhrase}.`;
+    case "pod":
+      return `Maya is checking evidence from proof of delivery for ${scopePhrase}.`;
+    case "remittance":
+      return `Maya is checking evidence from remittance for ${scopePhrase}.`;
+    case "carrier":
+      return `Maya is checking evidence from carrier records for ${scopePhrase}.`;
+    case "general":
+      return `Maya is checking evidence for ${scopePhrase}.`;
+  }
 }
 
 export function buildCopilotVerdictBand(input: {
@@ -754,7 +822,7 @@ export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInpu
   const citedRecordIds = dedupeStrings(input.response.citations.map((citation) => citation.recordId));
   const selectedScopeRecordIds =
     input.queryScope === "workspace"
-      ? citedRecordIds
+      ? dedupeStrings([...input.recordIds, ...input.evidencePackRecordIds])
       : dedupeStrings([input.selectedLine, ...input.recordIds, ...input.evidencePackRecordIds]);
   const selectedScope = new Set(selectedScopeRecordIds);
   const citationsWithinSelectedScope = input.response.citations.every((citation) =>
@@ -1241,6 +1309,177 @@ function formatSourceList(sourceLabels: readonly string[]): string {
   const shown = sourceLabels.slice(0, 4);
   const hiddenCount = sourceLabels.length - shown.length;
   return hiddenCount > 0 ? `${shown.join(", ")}, +${hiddenCount.toString()} more` : shown.join(", ");
+}
+
+const COPILOT_SOURCE_FOCUS_PATTERNS: ReadonlyArray<{
+  focus: Exclude<MayaCopilotQuestionFocus, "approval_gate" | "general" | "route">;
+  patterns: readonly RegExp[];
+}> = [
+  {
+    focus: "sap",
+    patterns: [/\bsap(?:\s+odata)?\b/iu, /\bodata\b/iu]
+  },
+  {
+    focus: "contract",
+    patterns: [/\bcontract(?:\s+(?:evidence|packet|repo))?\b/iu, /\bsla\b/iu]
+  },
+  {
+    focus: "tpm",
+    patterns: [/\btpm\b/iu, /\btrade promotion\b/iu]
+  },
+  {
+    focus: "pod",
+    patterns: [/\bpod\b/iu, /\bproof of delivery\b/iu]
+  },
+  {
+    focus: "remittance",
+    patterns: [/\bremittance\b/iu]
+  },
+  {
+    focus: "carrier",
+    patterns: [/\bcarrier (?:evidence|record|records|report|reports)\b/iu, /\bphoto evidence\b/iu]
+  }
+];
+
+const COPILOT_APPROVAL_GATE_PATTERNS: readonly RegExp[] = [
+  /\bapproval gate\b/iu,
+  /\bhuman approval\b/iu,
+  /\bapproval review\b/iu,
+  /\breviewer\b/iu
+];
+
+const COPILOT_ROUTE_PATTERNS: readonly RegExp[] = [
+  /\bcurrent route\b/iu,
+  /\broute(?:\s+to)?\b/iu,
+  /\brouting\b/iu,
+  /\brecommended action\b/iu
+];
+
+function deriveCopilotQuestionFocus(
+  question: string | undefined,
+  evidenceDocuments: readonly MayaEvidenceDocument[]
+): MayaCopilotQuestionFocus {
+  const normalizedQuestion = question?.trim() ?? "";
+  if (normalizedQuestion.length === 0) {
+    return "general";
+  }
+
+  let requestedSourceFocus: MayaCopilotQuestionFocus | undefined;
+  for (const matcher of COPILOT_SOURCE_FOCUS_PATTERNS) {
+    if (matchesAnyPattern(normalizedQuestion, matcher.patterns)) {
+      requestedSourceFocus = matcher.focus;
+      break;
+    }
+  }
+
+  if (
+    requestedSourceFocus !== undefined &&
+    evidenceDocumentsSupportFocus(requestedSourceFocus, evidenceDocuments)
+  ) {
+    return requestedSourceFocus;
+  }
+
+  if (matchesAnyPattern(normalizedQuestion, COPILOT_APPROVAL_GATE_PATTERNS)) {
+    return "approval_gate";
+  }
+
+  if (matchesAnyPattern(normalizedQuestion, COPILOT_ROUTE_PATTERNS)) {
+    return "route";
+  }
+
+  return "general";
+}
+
+function evidenceDocumentsSupportFocus(
+  focus: MayaCopilotQuestionFocus,
+  evidenceDocuments: readonly MayaEvidenceDocument[]
+): boolean {
+  if (evidenceDocuments.length === 0) {
+    return false;
+  }
+
+  return evidenceDocuments.some((document) => evidenceDocumentSupportsFocus(document, focus));
+}
+
+function evidenceDocumentSupportsFocus(
+  document: MayaEvidenceDocument,
+  focus: MayaCopilotQuestionFocus
+): boolean {
+  const sourceLabel = document.sourceLabel.trim().toLowerCase();
+  const documentType = document.documentType.trim().toLowerCase();
+
+  switch (focus) {
+    case "sap":
+      return sourceLabel.includes("sap") || documentType === "sap_invoice";
+    case "contract":
+      return sourceLabel.includes("contract") || documentType.startsWith("contract_");
+    case "tpm":
+      return sourceLabel.includes("tpm") || documentType.startsWith("tpm_");
+    case "pod":
+      return sourceLabel.includes("pod") || sourceLabel.includes("proof of delivery") || documentType === "pod";
+    case "remittance":
+      return sourceLabel.includes("remittance") || documentType === "remittance_advice";
+    case "carrier":
+      return sourceLabel.includes("carrier") || documentType === "carrier_damage_report" || documentType === "carrier_photo";
+    case "approval_gate":
+    case "route":
+    case "general":
+      return true;
+  }
+}
+
+function buildConductorFocusSentence(
+  focus: MayaCopilotQuestionFocus,
+  queryScope: "line" | "workspace" | undefined
+): string {
+  const scopePhrase = queryScope === "workspace" ? "the workspace evidence packet" : "this selected case";
+  switch (focus) {
+    case "approval_gate":
+      return `Conductor is checking the current route and human approval gate for ${scopePhrase}.`;
+    case "route":
+      return `Conductor is checking the current route and cited basis for ${scopePhrase}.`;
+    case "sap":
+      return `Conductor is checking the SAP OData evidence returned for ${scopePhrase}.`;
+    case "contract":
+      return `Conductor is checking the contract evidence returned for ${scopePhrase}.`;
+    case "tpm":
+      return `Conductor is checking the TPM evidence returned for ${scopePhrase}.`;
+    case "pod":
+      return `Conductor is checking the proof of delivery evidence returned for ${scopePhrase}.`;
+    case "remittance":
+      return `Conductor is checking the remittance evidence returned for ${scopePhrase}.`;
+    case "carrier":
+      return `Conductor is checking the carrier evidence returned for ${scopePhrase}.`;
+    case "general":
+      return "Conductor is checking cited evidence.";
+  }
+}
+
+function buildChecklistLabels(focus: MayaCopilotQuestionFocus): readonly string[] {
+  switch (focus) {
+    case "approval_gate":
+      return ["Case scope confirmed", "Route evidence checked", "Human approval gate verified"];
+    case "route":
+      return ["Case scope confirmed", "Route evidence checked", "Deterministic basis verified"];
+    case "sap":
+      return ["Case scope confirmed", "SAP OData evidence checked", "Deterministic basis verified"];
+    case "contract":
+      return ["Case scope confirmed", "Contract evidence checked", "Deterministic basis verified"];
+    case "tpm":
+      return ["Case scope confirmed", "TPM evidence checked", "Deterministic basis verified"];
+    case "pod":
+      return ["Case scope confirmed", "Proof of delivery checked", "Deterministic basis verified"];
+    case "remittance":
+      return ["Case scope confirmed", "Remittance evidence checked", "Deterministic basis verified"];
+    case "carrier":
+      return ["Case scope confirmed", "Carrier evidence checked", "Deterministic basis verified"];
+    case "general":
+      return ["Case scope confirmed", "Cited evidence checked", "Deterministic basis verified"];
+  }
+}
+
+function matchesAnyPattern(input: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(input));
 }
 
 function routeTargetLabel(item: MayaWorklistItem, fallback: string): string {

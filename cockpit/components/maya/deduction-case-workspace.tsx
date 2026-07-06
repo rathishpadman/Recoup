@@ -23,10 +23,12 @@ import { AuditConfirmationPanel } from "./audit-confirmation-panel.tsx";
 import { DecisionFlowStepper } from "./decision-flow-stepper.tsx";
 import { mayaAccent } from "./maya-accent.ts";
 import {
+  buildCaseScopedQueryRecordIds,
   buildCitedRecordChips,
   buildEvidenceFactCard,
   buildEvidencePacketAvailabilityLabel,
   buildVerdictLead,
+  countEvidenceSourceLabels,
   deriveDecisionFlowSteps,
   findContrastCase,
   resolveMayaWorklistReasonDetail
@@ -55,6 +57,7 @@ interface DeductionCaseWorkspaceProps {
   journey: MayaJourneyItem[];
   multimodalDock: MayaMultimodalDock;
   onApprovalResponse?: ((lineId: string, response: ApprovalGateResponse) => void) | undefined;
+  onQueryDockOpenChange?: ((open: boolean) => void) | undefined;
   onQueryDockIntentConsumed?: (() => void) | undefined;
   onReturnToWorklist: () => void;
   onSelectLine: (lineId: string) => void;
@@ -74,6 +77,7 @@ export function DeductionCaseWorkspace({
   hasBackendDetail,
   multimodalDock,
   onApprovalResponse,
+  onQueryDockOpenChange,
   onQueryDockIntentConsumed,
   onReturnToWorklist,
   onSelectLine,
@@ -107,6 +111,10 @@ export function DeductionCaseWorkspace({
     recordIds: selected.evidencePack.recordIds,
     statusLabel: auditState.statusLabel
   };
+  const caseScopedQueryRecordIds = React.useMemo(
+    () => buildCaseScopedQueryRecordIds(detail.workItem, { selectedEvidenceRecordIds: selected.evidencePack.recordIds }),
+    [detail.workItem, selected.evidencePack.recordIds]
+  );
   const selectedEvidenceIdentity = JSON.stringify({
     lineId: selected.lineId,
     recordIds: selected.evidencePack.recordIds
@@ -135,11 +143,13 @@ export function DeductionCaseWorkspace({
     }
 
     setQueryDockOpen(true);
+    onQueryDockOpenChange?.(true);
     onQueryDockIntentConsumed?.();
-  }, [onQueryDockIntentConsumed, openQueryDockLineId, selected.lineId]);
+  }, [onQueryDockIntentConsumed, onQueryDockOpenChange, openQueryDockLineId, selected.lineId]);
 
   function handleQueryDockOpenChange(open: boolean): void {
     setQueryDockOpen(open);
+    onQueryDockOpenChange?.(open);
     if (!open) {
       setQueryResponse((current) => (current?.status === "connecting" ? undefined : current));
     }
@@ -313,7 +323,7 @@ export function DeductionCaseWorkspace({
             selectedWorklistItem={detail.workItem}
           />
         ) : (
-          <DetailGapCard title="Outcome unavailable" />
+          <DetailGapCard title="Recommended Action unavailable" />
         )}
       </section>
 
@@ -370,7 +380,7 @@ export function DeductionCaseWorkspace({
           onOpenChange={handleQueryDockOpenChange}
           onResponse={setQueryResponse}
           open={queryDockOpen}
-          recordIds={selected.evidencePack.recordIds}
+          recordIds={caseScopedQueryRecordIds}
           selectedLine={selected.lineId}
           selectedWorklistItem={detail.workItem}
         />
@@ -423,16 +433,50 @@ function resolveSelectedWorklistReasonDetail(item: MayaWorklistItem | undefined)
 }
 
 function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["evidencePack"] }) {
+  const [open, setOpen] = React.useState(false);
+  const sourceCount = countEvidenceSourceLabels(evidencePack.documents);
+  const sourceLabels = [...new Set(evidencePack.documents.map((document) => document.sourceLabel.trim()).filter((label) => label.length > 0))];
+  const visibleSourceLabels = sourceLabels.slice(0, 3);
+  const hiddenSourceLabelCount = sourceLabels.length - visibleSourceLabels.length;
+  const evidenceIdentity = evidencePack.documents.map((document) => document.documentId).join("|");
+
+  React.useEffect(() => {
+    setOpen(false);
+  }, [evidenceIdentity]);
+
   if (evidencePack.documents.length === 0) {
     return <DetailGapCard title="Evidence unavailable" />;
   }
 
   return (
-    <section className="grid gap-2" data-testid="maya-evidence-fact-cards">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Evidence retrieved</h3>
-        <Badge variant="outline">{evidencePack.documents.length.toString()} documents</Badge>
-      </div>
+    <Collapsible
+      className="grid min-w-0 gap-0 rounded-lg border bg-card shadow-[var(--shadow-sm)]"
+      data-testid="maya-evidence-fact-cards"
+      onOpenChange={setOpen}
+      open={open}
+    >
+      <CollapsibleTrigger asChild>
+        <Button
+          className="h-auto w-full justify-between gap-3 px-4 py-3 text-left"
+          data-testid="maya-evidence-fact-cards-trigger"
+          type="button"
+          variant="ghost"
+        >
+          <span className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <span className="font-semibold">Evidence retrieved</span>
+            <Badge variant="outline">{evidencePack.documents.length.toString()} documents</Badge>
+            {sourceCount > 0 ? <Badge variant="secondary">{sourceCount.toString()} sources</Badge> : null}
+            {visibleSourceLabels.map((label) => (
+              <Badge className="max-w-full truncate" key={label} title={label} variant="outline">
+                {label}
+              </Badge>
+            ))}
+            {hiddenSourceLabelCount > 0 ? <Badge variant="outline">{`+${hiddenSourceLabelCount.toString()}`}</Badge> : null}
+          </span>
+          <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0" />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t p-4">
       <div className="grid gap-3 md:grid-cols-2">
         {evidencePack.documents.map((document) => {
           const card = buildEvidenceFactCard(document);
@@ -443,7 +487,7 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
               className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)}
               data-document-id={card.documentId}
               data-testid="maya-evidence-fact-card"
-              key={document.citationId}
+              key={`${document.citationId}-${card.documentId}`}
               size="sm"
             >
               <CardHeader className="gap-2">
@@ -468,6 +512,14 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
               </CardContent>
               <CardFooter className="grid gap-2">
                 {hasDocumentContent ? (
+                  <Button asChild className="w-fit" data-testid="maya-evidence-open-link" size="sm" variant="outline">
+                    <a href={card.documentHref} rel="noreferrer" target="_blank">
+                      <ExternalLinkIcon aria-hidden="true" data-icon="inline-start" />
+                      Open evidence
+                    </a>
+                  </Button>
+                ) : null}
+                {hasDocumentContent ? (
                   <Collapsible className="rounded-md border bg-background/80" data-testid="maya-evidence-document-viewer">
                   <CollapsibleTrigger asChild>
                     <Button
@@ -478,7 +530,7 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
                     >
                       <span className="inline-flex min-w-0 items-center gap-2">
                         <FileTextIcon aria-hidden="true" className="size-4 shrink-0" />
-                        <span className="truncate">View document</span>
+                        <span className="truncate">Preview evidence</span>
                       </span>
                       <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0" />
                     </Button>
@@ -501,7 +553,7 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
                         <Button asChild className="w-fit" size="sm" variant="outline">
                           <a href={card.documentHref} rel="noreferrer" target="_blank">
                             <ExternalLinkIcon aria-hidden="true" data-icon="inline-start" />
-                            Open document
+                            Open evidence
                           </a>
                         </Button>
                         </>
@@ -538,7 +590,8 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
           );
         })}
       </div>
-    </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

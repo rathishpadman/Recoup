@@ -208,7 +208,7 @@ function EvidenceDocumentTable({ documents }: { documents: EvidenceDocument[] })
         </TableHeader>
         <TableBody>
           {documents.map((document) => (
-            <TableRow data-testid="maya-evidence-document-row" key={document.citationId}>
+            <TableRow data-testid="maya-evidence-document-row" key={`${document.citationId}-${document.documentId}`}>
               <TableCell className="w-[56%] whitespace-normal align-top">
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-1.5">

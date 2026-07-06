@@ -3,14 +3,17 @@ import {
   buildCopilotSuggestions,
   buildAgentInvestigationTimelineSteps,
   buildAgentChecklistRows,
+  buildCaseScopedQueryRecordIds,
   buildCopilotCaseOptions,
   buildCitedRecordChips,
+  buildConductorRunningLine,
   buildConductorSummary,
   buildCopilotVerdictBand,
   buildDraftLetterPreview,
   buildEmailDraft,
   buildEvidenceFactCard,
   buildEvidencePacketAvailabilityLabel,
+  buildQueryEvidenceSnapshot,
   countEvidenceSourceLabels,
   buildCopilotDrawerTrigger,
   deriveWorklistApprovalDisplay,
@@ -35,6 +38,7 @@ import type {
   MayaEvidenceDocument,
   MayaEvidencePack,
   MayaWorklistItem,
+  QueryEvidenceBackendResponse,
   QueryEvidenceResponse
 } from "../../cockpit/components/maya/types.ts";
 
@@ -432,7 +436,7 @@ describe("Maya workspace derived helpers", () => {
         customerLabel: "Greenleaf Naturals",
         label: "Greenleaf Naturals - Greenleaf deduction group",
         lineId: "S1-L1",
-        recordIds: ["S1-L1", "S1-L2", "INV-S1", "EVD-S1"],
+        recordIds: ["S1-L1", "S1-L2", "CLAIM-S1-L1", "INV-S1", "TOOLS-DATA:S1", "USCU_S03", "EVD-S1", "DOC-S1-L2"],
         workItemLabel: "Greenleaf deduction group"
       },
       {
@@ -445,6 +449,51 @@ describe("Maya workspace derived helpers", () => {
     ]);
     expect(options[0]?.workItem.lineId).toBe("S1-L1");
     expect(options[1]?.workItem.lineId).toBe("S3-L1");
+  });
+
+  it("builds case-detail query scope from grouped lines plus full work-item provenance", () => {
+    const scopedRecordIds = buildCaseScopedQueryRecordIds(
+      workItem({
+        customerLabel: "ValuMart Club",
+        lineId: "S4-L1",
+        lineIds: ["S4-L1", "S4-L2"],
+        provenance: {
+          deterministicBasis: "work item source",
+          recordIds: [
+            "S4-L1",
+            "CLAIM-S4-L1",
+            "SAP-INV-S4-1",
+            "SAP-INV-S4-2",
+            "TOOLS-DATA:S4",
+            "USCU_S07",
+            "DOC-S4-L2"
+          ],
+          sourceKind: "derived_backend",
+          sourceName: "unit test"
+        }
+      })
+    );
+
+    expect(scopedRecordIds).toEqual(["S4-L1", "S4-L2", "CLAIM-S4-L1", "SAP-INV-S4-1", "SAP-INV-S4-2", "TOOLS-DATA:S4", "USCU_S07", "DOC-S4-L2"]);
+  });
+
+  it("merges selected evidence record ids into case-detail query scope", () => {
+    const scopedRecordIds = buildCaseScopedQueryRecordIds(
+      workItem({
+        customerLabel: "Greenleaf Naturals",
+        lineId: "S1-L1",
+        lineIds: ["S1-L1", "S1-L2", "S1-L3"],
+        provenance: {
+          deterministicBasis: "work item source",
+          recordIds: ["CLAIM-S1-L1", "S1-L1", "DOC-S1-L2", "DOC-S1-L3"],
+          sourceKind: "derived_backend",
+          sourceName: "unit test"
+        }
+      }),
+      { selectedEvidenceRecordIds: ["RECON-S1-L1", "POD-S1-L1", "CLAIM-S1-L1"] }
+    );
+
+    expect(scopedRecordIds).toEqual(["S1-L1", "S1-L2", "S1-L3", "CLAIM-S1-L1", "DOC-S1-L2", "DOC-S1-L3", "RECON-S1-L1", "POD-S1-L1"]);
   });
 
   it("prefers the display-ready reason when a stored narrative is also present", () => {
@@ -951,7 +1000,7 @@ describe("Maya workspace derived helpers", () => {
     expect(buildEvidencePacketAvailabilityLabel(evidencePack({ documents: [], recordIds: [] }))).toBe("No evidence records");
   });
 
-  it("composes the Phase 7 conductor sentence from real agent and source counts only", () => {
+  it("composes a query-aware conductor sentence from the submitted question and packet sources", () => {
     expect(
       buildConductorSummary({
         customerLabel: "Crestline Grocery",
@@ -962,22 +1011,95 @@ describe("Maya workspace derived helpers", () => {
           evidenceDocument({ sourceLabel: "Remittance" }),
           evidenceDocument({ sourceLabel: "OpenAI vector store" })
         ],
+        question: "What does the SAP OData evidence say about this selected deduction?",
         selectedLineLabel: "S3-L1",
         subAgentNames: ["Forensics Investigator", "Recovery Drafter", "Forensics Investigator"]
       })
     ).toBe(
-      "Re-checking the overnight verdict for S3-L1 - Crestline Grocery — pulling the cited evidence. Conductor is coordinating 2 specialist agents across SAP OData, 3PL POD, Contract Repo, Remittance, +1 more."
+      "Re-checking the overnight verdict for selected deduction - Crestline Grocery — pulling the cited evidence. Conductor is checking the SAP OData evidence returned for this selected case. Sources in scope: SAP OData, 3PL POD, Contract Repo, Remittance, +1 more."
     );
 
     expect(
       buildConductorSummary({
         evidenceDocuments: [],
+        question: "",
         subAgentNames: []
       })
     ).toBe("Conductor is checking cited evidence.");
   });
 
-  it("builds Phase 7 agent checklist rows from real trace order with roster fallback", () => {
+  it("keeps generic conductor copy for generic evidence prompts even on mixed-source packets", () => {
+    expect(
+      buildConductorSummary({
+        customerLabel: "Carrier Foods",
+        evidenceDocuments: [
+          evidenceDocument({ sourceLabel: "SAP OData" }),
+          evidenceDocument({ sourceLabel: "3PL POD" }),
+          evidenceDocument({ sourceLabel: "Contract Repo" }),
+          evidenceDocument({ sourceLabel: "Remittance" })
+        ],
+        question: "What evidence supports the Valid deduction verdict for Carrier Foods?",
+        selectedLineLabel: "S3-L1",
+        subAgentNames: ["Forensics Investigator", "Recovery Drafter"]
+      })
+    ).toBe(
+      "Re-checking the overnight verdict for selected deduction - Carrier Foods — pulling the cited evidence. Conductor is checking cited evidence. Sources in scope: SAP OData, 3PL POD, Contract Repo, Remittance."
+    );
+  });
+
+  it("prefers explicit source prompts over route keywords in conductor copy", () => {
+    expect(
+      buildConductorSummary({
+        customerLabel: "Crestline Grocery",
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "SAP OData" }), evidenceDocument({ sourceLabel: "Contract Repo" })],
+        question: "Which SAP evidence supports the recovery route for this case?",
+        selectedLineLabel: "S3-L1",
+        subAgentNames: ["Forensics Investigator"]
+      })
+    ).toBe(
+      "Re-checking the overnight verdict for selected deduction - Crestline Grocery — pulling the cited evidence. Conductor is checking the SAP OData evidence returned for this selected case. Sources in scope: SAP OData, Contract Repo."
+    );
+    expect(
+      buildConductorRunningLine({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "SAP OData" })],
+        question: "Which SAP evidence supports the recovery route for this case?"
+      })
+    ).toBe("Maya is checking evidence from SAP OData for this selected case.");
+  });
+
+  it("falls back to generic query copy when the prompt names a source that is not present in the selected packet", () => {
+    const summary = buildConductorSummary({
+      customerLabel: "Crestline Grocery",
+      evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo", documentType: "contract_sla" })],
+      question: "What does the SAP OData evidence say about this selected deduction?",
+      selectedLineLabel: "S3-L1",
+      subAgentNames: ["Forensics Investigator"]
+    });
+    expect(summary).toContain("Re-checking the overnight verdict for selected deduction - Crestline Grocery");
+    expect(summary).toContain("Conductor is checking cited evidence.");
+    expect(summary).toContain("Sources in scope: Contract Repo.");
+    expect(
+      buildConductorRunningLine({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo", documentType: "contract_sla" })],
+        question: "What does the SAP OData evidence say about this selected deduction?"
+      })
+    ).toBe("Maya is checking evidence for this selected case.");
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo", documentType: "contract_sla" })],
+        fallbackAgentNames: ["Contract-Reader"],
+        question: "What does the SAP OData evidence say about this selected deduction?",
+        status: "connecting",
+        trace: []
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "running" },
+      { agentName: "Cited evidence checked", key: "agent-Cited evidence checked", state: "running" },
+      { agentName: "Deterministic basis verified", key: "agent-Deterministic basis verified", state: "running" }
+    ]);
+  });
+
+  it("builds query-aware specialist checklist rows from prompt focus and trace progress", () => {
     const trace: QueryEvidenceResponse["trace"] = [
       {
         agentName: "Forensics Investigator",
@@ -1011,13 +1133,274 @@ describe("Maya workspace derived helpers", () => {
       }
     ];
 
-    expect(buildAgentChecklistRows({ fallbackAgentNames: ["POD-Retriever"], status: "answered", trace })).toEqual([
-      { agentName: "Forensics Investigator", key: "agent-Forensics Investigator", state: "complete" },
-      { agentName: "Recovery Drafter", key: "agent-Recovery Drafter", state: "complete" }
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "SAP OData" })],
+        fallbackAgentNames: ["POD-Retriever"],
+        question: "What does the SAP OData evidence say about this selected deduction?",
+        status: "connecting",
+        trace: []
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "running" },
+      { agentName: "SAP OData evidence checked", key: "agent-SAP OData evidence checked", state: "running" },
+      { agentName: "Deterministic basis verified", key: "agent-Deterministic basis verified", state: "running" }
     ]);
-    expect(buildAgentChecklistRows({ fallbackAgentNames: ["POD-Retriever"], status: "connecting", trace: [] })).toEqual([
-      { agentName: "POD-Retriever", key: "agent-POD-Retriever", state: "running" }
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo" })],
+        fallbackAgentNames: ["POD-Retriever"],
+        question: "Which cited records support the current route and human approval gate?",
+        status: "answered",
+        trace
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "complete" },
+      { agentName: "Route evidence checked", key: "agent-Route evidence checked", state: "complete" },
+      { agentName: "Human approval gate verified", key: "agent-Human approval gate verified", state: "complete" }
     ]);
+  });
+
+  it("marks blocked checklist rows blocked when the cited answer cannot be trusted", () => {
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo" })],
+        fallbackAgentNames: ["POD-Retriever"],
+        question: "Which cited records support the current route and human approval gate?",
+        status: "blocked",
+        trace: []
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "blocked" },
+      { agentName: "Route evidence checked", key: "agent-Route evidence checked", state: "blocked" },
+      { agentName: "Human approval gate verified", key: "agent-Human approval gate verified", state: "blocked" }
+    ]);
+  });
+
+  it("keeps stopped checklist rows neutral when the user ends the query", () => {
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "Contract Repo" })],
+        fallbackAgentNames: ["POD-Retriever"],
+        message: "Query stopped; selected evidence process map is ready.",
+        question: "Which cited records support the current route and human approval gate?",
+        status: "blocked",
+        trace: []
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "stopped" },
+      { agentName: "Route evidence checked", key: "agent-Route evidence checked", state: "stopped" },
+      { agentName: "Human approval gate verified", key: "agent-Human approval gate verified", state: "stopped" }
+    ]);
+  });
+
+  it("does not mark checklist phases complete from start events alone", () => {
+    const trace: QueryEvidenceResponse["trace"] = [
+      {
+        agentName: "Forensics Investigator",
+        deterministicBasis: "basis",
+        hook: "agent_start",
+        label: "Retrieval started",
+        message: "Retrieval started",
+        phase: "retrieval",
+        receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+        recordIds: ["S3-L1"]
+      },
+      {
+        agentName: "Recovery Drafter",
+        deterministicBasis: "basis",
+        hook: "agent_start",
+        label: "Decision started",
+        message: "Decision started",
+        phase: "decision",
+        receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+        recordIds: ["S3-L1"]
+      }
+    ];
+
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [evidenceDocument({ sourceLabel: "SAP OData" })],
+        fallbackAgentNames: ["POD-Retriever"],
+        question: "What does the SAP OData evidence say about this selected deduction?",
+        status: "connecting",
+        trace
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "running" },
+      { agentName: "SAP OData evidence checked", key: "agent-SAP OData evidence checked", state: "running" },
+      { agentName: "Deterministic basis verified", key: "agent-Deterministic basis verified", state: "running" }
+    ]);
+  });
+
+  it("keeps generic checklist copy for generic evidence prompts even on mixed-source packets", () => {
+    expect(
+      buildAgentChecklistRows({
+        evidenceDocuments: [
+          evidenceDocument({ sourceLabel: "SAP OData" }),
+          evidenceDocument({ sourceLabel: "Contract Repo" }),
+          evidenceDocument({ sourceLabel: "3PL POD" })
+        ],
+        fallbackAgentNames: ["POD-Retriever"],
+        question: "What evidence supports the Valid deduction verdict for Crestline Grocery?",
+        status: "connecting",
+        trace: []
+      })
+    ).toEqual([
+      { agentName: "Case scope confirmed", key: "agent-Case scope confirmed", state: "running" },
+      { agentName: "Cited evidence checked", key: "agent-Cited evidence checked", state: "running" },
+      { agentName: "Deterministic basis verified", key: "agent-Deterministic basis verified", state: "running" }
+    ]);
+  });
+
+  it("keeps grouped selected-scope citations answered when every cited record is inside the packet", () => {
+    const response: QueryEvidenceBackendResponse = {
+      answer: "The grouped packet supports the valid deduction verdict.",
+      citations: [
+        {
+          deterministicBasis: "Grouped sibling line was part of the selected packet.",
+          recordId: "S4-L2",
+          source: "Source-backed",
+          summary: "Sibling line in grouped case."
+        },
+        {
+          deterministicBasis: "Supporting document was part of the selected packet.",
+          recordId: "DOC-S4-L2",
+          source: "Source-backed",
+          summary: "Grouped support document."
+        }
+      ],
+      deterministicBasis: "All cited grouped records were inside the selected packet.",
+      trace: [
+        {
+          agentName: "Forensics Investigator",
+          deterministicBasis: "Grouped query completed.",
+          hook: "agent_end",
+          label: "Cited answer returned",
+          message: "Grouped answer returned from selected evidence.",
+          phase: "decision",
+          receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+          recordIds: ["S4-L1", "S4-L2", "DOC-S4-L2"]
+        }
+      ]
+    };
+
+    expect(
+      buildQueryEvidenceSnapshot({
+        evidencePackRecordIds: ["S4-L1", "S4-L2", "DOC-S4-L2", "SAP-INV-S4-1"],
+        queryScope: "line",
+        recordIds: ["S4-L1", "S4-L2", "DOC-S4-L2"],
+        response,
+        selectedLine: "S4-L1"
+      })
+    ).toEqual({
+      answer: "The grouped packet supports the valid deduction verdict.",
+      citations: response.citations,
+      deterministicBasis: "All cited grouped records were inside the selected packet.",
+      message: "Cited answer returned from selected evidence.",
+      recordIds: ["S4-L2", "DOC-S4-L2"],
+      status: "answered",
+      trace: response.trace
+    });
+  });
+
+  it("blocks query snapshots when any cited record is outside the selected packet", () => {
+    const response: QueryEvidenceBackendResponse = {
+      answer: "An outsider citation should block this response.",
+      citations: [
+        {
+          deterministicBasis: "Selected packet record was cited.",
+          recordId: "S4-L2",
+          source: "Source-backed",
+          summary: "Grouped sibling line in packet."
+        },
+        {
+          deterministicBasis: "This citation points outside the selected packet.",
+          recordId: "OUTSIDE-PACKET",
+          source: "Source-backed",
+          summary: "Out-of-scope citation."
+        }
+      ],
+      deterministicBasis: "A cited record fell outside the selected packet.",
+      trace: [
+        {
+          agentName: "Forensics Investigator",
+          deterministicBasis: "Grouped query completed.",
+          hook: "agent_end",
+          label: "Out-of-scope citation returned",
+          message: "One cited record was outside the selected evidence packet.",
+          phase: "decision",
+          receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+          recordIds: ["S4-L1", "S4-L2", "OUTSIDE-PACKET"]
+        }
+      ]
+    };
+
+    const snapshot = buildQueryEvidenceSnapshot({
+      evidencePackRecordIds: ["S4-L1", "S4-L2", "DOC-S4-L2", "SAP-INV-S4-1"],
+      queryScope: "line",
+      recordIds: ["S4-L1", "S4-L2", "DOC-S4-L2"],
+      response,
+      selectedLine: "S4-L1"
+    });
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.message).toBe("Forensics query cited records outside the selected evidence packet.");
+    expect(snapshot.recordIds).toEqual([
+      "S4-L2",
+      "OUTSIDE-PACKET",
+      "S4-L1",
+      "DOC-S4-L2",
+      "SAP-INV-S4-1"
+    ]);
+    expect(snapshot).not.toHaveProperty("answer");
+    expect(snapshot).not.toHaveProperty("deterministicBasis");
+  });
+
+  it("blocks workspace query snapshots when any cited record falls outside the workspace allow-list", () => {
+    const response: QueryEvidenceBackendResponse = {
+      answer: "Workspace answer should block when it cites an outsider record.",
+      citations: [
+        {
+          deterministicBasis: "Workspace line is part of the settlement run packet.",
+          recordId: "S1-L1",
+          source: "source_backed",
+          summary: "Workspace case line."
+        },
+        {
+          deterministicBasis: "This citation is outside the workspace packet.",
+          recordId: "OUTSIDE-WORKSPACE",
+          source: "source_backed",
+          summary: "Out-of-scope workspace citation."
+        }
+      ],
+      deterministicBasis: "Workspace answer included an out-of-scope citation.",
+      trace: [
+        {
+          agentName: "Recoup Copilot",
+          deterministicBasis: "Workspace query completed.",
+          hook: "agent_end",
+          label: "Workspace answer returned",
+          message: "Workspace query returned an out-of-scope citation.",
+          phase: "decision",
+          receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+          recordIds: ["S1-L1", "OUTSIDE-WORKSPACE"]
+        }
+      ]
+    };
+
+    const snapshot = buildQueryEvidenceSnapshot({
+      evidencePackRecordIds: ["S1-L1"],
+      queryScope: "workspace",
+      recordIds: ["S1-L1", "S2-L1", "DOC-S2-L1"],
+      response,
+      selectedLine: "S1-L1"
+    });
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.message).toBe("Forensics query cited records outside the selected evidence packet.");
+    expect(snapshot.recordIds).toEqual(["S1-L1", "OUTSIDE-WORKSPACE", "S2-L1", "DOC-S2-L1"]);
+    expect(snapshot).not.toHaveProperty("answer");
   });
 
   it("builds Phase 7 verdict band and drawer triggers from real values", () => {
@@ -1041,3 +1424,4 @@ describe("Maya workspace derived helpers", () => {
   });
 
 });
+

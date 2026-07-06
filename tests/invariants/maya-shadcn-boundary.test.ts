@@ -268,6 +268,7 @@ describe("Maya shadcn cockpit boundary", () => {
   it("wires query narrative through the backend forensics query route and cited answer guard", () => {
     const sources = readTree("cockpit/components/maya");
     const queryDock = readFileSync("cockpit/components/maya/query-evidence-dock.tsx", "utf8");
+    const derived = readFileSync("cockpit/components/maya/maya-workspace-derived.ts", "utf8");
     const sheet = readFileSync("cockpit/components/ui/sheet.tsx", "utf8");
 
     for (const forbidden of [
@@ -348,15 +349,18 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain("Case evidence packet");
     expect(queryDock).toContain('snapshot.status === "answered"');
     expect(queryDock).toContain("snapshot.deterministicBasis");
+    expect(queryDock).toContain("buildQueryEvidenceSnapshot({");
+    expect(queryDock).not.toContain("function toQueryEvidenceSnapshot");
     expect(queryDock).toMatch(
       /<AgentTracePanel\b[\s\S]{0,420}\bevidencePack=\{activeEvidencePack\}[\s\S]{0,220}\brecordIds=\{activeRecordIds\}[\s\S]{0,220}\bresponse=\{snapshot\}[\s\S]{0,220}\bselectedLine=\{activeSelectedLine\}[\s\S]{0,120}\/>/u
     );
-    expect(queryDock).toContain("const blockedRecordIds");
-    expect(queryDock).toContain("citations: response.citations");
-    expect(queryDock).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
-    const backendQuerySnapshot = queryDock.slice(
-      queryDock.indexOf("function toQueryEvidenceSnapshot"),
-      queryDock.indexOf("function buildSelectedEvidenceIdentity")
+    expect(derived).toContain("export function buildQueryEvidenceSnapshot");
+    expect(derived).toContain("const blockedRecordIds");
+    expect(derived).toContain("citations: input.response.citations");
+    expect(derived).toMatch(/\brecordIds\s*:\s*blockedRecordIds\b[\s\S]{0,260}\bstatus\s*:\s*"blocked"/u);
+    const backendQuerySnapshot = derived.slice(
+      derived.indexOf("export function buildQueryEvidenceSnapshot"),
+      derived.indexOf("export function deriveDecisionFlowSteps")
     );
     expect(backendQuerySnapshot).not.toMatch(
       /return\s*\{[\s\S]{0,600}\bcitations\s*:\s*\[\][\s\S]{0,600}\bstatus\s*:\s*"blocked"/u
@@ -461,7 +465,8 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).toContain("setQueryResponse");
     expect(workspace).toContain("setQueryResponse(undefined)");
     expect(workspace).toContain("response={queryResponse}");
-    expect(workspace).toContain("recordIds={selected.evidencePack.recordIds}");
+    expect(workspace).toContain("caseScopedQueryRecordIds");
+    expect(workspace).toContain("recordIds={caseScopedQueryRecordIds}");
     expect(workspace).toContain("evidencePack={selected.evidencePack}");
     expect(workspace).toContain("selectedLine={selected.lineId}");
     expect(workspace).toContain("onResponse={setQueryResponse}");
@@ -759,6 +764,7 @@ describe("Maya shadcn cockpit boundary", () => {
 
     for (const requiredHook of [
       'data-testid="maya-recovery-draft-review"',
+      'data-testid="maya-recommended-action-trigger"',
       'data-testid="maya-draft-hitl-warning"',
       'data-testid="maya-outcome-routing-banner"',
       'data-testid="maya-outcome-action-packages"',
@@ -772,6 +778,10 @@ describe("Maya shadcn cockpit boundary", () => {
       expect(recoveryDraftReview).toContain(requiredHook);
     }
 
+    expect(recoveryDraftReview).toContain("<Collapsible");
+    expect(recoveryDraftReview).toContain("Recommended Action");
+    expect(recoveryDraftReview).toContain("routingBanner?.title");
+    expect(recoveryDraftReview).toContain("routingBanner?.amountLabel");
     for (const requiredPropRead of [
       "draft.statusLabel",
       "draft.basis",
@@ -795,6 +805,8 @@ describe("Maya shadcn cockpit boundary", () => {
     ]) {
       expect(recoveryDraftReview).toContain(requiredPropRead);
     }
+    expect(workspace).toContain('DetailGapCard title="Recommended Action unavailable"');
+    expect(workspace).not.toContain('DetailGapCard title="Outcome unavailable"');
 
     expect(recoveryDraftReview).toContain("Open approval");
     expect(recoveryDraftReview).not.toContain('data-testid="maya-draft-command-intent"');
@@ -831,6 +843,7 @@ describe("Maya shadcn cockpit boundary", () => {
 
     for (const requiredHook of [
       'data-testid="maya-evidence-fact-cards"',
+      'data-testid="maya-evidence-fact-cards-trigger"',
       'data-testid="maya-evidence-fact-card"',
       'data-testid="maya-evidence-fact-card-title"',
       'data-testid="maya-evidence-fact-card-body"',
@@ -843,6 +856,8 @@ describe("Maya shadcn cockpit boundary", () => {
       expect(workspace).toContain(requiredHook);
     }
 
+    expect(workspace).toContain("<Collapsible");
+    expect(workspace).toContain("countEvidenceSourceLabels(evidencePack.documents)");
     for (const requiredPropRead of [
       "buildEvidenceFactCard(document)",
       "evidencePack.documents.map",
@@ -861,7 +876,7 @@ describe("Maya shadcn cockpit boundary", () => {
     }
 
     expect(workspace).toContain("Evidence retrieved");
-    expect(workspace).toContain("View document");
+    expect(workspace).toContain("Open evidence");
     expect(workspace).toContain("More details");
     expect(workspace).not.toContain("Backend evidence packet");
     expect(workspace).not.toContain("Evidence dossier available");
