@@ -211,7 +211,9 @@ async function main(): Promise<void> {
       const detail = await fetchDetail(readApiUrl, targets.approve.lineId);
       assert(detail.approvalState.status === "pending_human", `Expected pending_human after reset, got ${detail.approvalState.status}.`);
       assert(detail.approvalReceipt === undefined, "Approval receipt still rehydrated after admin reset.");
-      return { detail: `${detail.approvalState.statusLabel}; receipt cleared`, status: response.status };
+      await reopenWorkItemDraftInCurrentSession(page, targets.approve.lineId);
+      const resetBadge = await assertSelectedWorklistApprovalBadgeReset(page, targets.approve);
+      return { detail: `${detail.approvalState.statusLabel}; receipt cleared; ${resetBadge}`, status: response.status };
     });
 
     await timedStep("relogin after reset", async () => {
@@ -573,6 +575,17 @@ async function openWorkItemDraft(page: Page, appUrl: string, targetLineId: strin
   await page.locator('[data-testid="maya-recovery-draft-review"]').waitFor({ state: "visible", timeout: 30_000 });
 }
 
+async function reopenWorkItemDraftInCurrentSession(page: Page, targetLineId: string): Promise<void> {
+  await page.getByRole("button", { name: /^Worklist$/u }).click();
+  await waitForVisibleWithPageState(page, '[data-testid="maya-root-section-worklist"]', "Maya worklist section", 30_000);
+  const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${targetLineId}"]`).first();
+  await row.waitFor({ state: "visible", timeout: 30_000 });
+  await row.locator('[data-testid="maya-row-action-open"]').click();
+  await page.locator('[data-testid="maya-case-workspace"]').waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator('[data-testid="maya-case-detail-b6-outcome"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-testid="maya-recovery-draft-review"]').waitFor({ state: "visible", timeout: 30_000 });
+}
+
 async function assertDecisionRequiresReasonInBrowser(page: Page, decision: ApprovalDecision): Promise<void> {
   await openApprovalDialog(page);
   const dialog = page.locator('[data-testid="maya-approval-gate-dialog"]');
@@ -764,6 +777,19 @@ async function assertSelectedWorklistApprovalBadgeUpdated(page: Page, target: De
     status === "line_human_decided" || status === "human_decided",
     `Approved selected line showed unexpected worklist approval status ${status ?? "missing"}.`
   );
+  return `${status}; ${label}`;
+}
+
+async function assertSelectedWorklistApprovalBadgeReset(page: Page, target: DecisionTarget): Promise<string> {
+  const row = page.locator(`[data-testid="maya-worklist-row"][data-line-id="${target.lineId}"]`).first();
+  await row.scrollIntoViewIfNeeded();
+  const badge = row.getByTestId("maya-worklist-approval-status").first();
+  await badge.waitFor({ state: "visible", timeout: 30_000 });
+  const label = (await badge.innerText()).trim();
+  const status = await badge.getAttribute("data-approval-status");
+
+  assert(label === "Awaiting reviewer", `Reset selected line showed unexpected worklist approval label ${label}.`);
+  assert(status === "pending_human", `Reset selected line showed unexpected worklist approval status ${status ?? "missing"}.`);
   return `${status}; ${label}`;
 }
 

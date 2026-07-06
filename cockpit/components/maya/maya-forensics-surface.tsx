@@ -182,6 +182,18 @@ function worklistContainsLine(worklist: readonly MayaWorklistItem[], lineId: str
   return lineId !== undefined && worklist.some((item) => item.lineIds.includes(lineId));
 }
 
+function detailHasHumanDecision(detail: MayaWorkItemDetail): boolean {
+  return detail.approvalState.status === "human_decided" || detail.approvalReceipt?.status === "human_decided";
+}
+
+function reconcileLocalDecisionLine(current: string[], lineId: string, decided: boolean): string[] {
+  if (decided) {
+    return current.includes(lineId) ? current : [...current, lineId];
+  }
+
+  return current.includes(lineId) ? current.filter((candidate) => candidate !== lineId) : current;
+}
+
 function beatTwelveMetricCards(
   items: MayaWorklistItem[],
   kpiItems: MayaForensicsSurfaceProps["model"]["kpiStrip"]
@@ -604,6 +616,7 @@ export function MayaForensicsSurface({
 
       setOpenedCaseDetail(detail);
       setOpenedCaseWorklistItem(detail.workItem);
+      setLocallyDecidedLineIds((current) => reconcileLocalDecisionLine(current, detail.lineId, detailHasHumanDecision(detail)));
       setWorkItemDetailLoadState(undefined);
     } catch (error) {
       if (!isCurrentWorkItemDetailRequest(detailRequestSequence, requestId)) {
@@ -692,11 +705,7 @@ export function MayaForensicsSurface({
   }, []);
 
   const handleCaseApprovalResponse = React.useCallback((lineId: string, response: ApprovalGateResponse) => {
-    if (response.status !== "human_decided") {
-      return;
-    }
-
-    setLocallyDecidedLineIds((current) => (current.includes(lineId) ? current : [...current, lineId]));
+    setLocallyDecidedLineIds((current) => reconcileLocalDecisionLine(current, lineId, response.status === "human_decided"));
   }, []);
 
   const handleOverviewCaseSort = React.useCallback((key: OverviewCaseConcentrationSortKey) => {
