@@ -371,6 +371,8 @@ describe("S5 Forensics cockpit model", () => {
     expect(stepper).toContain("FileTextIcon");
     expect(stepper).toContain("SearchIcon");
     expect(stepper).toContain("RouteIcon");
+    expect(stepper).toContain("decisionFlowVerdictTextClass(step.supportLabel)");
+    expect(stepper).not.toContain("decisionFlowVerdictCircleClass");
     expect(stepper).not.toContain("<Card");
     expect(stepper).not.toContain("<Badge");
     expect(stepper).not.toContain("CardContent");

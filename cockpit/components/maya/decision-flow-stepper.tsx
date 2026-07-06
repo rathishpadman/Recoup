@@ -106,9 +106,6 @@ function decisionFlowCircleClass(step: MayaDecisionFlowStep): string {
   if (step.state === "current") {
     return cn("shadow-[var(--shadow-sm)]", mayaAccent.iconBubble);
   }
-  if (step.key === "verdict") {
-    return decisionFlowVerdictCircleClass(step.supportLabel);
-  }
 
   return "border-[color:var(--maya-accent-strong)] bg-[color:var(--maya-accent-strong)] text-white";
 }
@@ -133,21 +130,6 @@ function decisionFlowLabelClass(step: MayaDecisionFlowStep): string {
   }
 
   return "text-foreground";
-}
-
-function decisionFlowVerdictCircleClass(label: string): string {
-  const normalized = label.toLowerCase();
-  if (normalized.includes("invalid") || normalized.includes("recovery")) {
-    return "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[color:var(--status-danger-text)]";
-  }
-  if (normalized.includes("partial") || normalized.includes("split")) {
-    return "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[color:var(--status-warning-text)]";
-  }
-  if (normalized.includes("valid") || normalized.includes("billing")) {
-    return "border-success-border bg-success-surface text-success";
-  }
-
-  return cn("border-[color:var(--maya-accent-border)]", mayaAccent.iconBubble);
 }
 
 function decisionFlowVerdictTextClass(label: string): string {
