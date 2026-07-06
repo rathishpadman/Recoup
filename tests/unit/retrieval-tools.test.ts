@@ -381,6 +381,64 @@ describe("retrieval tools", () => {
     ).toThrow("Supabase SAP evidence rows required for query.answer.");
   });
 
+  it("allows query.answer to use selected non-SAP source evidence when SAP rows are unavailable", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Which selected TPM document supports the partial verdict?",
+      recordIds: ["S6-L1", "TPM-SELECTED-1"],
+      selectedLineId: "S6-L1"
+    };
+    const syntheticEvidenceSource: ServiceSyntheticEvidenceSource = {
+      readEvidence(connectorName, line) {
+        if (connectorName !== "tpm") {
+          return [];
+        }
+        return [
+          {
+            documentId: "TPM-S6-L1",
+            documentType: "trade-promo",
+            recordIds: [line.lineId, "TPM-SELECTED-1"],
+            source: "tpm",
+            summary: "Supabase TPM source evidence for the selected line."
+          }
+        ];
+      }
+    };
+
+    const result = invokeServiceTool("query.answer", queryInput, {
+      governedConfig: day1GovernedConfigSeed.values,
+      requireSupabaseSapEvidence: true,
+      requireSupabaseSyntheticEvidence: true,
+      sapEvidenceSource: {
+        readEvidence() {
+          return [];
+        }
+      },
+      source,
+      syntheticEvidenceSource
+    }) as {
+      sourceReads?: {
+        sapEvidence?: unknown[];
+        selectedEvidence?: Array<{ documentId?: string; recordIds?: string[]; source?: string }>;
+        sourceFreshness?: string;
+        transportLayer?: string;
+      };
+    };
+
+    expect(result.sourceReads).toMatchObject({
+      sapEvidence: [],
+      selectedEvidence: [
+        {
+          documentId: "TPM-S6-L1",
+          recordIds: ["S6-L1", "TPM-SELECTED-1"],
+          source: "tpm"
+        }
+      ],
+      sourceFreshness: "snapshot",
+      transportLayer: "supabase_canonical_snapshot"
+    });
+  });
+
   it("labels query.answer SAP evidence as primary SAP OData via the governed snapshot transport", () => {
     const source = new SyntheticSource({ seed: 42 });
     const queryInput = {
@@ -461,6 +519,43 @@ describe("retrieval tools", () => {
     expect(result.sourceReads).not.toHaveProperty("sourceFreshness");
     expect(result.sourceReads).not.toHaveProperty("transportLabel");
     expect(result.sourceReads).not.toHaveProperty("transportLayer");
+  });
+
+  it("allows query.answer to read a selected subset inside the Maya query scope", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Which selected document supports recovery?",
+      recordIds: ["S6-L1", "INV-S6-1"],
+      selectedLineId: "S6-L1"
+    };
+    const sapEvidenceSource: ServiceSapEvidenceSource = {
+      readEvidence() {
+        return [
+          {
+            documentId: "SAP-INV-S6-1",
+            documentType: "invoice",
+            recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+            source: "sap",
+            summary: "Supabase SAP source row for INV-S6-1."
+          }
+        ];
+      }
+    };
+
+    const result = invokeServiceTool("query.answer", queryInput, {
+      governedConfig: day1GovernedConfigSeed.values,
+      queryAnswerScope: {
+        recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        selectedLineId: "S6-L1"
+      },
+      requireSupabaseSapEvidence: true,
+      sapEvidenceSource,
+      source
+    }) as {
+      sourceReads?: { selectedRecordIds?: string[] };
+    };
+
+    expect(result.sourceReads?.selectedRecordIds).toEqual(queryInput.recordIds);
   });
 
   it("blocks query.answer before source reads when input is outside the selected Maya scope", () => {

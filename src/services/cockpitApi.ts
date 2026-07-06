@@ -245,6 +245,7 @@ const secretLikeCockpitRunSessionIdPattern = /(?:bearer|secret|token|api[-_]?key
 const safeMayaQueryMemoryRecordIdPattern = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$/;
 const unsafeMayaQueryMemoryRecordIdPattern =
   /(?:@|bearer|secret|token|api[-_]?key|password|client[_-]?secret|sk-|\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b)/iu;
+const liveForensicsQueryRequiredBasis = "OpenAI Agents SDK live trace required for Maya query answers." as const;
 // Runtime freshness only; this is not a business threshold or policy constant.
 const defaultForensicsSourceContextCacheTtlMs = 30_000;
 const mayaForensicsReadModelKey = "maya:forensics:v1";
@@ -1622,59 +1623,107 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         memoryFetcher: options.memoryFetcher,
         selectedLineId: selectedQueryRequest.selectedLineId
       });
+      const queryModelOptions = {
+        governedConfig: runContext.governedConfig,
+        ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
+        serviceContext: runContext.serviceContext,
+        settlementSource: runContext.source
+      };
+      const selectedDetail = buildForensicsWorkItemDetailCockpitModel(
+        queryModelOptions,
+        selectedQueryRequest.selectedLineId
+      );
+      const selectedWorklistItem = buildForensicsCockpitModel(queryModelOptions).worklist.find(
+        (item) =>
+          item.lineId === selectedQueryRequest.selectedLineId ||
+          item.lineIds.includes(selectedQueryRequest.selectedLineId)
+      );
+      const trustedEvidencePackRecordIds = uniqueRecordIds([
+        ...selectedDetail.selected.evidencePack.recordIds,
+        ...(selectedWorklistItem?.lineIds ?? []),
+        ...(selectedWorklistItem?.provenance.recordIds ?? [])
+      ]);
+      const selectedQueryScopedRecordIds = uniqueRecordIds([
+        selectedQueryRequest.selectedLineId,
+        ...selectedQueryRequest.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))
+      ]);
+      const hasUnsafeSubmittedRecordId = selectedQueryRequest.recordIds.some((recordId) => !isSafeMayaQueryMemoryRecordId(recordId));
+      const hasOutOfScopeSubmittedRecordId = selectedQueryRequest.recordIds.some(
+        (recordId) =>
+          recordId !== selectedQueryRequest.selectedLineId &&
+          !trustedEvidencePackRecordIds.includes(recordId)
+      );
+      if (hasUnsafeSubmittedRecordId) {
+        response.json(blockedForensicsSelectedScopeQueryResponse());
+        return;
+      }
+      const normalizedSelectedQueryRequest = {
+        ...selectedQueryRequest,
+        recordIds: selectedQueryScopedRecordIds
+      };
       const queryResponse = await runForensicsQuerySessionWithLiveAgents({
         governedConfig: runContext.governedConfig,
         liveAgentTrace,
         ...(memoryRecall === undefined ? {} : { memoryRecall }),
-        question: selectedQueryRequest.question,
+        question: normalizedSelectedQueryRequest.question,
         ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
-        recordIds: uniqueRecordIds(selectedQueryRequest.recordIds),
-        selectedLineId: selectedQueryRequest.selectedLineId,
+        recordIds: normalizedSelectedQueryRequest.recordIds,
+        selectedLineId: normalizedSelectedQueryRequest.selectedLineId,
         serviceContext: runContext.serviceContext,
-        source: runContext.source
+        source: runContext.source,
+        trustedEvidencePackRecordIds
       });
       const queryCorrelationId = readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? "");
-      await Promise.all([
-        awaitBoundedForensicsQueryOptionalPersistence({
-          correlationId: queryCorrelationId,
-          selectedLineId: selectedQueryRequest.selectedLineId,
-          task: persistMayaForensicsQueryScopeMemory({
-            env: runtimeEnv,
-            memoryFetcher: options.memoryFetcher,
-            queryResponse,
-            request: selectedQueryRequest,
-            sessionId
-          }),
-          taskName: "maya_query_scope_memory"
-        }),
-        awaitBoundedForensicsQueryOptionalPersistence({
-          correlationId: queryCorrelationId,
-          selectedLineId: selectedQueryRequest.selectedLineId,
-          task: persistMayaForensicsCaseRecallMemory({
-            env: runtimeEnv,
-            memoryFetcher: options.memoryFetcher,
-            queryResponse,
-            request: selectedQueryRequest,
-            sessionId
-          }),
-          taskName: "maya_query_case_recall_memory"
-        }),
-        awaitBoundedForensicsQueryOptionalPersistence({
-          correlationId: queryCorrelationId,
-          selectedLineId: selectedQueryRequest.selectedLineId,
-          task: persistForensicsQueryTokenUsageReceipt({
+      if (!hasOutOfScopeSubmittedRecordId) {
+        await Promise.all([
+          awaitBoundedForensicsQueryOptionalPersistence({
             correlationId: queryCorrelationId,
-            env: runtimeEnv,
-            memoryFetcher: options.memoryFetcher,
-            queryResponse,
-            request: selectedQueryRequest
+            selectedLineId: selectedQueryRequest.selectedLineId,
+            task: persistMayaForensicsQueryScopeMemory({
+              env: runtimeEnv,
+              memoryFetcher: options.memoryFetcher,
+              queryResponse,
+              request: normalizedSelectedQueryRequest,
+              sessionId
+            }),
+            taskName: "maya_query_scope_memory"
           }),
-          taskName: "maya_query_token_usage_receipt"
-        })
-      ]);
+          awaitBoundedForensicsQueryOptionalPersistence({
+            correlationId: queryCorrelationId,
+            selectedLineId: selectedQueryRequest.selectedLineId,
+            task: persistMayaForensicsCaseRecallMemory({
+              env: runtimeEnv,
+              memoryFetcher: options.memoryFetcher,
+              queryResponse,
+              request: normalizedSelectedQueryRequest,
+              sessionId
+            }),
+            taskName: "maya_query_case_recall_memory"
+          }),
+          awaitBoundedForensicsQueryOptionalPersistence({
+            correlationId: queryCorrelationId,
+            selectedLineId: selectedQueryRequest.selectedLineId,
+            task: persistForensicsQueryTokenUsageReceipt({
+              correlationId: queryCorrelationId,
+              env: runtimeEnv,
+              memoryFetcher: options.memoryFetcher,
+              queryResponse,
+              request: normalizedSelectedQueryRequest
+            }),
+            taskName: "maya_query_token_usage_receipt"
+          })
+        ]);
+      }
       response.json(queryResponse);
     } catch (error) {
       if (error instanceof ForensicsQueryLineNotFoundError) {
+        response.status(404).json({
+          error: "Forensics query selected line not found.",
+          lineId: error.lineId
+        });
+        return;
+      }
+      if (error instanceof ForensicsWorkItemNotFoundError) {
         response.status(404).json({
           error: "Forensics query selected line not found.",
           lineId: error.lineId
@@ -2161,6 +2210,18 @@ function sanitizeForensicsQueryTokenReceiptError(error: unknown): string {
 
 function isSafeMayaQueryMemoryRecordId(recordId: string): boolean {
   return safeMayaQueryMemoryRecordIdPattern.test(recordId) && !unsafeMayaQueryMemoryRecordIdPattern.test(recordId);
+}
+
+function blockedForensicsSelectedScopeQueryResponse(): ForensicsQuerySessionResponse {
+  return {
+    citations: [],
+    modelExecution: {
+      deterministicBasis: liveForensicsQueryRequiredBasis,
+      mode: "blocked_live_agent_trace",
+      reason: "Selected evidence scope is not current for this Maya case."
+    },
+    trace: []
+  };
 }
 
 function buildFixtureForensicsRunContext(): {

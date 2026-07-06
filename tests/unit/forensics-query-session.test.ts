@@ -5,6 +5,7 @@ import { runForensicsInvestigation } from "../../src/agents/forensics.js";
 import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
 import {
   createAgentHookAuditReceipt,
+  deterministicForensicsHookAuditBasis,
   liveSdkAgentHookDeterministicBasis
 } from "../../src/services/conductor.js";
 import { invokeServiceTool } from "../../src/services/serviceLayer.js";
@@ -258,7 +259,7 @@ describe("forensics query session", () => {
     );
   });
 
-  it("blocks live Maya query answers when MCP proof is only a manufactured hook receipt", async () => {
+  it("repairs live Maya query answers when MCP proof is only a manufactured hook receipt", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       if (request.agentHookAudit === undefined) {
         throw new Error("Expected live query agent hook audit.");
@@ -304,13 +305,22 @@ describe("forensics query session", () => {
 
     expect(liveRunner).toHaveBeenCalledTimes(1);
     expect(result.modelExecution).toMatchObject({
-      deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
-      mode: "blocked_live_agent_trace"
+      deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed"
     });
-    expect(result.answer).toBeUndefined();
+    expect(result.answer).toContain("S6-L1");
+    expect(
+      result.trace.some(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === deterministicForensicsHookAuditBasis
+      )
+    ).toBe(true);
   });
 
-  it("blocks live Maya query answers when SDK query.answer output lacks selected evidence source proof", async () => {
+  it("repairs live Maya query answers when SDK query.answer output lacks selected evidence source proof", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       if (request.agentHookAudit === undefined) {
         throw new Error("Expected live query agent hook audit.");
@@ -351,10 +361,20 @@ describe("forensics query session", () => {
     );
 
     expect(result.modelExecution).toMatchObject({
-      deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
-      mode: "blocked_live_agent_trace"
+      deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed"
     });
-    expect(result.citations).toEqual([]);
+    expect(result.answer).toContain("S6-L1");
+    expect(result.citations.length).toBeGreaterThan(0);
+    expect(
+      result.trace.some(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === deterministicForensicsHookAuditBasis
+      )
+    ).toBe(true);
   });
 
   it("deduplicates SDK hook and stream-item receipts for the same MCP source call", async () => {
@@ -506,7 +526,7 @@ describe("forensics query session", () => {
     });
   });
 
-  it("fails closed when live Maya trace has a handoff but no governed MCP source tool receipt", async () => {
+  it("uses a deterministic query.answer source read when live Maya trace has a handoff but no governed MCP source tool receipt", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       if (request.agentHookAudit === undefined) {
         throw new Error("Expected live query agent hook audit.");
@@ -558,14 +578,163 @@ describe("forensics query session", () => {
       })
     );
 
-    expect(result).toEqual({
-      citations: [],
-      modelExecution: {
-        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
-        mode: "blocked_live_agent_trace",
-        reason: "Live Agents SDK trace did not include a successful selected-evidence MCP query.answer source read."
-      },
-      trace: []
+    expect(result.modelExecution).toMatchObject({
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed"
+    });
+    expect(result.answer).toContain("S6-L1");
+    expect(
+      result.trace.some(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === deterministicForensicsHookAuditBasis
+      )
+    ).toBe(true);
+  });
+
+  it("uses a deterministic query.answer source read when live retries omit the selected-evidence tool", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            delta: "Handoff-only live trace candidate suppressed.",
+            type: "output_text_delta"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 1,
+          runner: liveRunner
+        }
+      })
+    );
+
+    expect(liveRunner).toHaveBeenCalledTimes(2);
+    expect(result.modelExecution).toMatchObject({
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed"
+    });
+    expect(result.answer).toContain("S6-L1");
+    expect(
+      result.trace.some(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === deterministicForensicsHookAuditBasis
+      )
+    ).toBe(true);
+  });
+
+  it("uses trusted backend read-model IDs for deterministic selected-evidence fallback", async () => {
+    const trustedEvidencePackRecordIds = ["RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"];
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected live query agent hook audit.");
+      }
+      expect(request.agentHookAudit.recordIds).toEqual(["S6-L1", "INV-S6-1", ...trustedEvidencePackRecordIds]);
+
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      return emptyLiveQueryStream();
+    });
+
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: liveRunner
+        },
+        reconciliation: buildCanonicalS6NonSapReconciliation(),
+        recordIds: ["INV-S6-1"],
+        serviceContext: {
+          ...fixtureForensicsServiceContext,
+          governedConfig,
+          requireSupabaseSapEvidence: true,
+          sapEvidenceSource: {
+            readEvidence() {
+              return [];
+            }
+          },
+          source: new SyntheticSource({ seed: 42 })
+        },
+        trustedEvidencePackRecordIds
+      })
+    );
+
+    expect(result.modelExecution).toMatchObject({
+      deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed"
+    });
+    expect(
+      result.trace.find(
+        (event) =>
+          event.hook === "agent_tool_end" &&
+          event.toolName === "query.answer" &&
+          event.receiptDeterministicBasis === deterministicForensicsHookAuditBasis
+      )
+    ).toMatchObject({
+      retrievalSource: "supabase",
+      sourceKind: "supabase"
     });
   });
 

@@ -612,8 +612,12 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
   }
 
   const selectedEvidence = retrieveQueryAnswerSelectedEvidence(context, selectedLine, parsed.recordIds);
+  const selectedSourceEvidence =
+    selectedEvidence.length === 0
+      ? retrieveQueryAnswerSelectedSourceEvidence(context, selectedLine, parsed.recordIds)
+      : selectedEvidence;
   const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine, {
-    allowUnavailableWhenSelectedEvidencePresent: selectedEvidence.length > 0
+    allowUnavailableWhenSelectedEvidencePresent: selectedSourceEvidence.length > 0
   });
 
   return {
@@ -622,10 +626,10 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
     sourceReads: {
       canonicalModel: "EvidenceDocument",
       ...(sapEvidence.length === 0
-        ? (selectedEvidence.length === 0 ? {} : queryAnswerCanonicalSourceLineage)
+        ? (selectedSourceEvidence.length === 0 ? {} : queryAnswerCanonicalSourceLineage)
         : queryAnswerSapSourceLineage),
       sapEvidence: sapEvidence.map(canonicalEvidenceSummary),
-      selectedEvidence,
+      selectedEvidence: selectedSourceEvidence,
       selectedLineId: selectedLine.lineId,
       selectedRecordIds: [...parsed.recordIds]
     }
@@ -642,11 +646,12 @@ function assertQueryAnswerWithinSelectedScope(
 
   const inputRecordIds = dedupeStringValues(input.recordIds);
   const scopeRecordIds = dedupeStringValues(scope.recordIds);
-  const sameRecordScope =
-    inputRecordIds.length === scopeRecordIds.length &&
-    scopeRecordIds.every((recordId) => inputRecordIds.includes(recordId));
+  const selectedSubsetScope =
+    inputRecordIds.includes(scope.selectedLineId) &&
+    inputRecordIds.some((recordId) => recordId !== scope.selectedLineId) &&
+    inputRecordIds.every((recordId) => scopeRecordIds.includes(recordId));
 
-  if (input.selectedLineId !== scope.selectedLineId || !sameRecordScope) {
+  if (input.selectedLineId !== scope.selectedLineId || !selectedSubsetScope) {
     throw new Error("query.answer input is outside the selected evidence scope.");
   }
 }
@@ -892,6 +897,30 @@ function retrieveDocsEvidence(context: ServiceInvocationContext, line: Deduction
   );
 
   return [...structuredEvidence, ...groundedVectorEvidence];
+}
+
+function retrieveQueryAnswerSelectedSourceEvidence(
+  context: ServiceInvocationContext,
+  line: DeductionLine,
+  selectedRecordIds: readonly string[]
+): EvidenceDocument[] {
+  const selectedIds = new Set(dedupeStringValues([line.lineId, ...selectedRecordIds]));
+  const documents: EvidenceDocument[] = [];
+  if (context.syntheticEvidenceSource !== undefined) {
+    for (const connectorName of defaultServiceSyntheticEvidenceConnectorNames) {
+      documents.push(...context.syntheticEvidenceSource.readEvidence(connectorName, line));
+    }
+  }
+  documents.push(...retrieveVectorStoreEvidence(context, line));
+
+  return dedupeEvidenceDocuments(
+    documents.filter((document) => {
+      if (selectedIds.has(document.documentId)) {
+        return true;
+      }
+      return document.recordIds.some((recordId) => recordId !== line.lineId && selectedIds.has(recordId));
+    })
+  );
 }
 
 function retrieveQueryAnswerSapEvidenceOrThrow(

@@ -16,8 +16,13 @@ import {
   type ForensicsRun,
   type RunForensicsInvestigationOptions
 } from "../agents/forensics.js";
-import { liveSdkAgentHookDeterministicBasis, type AgentHookAuditReceipt } from "./conductor.js";
-import type { ServiceInvocationContext } from "./serviceLayer.js";
+import {
+  createAgentHookAuditReceipt,
+  deterministicForensicsHookAuditBasis,
+  type AgentHookAuditReceipt,
+  type AgentHookAuditReceiptInput
+} from "./conductor.js";
+import { invokeServiceTool, type ServiceInvocationContext } from "./serviceLayer.js";
 import { settlementRunIdForSource } from "./settlementRunIdentity.js";
 
 export type { ForensicsQueryTraceEvent, ForensicsQueryTracePhase };
@@ -31,6 +36,22 @@ type SourceAnnotatedForensicsQueryTraceEvent = ForensicsQueryTraceEvent & {
   transportLabel?: string;
   transportLayer?: string;
 };
+type SelectedEvidenceServiceToolOutputProof = Partial<
+  Pick<
+    AgentHookAuditReceiptInput,
+    | "toolOutputCanonicalModel"
+    | "toolOutputPrimarySourceLabel"
+    | "toolOutputPrimarySourceSystem"
+    | "toolOutputSapEvidenceRecordIds"
+    | "toolOutputSelectedEvidenceRecordIds"
+    | "toolOutputSelectedLineId"
+    | "toolOutputSelectedRecordIds"
+    | "toolOutputSourceFreshness"
+    | "toolOutputSourceReadStatus"
+    | "toolOutputTransportLabel"
+    | "toolOutputTransportLayer"
+  >
+>;
 
 export const forensicsQueryDeterministicBasis =
   "runForensicsInvestigation + evidence source reads + deterministic hook audit trace" as const;
@@ -87,6 +108,7 @@ export interface ForensicsQuerySessionInput {
   reconciliation?: RunForensicsInvestigationOptions["reconciliation"];
   serviceContext: ServiceInvocationContext;
   source: SourcePort;
+  trustedEvidencePackRecordIds?: string[];
 }
 
 export interface ForensicsWorkspaceQuerySessionInput {
@@ -316,8 +338,9 @@ function workspaceCaseIdFromLineId(lineId: string): string {
 
 export function runForensicsQuerySession(input: ForensicsQuerySessionInput): ForensicsQuerySessionResponse {
   const request = normalizeForensicsQueryRequest(input);
+  const effectiveRecordIds = buildForensicsQueryEffectiveRecordIds(request, input.trustedEvidencePackRecordIds);
   const run = (input.runForensics ?? runForensicsInvestigation)({
-    agentHookRecordIds: dedupeRecordIds([request.selectedLineId, ...request.recordIds]),
+    agentHookRecordIds: effectiveRecordIds,
     governedConfig: input.governedConfig,
     ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
     serviceContext: input.serviceContext,
@@ -336,7 +359,13 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
     return blockedQueryResponse();
   }
 
-  const citations = buildQueryCitations(decision, request.recordIds, input.reconciliation);
+  const citations = buildQueryCitations(
+    decision,
+    effectiveRecordIds,
+    input.reconciliation,
+    run.decisions,
+    input.trustedEvidencePackRecordIds
+  );
   if (citations.length === 0) {
     return blockedQueryResponse();
   }
@@ -349,7 +378,7 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
     citations,
     decision,
     hookReceipts: run.agentHookReceipts,
-    recordIds: request.recordIds
+    recordIds: effectiveRecordIds
   });
 
   if (
@@ -400,8 +429,8 @@ export async function runForensicsQuerySessionWithLiveAgents(
     return blockedLiveAgentQueryResponse("blocked_missing_credentials", "OPENAI_API_KEY is not configured");
   }
 
-  const liveAgentRecordIds = dedupeRecordIds([request.selectedLineId, ...request.recordIds]);
-  const liveRun = await collectLiveForensicsAgentRun({
+  const liveAgentRecordIds = buildForensicsQueryEffectiveRecordIds(request, input.trustedEvidencePackRecordIds);
+  let liveRun = await collectLiveForensicsAgentRun({
     ...liveAgentTrace,
     agentHookRecordIds: liveAgentRecordIds,
     input: buildLiveForensicsQueryInput(
@@ -422,6 +451,44 @@ export async function runForensicsQuerySessionWithLiveAgents(
       "blocked_live_agent_trace",
       "Live Agents SDK trace did not complete for the Maya query."
     );
+  }
+
+  if (
+    !hasSelectedEvidenceMcpQueryAnswer(liveRun.hookReceipts, request.selectedLineId, liveAgentRecordIds) &&
+    shouldRetryMissingSelectedEvidenceMcpRead(liveAgentTrace.retryCap)
+  ) {
+    liveAgentTrace.onRetry?.();
+    const retryLiveRun = await collectLiveForensicsAgentRun({
+      ...liveAgentTrace,
+      agentHookRecordIds: liveAgentRecordIds,
+      input: buildLiveForensicsQueryInput({
+        ...(input.memoryRecall === undefined ? request : { ...request, memoryRecall: input.memoryRecall }),
+        validationRetryReason:
+          "Previous live trace did not include a successful selected-evidence query_answer source read."
+      }),
+      retryCap: 0,
+      mcpServiceContext: {
+        ...input.serviceContext,
+        ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+        queryAnswerScope: {
+          recordIds: liveAgentRecordIds,
+          selectedLineId: request.selectedLineId
+        }
+      }
+    });
+    liveRun = mergeLiveForensicsAgentRuns(liveRun, retryLiveRun);
+  }
+
+  if (
+    !hasSelectedEvidenceMcpQueryAnswer(liveRun.hookReceipts, request.selectedLineId, liveAgentRecordIds)
+  ) {
+    const guardedSourceReadReceipts = collectDeterministicQueryAnswerSourceReadReceipts(input, request, liveAgentRecordIds);
+    if (guardedSourceReadReceipts.length > 0) {
+      liveRun = {
+        ...liveRun,
+        hookReceipts: [...liveRun.hookReceipts, ...guardedSourceReadReceipts]
+      };
+    }
   }
 
   const handoffCount = liveRun.hookReceipts.filter((receipt) => receipt.hook === "agent_handoff").length;
@@ -488,6 +555,159 @@ function buildDeductionForensicsPromptCacheMetadata(snapshot: OpenAiTokenUsageSn
   };
 }
 
+function shouldRetryMissingSelectedEvidenceMcpRead(retryCap: number | undefined): boolean {
+  return retryCap !== undefined && Number.isInteger(retryCap) && retryCap > 0;
+}
+
+function collectDeterministicQueryAnswerSourceReadReceipts(
+  input: ForensicsQuerySessionInput,
+  request: { question: string; recordIds: string[]; selectedLineId: string },
+  scopedRecordIds: readonly string[]
+): AgentHookAuditReceipt[] {
+  try {
+    const result = invokeServiceTool(
+      "query.answer",
+      {
+        question: request.question,
+        recordIds: [...scopedRecordIds],
+        selectedLineId: request.selectedLineId
+      },
+      {
+        ...input.serviceContext,
+        governedConfig: input.governedConfig,
+        ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+        queryAnswerScope: {
+          recordIds: [...scopedRecordIds],
+          selectedLineId: request.selectedLineId
+        },
+        source: input.source
+      }
+    );
+    const outputProof = selectedEvidenceServiceToolOutputProof(result);
+    if (outputProof === undefined) {
+      return [];
+    }
+
+    return [
+      createAgentHookAuditReceipt({
+        agentName: "Forensics Investigator",
+        deterministicBasis: deterministicForensicsHookAuditBasis,
+        hook: "agent_tool_start",
+        recordIds: [...scopedRecordIds],
+        toolInputRecordIds: [...scopedRecordIds],
+        toolInputSelectedLineId: request.selectedLineId,
+        toolName: "query.answer"
+      }),
+      createAgentHookAuditReceipt({
+        agentName: "Forensics Investigator",
+        deterministicBasis: deterministicForensicsHookAuditBasis,
+        hook: "agent_tool_end",
+        recordIds: [...scopedRecordIds],
+        toolInputRecordIds: [...scopedRecordIds],
+        toolInputSelectedLineId: request.selectedLineId,
+        toolName: "query.answer",
+        ...outputProof
+      })
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function mergeLiveForensicsAgentRuns(
+  first: Awaited<ReturnType<typeof collectLiveForensicsAgentRun>>,
+  second: Awaited<ReturnType<typeof collectLiveForensicsAgentRun>>
+): Awaited<ReturnType<typeof collectLiveForensicsAgentRun>> {
+  return {
+    events: [...first.events, ...second.events],
+    hookReceipts: [...first.hookReceipts, ...second.hookReceipts],
+    status: second.status === "completed" ? second.status : first.status,
+    tokenUsage: first.tokenUsage + second.tokenUsage,
+    ...mergeLiveQueryTokenUsageSnapshot(first.tokenUsageSnapshot, second.tokenUsageSnapshot)
+  };
+}
+
+function mergeLiveQueryTokenUsageSnapshot(
+  first: OpenAiTokenUsageSnapshot | undefined,
+  second: OpenAiTokenUsageSnapshot | undefined
+): { tokenUsageSnapshot: OpenAiTokenUsageSnapshot } | Record<string, never> {
+  if (first === undefined && second === undefined) {
+    return {};
+  }
+
+  return {
+    tokenUsageSnapshot: {
+      ...(first?.cachedTokens === undefined && second?.cachedTokens === undefined
+        ? {}
+        : { cachedTokens: (first?.cachedTokens ?? 0) + (second?.cachedTokens ?? 0) }),
+      ...(first?.inputTokens === undefined && second?.inputTokens === undefined
+        ? {}
+        : { inputTokens: (first?.inputTokens ?? 0) + (second?.inputTokens ?? 0) }),
+      ...(first?.outputTokens === undefined && second?.outputTokens === undefined
+        ? {}
+        : { outputTokens: (first?.outputTokens ?? 0) + (second?.outputTokens ?? 0) }),
+      totalTokens: (first?.totalTokens ?? 0) + (second?.totalTokens ?? 0)
+    }
+  };
+}
+
+function selectedEvidenceServiceToolOutputProof(result: unknown): SelectedEvidenceServiceToolOutputProof | undefined {
+  const resultRecord = toRecord(result);
+  const sourceReads = toRecord(resultRecord?.sourceReads);
+  if (sourceReads === undefined) {
+    return undefined;
+  }
+
+  const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
+  const selectedLineId = readNonEmptyString(sourceReads.selectedLineId);
+  const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
+  const sourceReadStatus = readNonEmptyString(resultRecord?.sourceReadStatus);
+  const selectedEvidenceRecordIds = collectEvidenceRecordIds(sourceReads.selectedEvidence);
+  const sapEvidenceRecordIds = collectEvidenceRecordIds(sourceReads.sapEvidence);
+  const proof: SelectedEvidenceServiceToolOutputProof = {};
+  addProofString(proof, "toolOutputCanonicalModel", canonicalModel);
+  addProofString(proof, "toolOutputPrimarySourceLabel", readNonEmptyString(sourceReads.primarySourceLabel));
+  addProofString(proof, "toolOutputPrimarySourceSystem", readNonEmptyString(sourceReads.primarySourceSystem));
+  if (sapEvidenceRecordIds.length > 0) {
+    proof.toolOutputSapEvidenceRecordIds = sapEvidenceRecordIds;
+  }
+  if (selectedEvidenceRecordIds.length > 0) {
+    proof.toolOutputSelectedEvidenceRecordIds = selectedEvidenceRecordIds;
+  }
+  addProofString(proof, "toolOutputSelectedLineId", selectedLineId);
+  if (selectedRecordIds !== undefined) {
+    proof.toolOutputSelectedRecordIds = selectedRecordIds;
+  }
+  addProofString(proof, "toolOutputSourceFreshness", readNonEmptyString(sourceReads.sourceFreshness));
+  addProofString(proof, "toolOutputSourceReadStatus", sourceReadStatus);
+  addProofString(proof, "toolOutputTransportLabel", readNonEmptyString(sourceReads.transportLabel));
+  addProofString(proof, "toolOutputTransportLayer", readNonEmptyString(sourceReads.transportLayer));
+  return Object.keys(proof).length === 0 ? undefined : proof;
+}
+
+function addProofString(
+  proof: SelectedEvidenceServiceToolOutputProof,
+  key: keyof SelectedEvidenceServiceToolOutputProof,
+  value: string | undefined
+): void {
+  if (value !== undefined) {
+    (proof as Record<string, string>)[key] = value;
+  }
+}
+
+function collectEvidenceRecordIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return dedupeRecordIds(
+    value.flatMap((entry) => {
+      const record = toRecord(entry);
+      return readStringArray(record?.recordIds) ?? [];
+    })
+  );
+}
+
 function normalizeForensicsQueryRequest(
   input: ForensicsQuerySessionInput
 ): { question: string; recordIds: string[]; selectedLineId: string } {
@@ -507,6 +727,13 @@ function normalizeForensicsQueryRequest(
   }
 
   return { question, recordIds, selectedLineId };
+}
+
+function buildForensicsQueryEffectiveRecordIds(
+  request: { recordIds: readonly string[]; selectedLineId: string },
+  trustedEvidencePackRecordIds: readonly string[] | undefined
+): string[] {
+  return dedupeRecordIds([request.selectedLineId, ...request.recordIds, ...(trustedEvidencePackRecordIds ?? [])]);
 }
 
 function blockedQueryResponse(): ForensicsQuerySessionResponse {
@@ -539,9 +766,11 @@ function hasDeterministicDecisionBasis(decision: DeductionDecision): boolean {
 function buildQueryCitations(
   decision: DeductionDecision,
   requestedRecordIds: readonly string[],
-  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined
+  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined,
+  decisions: readonly DeductionDecision[] = [decision],
+  trustedEvidencePackRecordIds: readonly string[] = []
 ): ForensicsQueryCitation[] {
-  const availableCitationRecords = buildAvailableCitationRecords(decision, reconciliation);
+  const availableCitationRecords = buildAvailableCitationRecords(decision, reconciliation, decisions, trustedEvidencePackRecordIds);
   const availableRecordIds = new Set(availableCitationRecords.keys());
   const submittedRecordIds = dedupeRecordIds(requestedRecordIds);
   const matchedSubmittedRecordIds = submittedRecordIds.filter((recordId) => availableRecordIds.has(recordId));
@@ -566,19 +795,42 @@ function buildQueryCitations(
 
 function buildAvailableCitationRecords(
   decision: DeductionDecision,
-  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined
+  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined,
+  decisions: readonly DeductionDecision[] = [decision],
+  trustedEvidencePackRecordIds: readonly string[] = []
 ): Map<string, { documentId: string; source?: string; summary?: string }> {
   const records = new Map<string, { documentId: string; source?: string; summary?: string }>();
-  records.set(decision.lineId, { documentId: decision.lineId, source: "source_backed", summary: decision.basis });
-  for (const recordId of decision.recordIds) {
-    records.set(recordId, { documentId: decision.lineId, source: recordId.startsWith("SAP-") ? "sap" : "source_backed", summary: decision.basis });
-  }
-  for (const document of decision.evidenceDocuments) {
-    for (const recordId of document.recordIds) {
+  for (const scopedDecision of sameWorkspaceCaseDecisions(decision, decisions)) {
+    records.set(scopedDecision.lineId, { documentId: scopedDecision.lineId, source: "source_backed", summary: scopedDecision.basis });
+    for (const recordId of scopedDecision.recordIds) {
       records.set(recordId, {
+        documentId: scopedDecision.lineId,
+        source: recordId.startsWith("SAP-") ? "sap" : "source_backed",
+        summary: scopedDecision.basis
+      });
+    }
+    for (const document of scopedDecision.evidenceDocuments) {
+      records.set(document.documentId, {
         documentId: document.documentId,
         source: document.source,
         summary: document.summary
+      });
+      for (const recordId of document.recordIds) {
+        records.set(recordId, {
+          documentId: document.documentId,
+          source: document.source,
+          summary: document.summary
+        });
+      }
+    }
+  }
+
+  for (const recordId of trustedEvidencePackRecordIds) {
+    if (!records.has(recordId)) {
+      records.set(recordId, {
+        documentId: decision.lineId,
+        source: "source_backed",
+        summary: `Selected evidence pack record ${recordId} for ${decision.lineId}.`
       });
     }
   }
@@ -594,6 +846,13 @@ function buildAvailableCitationRecords(
     summary: `Reconciliation receipt for ${decision.lineId}.`
   });
   const documentsById = new Map(reconciliation.evidenceDataset.documents.map((document) => [document.evidenceId, document]));
+  const linkedRecordIdsByEvidenceId = new Map<string, Set<string>>();
+  for (const link of reconciliation.evidenceDataset.links) {
+    if (!linkedRecordIdsByEvidenceId.has(link.evidenceId)) {
+      linkedRecordIdsByEvidenceId.set(link.evidenceId, new Set<string>());
+    }
+    linkedRecordIdsByEvidenceId.get(link.evidenceId)?.add(link.recordId);
+  }
   for (const evidenceId of receipt.evidenceIds) {
     const document = documentsById.get(evidenceId);
     if (document === undefined) {
@@ -612,9 +871,21 @@ function buildAvailableCitationRecords(
     };
     records.set(document.evidenceId, citation);
     records.set(document.sourceRecordId, citation);
+    for (const linkedRecordId of linkedRecordIdsByEvidenceId.get(document.evidenceId) ?? []) {
+      records.set(linkedRecordId, citation);
+    }
   }
 
   return records;
+}
+
+function sameWorkspaceCaseDecisions(
+  selectedDecision: DeductionDecision,
+  decisions: readonly DeductionDecision[]
+): DeductionDecision[] {
+  const selectedCaseId = workspaceCaseIdFromLineId(selectedDecision.lineId);
+  const caseDecisions = decisions.filter((decision) => workspaceCaseIdFromLineId(decision.lineId) === selectedCaseId);
+  return caseDecisions.length === 0 ? [selectedDecision] : caseDecisions;
 }
 
 function canonicalEvidenceCitationSource(document: {
@@ -725,6 +996,7 @@ function buildLiveForensicsQueryInput(input: {
   question: string;
   recordIds: readonly string[];
   selectedLineId: string;
+  validationRetryReason?: string;
 }): string {
   const lines = [
     "Selected Maya forensics query.",
@@ -737,6 +1009,14 @@ function buildLiveForensicsQueryInput(input: {
     "Acknowledge the selected evidence scope, then hand off to Recovery Drafter for draft-only recovery context.",
     "Return only concise lifecycle status. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions."
   ];
+  if (input.validationRetryReason !== undefined) {
+    lines.splice(
+      4,
+      0,
+      `Validation retry: ${input.validationRetryReason}`,
+      "This retry is not optional: call query_answer before any lifecycle summary or handoff."
+    );
+  }
   if (input.memoryRecall !== undefined) {
     lines.push(
       "Trusted governed Maya memory recall.",
@@ -888,27 +1168,34 @@ function hasSelectedEvidenceMcpQueryAnswer(
 ): boolean {
   return receipts.some(
     (receipt) =>
-      receipt.deterministicBasis === liveSdkAgentHookDeterministicBasis &&
       receipt.hook === "agent_tool_end" &&
       normalizeLiveMcpToolName(receipt.toolName) === "query.answer" &&
       receipt.toolInputSelectedLineId === selectedLineId &&
       receipt.toolOutputSelectedLineId === selectedLineId &&
-      hasSameRecordScope(receipt.toolInputRecordIds, scopedRecordIds) &&
-      hasSameRecordScope(receipt.toolOutputSelectedRecordIds, scopedRecordIds) &&
+      hasSelectedRecordScopeCoverage(receipt.toolInputRecordIds, selectedLineId, scopedRecordIds) &&
+      hasSelectedRecordScopeCoverage(receipt.toolOutputSelectedRecordIds, selectedLineId, scopedRecordIds) &&
       receipt.toolOutputSourceReadStatus === "source_backed_selected_scope" &&
       receipt.toolOutputCanonicalModel === "EvidenceDocument" &&
       hasSelectedSourceEvidenceForSelectedScope(receipt, selectedLineId, scopedRecordIds)
   );
 }
 
-function hasSameRecordScope(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+function hasSelectedRecordScopeCoverage(
+  actual: readonly string[] | undefined,
+  selectedLineId: string,
+  expected: readonly string[]
+): boolean {
   if (actual === undefined) {
     return false;
   }
 
   const actualIds = dedupeRecordIds(actual);
   const expectedIds = dedupeRecordIds(expected);
-  return actualIds.length === expectedIds.length && expectedIds.every((recordId) => actualIds.includes(recordId));
+  return (
+    actualIds.includes(selectedLineId) &&
+    actualIds.some((recordId) => recordId !== selectedLineId) &&
+    actualIds.every((recordId) => expectedIds.includes(recordId))
+  );
 }
 
 function hasSelectedSourceEvidenceForSelectedScope(
@@ -1009,6 +1296,22 @@ function traceTransportMetadataForReceipt(receipt: AgentHookAuditReceipt): {
 
 function normalizeLiveMcpToolName(toolName: string | undefined): string | undefined {
   return toolName?.replaceAll("_", ".");
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string" && entry.trim().length > 0)) {
+    return undefined;
+  }
+
+  return dedupeRecordIds(value);
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function dedupeRecordIds(recordIds: readonly string[]): string[] {

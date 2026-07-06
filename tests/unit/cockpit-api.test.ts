@@ -967,6 +967,243 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("accepts canonical selected evidence pack record IDs for S4 forensic query sessions", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_RECONCILIATION_MODE: "authoritative"
+      },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const detailResponse = await fetch(`${baseUrl}/forensics/work-items/S4-L1`, { headers: cockpitAuthHeaders });
+      const detail = (await detailResponse.json()) as {
+        selected: { evidencePack: { recordIds: string[] }; lineId: string };
+      };
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const model = (await modelResponse.json()) as {
+        worklist: Array<{
+          lineId: string;
+          lineIds: string[];
+          provenance: { recordIds: string[] };
+        }>;
+      };
+      const worklistItem = model.worklist.find((item) => item.lineId === "S4-L1");
+
+      expect(detailResponse.status).toBe(200);
+      expect(modelResponse.status).toBe(200);
+      expect(worklistItem).toBeDefined();
+      expect(detail.selected.evidencePack.recordIds).toEqual(expect.arrayContaining(["CLAIM-S4-L1", "EVD-POD-S4-L1", "RECON-S4-L1"]));
+
+      const s4CaseEvidenceRecordIds = [
+        ...new Set([
+          detail.selected.lineId,
+          ...detail.selected.evidencePack.recordIds,
+          ...(worklistItem?.lineIds ?? []),
+          ...(worklistItem?.provenance.recordIds ?? [])
+        ])
+      ];
+      expect(s4CaseEvidenceRecordIds).toEqual(expect.arrayContaining(["S4-L2", "SAP-INV-S4-1", "DOC-S4-L2"]));
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why did agents treat ValuMart Club as a valid deduction?",
+          recordIds: s4CaseEvidenceRecordIds,
+          selectedLineId: detail.selected.lineId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string; reason?: string };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S4-L1");
+      expect(body.answer).toContain("valid");
+      expect(body.answer).toContain("billing");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(expect.arrayContaining(["S4-L1", "CLAIM-S4-L1", "EVD-POD-S4-L1", "RECON-S4-L1"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("accepts current selected evidence pack and worklist provenance for S5 forensic query sessions", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_RECONCILIATION_MODE: "authoritative"
+      },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const detailResponse = await fetch(`${baseUrl}/forensics/work-items/S5-L1`, { headers: cockpitAuthHeaders });
+      const detail = (await detailResponse.json()) as {
+        selected: { evidencePack: { recordIds: string[] }; lineId: string };
+      };
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const model = (await modelResponse.json()) as {
+        worklist: Array<{
+          lineId: string;
+          lineIds: string[];
+          provenance: { recordIds: string[] };
+        }>;
+      };
+      const worklistItem = model.worklist.find((item) => item.lineId === "S5-L1");
+
+      expect(detailResponse.status).toBe(200);
+      expect(modelResponse.status).toBe(200);
+      expect(worklistItem).toBeDefined();
+      expect(worklistItem?.lineIds.length).toBeGreaterThan(1);
+
+      const s5CaseEvidenceRecordIds = [
+        ...new Set([
+          detail.selected.lineId,
+          ...detail.selected.evidencePack.recordIds,
+          ...(worklistItem?.lineIds ?? []),
+          ...(worklistItem?.provenance.recordIds ?? [])
+        ])
+      ];
+      expect(s5CaseEvidenceRecordIds).toEqual(expect.arrayContaining([detail.selected.lineId, ...(worklistItem?.lineIds ?? [])]));
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why did agents route ValuMart Club to Recovery?",
+          recordIds: s5CaseEvidenceRecordIds,
+          selectedLineId: detail.selected.lineId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string; reason?: string };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S5-L1");
+      expect(body.answer?.toLowerCase()).toContain("recovery");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(expect.arrayContaining([detail.selected.lineId]));
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("retries live forensic query validation when the first live trace omits query.answer", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+      if (liveRunner.mock.calls.length === 1) {
+        return liveQueryDeltaStream("First live query trace omitted query.answer.", []);
+      }
+
+      return liveQueryDeltaStream(
+        "Retried live query answer candidate suppressed by Recoup output guard.",
+        ["S7-L1", "TPM-ACCRUAL-1"]
+      );
+    });
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "For Harbor Foods, what cited evidence supports the partial split verdict?",
+          recordIds: ["S7-L1", "TPM-ACCRUAL-1", "INV-S7-1"],
+          selectedLineId: "S7-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string };
+      };
+
+      expect(response.status).toBe(200);
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(body.answer).toContain("S7-L1");
+      expect(body.answer).toContain("partial");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(expect.arrayContaining(["S7-L1", "TPM-ACCRUAL-1"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("answers S8 selected-case queries from non-SAP selected source evidence", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-live-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
+    });
+    try {
+      const detailResponse = await fetch(`${baseUrl}/forensics/work-items/S8-L1`, { headers: cockpitAuthHeaders });
+      const detail = (await detailResponse.json()) as {
+        selected: { evidencePack: { recordIds: string[] }; lineId: string };
+      };
+      const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
+      const model = (await modelResponse.json()) as {
+        worklist: Array<{
+          lineId: string;
+          lineIds: string[];
+          provenance: { recordIds: string[] };
+        }>;
+      };
+      const worklistItem = model.worklist.find((item) => item.lineId === "S8-L1");
+
+      expect(detailResponse.status).toBe(200);
+      expect(modelResponse.status).toBe(200);
+      expect(worklistItem).toBeDefined();
+      expect(detail.selected.evidencePack.recordIds.length).toBeGreaterThan(0);
+
+      const s8CaseEvidenceRecordIds = [
+        ...new Set([
+          detail.selected.lineId,
+          ...detail.selected.evidencePack.recordIds,
+          ...(worklistItem?.lineIds ?? []),
+          ...(worklistItem?.provenance.recordIds ?? [])
+        ])
+      ];
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "What proof supports the Recovery verdict for Harbor Foods?",
+          recordIds: s8CaseEvidenceRecordIds,
+          selectedLineId: detail.selected.lineId
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string; reason?: string };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S8-L1");
+      expect(body.answer?.toLowerCase()).toContain("recovery");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(
+        expect.arrayContaining([detail.selected.lineId, detail.selected.evidencePack.recordIds[0]])
+      );
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves workspace forensic query sessions from the current settlement run only", async () => {
     const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
     const { baseUrl, server } = await listen({
@@ -1123,6 +1360,18 @@ describe("S5 cockpit API", () => {
       if (queryScope === undefined || !isJsonRecord(queryScopePayload)) {
         throw new Error("Expected Supabase Maya query scope memory receipt.");
       }
+      const expectedSelectedRecordIds = [
+        "S6-L1",
+        "INV-S6-1",
+        "SAP-INV-S6-1",
+        "PRICE-CLAUSE-1",
+        "DOC-S6-L1",
+        "S6-L2",
+        "PRICE-CLAUSE-2",
+        "INV-S6-2",
+        "SAP-INV-S6-2",
+        "DOC-S6-L2"
+      ];
       expect(queryScope["id"]).toBe("session:cockpit-run:maya-query-scope");
       expect(queryScope["scope"]).toBe("session:cockpit-run");
       expect(queryScope["trust_level"]).toBe("trusted");
@@ -1131,7 +1380,7 @@ describe("S5 cockpit API", () => {
         key: "maya-query-scope",
         memoryType: "maya_short_term_query_scope",
         selectedLineId: "S6-L1",
-        selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        selectedRecordIds: expectedSelectedRecordIds,
         status: "answered"
       });
       expect(JSON.stringify(queryScope)).not.toMatch(/question|amount|dollar|verdict|routing|approval/iu);
@@ -1148,7 +1397,7 @@ describe("S5 cockpit API", () => {
         key: "maya-case-recall",
         memoryType: "maya_long_term_case_recall",
         selectedLineId: "S6-L1",
-        selectedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        selectedRecordIds: expectedSelectedRecordIds,
         sessionId: "cockpit-run",
         status: "answered"
       });
@@ -1189,7 +1438,7 @@ describe("S5 cockpit API", () => {
         promptPrefixVersion: "v1",
         receiptType: "openai_agent_usage",
         selectedLineId: "S6-L1",
-        submittedRecordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+        submittedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
         totalTokens: 1842,
         tokenCount: 1842
       });
@@ -1438,6 +1687,8 @@ describe("S5 cockpit API", () => {
   it("skips Maya query scope memory for unsafe submitted record IDs without failing the query", async () => {
     const calls: Array<{ body?: string; method?: string; url: string }> = [];
     const memoryRows: Array<Record<string, unknown>> = [];
+    const unsafeSubmittedRecordId = "sk-submitted-record-secret";
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
     const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
       const body = stringifyRequestBody(init.body);
       calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
@@ -1451,10 +1702,12 @@ describe("S5 cockpit API", () => {
     const { baseUrl, server } = await listen({
       env: {
         ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
         RECOUP_DATA_MODE: "real-backend",
         RECOUP_MEMORY_BACKEND: "supabase",
         RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
       },
+      forensicsStreamRunner: liveRunner,
       memoryFetcher
     });
 
@@ -1462,7 +1715,7 @@ describe("S5 cockpit API", () => {
       const response = await fetch(`${baseUrl}/forensics/query`, {
         body: JSON.stringify({
           question: "Why is this recoverable?",
-          recordIds: ["INV-S6-1", "sk-submitted-record-secret", "PRICE-CLAUSE-1"],
+          recordIds: ["INV-S6-1", unsafeSubmittedRecordId, "PRICE-CLAUSE-1"],
           selectedLineId: "S6-L1"
         }),
         headers: cockpitAuthHeaders,
@@ -1471,7 +1724,7 @@ describe("S5 cockpit API", () => {
       const body = (await response.json()) as {
         answer?: string;
         citations: unknown[];
-        modelExecution?: { mode: string; reason: string };
+        modelExecution?: { mode: string; reason?: string };
         trace: unknown[];
       };
 
@@ -1481,10 +1734,78 @@ describe("S5 cockpit API", () => {
       expect(body.trace).toEqual([]);
       expect(body.modelExecution).toMatchObject({
         mode: "blocked_live_agent_trace",
-        reason: "Deterministic query answer guard blocked the selected evidence response."
+        reason: "Selected evidence scope is not current for this Maya case."
       });
-      expect(calls.some((call) => call.method === "POST" && call.url.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+      expect(liveRunner).not.toHaveBeenCalled();
       expect(memoryRows).toEqual([]);
+      expect(JSON.stringify({ body, calls, memoryRows })).not.toContain(unsafeSubmittedRecordId);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("drops stale safe submitted record IDs before live trace and skips Maya query persistence", async () => {
+    const calls: Array<{ body?: string; method?: string; url: string }> = [];
+    const memoryRows: Array<Record<string, unknown>> = [];
+    const staleSubmittedRecordId = "STALE-SAFE-RECORD";
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const body = stringifyRequestBody(init.body);
+      calls.push({ ...(body === undefined ? {} : { body }), ...(init.method === undefined ? {} : { method: init.method }), url });
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+        memoryRows.push(row);
+        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 404 }));
+    };
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_MEMORY_BACKEND: "supabase",
+        RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Why is this recoverable?",
+          recordIds: ["INV-S6-1", staleSubmittedRecordId, "PRICE-CLAUSE-1"],
+          selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason?: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S6-L1");
+      expect(body.citations.length).toBeGreaterThan(0);
+      expect(body.trace.length).toBeGreaterThan(0);
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents"
+      });
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      const liveRequest = liveRunner.mock.calls[0]?.[0];
+      expect(liveRequest).toBeDefined();
+      const liveRecordIds = liveRequest?.agentHookAudit?.recordIds;
+      expect(liveRecordIds).toBeDefined();
+      expect(liveRecordIds).toEqual(
+        expect.arrayContaining(["S6-L1", "INV-S6-1", "PRICE-CLAUSE-1"])
+      );
+      expect(liveRecordIds).not.toContain(staleSubmittedRecordId);
+      expect(memoryRows).toEqual([]);
+      expect(JSON.stringify({ body, calls, memoryRows })).not.toContain(staleSubmittedRecordId);
     } finally {
       await close(server);
     }
@@ -6085,6 +6406,15 @@ function sdkSelectedEvidenceToolEvent(name: "tool_called" | "tool_output", recor
                       recordIds: sapEvidenceRecordIds,
                       source: "sap",
                       summary: `Supabase SAP source row for ${selectedLineId}.`
+                    }
+                  ],
+                  selectedEvidence: [
+                    {
+                      documentId: `SELECTED-${selectedLineId}`,
+                      documentType: "selected_evidence",
+                      recordIds: scopedRecordIds,
+                      source: "source_backed",
+                      summary: `Selected evidence source rows for ${selectedLineId}.`
                     }
                   ],
                   selectedLineId,
