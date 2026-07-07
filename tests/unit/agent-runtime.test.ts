@@ -35,9 +35,9 @@ describe("agent runtime roster", () => {
       "blocked: offline build does not invoke live model calls"
     ]);
     expect(recoupAgentRoster.map((agent) => agent.model)).toEqual([
-      "gpt-5.5",
       "gpt-5.4",
-      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4",
       "gpt-5.4",
       "gpt-5.4",
       "gpt-realtime-2"

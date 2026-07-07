@@ -2,7 +2,7 @@ import type { ModelSettings } from "../src/agents/openAiAgentsSdk.js";
 import { openAiPromptCacheProviderData } from "./openaiPromptCache.js";
 
 export const runtimeModels = {
-  reasoning: "gpt-5.5",
+  reasoning: "gpt-5.4",
   fast: "gpt-5.4",
   fastMini: "gpt-5.4-mini",
   fastNano: "gpt-5.4-nano",
