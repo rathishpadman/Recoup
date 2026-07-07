@@ -29,8 +29,6 @@ export interface AccountRow {
   segment: string;
   creditLimit: number;
   termsNetDays: number;
-  riskVerdictOfRecord: CreditVerdict;
-  recommendedAction: string;
   gamingFlag: boolean;
   relationshipOwner: string;
 }
@@ -405,14 +403,7 @@ function buildAccountModel(
     throw new Error(`Unsupported verdict rank ${String(verdictRank)} for ${account.accountId}.`);
   }
 
-  if (account.riskVerdictOfRecord !== verdict) {
-    throw new Error(`Risk verdict mismatch for ${account.accountId}.`);
-  }
-
   const routeLabel = routeByVerdict[verdict];
-  if (account.recommendedAction !== routeLabel) {
-    throw new Error(`Recommended action mismatch for ${account.accountId}.`);
-  }
 
   const meshRanks: Record<MeshPosition, number> = {
     Billing: billingRank,
