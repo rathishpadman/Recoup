@@ -378,7 +378,7 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe("http://recoup-api.test/connectors");
   });
 
-  it("delegates Maya forensics reads to the backend freshness gate instead of serving direct cached read models", async () => {
+  it("preserves backend stale cache semantics after a Maya forensics cache miss", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const backendModel = {
       selected: { lineId: "S6-L1" },
@@ -386,22 +386,30 @@ describe("Realtime Next proxy routes", () => {
       worklist: [{ lineId: "S6-L1" }]
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe("http://recoup-api.test/forensics");
-      expect(fetchInputUrl(input)).not.toContain("recoup_cockpit_read_models");
-      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
-      expect(init?.headers).toMatchObject({
-        "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
-        "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
-      });
-      return Promise.resolve(
-        Response.json(backendModel, {
-          headers: {
-            "x-recoup-read-model-cache": "stale",
-            "x-recoup-read-model-receipt-hash": "b".repeat(64),
-            "x-recoup-read-model-source-hash": "a".repeat(64)
-          }
-        })
-      );
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics") {
+        expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+        expect(init?.headers).toMatchObject({
+          "x-recoup-human-principal": mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL,
+          "x-recoup-human-token": mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN
+        });
+        return Promise.resolve(
+          Response.json(backendModel, {
+            headers: {
+              "x-recoup-read-model-cache": "stale",
+              "x-recoup-read-model-receipt-hash": "b".repeat(64),
+              "x-recoup-read-model-source-hash": "a".repeat(64)
+            }
+          })
+        );
+      }
+
+      expect(url).toBe("http://recoup-api.test/forensics/refresh");
+      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      return new Promise<Response>(() => {});
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -420,7 +428,7 @@ describe("Realtime Next proxy routes", () => {
     expect(response.headers.get("x-recoup-read-model-source-hash")).toBe("a".repeat(64));
     expect(response.headers.get("x-recoup-read-model-receipt-hash")).toBe("b".repeat(64));
     expect(body).toEqual(backendModel);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("falls back to Render when the Maya forensics read model is absent", async () => {
@@ -435,9 +443,14 @@ describe("Realtime Next proxy routes", () => {
         return Promise.resolve(Response.json([]));
       }
 
-      expect(input).toBe("http://recoup-api.test/forensics");
-      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
-      return Promise.resolve(Response.json(backendModel));
+      if (input === "http://recoup-api.test/forensics") {
+        expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+        return Promise.resolve(Response.json(backendModel));
+      }
+
+      expect(fetchInputUrl(input)).toBe("http://recoup-api.test/forensics/refresh");
+      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      return new Promise<Response>(() => {});
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -454,7 +467,7 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
     expect(body).toEqual(backendModel);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {
