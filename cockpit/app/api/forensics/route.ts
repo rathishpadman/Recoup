@@ -1,6 +1,12 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../human-auth.ts";
-import { proxyJsonResponse } from "../read-model-cache.ts";
+import {
+  mayaForensicsReadModelKey,
+  proxyJsonResponse,
+  readCachedReadModelPayload,
+  readModelJsonResponse,
+  refreshReadModelAfterResponse
+} from "../read-model-cache.ts";
 
 export async function GET(request: Request): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
@@ -12,6 +18,12 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Verified human cockpit auth required." }, { headers: noStoreHeaders(), status: 401 });
   }
 
+  const cached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsReadModelKey, "forensics-analyst");
+  if (cached !== undefined) {
+    refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "POST", path: "/forensics/refresh" });
+    return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+  }
+
   try {
     const upstream = await fetch(`${apiBaseUrl}/forensics`, {
       cache: "no-store",
@@ -19,7 +31,9 @@ export async function GET(request: Request): Promise<Response> {
       method: "GET"
     });
 
-    return proxyJsonResponse(upstream, await upstream.text(), "miss");
+    const body = await upstream.text();
+    refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "POST", path: "/forensics/refresh" });
+    return proxyJsonResponse(upstream, body, "miss");
   } catch {
     return Response.json({ error: "Forensics workbench service unavailable." }, { headers: noStoreHeaders(), status: 502 });
   }

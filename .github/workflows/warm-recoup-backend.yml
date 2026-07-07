@@ -1,0 +1,26 @@
+name: Warm Recoup Backend
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  cancel-in-progress: true
+  group: warm-recoup-backend
+
+jobs:
+  warm-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping warm-backend route
+        env:
+          WARM_BACKEND_URL: https://recoup-self-eta.vercel.app/api/cron/warm-backend
+        run: |
+          status="$(curl -sS -o /tmp/warm-response.json -w "%{http_code}" "$WARM_BACKEND_URL")"
+          cat /tmp/warm-response.json
+          if [ "$status" != "200" ]; then
+            echo "Expected 200 from $WARM_BACKEND_URL, got $status" >&2
+            exit 1
+          fi
