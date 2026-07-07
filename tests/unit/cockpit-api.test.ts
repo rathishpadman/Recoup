@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { day1GovernedConfigSeed, governedConfigSeedRows, sha256CanonicalJson } from "../../config/governed.js";
 import {
+  buildTrustedMayaSelectedEvidencePackRecordIds,
   createCockpitApi,
   startCockpitApiRuntime,
   type CockpitMcpServerStarter,
@@ -91,6 +92,25 @@ async function close(server: Server): Promise<void> {
 }
 
 describe("S5 cockpit API", () => {
+  it("trusts only the visible selected evidence packet when work-item provenance carries hidden record IDs", () => {
+    const trusted = buildTrustedMayaSelectedEvidencePackRecordIds({
+      selectedEvidencePackRecordIds: ["S1-L1", "S1-L2", "INV-S1-1", "DOC-S1-L1"],
+      selectedWorkItemLineIds: ["S1-L1", "S1-L2", "S1-L3"],
+      selectedWorkItemProvenanceRecordIds: [
+        "S1-L1",
+        "S1-L2",
+        "S1-L3",
+        "INV-S1-1",
+        "DOC-S1-L1",
+        "file-hidden-vector"
+      ]
+    });
+
+    expect(trusted).toEqual(["S1-L1", "S1-L2", "INV-S1-1", "DOC-S1-L1"]);
+    expect(trusted).not.toContain("S1-L3");
+    expect(trusted).not.toContain("file-hidden-vector");
+  });
+
   it("serves an honest JSON API index at the root route", async () => {
     const { baseUrl, server } = await listen({
       env: {

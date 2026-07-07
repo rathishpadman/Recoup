@@ -46,7 +46,7 @@ const forensicsReadModelEventSubscribers = new Set<ForensicsReadModelEventListen
 let lastForwardedForensicsBusinessHashes: ForensicsReadModelBusinessHashes | undefined;
 
 export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
-  return `maya:forensics:work-item:${lineId}:v1`;
+  return `maya:forensics:work-item:${lineId}:v2`;
 }
 
 export async function readCachedReadModelPayload(

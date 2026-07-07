@@ -477,7 +477,7 @@ describe("Maya workspace derived helpers", () => {
     expect(scopedRecordIds).toEqual(["S4-L1", "S4-L2", "CLAIM-S4-L1", "SAP-INV-S4-1", "SAP-INV-S4-2", "TOOLS-DATA:S4", "USCU_S07", "DOC-S4-L2"]);
   });
 
-  it("merges selected evidence record ids into case-detail query scope", () => {
+  it("trusts the rendered selected evidence packet for case-detail query scope", () => {
     const scopedRecordIds = buildCaseScopedQueryRecordIds(
       workItem({
         customerLabel: "Greenleaf Naturals",
@@ -493,7 +493,7 @@ describe("Maya workspace derived helpers", () => {
       { selectedEvidenceRecordIds: ["RECON-S1-L1", "POD-S1-L1", "CLAIM-S1-L1"] }
     );
 
-    expect(scopedRecordIds).toEqual(["S1-L1", "S1-L2", "S1-L3", "CLAIM-S1-L1", "DOC-S1-L2", "DOC-S1-L3", "RECON-S1-L1", "POD-S1-L1"]);
+    expect(scopedRecordIds).toEqual(["RECON-S1-L1", "POD-S1-L1", "CLAIM-S1-L1"]);
   });
 
   it("prefers the display-ready reason when a stored narrative is also present", () => {

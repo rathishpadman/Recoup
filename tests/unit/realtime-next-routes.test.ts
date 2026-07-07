@@ -11,6 +11,7 @@ import { POST as postRealtimeClientSecret } from "../../cockpit/app/api/query/re
 import { POST as postRealtimeTool } from "../../cockpit/app/api/query/realtime-tool/route.js";
 import {
   buildForensicsReadModelBusinessHashes,
+  mayaForensicsWorkItemReadModelKey,
   mayaForensicsReadModelKey,
   publishCachedReadModelPayload,
   proxyJsonResponse,
@@ -54,6 +55,11 @@ describe("Realtime Next proxy routes", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("versions Maya work-item detail cache keys independently from the top-level Maya model", () => {
+    expect(mayaForensicsReadModelKey).toBe("maya:forensics:v1");
+    expect(mayaForensicsWorkItemReadModelKey("S6-L1")).toBe("maya:forensics:work-item:S6-L1:v2");
   });
 
   it("exposes a Forensics SSE route for business read-model invalidation", async () => {
@@ -508,7 +514,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S6-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
@@ -614,8 +620,12 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(fetchMock.mock.calls.map(([input]) => fetchInputUrl(input))).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("model_key=eq.maya%3Aforensics%3Awork-item%3AS1-L1%3Av1"),
-        expect.stringContaining("model_key=eq.maya%3Aforensics%3Awork-item%3AS1-L3%3Av1")
+        expect.stringContaining(
+          `model_key=${encodeURIComponent(`eq.${mayaForensicsWorkItemReadModelKey("S1-L1")}`)}`
+        ),
+        expect.stringContaining(
+          `model_key=${encodeURIComponent(`eq.${mayaForensicsWorkItemReadModelKey("S1-L3")}`)}`
+        )
       ])
     );
   });
@@ -727,12 +737,12 @@ describe("Realtime Next proxy routes", () => {
       const url = new URL(fetchInputUrl(input));
       if (url.pathname.includes("recoup_cockpit_read_models") && init?.method === "GET") {
         const modelKey = url.searchParams.get("model_key");
-        if (modelKey === "eq.maya:forensics:work-item:S3-L1:v1") {
+        if (modelKey === `eq.${mayaForensicsWorkItemReadModelKey("S3-L1")}`) {
           return Promise.resolve(
             Response.json([
               {
                 generated_at: "2026-07-06T00:00:00.000Z",
-                model_key: "maya:forensics:work-item:S3-L1:v1",
+                model_key: mayaForensicsWorkItemReadModelKey("S3-L1"),
                 payload_hash: "a".repeat(64),
                 payload_json: rootCachedDetail,
                 persona: "maya",
@@ -743,12 +753,12 @@ describe("Realtime Next proxy routes", () => {
             ])
           );
         }
-        if (modelKey === "eq.maya:forensics:work-item:S3-L2:v1") {
+        if (modelKey === `eq.${mayaForensicsWorkItemReadModelKey("S3-L2")}`) {
           return Promise.resolve(
             Response.json([
               {
                 generated_at: "2026-07-06T00:00:00.000Z",
-                model_key: "maya:forensics:work-item:S3-L2:v1",
+                model_key: mayaForensicsWorkItemReadModelKey("S3-L2"),
                 payload_hash: "b".repeat(64),
                 payload_json: siblingCachedDetail,
                 persona: "maya",
@@ -846,7 +856,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S6-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
@@ -958,7 +968,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S6-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
@@ -1034,7 +1044,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S6-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1116,7 +1126,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S6-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1219,7 +1229,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S4-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S4-L1"),
               payload_hash: "b".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1313,7 +1323,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S4-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S4-L1"),
               payload_hash: "c".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1411,7 +1421,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S8-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S8-L1"),
               payload_hash: "b".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1550,7 +1560,7 @@ describe("Realtime Next proxy routes", () => {
           Response.json([
             {
               generated_at: "2026-06-29T00:00:00.000Z",
-              model_key: "maya:forensics:work-item:S5-L1:v1",
+              model_key: mayaForensicsWorkItemReadModelKey("S5-L1"),
               payload_hash: "d".repeat(64),
               payload_json: staleCachedDetail,
               persona: "maya",
@@ -1742,7 +1752,7 @@ describe("Realtime Next proxy routes", () => {
 
         expect(body).toMatchObject([
           {
-            model_key: "maya:forensics:work-item:S6-L1:v1",
+            model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
             payload_json: { surface: "forensics-work-item-detail" },
             source_record_ids_json: ["S6-L1"],
             surface: "forensics-analyst"
@@ -2576,3 +2586,4 @@ function fetchInputUrl(input: RequestInfo | URL | undefined): string {
 
   return input?.url ?? "";
 }
+

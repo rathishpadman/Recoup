@@ -2201,6 +2201,16 @@ function isSafeMayaQueryMemoryRecordId(recordId: string): boolean {
   return safeMayaQueryMemoryRecordIdPattern.test(recordId) && !unsafeMayaQueryMemoryRecordIdPattern.test(recordId);
 }
 
+export function buildTrustedMayaSelectedEvidencePackRecordIds(input: {
+  selectedEvidencePackRecordIds: readonly string[];
+  selectedWorkItemLineIds?: readonly string[];
+  selectedWorkItemProvenanceRecordIds?: readonly string[];
+}): string[] {
+  void input.selectedWorkItemLineIds;
+  void input.selectedWorkItemProvenanceRecordIds;
+  return uniqueRecordIds([...input.selectedEvidencePackRecordIds]);
+}
+
 function buildMayaSelectedQueryScope(
   runContext: GovernedForensicsRunContext,
   request: ForensicsSelectedQueryRequest
@@ -2227,11 +2237,13 @@ function buildMayaSelectedQueryScope(
       item.lineId === request.selectedLineId ||
       item.lineIds.includes(request.selectedLineId)
   );
-  const trustedEvidencePackRecordIds = uniqueRecordIds([
-    ...selectedDetail.selected.evidencePack.recordIds,
-    ...(selectedWorklistItem?.lineIds ?? []),
-    ...(selectedWorklistItem?.provenance.recordIds ?? [])
-  ]);
+  const trustedEvidencePackRecordIds = buildTrustedMayaSelectedEvidencePackRecordIds({
+    selectedEvidencePackRecordIds: selectedDetail.selected.evidencePack.recordIds,
+    ...(selectedWorklistItem?.lineIds === undefined ? {} : { selectedWorkItemLineIds: selectedWorklistItem.lineIds }),
+    ...(selectedWorklistItem?.provenance.recordIds === undefined
+      ? {}
+      : { selectedWorkItemProvenanceRecordIds: selectedWorklistItem.provenance.recordIds })
+  });
   const selectedQueryScopedRecordIds = uniqueRecordIds([
     request.selectedLineId,
     ...request.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))

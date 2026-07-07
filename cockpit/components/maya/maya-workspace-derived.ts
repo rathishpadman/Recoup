@@ -684,6 +684,9 @@ export function buildCaseScopedQueryRecordIds(
   item: MayaWorklistItem,
   options: { selectedEvidenceRecordIds?: readonly string[] } = {}
 ): string[] {
+  if ((options.selectedEvidenceRecordIds?.length ?? 0) > 0) {
+    return dedupeStrings(options.selectedEvidenceRecordIds ?? []);
+  }
   const lineIds = item.lineIds.length > 0 ? item.lineIds : [item.lineId];
   return dedupeStrings([...lineIds, ...item.provenance.recordIds, ...(options.selectedEvidenceRecordIds ?? [])]);
 }
