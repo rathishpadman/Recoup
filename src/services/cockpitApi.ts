@@ -58,6 +58,8 @@ import { createLegacySupabaseSettlementRunReaderFromEnv } from "../adapters/lega
 import type { SourcePort } from "../adapters/source.js";
 import {
   createSupabaseSettlementRunReaderFromEnv,
+  loadCreditRiskRows,
+  MissingCreditRiskSourceError,
   createSupabaseRiskObservationSnapshotReaderFromEnv,
   createSupabaseSapEvidenceReaderFromEnv,
   createSupabaseSyntheticSourceReaderFromEnv,
@@ -114,6 +116,7 @@ import {
   type ApprovalRecordSourceMetadata,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
+import { buildCreditRiskReviewModel } from "./creditRiskModel.js";
 import {
   buildSourceHealthResultsFromSnapshots,
   type SourceHealthResult,
@@ -279,6 +282,7 @@ const cockpitApiRoutes = [
   "GET /forensics/work-items/:lineId",
   "GET /login",
   "GET /credit",
+  "GET /credit/v2",
   "GET /cfo",
   "GET /trace",
   "GET /memory",
@@ -603,6 +607,20 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     response.json(buildCreditCockpitModel({ governedConfig, riskObservationSource: source, settlementSource: source }));
+  });
+
+  app.get("/credit/v2", async (request, response) => {
+    const governedConfig = await loadRequiredGovernedConfig(request, response);
+    if (governedConfig === undefined) {
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    response.json(buildCreditRiskReviewModel(rows));
   });
 
   app.get("/cfo", async (_request, response) => {
@@ -960,6 +978,22 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         missingSource: "supabase-recoup-config-rows"
       });
       return undefined;
+    }
+  }
+
+  async function loadRequiredCreditRiskRows(request: Request, response: Response) {
+    try {
+      return await loadCreditRiskRows(runtimeEnv, options.memoryFetcher);
+    } catch (error) {
+      if (error instanceof MissingCreditRiskSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: `Supabase credit risk ${error.sourceTableName} rows are unavailable or failed validation.`,
+          missingSource: error.missingSource
+        });
+        return undefined;
+      }
+
+      throw error;
     }
   }
 
