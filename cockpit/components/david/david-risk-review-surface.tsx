@@ -1,105 +1,86 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import {
-  ShieldAlertIcon,
-  ShieldCheckIcon,
-  TimerResetIcon,
-  WalletCardsIcon
-} from "lucide-react";
-import type { CreditRiskReviewModel, CreditRiskVerdictTone } from "../../app/cockpit-data.ts";
-import { davidAccent } from "./david-accent.ts";
+import * as React from "react";
+import type { CreditRiskReviewModel, CreditRiskVerdict } from "../../app/cockpit-data.ts";
+import { DavidAccountQueue } from "./david-account-queue.tsx";
+import { DavidWalkthroughStrip } from "./david-walkthrough-strip.tsx";
+import { DavidWorkspaceShell, type DavidSurfaceSection } from "./david-workspace-shell.tsx";
 
-const queueStatIconByTone: Record<
-  CreditRiskVerdictTone,
-  typeof ShieldAlertIcon | typeof ShieldCheckIcon | typeof TimerResetIcon | typeof WalletCardsIcon
-> = {
-  clear: ShieldCheckIcon,
-  elevated: TimerResetIcon,
-  high: ShieldAlertIcon,
-  watch: WalletCardsIcon
-};
+interface DavidRiskReviewSurfaceProps {
+  displayName: string;
+  model: CreditRiskReviewModel;
+}
 
-export function DavidRiskReviewSurface({ model }: Readonly<{ model: CreditRiskReviewModel }>) {
+export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRiskReviewSurfaceProps>) {
+  const [activeSection, setActiveSection] = React.useState<DavidSurfaceSection>("risk-review");
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string | null>(null);
+  const [filter, setFilter] = React.useState<"ALL" | CreditRiskVerdict>("ALL");
+  const [search, setSearch] = React.useState("");
+
+  const filteredAccounts = React.useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return model.accounts.filter((account) => {
+      if (filter !== "ALL" && account.verdict !== filter) {
+        return false;
+      }
+
+      if (normalizedSearch.length === 0) {
+        return true;
+      }
+
+      const searchHaystack = [account.accountId, account.customer, account.channel, account.segment, account.verdict, account.routeLabel]
+        .join(" ")
+        .toLowerCase();
+
+      return searchHaystack.includes(normalizedSearch);
+    });
+  }, [filter, model.accounts, search]);
+
+  React.useEffect(() => {
+    if (selectedAccountId === null) {
+      return;
+    }
+
+    if (!filteredAccounts.some((account) => account.accountId === selectedAccountId)) {
+      setSelectedAccountId(null);
+    }
+  }, [filteredAccounts, selectedAccountId]);
+
+  const selectedAccount = selectedAccountId === null ? undefined : model.accounts.find((account) => account.accountId === selectedAccountId);
+  const greetingName = displayName.split(/\s+/u)[0] ?? displayName;
+  const runSummary = `Weekly credit risk review . ${model.navCounts.riskReview.toString()} accounts flagged . ${model.portfolio.totalExposureLabel} exposure`;
+
   return (
-    <main className={`min-h-svh bg-background text-foreground ${davidAccent.appFrame}`} data-testid="david-risk-review-surface">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6">
-        <header className="grid gap-2">
-          <p className="text-sm font-medium text-muted-foreground">David credit risk review</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-normal">Credit risk review v2</h1>
-            <Badge variant="outline">{model.accounts.length.toString()} accounts</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{model.sourceLabel}</p>
-        </header>
-
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="Queue summary">
-          {model.queueStats.map((stat) => {
-            const Icon = queueStatIconByTone[stat.tone];
-
-            return (
-              <Card key={stat.key}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                  <CardTitle className="text-sm font-medium">{stat.label}</CardTitle>
-                  <Icon className="size-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-lg font-semibold">{stat.valueLabel}</p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[minmax(18rem,0.35fr)_minmax(0,1fr)]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Risk review queue</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              {model.accounts.map((account) => (
-                <div key={account.accountId} className="grid gap-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{account.customer}</p>
-                      <p className="text-sm text-muted-foreground">{account.channel}</p>
-                    </div>
-                    <Badge variant="outline">{account.verdict}</Badge>
-                  </div>
-                  <div className="grid gap-1 text-sm text-muted-foreground">
-                    <span>{account.exposureLabel} exposure</span>
-                    <span>{account.routeLine}</span>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Review snapshot</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <p className="text-sm text-muted-foreground">
-                {`${model.accounts.length.toString()} accounts are available for governed review from the weekly credit risk model.`}
-              </p>
-              <Separator />
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="grid gap-1 rounded-md border p-3">
-                  <span className="text-sm font-medium">Portfolio exposure</span>
-                  <strong className="text-lg">{model.portfolio.totalExposureLabel}</strong>
-                </div>
-                <div className="grid gap-1 rounded-md border p-3">
-                  <span className="text-sm font-medium">Committed packets</span>
-                  <strong className="text-lg">{model.navCounts.actionPackets.toString()}</strong>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-      </div>
-    </main>
+    <DavidWorkspaceShell
+      activeSection={activeSection}
+      displayName={displayName}
+      navCounts={model.navCounts}
+      onSearchChange={setSearch}
+      onSectionChange={setActiveSection}
+      provenanceLabel={model.sourceLabel}
+      runSummary={runSummary}
+      searchValue={search}
+      walkthroughStrip={
+        <DavidWalkthroughStrip
+          displayName={displayName}
+          hasCommittedApproval={selectedAccount?.packet.approvalStatus === "committed"}
+          hasSelectedAccount={selectedAccountId !== null}
+        />
+      }
+    >
+      <main className="grid gap-4" data-testid="david-risk-review-surface">
+        <DavidAccountQueue
+          accounts={filteredAccounts}
+          filter={filter}
+          greetingName={greetingName}
+          onFilterChange={setFilter}
+          onSelectAccount={setSelectedAccountId}
+          queueStats={model.queueStats}
+          selectedAccountId={selectedAccountId}
+          sourceLabel={model.sourceLabel}
+        />
+      </main>
+    </DavidWorkspaceShell>
   );
 }

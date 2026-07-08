@@ -9,7 +9,7 @@ export function DavidShadcnLoadingShell() {
       className={`min-h-svh bg-background text-foreground ${davidAccent.appFrame}`}
       data-testid="david-shadcn-loading-shell"
     >
-      <div className="grid min-h-svh grid-cols-[15rem_minmax(0,1fr)]">
+        <div className="grid min-h-svh grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)]">
         <aside className={`hidden border-r bg-sidebar p-4 text-sidebar-foreground md:flex md:flex-col md:gap-6 ${davidAccent.sidebar}`}>
           <div className="grid gap-2">
             <Skeleton className="h-5 w-24 bg-sidebar-accent/60" />

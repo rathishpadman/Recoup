@@ -3,8 +3,8 @@ import { fetchCreditRiskReviewModel } from "../../cockpit-data.ts";
 import { requireRouteAccess } from "../../demo-auth.ts";
 
 export default async function DavidCreditRiskReviewPage() {
-  await requireRouteAccess("/credit/v2");
+  const session = await requireRouteAccess("/credit/v2");
   const model = await fetchCreditRiskReviewModel();
 
-  return <DavidRiskReviewSurface model={model} />;
+  return <DavidRiskReviewSurface displayName={session.displayName} model={model} />;
 }
