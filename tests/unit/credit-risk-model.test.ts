@@ -78,6 +78,38 @@ describe("credit risk review model", () => {
     expect(harbor.assessmentSteps.some((step) => step.key.endsWith(":containment"))).toBe(false);
   });
 
+  it("emits the scripted copilot contract from the backend read model", () => {
+    const model = buildCreditRiskReviewModel(loadCreditRiskFixtureRows());
+    const crestline = byId(model, "ACC-CRE");
+
+    expect(model.copilot).toMatchObject({
+      conductorLabel: "Conductor",
+      disabledInputPlaceholder: "coming with the query agent",
+      note: "Copilot assesses & recommends. Approvals stay with you.",
+      readinessLabel: "Risk Mesh ready",
+      title: "Investigation Copilot"
+    });
+    expect(model.copilot.suggestions).toEqual([
+      {
+        question: "Why is Crestline high risk?",
+        suggestionId: "crestline-high-risk",
+        targetAccountId: "ACC-CRE"
+      },
+      {
+        question: "Which accounts need action this week?",
+        suggestionId: "accounts-needing-action"
+      },
+      {
+        question: "Show the gaming-flag account [D]",
+        suggestionId: "gaming-flag-account",
+        targetAccountId: "ACC-CRE"
+      }
+    ]);
+    expect(crestline.copilotConductorLine).toBe(
+      "Route Contain. Crestline Grocery is HIGH because Credit=ELEVATED (util 87%, 23d beyond terms) and Collections=HIGH (unsupported $39,700)."
+    );
+  });
+
   it("marks a mesh tile as a contract gap when the seeded basis rows are incomplete", () => {
     const rows = loadCreditRiskFixtureRows();
     const broken = structuredClone(rows);

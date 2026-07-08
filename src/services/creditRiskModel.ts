@@ -190,6 +190,21 @@ export interface CreditAssessmentStep {
   verdictLabel?: string | undefined;
 }
 
+export interface CreditCopilotSuggestion {
+  question: string;
+  suggestionId: "accounts-needing-action" | "crestline-high-risk" | "gaming-flag-account";
+  targetAccountId?: string | undefined;
+}
+
+export interface CreditRiskCopilotModel {
+  conductorLabel: string;
+  disabledInputPlaceholder: string;
+  note: string;
+  readinessLabel: string;
+  suggestions: CreditCopilotSuggestion[];
+  title: string;
+}
+
 export interface CreditMeshPositionModel {
   contractGap: boolean;
   contractGapReason?: string | undefined;
@@ -208,6 +223,7 @@ export interface CreditRiskAccountModel {
   accountId: string;
   actionPacket: CreditPacketRow[];
   channel: string;
+  copilotConductorLine: string;
   creditLimitAmount: number;
   creditLimitLabel: string;
   customer: string;
@@ -262,6 +278,7 @@ export interface CreditRiskReviewModel {
   accounts: CreditRiskAccountModel[];
   asOfDate: string;
   asOfLabel: string;
+  copilot: CreditRiskCopilotModel;
   navCounts: {
     actionPackets: number;
     riskReview: number;
@@ -308,6 +325,7 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
   assertRequiredRows(rows);
   const approvalReceipts = indexApprovalReceipts(rows.approvalReceipts ?? []);
   const accounts = rows.accounts.map((account) => buildAccountModel(account, rows, approvalReceipts));
+  const gamingFlagAccountId = accounts.find((account) => account.gamingFlag)?.accountId;
   const knownActionIds = new Set(accounts.map((account) => account.packet.actionId));
   for (const actionId of approvalReceipts.keys()) {
     if (!knownActionIds.has(actionId)) {
@@ -321,6 +339,29 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
     accounts,
     asOfDate: rows.snapshot.asOfDate,
     asOfLabel: rows.snapshot.asOfDate,
+    copilot: {
+      conductorLabel: "Conductor",
+      disabledInputPlaceholder: "coming with the query agent",
+      note: "Copilot assesses & recommends. Approvals stay with you.",
+      readinessLabel: "Risk Mesh ready",
+      suggestions: [
+        {
+          question: "Why is Crestline high risk?",
+          suggestionId: "crestline-high-risk",
+          targetAccountId: "ACC-CRE"
+        },
+        {
+          question: "Which accounts need action this week?",
+          suggestionId: "accounts-needing-action"
+        },
+        {
+          question: "Show the gaming-flag account [D]",
+          suggestionId: "gaming-flag-account",
+          ...(gamingFlagAccountId === undefined ? {} : { targetAccountId: gamingFlagAccountId })
+        }
+      ],
+      title: "Investigation Copilot"
+    },
     navCounts: {
       actionPackets: approvedActionCount,
       riskReview: accounts.length,
@@ -532,6 +573,7 @@ function buildAccountModel(
       verdict
     }),
     channel: account.channel,
+    copilotConductorLine: `Route ${routeLabel}. ${verdictBasis}`,
     creditLimitAmount: toAmount(creditLimit),
     creditLimitLabel: formatCompactMoney(creditLimit),
     customer: account.customer,
@@ -628,7 +670,7 @@ function assertRequiredRows(rows: CreditRiskRows): void {
     throw new Error("Credit risk model requires seeded risk mesh positions.");
   }
   for (const key of policyKeys) {
-    if (rows.policy[key] === undefined) {
+    if (!Object.hasOwn(rows.policy, key)) {
       throw new Error(`Credit risk model missing policy key ${key}.`);
     }
   }
@@ -1109,11 +1151,11 @@ function decimal(value: number | string | Decimal): Decimal {
   return value instanceof Decimal ? value : new Decimal(String(value));
 }
 
-function formatMoney(value: Decimal | Money): string {
+function formatMoney(value: Decimal): string {
   return `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(decimal(value).toNumber())}`;
 }
 
-function formatCompactMoney(value: Decimal | Money): string {
+function formatCompactMoney(value: Decimal): string {
   const amount = decimal(value);
   if (amount.abs().greaterThanOrEqualTo(1_000_000)) {
     const millions = trimTrailingZeros(amount.div(1_000_000).toDecimalPlaces(2).toFixed(2));
@@ -1126,7 +1168,7 @@ function formatDays(value: Decimal): string {
   return `${toWholeNumber(value).toString()}d`;
 }
 
-function toAmount(value: Decimal | Money): number {
+function toAmount(value: Decimal): number {
   return roundAmount(decimal(value), 2);
 }
 

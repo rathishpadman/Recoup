@@ -19,6 +19,7 @@ import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClass
 
 interface DavidAssessmentTimelineProps {
   account: CreditRiskAccountModel;
+  onVisibleCountChange?: (visibleCount: number) => void;
   onPlaybackComplete: (accountId: string) => void;
   shouldStream: boolean;
 }
@@ -27,6 +28,7 @@ const revealDurationMs = 500;
 
 export function DavidAssessmentTimeline({
   account,
+  onVisibleCountChange,
   onPlaybackComplete,
   shouldStream
 }: Readonly<DavidAssessmentTimelineProps>) {
@@ -64,6 +66,10 @@ export function DavidAssessmentTimeline({
       });
     };
   }, [account.accountId, onPlaybackComplete, shouldStream, steps]);
+
+  React.useEffect(() => {
+    onVisibleCountChange?.(visibleCount);
+  }, [onVisibleCountChange, visibleCount]);
 
   const visibleSteps = steps.slice(0, visibleCount);
   const nextStep = visibleCount < steps.length ? steps[visibleCount] : undefined;

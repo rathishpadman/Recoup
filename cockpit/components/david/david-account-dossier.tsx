@@ -20,6 +20,7 @@ interface DavidAccountDossierProps {
   onClearSelection: () => void;
   onSelectAccount: (accountId: string) => void;
   onTimelinePlaybackComplete: (accountId: string) => void;
+  onTimelineVisibleCountChange: (accountId: string, visibleCount: number) => void;
   shouldStreamTimeline: boolean;
 }
 
@@ -37,6 +38,7 @@ export function DavidAccountDossier({
   onClearSelection,
   onSelectAccount,
   onTimelinePlaybackComplete,
+  onTimelineVisibleCountChange,
   shouldStreamTimeline
 }: Readonly<DavidAccountDossierProps>) {
   return (
@@ -141,6 +143,9 @@ export function DavidAccountDossier({
       <DavidAssessmentTimeline
         account={account}
         onPlaybackComplete={onTimelinePlaybackComplete}
+        onVisibleCountChange={(visibleCount) => {
+          onTimelineVisibleCountChange(account.accountId, visibleCount);
+        }}
         shouldStream={shouldStreamTimeline}
       />
 

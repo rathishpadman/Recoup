@@ -11,9 +11,8 @@ Rules:
 
 Current contract gaps that must stay honest in UI:
 
-1. Scripted copilot prompts and conductor copy are not yet emitted by the backend read model.
-2. Detailed source-drawer connector statuses are not yet emitted by the backend read model.
-3. Mesh tiles are covered: `accounts[].meshPositions[]` already carries `recordIds`, `deterministicBasis`, and `contractGap` fallback.
+1. Detailed source-drawer connector statuses are not yet emitted by the backend read model.
+2. Mesh tiles are covered: `accounts[].meshPositions[]` already carries `recordIds`, `deterministicBasis`, and `contractGap` fallback.
 
 | Beat | Component | Visible field | Backend source | System of record | Record IDs | Deterministic basis | Fallback behavior |
 |---|---|---|---|---|---|---|---|
@@ -49,8 +48,8 @@ Current contract gaps that must stay honest in UI:
 | `1-2.5` | `david-action-packet` | Packet rows (`label`, `amountLabel`, `detail`) | `GET /credit/v2 -> accounts[].packet.rows[]` built from governed packet rules and `credit_policy` | Approval/read model with policy-backed derivation | `accounts[].packet.recordIds` | `accounts[].packet.basis`, `accounts[].packet.deterministicBasis` | `fail closed` |
 | `1-2.5` | `david-action-packet` | Approval state (`awaiting` / `committed`) | `GET /credit/v2 -> accounts[].packet.approvalStatus` from `approval_records` read-back | Approval/audit | `accounts[].packet.recordIds` | `n/a - lifecycle state from committed receipt read-back` | `Source unavailable` |
 | `1-2.5` | `david-action-packet` | Audit receipt hash | `GET /credit/v2 -> accounts[].packet.auditEntryHash` from `approval_records.audit_entry_hash` | Approval/audit | `accounts[].packet.recordIds` | `n/a - append-only audit receipt hash` | `Source unavailable` |
-| `1-2.6` | `david-copilot-dock` | Idle suggested questions | No approved backend field yet in `GET /credit/v2` | Contract gap | `n/a - missing backend field` | `Contract gap` | `Contract gap` |
-| `1-2.6` | `david-copilot-dock` | Conductor line and checklist state | Partial coverage only via `accounts[].assessmentSteps[]`; no approved backend dock model yet | Contract gap | `accounts[].assessmentSteps[].recordIds` if checklist reuses steps | `Contract gap until dock-specific backend fields exist` | `Contract gap` |
+| `1-2.6` | `david-copilot-dock` | Idle suggested questions | `GET /credit/v2 -> copilot.suggestions[]` | Backend read model | `n/a - scripted prompt metadata` | `n/a - scripted dock prompts` | `fail closed` |
+| `1-2.6` | `david-copilot-dock` | Conductor line and checklist state | `GET /credit/v2 -> accounts[].copilotConductorLine`, `accounts[].assessmentSteps[]`, `accounts[].verdict`, `accounts[].verdictTone` | Backend read model | `accounts[].assessmentSteps[].recordIds` | `accounts[].copilotConductorLine`; checklist rows replay `assessmentSteps[].foundLine` | `fail closed` |
 | `1-2.7` | `david-sources-drawer` | Connector rows (`SAP OData (synthetic)`, `Supabase tools data`, `Bureau/payment-history (synthetic)`, `Contract & TPM repo`) with statuses | No dedicated connector readiness object yet in `GET /credit/v2`; current coverage is limited to `sourceLabel` and `accounts[].assessmentSteps[].sourceLabel` | Contract gap | `accounts[].assessmentSteps[].recordIds` only if reused as evidence | `Contract gap` | `Contract gap` |
 | `1-2.7` | `david-sources-drawer` | `External actions blocked` posture | `GET /credit/v2 -> accounts[].packet.requiresHumanApproval`, `accounts[].packet.dispatchedExternally=false` | Approval/read model | `accounts[].packet.recordIds` | `accounts[].packet.basis` | `fail closed` |
 | `1-2.7` | `david-sources-drawer` | `Audit trail on` posture | `GET /credit/v2 -> accounts[].packet.approvalStatus`, `auditEntryHash` when committed | Approval/audit | `accounts[].packet.recordIds` | `n/a - audit receipt presence and governed approval flow` | `Source unavailable` |
@@ -62,7 +61,5 @@ Current contract gaps that must stay honest in UI:
 ## Review summary
 
 - The current backend already covers queue metrics, per-account metrics, signals, mesh tiles, verdict basis, packet rows, approval receipt read-back, and watchlist counts.
-- `Contract gap` remains the correct posture for:
-  - scripted copilot prompts and dock-specific narrative,
-  - detailed connector/source statuses in the sources drawer.
+- `Contract gap` remains the correct posture for detailed connector/source statuses in the sources drawer.
 - No frontend component should invent those missing values. If those surfaces need business-facing copy beyond the rows above, add the backend field first in an approved slice.

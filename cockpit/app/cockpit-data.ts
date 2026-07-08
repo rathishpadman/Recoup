@@ -626,6 +626,21 @@ export interface CreditRiskAssessmentStep {
   verdictLabel?: string | undefined;
 }
 
+export interface CreditRiskCopilotSuggestion {
+  question: string;
+  suggestionId: "accounts-needing-action" | "crestline-high-risk" | "gaming-flag-account";
+  targetAccountId?: string | undefined;
+}
+
+export interface CreditRiskCopilotModel {
+  conductorLabel: string;
+  disabledInputPlaceholder: string;
+  note: string;
+  readinessLabel: string;
+  suggestions: CreditRiskCopilotSuggestion[];
+  title: string;
+}
+
 export interface CreditRiskMeshPositionModel {
   contractGap: boolean;
   contractGapReason?: string | undefined;
@@ -644,6 +659,7 @@ export interface CreditRiskAccountModel {
   accountId: string;
   actionPacket: CreditRiskPacketRow[];
   channel: string;
+  copilotConductorLine: string;
   creditLimitAmount: number;
   creditLimitLabel: string;
   customer: string;
@@ -698,6 +714,7 @@ export interface CreditRiskReviewModel {
   accounts: CreditRiskAccountModel[];
   asOfDate: string;
   asOfLabel: string;
+  copilot: CreditRiskCopilotModel;
   navCounts: {
     actionPackets: number;
     riskReview: number;

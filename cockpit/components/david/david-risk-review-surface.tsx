@@ -4,6 +4,7 @@ import * as React from "react";
 import type { CreditRiskReviewModel, CreditRiskVerdict } from "../../app/cockpit-data.ts";
 import { DavidAccountDossier } from "./david-account-dossier.tsx";
 import { DavidAccountQueue } from "./david-account-queue.tsx";
+import { DavidCopilotDock } from "./david-copilot-dock.tsx";
 import { DavidWalkthroughStrip } from "./david-walkthrough-strip.tsx";
 import { DavidWorkspaceShell, type DavidSurfaceSection } from "./david-workspace-shell.tsx";
 
@@ -17,7 +18,25 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
   const [selectedAccountId, setSelectedAccountId] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<"ALL" | CreditRiskVerdict>("ALL");
   const [search, setSearch] = React.useState("");
+  const [activeCopilotSuggestionId, setActiveCopilotSuggestionId] = React.useState<
+    CreditRiskReviewModel["copilot"]["suggestions"][number]["suggestionId"] | null
+  >(null);
   const [playedTimelineAccountIds, setPlayedTimelineAccountIds] = React.useState<string[]>([]);
+  const [timelineVisibleCounts, setTimelineVisibleCounts] = React.useState<Record<string, number>>({});
+
+  const handleTimelinePlaybackComplete = React.useCallback((accountId: string) => {
+    setPlayedTimelineAccountIds((current) => (current.includes(accountId) ? current : [...current, accountId]));
+  }, []);
+
+  const handleTimelineVisibleCountChange = React.useCallback((accountId: string, visibleCount: number) => {
+    setTimelineVisibleCounts((current) => {
+      if (current[accountId] === visibleCount) {
+        return current;
+      }
+
+      return { ...current, [accountId]: visibleCount };
+    });
+  }, []);
 
   const filteredAccounts = React.useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -49,8 +68,24 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
     }
   }, [filteredAccounts, selectedAccountId]);
 
+  React.useEffect(() => {
+    if (activeCopilotSuggestionId === null) {
+      return;
+    }
+
+    const activeSuggestion = model.copilot.suggestions.find((suggestion) => suggestion.suggestionId === activeCopilotSuggestionId);
+    if (activeSuggestion?.targetAccountId === undefined) {
+      return;
+    }
+
+    if (selectedAccountId !== null && selectedAccountId !== activeSuggestion.targetAccountId) {
+      setActiveCopilotSuggestionId(null);
+    }
+  }, [activeCopilotSuggestionId, model.copilot.suggestions, selectedAccountId]);
+
   const selectedAccount = selectedAccountId === null ? undefined : model.accounts.find((account) => account.accountId === selectedAccountId);
   const shouldStreamTimeline = selectedAccount === undefined ? false : !playedTimelineAccountIds.includes(selectedAccount.accountId);
+  const timelineVisibleCount = selectedAccount === undefined ? 0 : (timelineVisibleCounts[selectedAccount.accountId] ?? 0);
   const greetingName = displayName.split(/\s+/u)[0] ?? displayName;
   const runSummary = `Weekly credit risk review . ${model.navCounts.riskReview.toString()} accounts flagged . ${model.portfolio.totalExposureLabel} exposure`;
 
@@ -72,32 +107,49 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
         />
       }
     >
-      <main className="grid gap-4" data-testid="david-risk-review-surface">
-        <DavidAccountQueue
-          accounts={filteredAccounts}
-          filter={filter}
-          greetingName={greetingName}
-          onFilterChange={setFilter}
-          onSelectAccount={setSelectedAccountId}
-          queueStats={model.queueStats}
-          selectedAccountId={selectedAccountId}
-          sourceLabel={model.sourceLabel}
-        />
-        {selectedAccount === undefined ? null : (
-          <DavidAccountDossier
-            account={selectedAccount}
-            accounts={model.accounts}
-            onClearSelection={() => {
-              setSelectedAccountId(null);
-            }}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">
+        <main className="grid gap-4">
+          <DavidAccountQueue
+            accounts={filteredAccounts}
+            filter={filter}
+            greetingName={greetingName}
+            onFilterChange={setFilter}
             onSelectAccount={setSelectedAccountId}
-            onTimelinePlaybackComplete={(accountId) => {
-              setPlayedTimelineAccountIds((current) => (current.includes(accountId) ? current : [...current, accountId]));
-            }}
-            shouldStreamTimeline={shouldStreamTimeline}
+            queueStats={model.queueStats}
+            selectedAccountId={selectedAccountId}
+            sourceLabel={model.sourceLabel}
           />
-        )}
-      </main>
+          {selectedAccount === undefined ? null : (
+            <DavidAccountDossier
+              account={selectedAccount}
+              accounts={model.accounts}
+              onClearSelection={() => {
+                setSelectedAccountId(null);
+              }}
+              onSelectAccount={setSelectedAccountId}
+              onTimelinePlaybackComplete={handleTimelinePlaybackComplete}
+              onTimelineVisibleCountChange={handleTimelineVisibleCountChange}
+              shouldStreamTimeline={shouldStreamTimeline}
+            />
+          )}
+        </main>
+        <DavidCopilotDock
+          activeSuggestionId={activeCopilotSuggestionId}
+          copilot={model.copilot}
+          onActivateSuggestion={(suggestionId) => {
+            setActiveCopilotSuggestionId(suggestionId);
+            const suggestion = model.copilot.suggestions.find((entry) => entry.suggestionId === suggestionId);
+            if (suggestion?.targetAccountId !== undefined) {
+              setSelectedAccountId(suggestion.targetAccountId);
+              return;
+            }
+
+            setSelectedAccountId((current) => current ?? model.accounts[0]?.accountId ?? null);
+          }}
+          selectedAccount={selectedAccount}
+          timelineVisibleCount={timelineVisibleCount}
+        />
+      </div>
     </DavidWorkspaceShell>
   );
 }
