@@ -1,6 +1,7 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../human-auth.ts";
 import {
+  buildForensicsReadModelBusinessHashes,
   mayaForensicsReadModelKey,
   proxyJsonResponse,
   readCachedReadModelPayload,
@@ -21,7 +22,10 @@ export async function GET(request: Request): Promise<Response> {
   const cached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsReadModelKey, "forensics-analyst");
   if (cached !== undefined) {
     refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "POST", path: "/forensics/refresh" });
-    return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+    return readModelJsonResponse(cached.payload, "hit", {
+      businessHashes: buildForensicsReadModelBusinessHashes(cached.sourceRecordIds),
+      sourceRefreshedAt: cached.sourceRefreshedAt
+    });
   }
 
   try {
