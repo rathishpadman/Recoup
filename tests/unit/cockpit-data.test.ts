@@ -9,6 +9,7 @@ describe("cockpit data client", () => {
     restoreEnv("RECOUP_COCKPIT_HUMAN_PRINCIPAL", originalPrincipal);
     restoreEnv("RECOUP_COCKPIT_AUTH_TOKEN", originalToken);
     vi.unstubAllGlobals();
+    vi.doUnmock("../../config/localRuntimeEnv.ts");
   });
 
   it("uses server cockpit auth headers for the Evals FinOps backend fetch", async () => {
@@ -88,6 +89,62 @@ describe("cockpit data client", () => {
       headers: {
         "x-recoup-human-principal": "human:cfo",
         "x-recoup-human-token": "test-token"
+      }
+    });
+  });
+
+  it("falls back to local runtime env when Next dev does not expose server auth env", async () => {
+    delete process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL;
+    delete process.env.RECOUP_COCKPIT_AUTH_TOKEN;
+    vi.resetModules();
+    vi.doMock("../../config/localRuntimeEnv.ts", () => ({
+      loadLocalRuntimeEnvFiles: () => ({
+        RECOUP_COCKPIT_AUTH_TOKEN: "local-runtime-token",
+        RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:local-runtime"
+      })
+    }));
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({
+        agentMetrics: [],
+        blockedInputs: [],
+        evalGates: [],
+        generatedAtIso: "2026-06-30T00:00:00.000Z",
+        promptCache: {
+          cachedInputTokens: 0,
+          cacheHitRateLabel: "Usage unavailable",
+          deterministicBasis: "test",
+          recordIds: ["release-readiness"],
+          savingsLabel: "Pricing not configured",
+          savingsStatus: "pricing_not_configured_not_computed",
+          status: "usage_unavailable",
+          uncachedInputTokens: 0
+        },
+        provenance: {
+          deterministicBasis: "test",
+          recordIds: ["release-readiness"],
+          sourceKind: "derived_backend",
+          sourceName: "test"
+        },
+        recommendations: [],
+        releaseReadiness: {
+          blockers: [],
+          status: "pass"
+        },
+        surface: "evals-finops",
+        unitEconomics: []
+      }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchEvalFinopsModel: fetchEvalFinopsModelWithLocalRuntime } = await import("../../cockpit/app/cockpit-data.ts");
+
+    await fetchEvalFinopsModelWithLocalRuntime();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      cache: "no-store",
+      headers: {
+        "x-recoup-human-principal": "human:local-runtime",
+        "x-recoup-human-token": "local-runtime-token"
       }
     });
   });

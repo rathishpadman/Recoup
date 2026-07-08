@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
     await waitForClientHydration(page, 'input[aria-label="Search accounts in review"]');
-    await waitForClientHydration(page, 'input[placeholder="coming with the query agent"]');
+    await waitForClientHydration(page, 'input[aria-label="Ask David credit copilot"]');
     await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-credit-default-1440.png") });
 
     await checkedGoto(page, `${baseUrl}/credit/v2`, "david v2");
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
     await waitForClientHydration(page, 'input[aria-label="Search accounts in review"]');
-    await waitForClientHydration(page, 'input[placeholder="coming with the query agent"]');
+    await waitForClientHydration(page, 'input[aria-label="Ask David credit copilot"]');
 
     const queueRows = page.locator('[data-testid="david-queue-account-row"]');
     await waitForCount(queueRows, 4, 45_000, "David queue rows");
@@ -104,21 +104,66 @@ async function main(): Promise<void> {
       }
     };
 
+    const creditQueryResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/credit/query" && response.request().method() === "POST",
+      { timeout: 90_000 }
+    );
+
     page.on("request", requestListener);
     try {
       await crestlineRow.click();
       await page.locator('[data-testid="david-account-dossier"]').waitFor({ state: "visible", timeout: 45_000 });
       await page.locator('[data-testid="david-assessment-timeline"]').waitFor({ state: "visible", timeout: 45_000 });
+      await assertDrawerClosed(page, "david-assessment-timeline");
+      await assertDrawerClosed(page, "david-signals-in");
+      await assertDrawerClosed(page, "david-verdict-banner");
+      await assertDrawerClosed(page, "david-action-packet");
+      await page.getByTestId("david-assessment-timeline-trigger").click();
       await waitForCount(page.locator('[data-testid="david-assessment-step"]'), 8, 45_000, "David assessment steps");
     } finally {
       page.off("request", requestListener);
     }
 
     assert(forbiddenRequestsOnOpen.length === 0, `Opening Crestline triggered forbidden network calls: ${forbiddenRequestsOnOpen.join(", ")}.`);
+    const creditQueryResponse = await creditQueryResponsePromise;
+    const creditQueryResult = (await creditQueryResponse.json()) as {
+      answer?: unknown;
+      modelExecution?: {
+        mode?: unknown;
+        rawModelTextPolicy?: unknown;
+        sourceReadMode?: unknown;
+        tokenUsage?: unknown;
+        tokenUsageSnapshot?: { totalTokens?: unknown };
+      };
+      trace?: Array<{ toolName?: unknown }>;
+    };
+    assert(creditQueryResponse.ok(), `David credit query route returned HTTP ${creditQueryResponse.status().toString()}.`);
+    assert(
+      creditQueryResult.modelExecution?.mode === "live_openai_agents",
+      `David credit query did not return live_openai_agents mode: ${JSON.stringify(creditQueryResult)}`
+    );
+    assert(creditQueryResult.modelExecution.rawModelTextPolicy === "suppressed", "David credit query did not suppress raw model text.");
+    assert(
+      creditQueryResult.modelExecution.sourceReadMode === "live_sdk_mcp" ||
+        creditQueryResult.modelExecution.sourceReadMode === "governed_backend_fallback",
+      `David credit query did not report governed source-read mode: ${JSON.stringify(creditQueryResult.modelExecution)}`
+    );
+    assert(
+      typeof creditQueryResult.modelExecution.tokenUsage === "number" ||
+        typeof creditQueryResult.modelExecution.tokenUsageSnapshot?.totalTokens === "number",
+      "David credit query did not include token usage."
+    );
+    assert(Array.isArray(creditQueryResult.trace) && creditQueryResult.trace.length > 0, "David credit query did not return trace rows.");
+    assert(
+      creditQueryResult.trace.some((event) => event.toolName === "credit_risk.answer"),
+      `David credit query trace did not include credit_risk.answer: ${JSON.stringify(creditQueryResult.trace)}`
+    );
+    await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "Collections", "David mesh tiles");
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "HIGH", "David Collections tile");
 
+    await page.getByTestId("david-action-packet-trigger").click();
     await page.getByText("Mark basis reviewed", { exact: true }).click();
     const sendActionPacketButton = page.getByTestId("david-send-action-packet");
     await waitForEnabled(sendActionPacketButton, 10_000, "David send action packet button");
@@ -154,7 +199,10 @@ async function main(): Promise<void> {
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
+    await waitForClientHydration(page, 'input[aria-label="Ask David credit copilot"]');
     await page.locator('[data-testid="david-queue-account-row"][data-account-id="ACC-CRE"]').first().click();
+    await page.locator('[data-testid="david-account-dossier"]').waitFor({ state: "visible", timeout: 45_000 });
+    await page.getByTestId("david-action-packet-trigger").click();
     await page.locator('[data-testid="david-action-packet-receipt"]').waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), formatAuditHash(auditHash), "David receipt after reload");
     await page.locator(`[data-testid="david-action-packet-receipt"] code[title="${auditHash}"]`).waitFor({ state: "visible", timeout: 10_000 });
@@ -196,8 +244,30 @@ function requireAccount(model: CreditRiskReviewModel, accountId: string): Credit
 
 async function verifyLandingDavidDemoCta(page: Page, baseUrl: string): Promise<void> {
   await checkedGoto(page, `${baseUrl}/`, "Recoup landing David demo CTA");
-  await page.getByRole("tab", { name: "Demo" }).click();
+  const demoTab = page.getByRole("tab", { name: "Demo" });
+  await demoTab.waitFor({ state: "visible", timeout: 15_000 });
+  await page.waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll('[role="tab"]')).some((element) => {
+        return (
+          element.textContent.includes("Demo") &&
+          Object.keys(element).some((key) => key.startsWith("__reactProps$") || key.startsWith("__reactFiber$"))
+        );
+      }),
+    undefined,
+    { timeout: 10_000 }
+  );
+  await demoTab.click();
   const demoPanel = page.getByTestId("recoup-landing-tab-demo");
+  await page.waitForFunction(
+    () => {
+      const panel = document.querySelector('[data-testid="recoup-landing-tab-demo"]');
+
+      return panel?.getAttribute("data-state") === "active" && !panel.hasAttribute("hidden");
+    },
+    undefined,
+    { timeout: 15_000 }
+  );
   await demoPanel.waitFor({ state: "visible", timeout: 15_000 });
   await expectTextInLocator(demoPanel, "Review the 4-account weekly risk queue", "David landing demo card");
   await page.getByTestId("recoup-landing-david-cta").click();
@@ -275,6 +345,11 @@ async function waitForEnabled(locator: ReturnType<Page["getByTestId"]>, timeoutM
   }
 
   throw new Error(`${label} did not become enabled.`);
+}
+
+async function assertDrawerClosed(page: Page, testId: string): Promise<void> {
+  const state = await page.getByTestId(testId).getAttribute("data-open", { timeout: 10_000 });
+  assert(state === "false", `${testId} should be collapsed by default, received data-open=${String(state)}.`);
 }
 
 async function expectTextInLocator(

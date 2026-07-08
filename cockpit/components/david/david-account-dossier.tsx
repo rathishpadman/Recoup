@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftIcon, CheckCircle2Icon, CircleIcon, LayoutGridIcon, RouteIcon, ScaleIcon } from "lucide-react";
+import { ArrowLeftIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidActionPacket } from "./david-action-packet.tsx";
 import { DavidAssessmentTimeline } from "./david-assessment-timeline.tsx";
+import { DavidDecisionFlow } from "./david-decision-flow.tsx";
 import { DavidMeshTiles } from "./david-mesh-tiles.tsx";
 import { DavidSignalsIn } from "./david-signals-in.tsx";
 import { DavidVerdictBanner } from "./david-verdict-banner.tsx";
@@ -23,14 +24,6 @@ interface DavidAccountDossierProps {
   onTimelineVisibleCountChange: (accountId: string, visibleCount: number) => void;
   shouldStreamTimeline: boolean;
 }
-
-const dossierSteps = [
-  { icon: CircleIcon, key: "account", label: "Account" },
-  { icon: LayoutGridIcon, key: "mesh", label: "Risk Mesh" },
-  { icon: CheckCircle2Icon, key: "verdict", label: "Verdict" },
-  { icon: RouteIcon, key: "packet", label: "Packet" },
-  { icon: ScaleIcon, key: "approval", label: "Approval" }
-] as const;
 
 export function DavidAccountDossier({
   account,
@@ -68,33 +61,10 @@ export function DavidAccountDossier({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-5">
-            {dossierSteps.map((step, index) => {
-              const Icon = step.icon;
-              const isApprovalStep = step.key === "approval";
-              const isDone = !isApprovalStep || account.packet.approvalStatus === "committed";
-              const isCurrent = isApprovalStep && account.packet.approvalStatus !== "committed";
-
-              return (
-                <div className="grid gap-2 rounded-lg border bg-muted/15 p-3" key={step.key}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{`Step ${String(index + 1)}`}</span>
-                    <span className={cn("inline-flex size-8 items-center justify-center rounded-full border", isCurrent ? "border-primary/30 bg-primary/10 text-primary" : isDone ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-border bg-background text-muted-foreground")}>
-                      <Icon aria-hidden="true" className="size-4" data-icon="dossier-step" />
-                    </span>
-                  </div>
-                  <div className="grid gap-1">
-                    <span className="text-sm font-medium">{step.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {isApprovalStep ? (account.packet.approvalStatus === "committed" ? "Committed" : "Awaiting review") : "Ready"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </CardContent>
       </Card>
+
+      <DavidDecisionFlow account={account} />
 
       <Card className="rounded-lg shadow-[var(--shadow-xs)]">
         <CardHeader className="gap-3">

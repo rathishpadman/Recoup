@@ -1276,6 +1276,69 @@
       "usedInScenario": "General"
     }
   ],
+  "evidenceDocuments": [
+    {
+      "accountId": "ACC-CRE",
+      "contentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "documentId": "EVD-CREDIT-ACC-CRE-AR",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-CRE",
+        "S3",
+        "S6",
+        "credit_ar_open_items",
+        "credit_deductions"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Crestline AR aging and deduction evidence packet"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "contentHash": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+      "documentId": "EVD-CREDIT-ACC-HAR-TERMS",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-HAR",
+        "S1",
+        "S2",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Harbor Foods terms and recovery evidence packet"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "contentHash": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+      "documentId": "EVD-CREDIT-ACC-VAL-SLA",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-VAL",
+        "S4",
+        "S5",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "ValuMart SLA and carrier signal evidence packet"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "contentHash": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "documentId": "EVD-CREDIT-ACC-GRE-STANDARD",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-GRE",
+        "S1",
+        "credit_ar_open_items",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Greenleaf standard terms and clean support evidence packet"
+    }
+  ],
   "riskMeshPositions": [
     {
       "accountId": "ACC-CRE",

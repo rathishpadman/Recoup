@@ -6,6 +6,7 @@ import type {
   AccountRow as CreditRiskAccountRow,
   ArOpenItemRow as CreditRiskArOpenItemRow,
   ContractTpmRow as CreditRiskContractTpmRow,
+  CreditEvidenceDocumentRow as CreditRiskEvidenceDocumentRow,
   CreditPolicy,
   CreditRiskRows,
   DeductionLineRow as CreditRiskDeductionLineRow,
@@ -145,6 +146,7 @@ type CreditRiskTableName =
   | "credit_deductions"
   | "credit_deduction_lines"
   | "credit_contract_tpm"
+  | "credit_evidence_documents"
   | "credit_risk_mesh_positions"
   | "credit_policy";
 
@@ -225,6 +227,17 @@ const creditRiskContractTpmRowSchema = z.object({
   type: z.string().min(1),
   used_in_scenario: z.string().min(1),
   value: z.coerce.number().nullable().optional()
+});
+
+const creditRiskEvidenceDocumentRowSchema = z.object({
+  account_id: z.string().min(1),
+  content_hash: z.string().min(1),
+  document_id: z.string().min(1),
+  document_type: z.string().min(1),
+  record_ids: jsonArraySchema,
+  source_mode: z.string().min(1),
+  synthetic: z.boolean(),
+  title: z.string().min(1)
 });
 
 const creditRiskMeshPositionRowSchema = z.object({
@@ -946,6 +959,7 @@ export async function loadCreditRiskRows(
     deductionRows,
     deductionLineRows,
     contractTpmRows,
+    evidenceDocumentRows,
     meshPositionRows,
     policyRows
   ] = await Promise.all([
@@ -998,6 +1012,12 @@ export async function loadCreditRiskRows(
     }),
     requestSupabaseRows(supabaseFetch, {
       baseUrl,
+      orderBy: "account_id.asc,document_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_evidence_documents"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
       orderBy: "account_id.asc,position.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_risk_mesh_positions"
@@ -1034,6 +1054,11 @@ export async function loadCreditRiskRows(
   const contractTpm = parseCreditRiskRows("credit_contract_tpm", contractTpmRows, creditRiskContractTpmRowSchema).map(
     mapCreditRiskContractTpmRow
   );
+  const evidenceDocuments = parseCreditRiskRows(
+    "credit_evidence_documents",
+    evidenceDocumentRows,
+    creditRiskEvidenceDocumentRowSchema
+  ).map(mapCreditRiskEvidenceDocumentRow);
   const riskMeshPositions = parseCreditRiskRows(
     "credit_risk_mesh_positions",
     meshPositionRows,
@@ -1052,6 +1077,7 @@ export async function loadCreditRiskRows(
     contractTpm,
     deductions,
     deductionLines,
+    evidenceDocuments,
     paymentHistory,
     policy,
     riskMeshPositions,
@@ -1201,6 +1227,30 @@ function mapCreditRiskContractTpmRow(row: z.infer<typeof creditRiskContractTpmRo
     type: row.type,
     usedInScenario: row.used_in_scenario,
     value: row.value ?? null
+  };
+}
+
+function mapCreditRiskEvidenceDocumentRow(
+  row: {
+    account_id: string;
+    content_hash: string;
+    document_id: string;
+    document_type: string;
+    record_ids?: unknown;
+    source_mode: string;
+    synthetic: boolean;
+    title: string;
+  }
+): CreditRiskEvidenceDocumentRow {
+  return {
+    accountId: row.account_id,
+    contentHash: row.content_hash,
+    documentId: row.document_id,
+    documentType: row.document_type,
+    recordIds: z.array(z.string().min(1)).parse(row.record_ids),
+    sourceMode: row.source_mode,
+    synthetic: row.synthetic,
+    title: row.title
   };
 }
 

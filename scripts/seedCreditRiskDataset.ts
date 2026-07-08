@@ -12,6 +12,7 @@ interface CreditRiskDataset {
   deductions: DeductionRow[];
   deductionLines: DeductionLineRow[];
   contractTpm: ContractTpmRow[];
+  evidenceDocuments: EvidenceDocumentRow[];
   riskMeshPositions: RiskMeshPositionRow[];
   policy: Record<string, number>;
 }
@@ -88,6 +89,17 @@ interface ContractTpmRow {
   detail: string;
   value: number | null;
   usedInScenario: string;
+}
+
+interface EvidenceDocumentRow {
+  accountId: string;
+  contentHash: string;
+  documentId: string;
+  documentType: string;
+  recordIds: string[];
+  sourceMode: string;
+  synthetic: boolean;
+  title: string;
 }
 
 interface RiskMeshPositionRow {
@@ -219,6 +231,21 @@ async function main(): Promise<void> {
   await upsert(
     supabaseUrl,
     serviceRoleKey,
+    "credit_evidence_documents?on_conflict=document_id",
+    dataset.evidenceDocuments.map((row) => ({
+      account_id: row.accountId,
+      content_hash: row.contentHash,
+      document_id: row.documentId,
+      document_type: row.documentType,
+      record_ids: row.recordIds,
+      source_mode: row.sourceMode,
+      synthetic: row.synthetic,
+      title: row.title
+    }))
+  );
+  await upsert(
+    supabaseUrl,
+    serviceRoleKey,
     "credit_risk_mesh_positions?on_conflict=account_id,position",
     dataset.riskMeshPositions.map((row) => ({
       account_id: row.accountId,
@@ -249,6 +276,7 @@ async function main(): Promise<void> {
           contract_tpm: dataset.contractTpm.length,
           deduction_lines: dataset.deductionLines.length,
           deductions: dataset.deductions.length,
+          evidence_documents: dataset.evidenceDocuments.length,
           payment_history: dataset.paymentHistory.length,
           policy: Object.keys(dataset.policy).length,
           risk_mesh_positions: dataset.riskMeshPositions.length,

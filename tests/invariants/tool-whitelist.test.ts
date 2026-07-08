@@ -21,6 +21,7 @@ describe("I-15 whitelisted typed tools", () => {
       "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
+      "credit_risk.answer",
       "decisions.deductionVerdict",
       "email.sendApproved",
       "email.status",

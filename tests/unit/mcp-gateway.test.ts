@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMayaMcpServerOptions,
+  davidCreditAgentMcpAllowedToolNames,
   mayaAgentMcpAllowedToolNames
 } from "../../src/agents/mcpGateway.js";
 
@@ -53,6 +54,35 @@ describe("Maya MCP agent gateway", () => {
     expect(readRequestHeaders(options.requestInit as unknown)).toMatchObject({
       "x-recoup-query-answer-scope":
         "eyJyZWNvcmRJZHMiOlsiUzMtTDEiLCJJTlYtUzMtMSJdLCJzZWxlY3RlZExpbmVJZCI6IlMzLUwxIn0"
+    });
+  });
+
+  it("adds selected David credit scope headers and filters to credit_risk.answer", () => {
+    const options = buildMayaMcpServerOptions(
+      {
+        RECOUP_MCP_AUTH_TOKEN: "test-mcp-token",
+        RECOUP_MCP_URL: "https://mcp.example.test/mcp"
+      },
+      {
+        creditRiskAnswerScope: {
+          accountId: "ACC-CRE",
+          recordIds: ["ACC-CRE", "S3", "EVD-CREDIT-ACC-CRE-AR"]
+        }
+      },
+      davidCreditAgentMcpAllowedToolNames
+    );
+    const headers = readRequestHeaders(options.requestInit as unknown);
+    const encodedScope = headers["x-recoup-credit-risk-answer-scope"];
+    if (encodedScope === undefined) {
+      throw new Error("Expected David credit risk scope header.");
+    }
+
+    expect(options.toolFilter).toEqual({
+      allowedToolNames: ["audit.read", "credit_risk.answer"]
+    });
+    expect(JSON.parse(Buffer.from(encodedScope, "base64url").toString("utf8"))).toEqual({
+      accountId: "ACC-CRE",
+      recordIds: ["ACC-CRE", "S3", "EVD-CREDIT-ACC-CRE-AR"]
     });
   });
 

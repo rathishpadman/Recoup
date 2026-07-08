@@ -72,6 +72,10 @@ export interface ServiceInvocationContext {
   creditRiskRows?: CreditRiskRows;
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig?: GovernedConfigValues;
+  creditRiskAnswerScope?: {
+    accountId: string;
+    recordIds: string[];
+  };
   queryAnswerScope?: {
     recordIds: string[];
     selectedLineId: string;
@@ -178,6 +182,22 @@ const queryAnswerToolSchema = z
       });
     }
   });
+const creditRiskAnswerToolSchema = z
+  .object({
+    accountId: z.string().min(1),
+    question: z.string().min(1).max(500),
+    recordIds: z.array(z.string().min(1)).min(1)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.recordIds.includes(value.accountId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "credit_risk.answer requires selected account scope including accountId in recordIds.",
+        path: ["recordIds"]
+      });
+    }
+  });
 const emailRecipientGroupSchema = z.enum(["billing", "recovery"]);
 const emailSendApprovedToolSchema = z
   .object({
@@ -236,6 +256,7 @@ export const serviceToolMetadata = {
   "audit.read": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "core.evaluateRule": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
   "core.riskMeshClosedLoop": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
+  "credit_risk.answer": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "decisions.deductionVerdict": { riskClass: "decision", sideEffectClass: "write_local", visibility: "internal" },
   "email.sendApproved": { riskClass: "communication", sideEffectClass: "external_correspondence", visibility: "mcp" },
   "email.status": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
@@ -386,6 +407,10 @@ export const serviceTools = {
   "query.answer": {
     schema: queryAnswerToolSchema,
     handler: (input, context) => answerSourceBackedSelectedEvidenceQuery(input, context)
+  },
+  "credit_risk.answer": {
+    schema: creditRiskAnswerToolSchema,
+    handler: (input, context) => answerSourceBackedCreditRiskQuery(input, context)
   },
   "retrieval.docs": {
     schema: DeductionLineSchema,
@@ -652,6 +677,65 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
   };
 }
 
+function answerSourceBackedCreditRiskQuery(input: unknown, context: ServiceInvocationContext): unknown {
+  const parsed = creditRiskAnswerToolSchema.parse(input);
+  assertCreditRiskAnswerWithinSelectedScope(parsed, context.creditRiskAnswerScope);
+  if (context.creditRiskRows === undefined) {
+    throw new Error("credit_risk.answer requires credit risk source rows.");
+  }
+
+  const model = buildCreditRiskReviewModel(context.creditRiskRows);
+  const account = model.accounts.find((candidate) => candidate.accountId === parsed.accountId);
+  if (account === undefined) {
+    throw new Error("credit_risk.answer accountId was not found in the credit risk source snapshot.");
+  }
+
+  const allowedRecordIds = new Set([
+    account.accountId,
+    ...account.recordIds,
+    ...account.evidenceDocuments.flatMap((document) => [document.documentId, ...document.recordIds])
+  ]);
+  if (
+    !parsed.recordIds.includes(account.accountId) ||
+    parsed.recordIds.some((recordId) => !allowedRecordIds.has(recordId))
+  ) {
+    throw new Error("credit_risk.answer input is outside the selected account evidence scope.");
+  }
+
+  const selectedEvidence = account.evidenceDocuments
+    .filter((document) =>
+      parsed.recordIds.includes(document.documentId) ||
+      document.recordIds.some((recordId) => parsed.recordIds.includes(recordId))
+    )
+    .map((document) => ({
+      documentId: document.documentId,
+      documentType: document.documentType,
+      recordIds: dedupeStringValues([account.accountId, document.documentId, ...document.recordIds]),
+      source: document.synthetic ? "supabase_synthetic" : "supabase",
+      summary: document.title
+    }));
+
+  if (selectedEvidence.length === 0) {
+    throw new Error("credit_risk.answer selected account evidence documents are unavailable.");
+  }
+
+  return {
+    answer: "Selected David credit risk evidence scope read from governed backend rows.",
+    sourceReadStatus: "source_backed_selected_scope",
+    sourceReads: {
+      canonicalModel: "CreditRiskEvidenceDocument",
+      primarySourceLabel: "Supabase credit evidence documents",
+      primarySourceSystem: "supabase",
+      selectedAccountId: account.accountId,
+      selectedEvidence,
+      selectedRecordIds: [...parsed.recordIds],
+      sourceFreshness: "snapshot",
+      transportLabel: "Governed credit risk read-model",
+      transportLayer: "supabase_credit_risk"
+    }
+  };
+}
+
 function assertQueryAnswerWithinSelectedScope(
   input: { recordIds: readonly string[]; selectedLineId: string },
   scope: ServiceInvocationContext["queryAnswerScope"]
@@ -669,6 +753,26 @@ function assertQueryAnswerWithinSelectedScope(
 
   if (input.selectedLineId !== scope.selectedLineId || !selectedSubsetScope) {
     throw new Error("query.answer input is outside the selected evidence scope.");
+  }
+}
+
+function assertCreditRiskAnswerWithinSelectedScope(
+  input: { accountId: string; recordIds: readonly string[] },
+  scope: ServiceInvocationContext["creditRiskAnswerScope"]
+): void {
+  if (scope === undefined) {
+    return;
+  }
+
+  const inputRecordIds = dedupeStringValues(input.recordIds);
+  const scopeRecordIds = dedupeStringValues(scope.recordIds);
+  const selectedAccountScope =
+    inputRecordIds.includes(scope.accountId) &&
+    inputRecordIds.some((recordId) => recordId !== scope.accountId) &&
+    inputRecordIds.every((recordId) => scopeRecordIds.includes(recordId));
+
+  if (input.accountId !== scope.accountId || !selectedAccountScope) {
+    throw new Error("credit_risk.answer input is outside the selected account evidence scope.");
   }
 }
 

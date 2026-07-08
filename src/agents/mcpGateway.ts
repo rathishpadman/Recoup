@@ -18,6 +18,10 @@ export const mayaAgentMcpAllowedToolNames = [
   "audit.read",
   "query.answer"
 ] as const;
+export const davidCreditAgentMcpAllowedToolNames = [
+  "audit.read",
+  "credit_risk.answer"
+] as const;
 
 export interface MayaMcpGateway {
   close(): Promise<void>;
@@ -26,6 +30,7 @@ export interface MayaMcpGateway {
 }
 
 export interface CreateMayaMcpGatewayInput {
+  allowedToolNames?: readonly string[];
   env?: RuntimeEnv;
   serviceContext?: ServiceInvocationContext;
   startServer?: (input?: StartMcpHttpServerInput) => Promise<StartedMcpHttpServer>;
@@ -33,7 +38,8 @@ export interface CreateMayaMcpGatewayInput {
 
 export function buildMayaMcpServerOptions(
   env: RuntimeEnv = process.env,
-  serviceContext?: ServiceInvocationContext
+  serviceContext?: ServiceInvocationContext,
+  allowedToolNames: readonly string[] = mayaAgentMcpAllowedToolNames
 ): MCPServerStreamableHttpOptions {
   const url = readMayaMcpUrl(env);
   const token = readConfiguredValue(env.RECOUP_MCP_AUTH_TOKEN);
@@ -45,11 +51,12 @@ export function buildMayaMcpServerOptions(
     readConfiguredValue(env.RECOUP_MCP_CLIENT_PRINCIPAL) ??
     readConfiguredValue(env.RECOUP_COCKPIT_HUMAN_PRINCIPAL) ??
     defaultCockpitHumanPrincipal;
-  const toolFilter = createMCPToolStaticFilter({ allowed: [...mayaAgentMcpAllowedToolNames] });
+  const toolFilter = createMCPToolStaticFilter({ allowed: [...allowedToolNames] });
   if (toolFilter === undefined) {
     throw new Error("Maya MCP agent source tool filter is required.");
   }
   const queryScopeHeader = encodeQueryAnswerScopeHeader(serviceContext);
+  const creditRiskScopeHeader = encodeCreditRiskAnswerScopeHeader(serviceContext);
 
   return {
     cacheToolsList: false,
@@ -58,7 +65,8 @@ export function buildMayaMcpServerOptions(
       headers: {
         authorization: `Bearer ${token}`,
         "x-recoup-mcp-principal": principal,
-        ...(queryScopeHeader === undefined ? {} : { "x-recoup-query-answer-scope": queryScopeHeader })
+        ...(queryScopeHeader === undefined ? {} : { "x-recoup-query-answer-scope": queryScopeHeader }),
+        ...(creditRiskScopeHeader === undefined ? {} : { "x-recoup-credit-risk-answer-scope": creditRiskScopeHeader })
       }
     },
     toolFilter,
@@ -71,7 +79,7 @@ export async function createMayaMcpGateway(input: CreateMayaMcpGatewayInput = {}
   const explicitMcpUrl = readConfiguredValue(env.RECOUP_MCP_URL);
 
   if (explicitMcpUrl !== undefined) {
-    return createGatewayFromOptions(buildMayaMcpServerOptions(env, input.serviceContext));
+    return createGatewayFromOptions(buildMayaMcpServerOptions(env, input.serviceContext, input.allowedToolNames));
   }
 
   const loopbackEnv = buildLoopbackMcpEnv(env);
@@ -80,10 +88,14 @@ export async function createMayaMcpGateway(input: CreateMayaMcpGatewayInput = {}
     port: 0,
     ...(input.serviceContext === undefined ? {} : { serviceContext: input.serviceContext })
   });
-  const options = buildMayaMcpServerOptions({
-    ...loopbackEnv,
-    RECOUP_MCP_URL: `${started.baseUrl}${started.endpoint}`
-  }, input.serviceContext);
+  const options = buildMayaMcpServerOptions(
+    {
+      ...loopbackEnv,
+      RECOUP_MCP_URL: `${started.baseUrl}${started.endpoint}`
+    },
+    input.serviceContext,
+    input.allowedToolNames
+  );
 
   return createGatewayFromOptions(options, started);
 }
@@ -159,6 +171,21 @@ function encodeQueryAnswerScopeHeader(serviceContext: ServiceInvocationContext |
     JSON.stringify({
       recordIds: scope.recordIds,
       selectedLineId: scope.selectedLineId
+    }),
+    "utf8"
+  ).toString("base64url");
+}
+
+function encodeCreditRiskAnswerScopeHeader(serviceContext: ServiceInvocationContext | undefined): string | undefined {
+  const scope = serviceContext?.creditRiskAnswerScope;
+  if (scope === undefined) {
+    return undefined;
+  }
+
+  return Buffer.from(
+    JSON.stringify({
+      accountId: scope.accountId,
+      recordIds: scope.recordIds
     }),
     "utf8"
   ).toString("base64url");

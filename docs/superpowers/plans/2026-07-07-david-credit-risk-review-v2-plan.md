@@ -440,6 +440,24 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 ---
 
+## Owner Feedback Remediation After Local Human QA (added 2026-07-08)
+
+**Source:** owner feedback from local human QA of David's journey and Maya cache behavior. **Hard gate:** no prod movement, preview promotion, or main merge until every item in this remediation section passes with current evidence.
+
+- [ ] **Plan update first:** keep this section in the original attached plan file and mirror it into the implementation branch before any prod movement.
+- [ ] **Dynamic backend data RED tests:** prove David UI values are derived from Supabase/read-model rows, not React constants. Include a complete new-account fixture that recalculates exposure, utilization, DSO, dispute counts, unsupported amount, verdict, and action packet from input rows. Include a fail-closed test for partial/missing source data.
+- [ ] **Real David agent investigation RED tests:** add David live-agent checks equivalent to Maya: `modelExecution.mode:"live_openai_agents"`, agent names present, `handoffCount > 0`, token usage or provider usage snapshot present, raw model output suppressed, and citations tied to credit/source/evidence record IDs.
+- [ ] **LLM failure approval stop:** if the David LLM call fails during browser or E2E verification, stop and ask the owner before continuing. Do not silently downgrade to scripted UI text.
+- [ ] **Backend implementation:** add David live investigation/query service modeled after Maya's `forensicsQuerySession`. Agents investigate selected-account evidence and may explain, cite, summarize trace, and hand off between David credit agents. Code computes every dollar, score, threshold, verdict, and action.
+- [ ] **Credit evidence docs:** load existing Supabase evidence docs where present. If David credit evidence docs are missing, create a clearly labeled governed `credit_evidence_documents`-style table/seed only after confirming schema/write path and provenance.
+- [ ] **David UI remediation:** remove the top `Recoup · Prototype` walkthrough strip entirely; remove duplicate rendering so `Good morning, David` does not appear under account detail; rebuild the worklist to match the owner HTML/screenshots; replace decision flow with `Account -> Risk Mesh assesses -> Risk verdict -> Action packet -> Your approval`; keep Agent Assessment, Signals In, Outcome, and Action collapsed by default; add a David model-execution drawer with mode, agents, handoffs, input/output/total tokens, source hash or run id, and raw-output policy.
+- [ ] **Browser verification:** run local E2E from landing/login through Maya and David. Verify Maya cache behavior is not disturbed. Verify David queue, detail, collapsed drawers, live investigation, copilot query, approval packet, and no duplicate sections.
+- [ ] **Commands:** run `npm run lint`, `npm run typecheck`, `npm run test`, and then `npm run verify` before any production movement.
+
+**Owner answers already locked:** David investigation auto-runs once per selected account/source hash; Codex has approval to create governed docs/table if required; update the original attached plan in place before prod movement.
+
+---
+
 ## Success criteria (demo acceptance)
 
 1. **Milestone 0 shipped first:** prod `/forensics/shadcn` warm load < ~2s; Maya e2e/shared-surfaces green; merged to main before David started.

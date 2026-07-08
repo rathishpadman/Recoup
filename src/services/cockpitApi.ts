@@ -8,6 +8,7 @@ import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues 
 import { readCanaryLines, readReconciliationMode } from "../../config/reconciliationRollout.js";
 import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
 import {
+  runOpenAICreditRiskAgentStream,
   streamLiveForensicsTraceEvents,
   type LiveForensicsStreamRunner
 } from "../agents/liveForensicsStream.js";
@@ -120,6 +121,7 @@ import {
   buildCreditRiskReviewModel,
   type CreditRiskApprovalReceipt
 } from "./creditRiskModel.js";
+import { runCreditRiskQuerySessionWithLiveAgents } from "./creditRiskQuerySession.js";
 import {
   buildSourceHealthResultsFromSnapshots,
   type SourceHealthResult,
@@ -227,6 +229,13 @@ const forensicsWorkspaceQueryRequestSchema = z
   .strict();
 const forensicsQueryRequestSchema = z.union([forensicsWorkspaceQueryRequestSchema, forensicsSelectedQueryRequestSchema]);
 type ForensicsSelectedQueryRequest = z.infer<typeof forensicsSelectedQueryRequestSchema>;
+const creditRiskQueryRequestSchema = z
+  .object({
+    accountId: z.string().trim().min(1, "Credit risk query accountId is required."),
+    question: z.string().trim().min(1, "Credit risk query question is required.").max(500, "Credit risk query question is too long."),
+    recordIds: z.array(z.string().trim().min(1)).min(1, "Credit risk query selected recordIds are required.")
+  })
+  .strict();
 const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
@@ -275,6 +284,7 @@ type CockpitRateLimitedRoute =
   | "GET /run"
   | "POST /admin/demo-reset"
   | "POST /approval"
+  | "POST /credit/query"
   | "POST /forensics/refresh"
   | "POST /forensics/query"
   | "POST /run";
@@ -297,6 +307,7 @@ const cockpitApiRoutes = [
   "POST /run",
   "POST /admin/demo-reset",
   "POST /approval",
+  "POST /credit/query",
   "POST /forensics/refresh",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
@@ -304,6 +315,7 @@ const cockpitApiRoutes = [
 ] as const;
 
 export interface CockpitApiOptions {
+  creditRiskStreamRunner?: LiveForensicsStreamRunner;
   env?: RuntimeEnv;
   forensicsStreamRunner?: LiveForensicsStreamRunner;
   memoryFetcher?: SupabaseMemoryFetch;
@@ -639,6 +651,77 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       sendFailClosedJson(request, response, 503, {
         error: "Credit approval receipt state is unavailable from governed backend sources.",
         missingSource: "approval_records"
+      });
+    }
+  });
+
+  app.post("/credit/query", rateLimitAuditEndpoint("POST /credit/query"), async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "realtime"
+      })
+    ) {
+      return;
+    }
+
+    const parsedRequest = creditRiskQueryRequestSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+      response.status(400).json({ error: "Invalid credit risk query request.", issues: parsedRequest.error.issues });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
+
+    const runControl = await loadRequiredRunControl(request, response);
+    if (runControl === undefined) {
+      return;
+    }
+    const runBudget = createRunBudgetController(runControl.config);
+    runBudget.recordStep({ phase: "query" });
+
+    try {
+      const model = buildCreditRiskReviewModel({
+        ...rows,
+        approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+      });
+      const runner =
+        options.creditRiskStreamRunner ??
+        ((liveRequest) => runOpenAICreditRiskAgentStream(liveRequest, undefined, { env: runtimeEnv }));
+      const queryResponse = await runCreditRiskQuerySessionWithLiveAgents({
+        accountId: parsedRequest.data.accountId,
+        liveAgentTrace: {
+          env: runtimeEnv,
+          maxTurns: runControl.config.phases.query.stepBudget,
+          onRetry() {
+            runBudget.recordRetry({ phase: "query" });
+          },
+          onTokenUsage(tokens: number) {
+            runBudget.recordTokenUsage({ phase: "query", tokens });
+          },
+          retryCap: runControl.config.phases.query.retryCap,
+          runner
+        },
+        model,
+        question: parsedRequest.data.question,
+        recordIds: parsedRequest.data.recordIds,
+        rows
+      });
+
+      response.setHeader("cache-control", "no-store");
+      response.json(queryResponse);
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "David credit risk live investigation is unavailable from governed backend sources.",
+        missingSource: "supabase-credit-risk-query-session"
       });
     }
   });
@@ -3278,6 +3361,7 @@ export async function startCockpitApiRuntime(options: CockpitApiRuntimeOptions =
             : { toolDataSchemaProbeLoader: sourceHealthToolDataSchemaProbeLoader })
         });
   const appOptions: CockpitApiOptions = {
+    ...(options.creditRiskStreamRunner === undefined ? {} : { creditRiskStreamRunner: options.creditRiskStreamRunner }),
     env: runtimeEnv,
     ...(options.forensicsStreamRunner === undefined ? {} : { forensicsStreamRunner: options.forensicsStreamRunner }),
     ...(options.memoryFetcher === undefined ? {} : { memoryFetcher: options.memoryFetcher }),

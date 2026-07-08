@@ -16,7 +16,7 @@ interface DavidBehaviouralWatchlistProps {
 export function DavidBehaviouralWatchlist({ accounts, onOpenAccount }: Readonly<DavidBehaviouralWatchlistProps>) {
   const watchlistAccounts = accounts.filter((account) => account.gamingFlag);
   const watchlistRows = watchlistAccounts.map((account) => {
-    const citedSignals = account.signals.filter((signal) => containmentScenarioIds.has(signal.scenarioId));
+    const citedSignals = account.signals.filter((signal) => signal.gamingFlag);
     const citedRecordIds = [...new Set(citedSignals.flatMap((signal) => signal.recordIds))];
     const handoffLabels = [...new Set(citedSignals.map((signal) => handoffLabel(signal.meshPosition, signal.feedsMesh)))];
 
@@ -122,8 +122,6 @@ export function DavidBehaviouralWatchlist({ accounts, onOpenAccount }: Readonly<
     </section>
   );
 }
-
-const containmentScenarioIds = new Set(["S3", "S6"]);
 
 function handoffLabel(meshPosition: string, feedsMesh: string): string {
   return meshPosition === feedsMesh ? `${meshPosition} handoff` : `${meshPosition} -> ${feedsMesh} handoff`;

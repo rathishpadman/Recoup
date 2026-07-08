@@ -17,6 +17,7 @@ export interface CreditRiskRows {
   deductions: DeductionRow[];
   deductionLines: DeductionLineRow[];
   contractTpm: ContractTpmRow[];
+  evidenceDocuments: CreditEvidenceDocumentRow[];
   riskMeshPositions: RiskMeshPositionRow[];
   policy: CreditPolicy;
   approvalReceipts?: CreditRiskApprovalReceipt[] | undefined;
@@ -113,6 +114,17 @@ export interface RiskMeshPositionRow {
   interpretation: string;
 }
 
+export interface CreditEvidenceDocumentRow {
+  accountId: string;
+  contentHash: string;
+  documentId: string;
+  documentType: string;
+  recordIds: string[];
+  sourceMode: string;
+  synthetic: boolean;
+  title: string;
+}
+
 export interface CreditPolicy {
   creditHighUtil: number;
   creditElevatedUtil: number;
@@ -198,7 +210,6 @@ export interface CreditCopilotSuggestion {
 
 export interface CreditRiskCopilotModel {
   conductorLabel: string;
-  disabledInputPlaceholder: string;
   note: string;
   readinessLabel: string;
   suggestions: CreditCopilotSuggestion[];
@@ -237,6 +248,17 @@ export interface CreditMeshPositionModel {
   statusTone: VerdictTone;
 }
 
+export interface CreditEvidenceDocumentModel {
+  contentHash: string;
+  deterministicBasis: string;
+  documentId: string;
+  documentType: string;
+  recordIds: string[];
+  sourceModeLabel: string;
+  synthetic: boolean;
+  title: string;
+}
+
 export interface CreditRiskAccountModel {
   accountId: string;
   actionPacket: CreditPacketRow[];
@@ -249,6 +271,7 @@ export interface CreditRiskAccountModel {
   daysBeyondTermsLabel: string;
   dsoDays: number;
   dsoLabel: string;
+  evidenceDocuments: CreditEvidenceDocumentModel[];
   exposureAmount: number;
   exposureLabel: string;
   facts: Array<{
@@ -360,7 +383,6 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
     asOfLabel: rows.snapshot.asOfDate,
     copilot: {
       conductorLabel: "Conductor",
-      disabledInputPlaceholder: "coming with the query agent",
       note: "Copilot assesses & recommends. Approvals stay with you.",
       readinessLabel: "Risk Mesh ready",
       suggestions: [
@@ -512,6 +534,7 @@ function buildAccountModel(
   const deductions = rows.deductions.filter((row) => row.accountId === account.accountId);
   const deductionLines = rows.deductionLines.filter((row) => row.accountId === account.accountId);
   const contractTpm = rows.contractTpm.filter((row) => row.accountId === account.accountId);
+  const evidenceDocuments = rows.evidenceDocuments.filter((row) => row.accountId === account.accountId);
   const seededMeshRows = rows.riskMeshPositions.filter((row) => row.accountId === account.accountId);
 
   if (arOpenItems.length === 0 || salesMonthly.length === 0 || paymentHistory.length === 0 || seededMeshRows.length !== 4) {
@@ -560,6 +583,7 @@ function buildAccountModel(
   };
   const verdictTone = toneByVerdict[verdict];
   const signals = buildSignals(deductions, deductionLines, contractTpm);
+  const evidenceDocumentModels = buildEvidenceDocuments(evidenceDocuments);
   const meshPositions = seededMeshRows
     .slice()
     .sort((left, right) => positionOrder(left.position) - positionOrder(right.position))
@@ -575,6 +599,7 @@ function buildAccountModel(
     }));
   const accountRecordIds = dedupe([
     account.accountId,
+    ...evidenceDocumentModels.flatMap((document) => [document.documentId, ...document.recordIds]),
     ...signals.flatMap((signal) => signal.recordIds),
     ...meshPositions.flatMap((position) => position.recordIds)
   ]);
@@ -657,6 +682,7 @@ function buildAccountModel(
     daysBeyondTermsLabel: formatDays(daysBeyondTerms),
     dsoDays: toWholeNumber(dso),
     dsoLabel: formatDays(dso),
+    evidenceDocuments: evidenceDocumentModels,
     exposureAmount: toAmount(exposure),
     exposureLabel: formatCompactMoney(exposure),
     facts: [
@@ -718,6 +744,19 @@ function buildAccountModel(
     verdictBasis,
     verdictTone
   };
+}
+
+function buildEvidenceDocuments(rows: readonly CreditEvidenceDocumentRow[]): CreditEvidenceDocumentModel[] {
+  return rows.map((row) => ({
+    contentHash: row.contentHash,
+    deterministicBasis: "Supabase credit_evidence_documents row + deterministic account record IDs",
+    documentId: row.documentId,
+    documentType: row.documentType,
+    recordIds: dedupe([row.accountId, row.documentId, ...row.recordIds]),
+    sourceModeLabel: row.sourceMode,
+    synthetic: row.synthetic,
+    title: row.title
+  }));
 }
 
 function assertRequiredRows(rows: CreditRiskRows): void {

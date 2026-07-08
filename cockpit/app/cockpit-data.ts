@@ -1,3 +1,5 @@
+import { loadLocalRuntimeEnvFiles } from "../../config/localRuntimeEnv.ts";
+
 const apiBaseUrl = process.env.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
 export interface MayaFieldProvenance {
@@ -634,7 +636,6 @@ export interface CreditRiskCopilotSuggestion {
 
 export interface CreditRiskCopilotModel {
   conductorLabel: string;
-  disabledInputPlaceholder: string;
   note: string;
   readinessLabel: string;
   suggestions: CreditRiskCopilotSuggestion[];
@@ -673,6 +674,16 @@ export interface CreditRiskMeshPositionModel {
   statusTone: CreditRiskVerdictTone;
 }
 
+export interface CreditRiskEvidenceDocumentModel {
+  contentHash: string;
+  deterministicBasis: string;
+  documentId: string;
+  recordIds: string[];
+  sourceModeLabel: string;
+  synthetic: boolean;
+  title: string;
+}
+
 export interface CreditRiskAccountModel {
   accountId: string;
   actionPacket: CreditRiskPacketRow[];
@@ -685,6 +696,7 @@ export interface CreditRiskAccountModel {
   daysBeyondTermsLabel: string;
   dsoDays: number;
   dsoLabel: string;
+  evidenceDocuments: CreditRiskEvidenceDocumentModel[];
   exposureAmount: number;
   exposureLabel: string;
   facts: Array<{
@@ -726,6 +738,50 @@ export interface CreditRiskAccountModel {
   verdictBasis: string;
   verdictTone: CreditRiskVerdictTone;
   assessmentSteps: CreditRiskAssessmentStep[];
+}
+
+export interface CreditRiskQueryResponse {
+  answer?: string;
+  citations: Array<{
+    deterministicBasis: string;
+    recordId: string;
+    sourceLabel: string;
+    title: string;
+  }>;
+  deterministicBasis?: string;
+  modelExecution?: {
+    agentNames?: string[];
+    deterministicBasis: string;
+    handoffCount?: number;
+    mode: "blocked_live_agent_trace" | "blocked_missing_credentials" | "live_openai_agents";
+    promptCache?: {
+      cachedTokens?: number;
+      capability: "credit_risk";
+      inputTokens?: number;
+      outputTokens?: number;
+      promptCacheKey: string;
+      promptPrefixVersion: string;
+    };
+    rawModelTextPolicy?: "suppressed";
+    reason?: string;
+    sourceReadMode?: "governed_backend_fallback" | "live_sdk_mcp";
+    tokenUsage?: number;
+    tokenUsageSnapshot?: {
+      cachedTokens?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens: number;
+    };
+  };
+  trace: Array<{
+    agentName: string;
+    hook: string;
+    label: string;
+    nextAgentName?: string;
+    phase: string;
+    recordIds: string[];
+    toolName?: string;
+  }>;
 }
 
 export interface CreditRiskReviewModel {
@@ -1042,8 +1098,8 @@ export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalF
 }
 
 function buildServerCockpitAuthHeaders(): HeadersInit | undefined {
-  const principal = process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL?.trim();
-  const token = process.env.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
+  const principal = readServerRuntimeValue("RECOUP_COCKPIT_HUMAN_PRINCIPAL");
+  const token = readServerRuntimeValue("RECOUP_COCKPIT_AUTH_TOKEN");
   if (principal === undefined || principal.length === 0 || token === undefined || token.length === 0) {
     return undefined;
   }
@@ -1052,4 +1108,13 @@ function buildServerCockpitAuthHeaders(): HeadersInit | undefined {
     "x-recoup-human-principal": principal,
     "x-recoup-human-token": token
   };
+}
+
+function readServerRuntimeValue(name: "RECOUP_COCKPIT_AUTH_TOKEN" | "RECOUP_COCKPIT_HUMAN_PRINCIPAL"): string | undefined {
+  const processValue = process.env[name]?.trim();
+  if (processValue !== undefined && processValue.length > 0) {
+    return processValue;
+  }
+
+  return loadLocalRuntimeEnvFiles()[name]?.trim();
 }

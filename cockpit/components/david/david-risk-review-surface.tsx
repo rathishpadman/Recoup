@@ -7,7 +7,6 @@ import { DavidAccountQueue } from "./david-account-queue.tsx";
 import { DavidActionPacketsOutbox } from "./david-action-packets-outbox.tsx";
 import { DavidBehaviouralWatchlist } from "./david-behavioural-watchlist.tsx";
 import { DavidCopilotDock } from "./david-copilot-dock.tsx";
-import { DavidWalkthroughStrip } from "./david-walkthrough-strip.tsx";
 import { DavidWorkspaceShell, type DavidSurfaceSection } from "./david-workspace-shell.tsx";
 
 interface DavidRiskReviewSurfaceProps {
@@ -128,19 +127,11 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       runSummary={runSummary}
       searchValue={search}
       sources={model.sources}
-      walkthroughStrip={
-        <DavidWalkthroughStrip
-          displayName={displayName}
-          hasCommittedApproval={selectedAccount?.packet.approvalStatus === "committed"}
-          hasSelectedAccount={selectedAccountId !== null}
-        />
-      }
     >
       {activeSection === "risk-review" ? (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">
           <main className="grid gap-4">
             {selectedAccount === undefined ? accountQueue : accountDossier}
-            {selectedAccount === undefined ? null : accountQueue}
           </main>
           <DavidCopilotDock
             activeSuggestionId={activeCopilotSuggestionId}

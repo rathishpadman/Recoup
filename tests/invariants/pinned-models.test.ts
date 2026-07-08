@@ -40,6 +40,13 @@ describe("runtime model config", () => {
         reasoning: { effort: "low" },
         text: { verbosity: "low" }
       },
+      actionPacketDrafter: {
+        providerData: {
+          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+        },
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" }
+      },
       sentinel: {
         providerData: {
           prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey

@@ -702,7 +702,7 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(surface).toContain("DavidAccountQueue");
     expect(surface).toContain('data-testid="david-risk-review-surface"');
     expect(surface).toContain("selectedAccount === undefined ? accountQueue : accountDossier");
-    expect(packet).toContain('data-testid="david-action-packet"');
+    expect(packet).toContain('testId="david-action-packet"');
     expect(packet).toContain('data-testid="david-action-packet-receipt"');
     expect(packet).toContain("External send remains gated");
     expect(packet).toContain("<DavidApprovalGateDialog");

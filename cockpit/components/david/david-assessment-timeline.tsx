@@ -12,9 +12,9 @@ import {
   WalletCardsIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel, CreditRiskAssessmentStep } from "../../app/cockpit-data.ts";
+import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
@@ -77,32 +77,29 @@ export function DavidAssessmentTimeline({
   const isStreaming = shouldStream && visibleCount < steps.length;
 
   return (
-    <Card className="rounded-lg shadow-[var(--shadow-xs)]" data-testid="david-assessment-timeline">
-      <CardHeader className="gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <CardTitle className="text-base">Agent assessment</CardTitle>
-            <p className="text-sm text-muted-foreground">Overnight trace replay from governed retrievers, rules, and packet drafting.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{`${steps.length.toString()} steps`}</Badge>
-            <Badge variant={isStreaming ? "secondary" : "outline"}>{isStreaming ? "Assessing" : "Ready"}</Badge>
-          </div>
-        </div>
+    <DavidCollapsibleCard
+      badges={
+        <>
+          <Badge variant="outline">{`${steps.length.toString()} steps`}</Badge>
+          <Badge variant={isStreaming ? "secondary" : "outline"}>{isStreaming ? "Assessing" : "Ready"}</Badge>
+        </>
+      }
+      defaultOpen={false}
+      description="Overnight trace replay from governed retrievers, rules, and packet drafting."
+      testId="david-assessment-timeline"
+      title="Agent assessment"
+    >
         {nextStep === undefined ? null : (
           <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
             Replaying {nextStep.agentName}.
           </div>
         )}
-      </CardHeader>
-      <CardContent>
-        <ol className="grid gap-3" data-testid="david-assessment-step-list">
-          {visibleSteps.map((step, index) => (
-            <DavidAssessmentStep account={account} index={index} key={step.key} step={step} />
-          ))}
-        </ol>
-      </CardContent>
-    </Card>
+      <ol className="grid gap-3" data-testid="david-assessment-step-list">
+        {visibleSteps.map((step, index) => (
+          <DavidAssessmentStep account={account} index={index} key={step.key} step={step} />
+        ))}
+      </ol>
+    </DavidCollapsibleCard>
   );
 }
 

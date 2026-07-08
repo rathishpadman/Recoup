@@ -78,13 +78,12 @@ describe("credit risk review model", () => {
     expect(harbor.assessmentSteps.some((step) => step.key.endsWith(":containment"))).toBe(false);
   });
 
-  it("emits the scripted copilot contract from the backend read model", () => {
+  it("emits the live-ready copilot contract from the backend read model", () => {
     const model = buildCreditRiskReviewModel(loadCreditRiskFixtureRows());
     const crestline = byId(model, "ACC-CRE");
 
     expect(model.copilot).toMatchObject({
       conductorLabel: "Conductor",
-      disabledInputPlaceholder: "coming with the query agent",
       note: "Copilot assesses & recommends. Approvals stay with you.",
       readinessLabel: "Risk Mesh ready",
       title: "Investigation Copilot"

@@ -46,7 +46,6 @@ interface DavidWorkspaceShellProps {
   runSummary: string;
   searchValue: string;
   sources: CreditRiskReviewModel["sources"];
-  walkthroughStrip?: ReactNode;
 }
 
 const navItems: ReadonlyArray<{
@@ -86,8 +85,7 @@ export function DavidWorkspaceShell({
   readySections = ["risk-review"],
   runSummary,
   searchValue,
-  sources,
-  walkthroughStrip
+  sources
 }: Readonly<DavidWorkspaceShellProps>) {
   const readySectionSet = new Set(readySections);
 
@@ -185,7 +183,6 @@ export function DavidWorkspaceShell({
       <SidebarInset className="min-h-svh bg-background text-foreground" data-testid="david-shadcn-workbench">
         <div className="flex min-w-0 flex-1 flex-col px-5 py-5">
           <div className="grid gap-4">
-            {walkthroughStrip}
             <header className="grid gap-4 rounded-lg border bg-background/95 px-4 py-4 shadow-[var(--shadow-xs)]">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">

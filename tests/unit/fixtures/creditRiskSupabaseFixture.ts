@@ -1,4 +1,5 @@
 import { governedConfigSeedRows } from "../../../config/governed.js";
+import { releaseOwnerInputSeedRows } from "../../../config/releaseOwnerInputs.js";
 import { loadCreditRiskFixtureRows } from "./creditRiskFixture.js";
 
 export function rowsForCreditRiskTable(
@@ -102,6 +103,29 @@ export function rowsForCreditRiskTable(
         key,
         value
       }));
+    case "credit_evidence_documents":
+      return [
+        {
+          account_id: "ACC-CRE",
+          content_hash: "c".repeat(64),
+          document_id: "EVD-CREDIT-ACC-CRE-AR",
+          document_type: "credit-risk-evidence",
+          record_ids: ["ACC-CRE", "S3", "S6", "credit_ar_open_items", "credit_deductions"],
+          source_mode: "synthetic",
+          synthetic: true,
+          title: "Crestline AR aging and deduction evidence packet"
+        },
+        {
+          account_id: "ACC-HAR",
+          content_hash: "h".repeat(64),
+          document_id: "EVD-CREDIT-ACC-HAR-TERMS",
+          document_type: "credit-risk-evidence",
+          record_ids: ["ACC-HAR", "S1", "S2", "credit_contract_tpm"],
+          source_mode: "synthetic",
+          synthetic: true,
+          title: "Harbor Foods terms and recovery evidence packet"
+        }
+      ];
     default:
       throw new Error(`Unexpected Supabase table ${String(tableName)}.`);
   }
@@ -109,6 +133,18 @@ export function rowsForCreditRiskTable(
 
 export function governedConfigPostgrestRows(): Array<Record<string, unknown>> {
   return governedConfigSeedRows.map((row) => ({
+    active: row.active,
+    approved_by: row.approvedBy,
+    config_hash: row.configHash,
+    config_version: row.configVersion,
+    effective_from: row.effectiveFrom,
+    key: row.key,
+    value_json: row.valueJson
+  }));
+}
+
+export function releaseOwnerInputPostgrestRows(): Array<Record<string, unknown>> {
+  return releaseOwnerInputSeedRows.map((row) => ({
     active: row.active,
     approved_by: row.approvedBy,
     config_hash: row.configHash,

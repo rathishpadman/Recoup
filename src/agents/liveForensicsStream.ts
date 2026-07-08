@@ -5,10 +5,20 @@ import {
   type AgentHookAuditReceipt
 } from "../services/conductor.js";
 import type { ServiceInvocationContext } from "../services/serviceLayer.js";
-import { createForensicsInvestigatorAgent, forensicsInvestigatorAgent } from "./agentRuntime.js";
+import {
+  createCreditSentinelAgent,
+  createForensicsInvestigatorAgent,
+  creditSentinelAgent,
+  forensicsInvestigatorAgent
+} from "./agentRuntime.js";
 import type { ForensicsTraceEvent } from "./forensics.js";
 import { Agent, OpenAIProvider, Runner, type RunStreamEvent } from "./openAiAgentsSdk.js";
-import { createMayaMcpGateway, mayaAgentMcpAllowedToolNames, type MayaMcpGateway } from "./mcpGateway.js";
+import {
+  createMayaMcpGateway,
+  davidCreditAgentMcpAllowedToolNames,
+  mayaAgentMcpAllowedToolNames,
+  type MayaMcpGateway
+} from "./mcpGateway.js";
 
 const liveAgentInput =
   "Stream concise operator-visible status for the Recoup forensics run. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions. Those are produced only by deterministic Recoup code.";
@@ -50,6 +60,7 @@ export interface LiveForensicsOpenAiRunner {
 export type LiveForensicsMcpGateway = MayaMcpGateway;
 
 export interface OpenAIForensicsAgentStreamOptions {
+  allowedToolNames?: readonly string[];
   env?: RuntimeEnv;
   mcpGatewayFactory?: () => MaybePromise<LiveForensicsMcpGateway | undefined>;
   mcpServiceContext?: ServiceInvocationContext;
@@ -57,6 +68,7 @@ export interface OpenAIForensicsAgentStreamOptions {
 
 export interface StreamLiveForensicsTraceOptions {
   agentHookRecordIds?: string[];
+  allowedToolNames?: readonly string[];
   env?: RuntimeEnv;
   input?: string;
   maxTurns?: number;
@@ -330,8 +342,8 @@ export async function* streamLiveForensicsTraceEvents(
         }
         const sdkToolReceipt =
           agentHookRecordIds.length > 0
-            ? sdkToolReceiptFromRunItemEvent(event, agentHookRecordIds, sdkToolInputProofs)
-            : undefined;
+        ? sdkToolReceiptFromRunItemEvent(event, agentHookRecordIds, sdkToolInputProofs, options.allowedToolNames ?? mayaAgentMcpAllowedToolNames)
+        : undefined;
         if (sdkToolReceipt !== undefined) {
           agentHookReceipts.push(sdkToolReceipt);
           options.onAgentHookReceipt?.(sdkToolReceipt);
@@ -409,6 +421,51 @@ export async function runOpenAIForensicsAgentStream(
   }
 }
 
+export async function runOpenAICreditRiskAgentStream(
+  request: LiveForensicsStreamRequest,
+  runner: LiveForensicsOpenAiRunner = createOpenAiForensicsRunner(request.apiKey),
+  options: OpenAIForensicsAgentStreamOptions = {}
+): Promise<AsyncIterable<RunStreamEvent>> {
+  if (request.agentHookAudit !== undefined) {
+    registerRunHookAuditReceipts(runner, request.agentHookAudit.onReceipt, {
+      recordIds: request.agentHookAudit.recordIds
+    });
+  }
+
+  const runOptions =
+    request.signal === undefined
+      ? {
+          maxTurns: request.maxTurns,
+          stream: true as const
+        }
+      : {
+          maxTurns: request.maxTurns,
+          signal: request.signal,
+          stream: true as const
+        };
+
+  const mcpGateway = await resolveLiveMcpGateway({
+    ...options,
+    allowedToolNames: options.allowedToolNames ?? davidCreditAgentMcpAllowedToolNames,
+    ...(request.mcpServiceContext === undefined ? {} : { mcpServiceContext: request.mcpServiceContext })
+  });
+  try {
+    if (mcpGateway !== undefined) {
+      await mcpGateway.connect();
+    }
+    const agent =
+      mcpGateway === undefined
+        ? creditSentinelAgent
+        : createCreditSentinelAgent({ mcpServers: mcpGateway.mcpServers });
+    const stream = await runner.run(agent, request.input, runOptions);
+
+    return mcpGateway === undefined ? stream : closeMcpGatewayAfterStream(stream, mcpGateway);
+  } catch (error) {
+    await mcpGateway?.close();
+    throw error;
+  }
+}
+
 async function resolveLiveMcpGateway(
   options: OpenAIForensicsAgentStreamOptions
 ): Promise<LiveForensicsMcpGateway | undefined> {
@@ -420,6 +477,7 @@ async function resolveLiveMcpGateway(
     ? undefined
     : createMayaMcpGateway({
         env: options.env,
+        ...(options.allowedToolNames === undefined ? {} : { allowedToolNames: options.allowedToolNames }),
         ...(options.mcpServiceContext === undefined ? {} : { serviceContext: options.mcpServiceContext })
       });
 }
@@ -489,7 +547,8 @@ function mapRunStreamEvent(event: unknown): ForensicsTraceEvent | undefined {
 function sdkToolReceiptFromRunItemEvent(
   event: unknown,
   recordIds: readonly string[],
-  inputProofs: Map<string, SdkToolInputProof>
+  inputProofs: Map<string, SdkToolInputProof>,
+  allowedToolNames: readonly string[]
 ): AgentHookAuditReceipt | undefined {
   if (!isRecord(event) || event.type !== "run_item_stream_event") {
     return undefined;
@@ -499,7 +558,7 @@ function sdkToolReceiptFromRunItemEvent(
   }
 
   const toolName = normalizeSdkToolName(readRunItemToolName(event.item));
-  if (toolName === undefined || !mayaAgentMcpAllowedToolNames.includes(toolName as (typeof mayaAgentMcpAllowedToolNames)[number])) {
+  if (toolName === undefined || !allowedToolNames.includes(toolName)) {
     return undefined;
   }
   const toolCallKey = readRunItemToolCallKey(event.item, toolName);
@@ -589,6 +648,9 @@ function selectedEvidenceToolOutputProof(payload: unknown): SdkToolOutputProof |
 function normalizeSdkToolName(toolName: string | undefined): string | undefined {
   if (toolName === undefined) {
     return undefined;
+  }
+  if (toolName === "credit_risk_answer") {
+    return "credit_risk.answer";
   }
 
   return toolName.replaceAll("_", ".");

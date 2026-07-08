@@ -27,11 +27,13 @@ import {
   createSupabaseSapEvidenceReaderFromEnv,
   createSupabaseSettlementRunReaderFromEnv,
   createSupabaseSyntheticSourceReaderFromEnv,
+  loadCreditRiskRows,
   sourcePortFromSupabaseSnapshots,
   type SupabaseRiskObservationSourceConfig
 } from "../adapters/supabaseSyntheticSource.js";
 
 const queryAnswerScopeHeaderName = "x-recoup-query-answer-scope";
+const creditRiskAnswerScopeHeaderName = "x-recoup-credit-risk-answer-scope";
 
 export interface McpToolDescriptor {
   name: string;
@@ -230,6 +232,13 @@ function mcpSdkInputSchemaForTool(toolName: string) {
       selectedLineId: z.string().min(1)
     };
   }
+  if (toolName === "credit_risk.answer") {
+    return {
+      accountId: z.string().min(1),
+      question: z.string().min(1).max(500),
+      recordIds: z.array(z.string().min(1)).min(1)
+    };
+  }
   if (toolName === "email.sendApproved") {
     return {
       actionId: z.string().min(1),
@@ -405,8 +414,10 @@ async function loadOptionalMcpServiceContext(
       settlementRun
     })
   ]);
+  const creditRiskRows = await loadOptionalCreditRiskRows(runtimeEnv, fetcher);
 
   return {
+    ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
     governedConfig,
     requireSupabaseSapEvidence: true,
     requireSupabaseSyntheticEvidence: true,
@@ -414,6 +425,17 @@ async function loadOptionalMcpServiceContext(
     source,
     syntheticEvidenceSource
   };
+}
+
+async function loadOptionalCreditRiskRows(
+  runtimeEnv: RuntimeEnv,
+  fetcher: SupabaseMemoryFetch | undefined
+): Promise<ServiceInvocationContext["creditRiskRows"]> {
+  try {
+    return await loadCreditRiskRows(runtimeEnv, fetcher);
+  } catch {
+    return undefined;
+  }
 }
 
 function riskObservationSourcesFromGovernedConfig(
@@ -609,13 +631,15 @@ function mergeMcpRequestServiceContext(
   request: express.Request
 ): ServiceInvocationContext | undefined {
   const queryAnswerScope = readQueryAnswerScopeHeader(request.headers[queryAnswerScopeHeaderName]);
-  if (queryAnswerScope === undefined) {
+  const creditRiskAnswerScope = readCreditRiskAnswerScopeHeader(request.headers[creditRiskAnswerScopeHeaderName]);
+  if (queryAnswerScope === undefined && creditRiskAnswerScope === undefined) {
     return serviceContext;
   }
 
   return {
     ...(serviceContext ?? {}),
-    queryAnswerScope
+    ...(queryAnswerScope === undefined ? {} : { queryAnswerScope }),
+    ...(creditRiskAnswerScope === undefined ? {} : { creditRiskAnswerScope })
   };
 }
 
@@ -635,6 +659,27 @@ function readQueryAnswerScopeHeader(value: string | string[] | undefined): Servi
       .parse(decoded);
   } catch {
     throw new Error("Invalid query.answer scope header.");
+  }
+}
+
+function readCreditRiskAnswerScopeHeader(
+  value: string | string[] | undefined
+): ServiceInvocationContext["creditRiskAnswerScope"] {
+  const encoded = Array.isArray(value) ? value[0] : value;
+  if (encoded === undefined || encoded.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as unknown;
+    return z
+      .object({
+        accountId: z.string().min(1),
+        recordIds: z.array(z.string().min(1)).min(1)
+      })
+      .parse(decoded);
+  } catch {
+    throw new Error("Invalid credit_risk.answer scope header.");
   }
 }
 

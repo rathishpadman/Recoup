@@ -13,7 +13,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Sheet,
@@ -27,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
+import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import {
   davidBadgeVariantByTone,
@@ -72,17 +72,23 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
 
   return (
     <>
-      <Card className="rounded-lg shadow-[var(--shadow-xs)]" data-testid="david-action-packet">
-        <CardHeader className="gap-3">
+      <DavidCollapsibleCard
+        badges={
+          <>
+            <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.packet.routeLabel}</Badge>
+            <Badge variant={hasCommittedReceipt ? "secondary" : "outline"}>
+              {hasCommittedReceipt ? "Committed" : "Awaiting review"}
+            </Badge>
+          </>
+        }
+        defaultOpen={false}
+        description={account.packet.detail}
+        testId="david-action-packet"
+        title="Outcome and action packet"
+      >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="grid gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="text-base">Outcome and action packet</CardTitle>
-                <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.packet.routeLabel}</Badge>
-                <Badge variant={hasCommittedReceipt ? "secondary" : "outline"}>
-                  {hasCommittedReceipt ? "Committed" : "Awaiting review"}
-                </Badge>
-              </div>
+              <div className="text-base font-semibold">{account.packet.title}</div>
               <p className="text-sm text-muted-foreground">{account.packet.detail}</p>
             </div>
             <div
@@ -97,9 +103,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
               <span className="text-sm text-muted-foreground">{`${account.packet.recordIds.length.toString()} cited records attached`}</span>
             </div>
           </div>
-        </CardHeader>
 
-        <CardContent className="grid gap-4">
           <div className="grid gap-3">
             {account.packet.rows.map((row) => (
               <div
@@ -234,8 +238,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
               <AlertDescription>No committed approval receipt is available yet for this action packet.</AlertDescription>
             </Alert>
           )}
-        </CardContent>
-      </Card>
+      </DavidCollapsibleCard>
 
       <DavidApprovalGateDialog
         actionId={account.packet.actionId}

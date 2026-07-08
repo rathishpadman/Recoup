@@ -1,10 +1,16 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
+import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 import type { SupabaseMemoryFetch } from "../../src/memory/supabaseStore.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
-import { governedConfigPostgrestRows, rowsForCreditRiskTable } from "./fixtures/creditRiskSupabaseFixture.js";
+import {
+  governedConfigPostgrestRows,
+  releaseOwnerInputPostgrestRows,
+  rowsForCreditRiskTable
+} from "./fixtures/creditRiskSupabaseFixture.js";
 
 const cockpitAuthEnv = {
   RECOUP_COCKPIT_ALLOWED_ORIGINS: "http://127.0.0.1:3000",
@@ -35,13 +41,22 @@ describe("GET /credit/v2", () => {
         headers: cockpitAuthHeaders
       });
       const body = (await response.json()) as {
-        accounts: Array<{ accountId: string; verdict: string }>;
+        accounts: Array<{
+          accountId: string;
+          evidenceDocuments?: Array<{ documentId: string; recordIds: string[]; synthetic: boolean }>;
+          verdict: string;
+        }>;
         surface: string;
       };
 
       expect(response.status).toBe(200);
       expect(body.surface).toBe("credit-risk-review");
       expect(body.accounts).toHaveLength(4);
+      const crestlineEvidenceDocument = body.accounts
+        .find((account) => account.accountId === "ACC-CRE")
+        ?.evidenceDocuments?.find((document) => document.documentId === "EVD-CREDIT-ACC-CRE-AR");
+      expect(crestlineEvidenceDocument?.synthetic).toBe(true);
+      expect(crestlineEvidenceDocument?.recordIds).toEqual(expect.arrayContaining(["ACC-CRE", "S3", "S6"]));
       expect([...body.accounts.map((account) => `${account.accountId}:${account.verdict}`)].sort()).toEqual([
         "ACC-CRE:HIGH",
         "ACC-GRE:CLEAR",
@@ -53,6 +68,7 @@ describe("GET /credit/v2", () => {
           expect.stringContaining("/rest/v1/recoup_config"),
           expect.stringContaining("/rest/v1/credit_snapshot"),
           expect.stringContaining("/rest/v1/credit_accounts"),
+          expect.stringContaining("/rest/v1/credit_evidence_documents"),
           expect.stringContaining("/rest/v1/credit_policy")
         ])
       );
@@ -160,11 +176,322 @@ describe("GET /credit/v2", () => {
   });
 });
 
-async function listen(memoryFetcher: SupabaseMemoryFetch): Promise<{ baseUrl: string; server: Server }> {
+describe("POST /credit/query", () => {
+  it("returns a Maya-style live-agent David investigation with token usage and cited credit evidence", async () => {
+    const calls: string[] = [];
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      expect(request.input).toContain("Selected David credit risk query");
+      expect(request.input).toContain("ACC-CRE");
+      expect(request.input).toContain("credit_risk.answer");
+      expect(request.mcpServiceContext?.creditRiskRows).toBeDefined();
+      const creditRiskAnswerScope = request.mcpServiceContext?.creditRiskAnswerScope;
+      expect(creditRiskAnswerScope?.accountId).toBe("ACC-CRE");
+      for (const recordId of ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"]) {
+        expect(creditRiskAnswerScope?.recordIds.includes(recordId)).toBe(true);
+      }
+      expect(request.agentHookAudit?.recordIds).toEqual(
+        expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
+      );
+
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_handoff",
+          nextAgentName: "Action Packet Drafter",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Action Packet Drafter",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", {
+          arguments: {
+            accountId: "ACC-CRE",
+            question: "Why is Crestline high risk?",
+            recordIds
+          }
+        });
+        yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", {
+          output: {
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "CreditRiskEvidenceDocument",
+              primarySourceLabel: "Supabase credit evidence documents",
+              primarySourceSystem: "supabase",
+              selectedEvidence: [
+                {
+                  documentId: "EVD-CREDIT-ACC-CRE-AR",
+                  recordIds: ["ACC-CRE", "S3", "S6", "credit_ar_open_items", "credit_deductions"]
+                }
+              ],
+              selectedRecordIds: recordIds,
+              sourceFreshness: "snapshot",
+              transportLabel: "Governed credit risk read-model",
+              transportLayer: "supabase_credit_risk"
+            }
+          }
+        });
+        yield {
+          data: {
+            response: {
+              usage: {
+                input_tokens: 1700,
+                input_tokens_details: {
+                  cached_tokens: 512
+                },
+                output_tokens: 142,
+                total_tokens: 1842
+              }
+            },
+            type: "response.completed"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(creditRiskFetcher(calls), {
+      creditRiskStreamRunner: liveRunner,
+      env: { OPENAI_API_KEY: "sk-test-credit-query" }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({
+          accountId: "ACC-CRE",
+          question: "Why is Crestline high risk?",
+          recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"]
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        deterministicBasis?: string;
+        modelExecution?: {
+          agentNames: string[];
+          handoffCount: number;
+          mode: string;
+          rawModelTextPolicy: string;
+          sourceReadMode?: string;
+          tokenUsage?: number;
+          tokenUsageSnapshot?: { cachedTokens?: number; inputTokens?: number; outputTokens?: number; totalTokens: number };
+        };
+        trace: Array<{ agentName: string; recordIds: string[] }>;
+      };
+
+      expect(liveRunner).toHaveBeenCalledTimes(1);
+      expect(body.answer).toContain("ACC-CRE");
+      expect(body.answer).not.toMatch(/\$\s*\d/u);
+      expect(body.deterministicBasis).toContain("OpenAI Agents SDK live trace");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(
+        expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
+      );
+      expect(body.modelExecution).toMatchObject({
+        agentNames: ["Credit Sentinel", "Action Packet Drafter"],
+        handoffCount: 1,
+        mode: "live_openai_agents",
+        rawModelTextPolicy: "suppressed",
+        sourceReadMode: "live_sdk_mcp",
+        tokenUsage: 1842,
+        tokenUsageSnapshot: {
+          cachedTokens: 512,
+          inputTokens: 1700,
+          outputTokens: 142,
+          totalTokens: 1842
+        }
+      });
+      expect(body.trace.some((event) => event.agentName === "Action Packet Drafter")).toBe(true);
+      expect(body.trace.every((event) => event.recordIds.includes("ACC-CRE"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("uses Maya-style governed source-read fallback when the live trace lacks the credit_risk.answer receipt", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_handoff",
+          nextAgentName: "Action Packet Drafter",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Action Packet Drafter",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            response: {
+              usage: {
+                input_tokens: 120,
+                output_tokens: 20,
+                total_tokens: 140
+              }
+            },
+            type: "response.completed"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(creditRiskFetcher([]), {
+      creditRiskStreamRunner: liveRunner,
+      env: { OPENAI_API_KEY: "sk-test-credit-query" }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({
+          accountId: "ACC-CRE",
+          question: "Why is Crestline high risk?",
+          recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"]
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string; reason?: string; sourceReadMode?: string; tokenUsage?: number };
+        trace: Array<{ toolName?: string }>;
+      };
+
+      expect(liveRunner).toHaveBeenCalledTimes(2);
+      expect(liveRunner.mock.calls[1]?.[0].input).toContain("Validation retry");
+      expect(body.answer).toContain("ACC-CRE");
+      expect(body.citations.map((citation) => citation.recordId)).toEqual(
+        expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
+      );
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        sourceReadMode: "governed_backend_fallback",
+        tokenUsage: 280
+      });
+      expect(body.trace.some((event) => event.toolName === "credit_risk.answer")).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("accepts credit_risk_answer RunHooks receipts as the governed credit_risk.answer source read", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_handoff",
+          nextAgentName: "Action Packet Drafter",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_tool_end",
+          recordIds,
+          toolInputRecordIds: recordIds,
+          toolName: "credit_risk_answer",
+          toolOutputCanonicalModel: "CreditRiskEvidenceDocument",
+          toolOutputPrimarySourceLabel: "Supabase credit evidence documents",
+          toolOutputPrimarySourceSystem: "supabase",
+          toolOutputSelectedEvidenceRecordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"],
+          toolOutputSelectedRecordIds: recordIds,
+          toolOutputSourceFreshness: "snapshot",
+          toolOutputSourceReadStatus: "source_backed_selected_scope",
+          toolOutputTransportLabel: "Governed credit risk read-model",
+          toolOutputTransportLayer: "supabase_credit_risk"
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield {
+          data: {
+            response: {
+              usage: {
+                input_tokens: 500,
+                output_tokens: 50,
+                total_tokens: 550
+              }
+            },
+            type: "response.completed"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(creditRiskFetcher([]), {
+      creditRiskStreamRunner: liveRunner,
+      env: { OPENAI_API_KEY: "sk-test-credit-query" }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({
+          accountId: "ACC-CRE",
+          question: "Why is Crestline high risk?",
+          recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"]
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string } };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("ACC-CRE");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+async function listen(
+  memoryFetcher: SupabaseMemoryFetch,
+  options: { creditRiskStreamRunner?: LiveForensicsStreamRunner; env?: Record<string, string> } = {}
+): Promise<{ baseUrl: string; server: Server }> {
   const server = createServer(
     createCockpitApi({
-      env: { ...governedConfigEnv, ...cockpitAuthEnv },
-      memoryFetcher
+      env: { ...governedConfigEnv, ...cockpitAuthEnv, ...options.env },
+      memoryFetcher,
+      ...(options.creditRiskStreamRunner === undefined ? {} : { creditRiskStreamRunner: options.creditRiskStreamRunner })
     })
   );
 
@@ -176,6 +503,26 @@ async function listen(memoryFetcher: SupabaseMemoryFetch): Promise<{ baseUrl: st
   return {
     baseUrl: `http://127.0.0.1:${String(address.port)}`,
     server
+  };
+}
+
+function sdkToolEvent(
+  name: "tool_called" | "tool_output",
+  toolName: string,
+  agentName: string,
+  rawItemOverrides: Record<string, unknown>
+) {
+  return {
+    item: {
+      agent: { name: agentName },
+      rawItem: {
+        ...rawItemOverrides,
+        name: toolName,
+        type: name === "tool_called" ? "function_call" : "function_call_result"
+      }
+    },
+    name,
+    type: "run_item_stream_event"
   };
 }
 
@@ -208,6 +555,10 @@ function creditRiskFetcher(
     });
 
     if (url.includes("/rest/v1/recoup_config")) {
+      if (new URL(url).searchParams.get("key")?.includes("run_control") === true) {
+        return Promise.resolve(jsonResponse(releaseOwnerInputPostgrestRows()));
+      }
+
       return Promise.resolve(jsonResponse(governedConfigPostgrestRows()));
     }
 

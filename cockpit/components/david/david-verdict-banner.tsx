@@ -1,29 +1,32 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
 export function DavidVerdictBanner({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
   return (
-    <Card className={cn("rounded-lg shadow-[var(--shadow-xs)]", davidBorderClassByTone[account.verdictTone], davidMutedSurfaceClassByTone[account.verdictTone])}>
-      <CardHeader className="gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+    <DavidCollapsibleCard
+      badges={
+        <>
           <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.verdict}</Badge>
-          <CardTitle className="text-base">{account.leadLabel}</CardTitle>
-        </div>
-        <p className="text-sm text-muted-foreground">{account.routeLine}</p>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        <div className="grid gap-1">
-          <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Deterministic basis</span>
-          <p className="text-sm">{account.verdictBasis}</p>
-        </div>
-        <DavidRecordDisclosure items={account.recordIds} label={`${account.recordIds.length.toString()} records behind this verdict`} />
-      </CardContent>
-    </Card>
+          <Badge variant="outline">{account.routeLabel}</Badge>
+        </>
+      }
+      className={cn(davidBorderClassByTone[account.verdictTone], davidMutedSurfaceClassByTone[account.verdictTone])}
+      defaultOpen={false}
+      description={account.routeLine}
+      testId="david-verdict-banner"
+      title={account.leadLabel}
+    >
+      <div className="grid gap-1">
+        <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Deterministic basis</span>
+        <p className="text-sm">{account.verdictBasis}</p>
+      </div>
+      <DavidRecordDisclosure items={account.recordIds} label={`${account.recordIds.length.toString()} records behind this verdict`} />
+    </DavidCollapsibleCard>
   );
 }
