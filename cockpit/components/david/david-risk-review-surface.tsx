@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { CreditRiskReviewModel, CreditRiskVerdict } from "../../app/cockpit-data.ts";
+import { DavidAccountDossier } from "./david-account-dossier.tsx";
 import { DavidAccountQueue } from "./david-account-queue.tsx";
 import { DavidWalkthroughStrip } from "./david-walkthrough-strip.tsx";
 import { DavidWorkspaceShell, type DavidSurfaceSection } from "./david-workspace-shell.tsx";
@@ -80,6 +81,16 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
           selectedAccountId={selectedAccountId}
           sourceLabel={model.sourceLabel}
         />
+        {selectedAccount === undefined ? null : (
+          <DavidAccountDossier
+            account={selectedAccount}
+            accounts={model.accounts}
+            onClearSelection={() => {
+              setSelectedAccountId(null);
+            }}
+            onSelectAccount={setSelectedAccountId}
+          />
+        )}
       </main>
     </DavidWorkspaceShell>
   );
