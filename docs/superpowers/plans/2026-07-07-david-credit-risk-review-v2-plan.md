@@ -470,7 +470,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 **Pending / blocked before release complete:**
 
-- Protected Vercel preview browser smoke reaches the app but cannot complete David because the preview frontend calls backend `/credit/v2` while the configured backend is the current production Render API, which returns 404 until this PR's backend is deployed. Vercel runtime log evidence: `Cockpit model failed for /credit/v2: 404`.
+- Protected Vercel preview browser smoke reaches the app but cannot complete David because the preview frontend calls backend `/credit/v2` while the configured backend is the current production Render API, which returns 404 until this PR's backend is deployed. Vercel runtime log evidence: `Cockpit model failed for /credit/v2: 404`. Render MCP evidence: `recoup-api` (`srv-d8uljm0js32c73fv2600`) deploys from `main`, PR previews are disabled (`previews.generation: off`, `pullRequestPreviewsEnabled: no`), and the live backend deploy is `dep-d973jfss728c73ccpj9g` at commit `1fb62460272fb85347b46f4945d6f947241b7d3b`.
 - Production movement still requires explicit owner approval: merge PR #5, wait for Render/Vercel prod deploys, run David + Maya prod smoke, and capture backend-vs-Supabase proof for at least one `HIGH` and one non-`HIGH` account.
 - `/credit/command` retirement remains deferred by plan: do it only after David v2 is prod-verified, in a separate `chore/retire-credit-command` PR.
 
