@@ -30,6 +30,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { DeductionCaseWorkspace } from "./deduction-case-workspace.tsx";
 import { DeductionWorklistTable } from "./deduction-worklist-table.tsx";
+import { ContainmentBriefCard } from "./containment-brief-card.tsx";
 import { MayaEmptyState } from "./maya-empty-state.tsx";
 import { MayaWorkspaceShell } from "./maya-workspace-shell.tsx";
 import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
@@ -1243,10 +1244,11 @@ export function MayaForensicsSurface({
                   </CardContent>
                 </Card>
               </section>
+              </section>
+              <ContainmentBriefCard panel={model.containmentPanel} />
             </section>
-          </section>
-        );
-      }
+          );
+        }
       case "worklist":
         return renderWorklistSection();
       case "approvals":
