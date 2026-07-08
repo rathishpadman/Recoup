@@ -15,10 +15,19 @@
 1. **Sequencing:** Maya cold-start fix ships to **prod first** and is verified, **before** any David work begins. David branches off the updated main.
 2. **Spec source:** mockup + dataset supersede v1.2 D1–D5 (no partial-hold visualizer, no negotiation-graph rework, no $640K order beat).
 3. **Route + retire:** build/validate at `/credit/v2`; final cutover **retires `/credit`** by replacing it with the new surface (David's `defaultRoute` stays `/credit`, so no profile edit and the landing CTA lands on the new surface automatically). **`/credit/command` (D5 dark command centre) is retired in a follow-up step (Task 1-5.4) after the David v2 cutover reaches prod.**
-4. **Agent depth:** deterministic pipeline emitting **real per-step trace rows**; copilot dock is scripted in v1 (free-text Q&A is stretch Task 1-4.3).
+4. **Agent depth:** deterministic pipeline still computes every dollar/verdict/action, but David now also gets a **real live OpenAI Agents SDK investigation path mirroring Maya**. Account open auto-runs a selected-account investigation, records `modelExecution.mode:"live_openai_agents"`, agent names, handoffs, token usage, cited records, and suppressed raw model text. Copilot free text is enabled through the governed backend route, not a scripted UI.
 5. **Provenance:** UI keeps SAP naming with an explicit **synthetic badge** ("SAP OData (synthetic)") while data physically lives in Supabase (invariant I-30 honesty).
 6. **No static business data:** all dollars/limits/counts/verdicts/ranks are derived from Supabase rows or from governed, expert-owned policy params in `credit_policy` (buffer factor, rounding step, thresholds). Only UI copy templates and icons are hard-coded.
 7. **Landing:** on completion, the "David demo" CTA must resolve to the new surface.
+
+## Owner decisions locked with owner (2026-07-08 remediation restart)
+
+1. **David top walkthrough strip removed:** remove the `Recoup · Prototype / Sign in / Risk review / Risk Mesh assesses / Verdict & action packet` strip entirely. This supersedes the earlier D-UI-1 KEEP decision and the HTML mockup's prototype chrome.
+2. **Real David LLM path:** David's investigation and copilot must use the same live-agent proof standard as Maya: `live_openai_agents`, handoff count, agent names, token usage/usage snapshot, citations, deterministic basis, and raw model output suppressed. LLMs explain/cite; code computes all business values.
+3. **Auto-run selected-account investigation:** when an account opens, David auto-runs the live investigation once per account/source hash and clearly labels fresh vs cached investigation state. If the LLM call fails during test or browser verification, stop and ask for approval before continuing.
+4. **Collapsed by default:** Agent Assessment, Signals In, Outcome, and Action panels are collapsed by default and expand on user action. The model execution/details drawer is also collapsed by default.
+5. **Supabase evidence docs approved:** if suitable credit evidence docs are missing, create governed, clearly synthetic Supabase evidence docs tied to `accountId`/`recordIds` and include them in investigation, Signals In, and citations. Evidence docs may support narrative/citations, but never own dollar math or verdicts.
+6. **Original plan updated before prod movement:** this file is the owner-facing execution contract and must be updated before any additional production movement.
 
 ---
 
@@ -270,6 +279,15 @@ it("fails closed when computed rank mismatches seeded mesh position", () => {
 
 - [ ] Add the UI-facing model type (duplicate of the builder's output type — do not import `src/` into cockpit, matching how `CreditCockpitModel` is duplicated) + `fetchCreditRiskReviewModel()` calling `fetchJson("/credit/v2")`. `npm run typecheck`. Commit `feat: cockpit fetcher for credit v2`.
 
+### Task 1-1.6: Credit evidence documents + live David investigation/query route (owner restart 2026-07-08)
+**Files:** Add/modify `src/services/creditRiskQuerySession.ts` or equivalent, `src/agents/*credit*` if needed, `src/services/cockpitApi.ts`, `src/adapters/supabaseSyntheticSource.ts`, `cockpit/app/api/credit/query/route.ts`, `cockpit/app/cockpit-data.ts`, `docs/supabase-memory-schema.sql` or a focused credit evidence schema/seed script if no suitable table exists. Tests: `tests/unit/credit-risk-query-session.test.ts`, `tests/unit/credit-v2-api.test.ts`, `tests/unit/realtime-next-routes.test.ts`, and e2e additions in Task 1-4.2.
+- [ ] **Step 1 (schema discovery, no writes):** inspect existing Supabase/document tables and current `credit_*` rows. If a suitable evidence-doc table already exists, map it. If not, add a small governed credit evidence document schema/seed with `accountId`, `recordIds`, `documentId`, `title`, `sourceMode`, `synthetic:true`, content/summary hash, and timestamps. Never store secrets; synthetic docs must be labeled as such.
+- [ ] **Step 2 (RED - dynamic evidence):** write failing tests proving the read model/source loader includes account-scoped evidence docs and fails closed or renders `Source unavailable` when required selected-account evidence is absent. Add a new-account fixture proving any complete new account row set calculates via formulas and can attach evidence docs without account-specific code.
+- [ ] **Step 3 (RED - live agent proof):** write failing tests modeled on Maya's `/forensics/query` contract: David `POST /credit/query` (or final route name) returns `answer`, `citations`, `trace`, `deterministicBasis`, and `modelExecution` with `mode:"live_openai_agents"`, `agentNames`, `handoffCount > 0`, `tokenUsage`/usage snapshot when provider reports it, and `rawModelTextPolicy:"suppressed"`. Require a real handoff path between credit investigation agents. If live proof is unavailable, response must fail closed as unavailable; do not silently return scripted text.
+- [ ] **Step 4 (GREEN):** implement David's live query/investigation service by reusing Maya's `forensicsQuerySession`/live stream patterns where possible. Agents may call governed source/query tools and cite selected account evidence; they must not compute/edit dollars, thresholds, verdicts, packet amounts, or approval state. Persist sanitized OpenAI usage receipts when the existing receipt helper supports the capability; include cache key/cached token metadata when available.
+- [ ] **Step 5 (Next proxy + cockpit type):** add `cockpit/app/api/credit/query/route.ts` proxying to the backend route, preserving auth/session behavior and fail-closed error shape. Extend cockpit types with David query response/model execution fields. Do not expose raw prompts, raw model text, keys, or secret-bearing env values.
+- [ ] **Step 6 (review + commit):** reviewer subagents check no LLM math, no static account-specific investigation, no secret leakage, and Maya's live query path remains unchanged. Commit `feat: david live credit investigation query with evidence citations`.
+
 ## Phase 1-2 — David UI at `/credit/v2` (reuse Maya)
 
 **Reuse map:** `ui/*` imported directly; copy `maya-workspace-shell` → `david-workspace-shell`; import `maya-accent`; structural references from `agent-investigation-timeline`, `approval-gate-dialog`, `audit-confirmation-panel`, `query-evidence-dock`, `deduction-case-workspace` rail, `maya-shadcn-loading-shell`.
@@ -281,7 +299,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 | Mockup element (JS/DOM) | Plan coverage |
 |---|---|
-| Top walkthrough strip `#strip` (4 steps: Sign in / Risk review / Risk Mesh assesses / Verdict & action packet) | **D-UI-1 = KEEP (owner).** Build a persistent demo strip component (Task 1-2.2 Step 2b): brand "Recoup · Prototype", 4 step chips with on/done states driven by the surface's flow state (queue → dossier open → verdict revealed → approval), caption "David K. — Director, Credit & Collections". Presentation-only; steps reflect real flow state, not fake progress. |
+| Top walkthrough strip `#strip` (4 steps: Sign in / Risk review / Risk Mesh assesses / Verdict & action packet) | **D-UI-1 = REMOVE (owner 2026-07-08).** Do not mount the prototype strip. If existing code imports/renders it, remove it and assert `Recoup · Prototype` is absent from David. |
 | Sidebar workspace nav: **Risk review [4]**, Action packets [2], Behavioural watchlist [1] | **D-UI-2 = build real sections (owner default).** Task 1-2.8: Action packets = read-only outbox of approved packets (from audit/approval state); Behavioural watchlist = accounts with `gamingFlag` (Crestline). Counts from model. |
 | Sidebar personas nav (Maya / David / CFO switch) | **D-UI-3 = DROP (owner).** No persona switcher; route-auth gates access. Current persona shown in the footer chip only. |
 | Topbar: persona chip · run pill "Weekly credit risk review · 4 accounts flagged · **$7.45M** exposure" · **search** · env chip "SAP OData connected" | Task 1-2.2 (added below): run pill total exposure is **derived** (`model.portfolio.totalExposureLabel` = Σ of the 4 = $7.45M); search = local filter over fetched rows; env chip → provenance label from Task 1-2.7 ("SAP OData (synthetic)"). |
@@ -294,12 +312,12 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 | Decision-flow pipeline (5 nodes Account→Risk Mesh→Verdict→Packet→Approval, animated done/run/pending + connector fills) | Task 1-2.3 stepper — states driven by reveal progress + approval state (not time). |
 | Account header (id chip, channel, flag[D], customer, exposure SAP AR, exposure-vs-limit gauge, facts grid DSO/Beyond terms/Open disputes/Payment trend with warn/bad/good tints) | Task 1-2.3 — tints from model-provided tone fields, thresholds not recomputed in React. |
 | "Signals in — from deduction forensics" (sig-intro closed-loop + [D] handoff line; sig rows S-id/verdict/note/mesh) | Task 1-2.3 from `model.signals`. |
-| "Agent assessment" 8-step timeline + live "assessing" chip, streamed | Task 1-2.4 (agents: SAP OData Retriever, Supabase Tools Retriever, Bureau/Payment-History, Credit Sentinel, Risk Mesh Agents, Behavioural Containment, Credit Decisioning, Action Packet Drafter). |
+| "Agent assessment" live investigation timeline + model execution proof | Task 1-2.4 (auto-run selected-account live investigation; backend returns trace, citations, `live_openai_agents`, agent names, handoffs, token usage/usage snapshot; drawer collapsed by default). |
 | "Closed-Loop Risk Mesh — four positions" 2×2 tiles (Credit/Fulfilment/Billing/Collections: accent, icon, OK/WATCH/ELEVATED/HIGH badge, interpretation, key metric) | Task 1-2.3 `david-mesh-tiles.tsx`. |
 | Verdict block (badge + lead + "Deterministic basis" + cited chips) | Task 1-2.3 `david-verdict-banner.tsx`. |
 | Outcome/action packet (banner verdict→route, packet rows, gate: Mark basis reviewed / Inspect basis / Simulate alternatives / Send action packet + lock line) | Task 1-2.5 — amounts rule-derived; Simulate alternatives disabled-with-tooltip. |
-| Copilot rail: header "Investigation Copilot · Conductor · Risk Mesh ready", input, note "Copilot assesses & recommends. Approvals stay with you." | Task 1-2.6 — note line kept verbatim; input disabled in v1. |
-| Copilot idle 3 suggestions + streaming agent checklist + verdict chip | Task 1-2.6. |
+| Copilot rail: header "Investigation Copilot · Conductor · Risk Mesh ready", input, note "Copilot assesses & recommends. Approvals stay with you." | Task 1-2.6 — input enabled through governed `/api/credit/query`, Maya-style live-agent proof drawer collapsed by default. |
+| Copilot idle 3 suggestions + live answer/citations/trace/model execution | Task 1-2.6. |
 | Sources drawer (SAP OData / Supabase tools / Bureau / Contract&TPM with statuses; External actions blocked; Audit trail on) | Task 1-2.7 — statuses from model provenance, synthetic badges. |
 | Toast affordance (`#toast`) | Reuse shadcn `sonner` (already in `ui/`) for the read-only toasts (Inspect basis / Simulate alternatives). |
 
@@ -325,9 +343,9 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 **Files:** Create `david-workspace-shell.tsx`, `david-risk-review-surface.tsx` (client; owns `activeSection`, `selectedAccountId`, `filter`, `search`), `david-account-queue.tsx`, `david-verdict-tokens.ts`.
 - [ ] **Step 1:** `david-verdict-tokens.ts` — the single source of verdict/status → token-class mapping (`high`/`elevated`/`watch`/`clear` → chip, pill, gauge-fill, tile-accent, banner classes). Every other David component imports from here (no ad-hoc colors).
 - [ ] **Step 2 (shell):** copy `maya-workspace-shell` → nav "Risk review / Action packets / Behavioural watchlist" (counts from model), footer "Director, Credit & Collections" (current-persona chip only), Sources button. Personas switcher dropped (D-UI-3).
-- [ ] **Step 2b (walkthrough strip — D-UI-1 KEEP):** create `david-walkthrough-strip.tsx` — persistent top strip: "Recoup · Prototype" + 4 step chips (Sign in / Risk review / Risk Mesh assesses / Verdict & action packet) with on/done states bound to the surface flow state (queue open → dossier open → verdict revealed → approved), caption "David K. — Director, Credit & Collections". Presentation-only; no fake progress. Mount above the topbar in `david-risk-review-surface`.
+- [ ] **Step 2b (walkthrough strip — D-UI-1 REMOVE, owner 2026-07-08):** do not mount `david-walkthrough-strip.tsx`; if the component/import already exists, remove it. Add a unit/e2e assertion that the top `Recoup · Prototype` strip and the Sign in/Risk review/Risk Mesh/Verdict prototype stepper are absent from David.
 - [ ] **Step 3 (topbar):** persona chip + **run pill** "Weekly credit risk review · 4 accounts flagged · `{model.portfolio.totalExposureLabel}`" (derived Σ = $7.45M) + account **search** input (local filter over fetched rows) + env chip rendered by Task 1-2.7 provenance label.
-- [ ] **Step 4 (queue):** welcome header, 4 stat cards from `model.queueStats` (sums derived; "4 accounts in review", no "of 18"), source line "as-of {asOfDate} (synthetic)", filter chips (All/High/Elevated/Watch/Clear), account rows (verdict chip, name+channel, Flag [D], exposure/limit + utilisation bar from `utilisationPercent`, DSO/disputes/unsupported labels, verdict pill + routeLine). Browser-verify 4 rows + search + filter.
+- [ ] **Step 4 (queue):** match the owner screenshots/HTML: compact "Good morning, David." header, run pill/search/source status, `Accounts under credit review`, filter chips (All/High/Elevated/Watch/Clear) with derived counts, and dense account rows (icon block, name+channel, Flag [D], exposure/limit + utilisation bar from `utilisationPercent`, DSO/disputes/unsupported labels, verdict pill + routeLine). Browser-verify 4 rows + search + filter. Remove any duplicate queue render under an account dossier.
 - [ ] **Step 5 (review + commit):** Commit `feat: david v2 shell, topbar, and risk review queue`.
 
 ### Task 1-2.3: Dossier (rail, header, signals, mesh tiles, verdict)
@@ -336,17 +354,17 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 - [ ] **Deterministic-basis contract (execution package §"Risk Mesh"):** each mesh tile is decision-like, so it MUST render a backend `deterministicBasis` + cited record IDs, **or** an explicit `Contract gap` state — never a bare status. The read model (extend Task 1-1.1) emits `deterministicBasis` per mesh position (from `credit_risk_mesh_positions.interpretation` + `driver_signals` + `credit_contract_tpm` refs) and per verdict; if a basis field is absent, the model returns a `contractGap:true` marker and the tile renders `Contract gap` (no frontend constant fills it). Same rule for any decision-like verdict/signal field.
 - [ ] Browser-verify Crestline (basis + cited refs present; no `Contract gap` on seeded data). Commit `feat: david v2 dossier, mesh tiles, verdict with deterministic basis + contract-gap fallback`.
 
-### Task 1-2.4: Assessment timeline (streamed real trace rows)
-**Files:** Create `david-assessment-timeline.tsx`.
-- [ ] Render `model.accounts[i].assessmentSteps` (istep structure from `agent-investigation-timeline`); streamed reveal (~500ms) when opened from queue, instant on rail re-open; containment step only for Crestline. Reveal is presentation-only local state. Browser-verify. Commit `feat: david v2 agent assessment timeline`.
+### Task 1-2.4: Assessment timeline (auto-run live investigation, collapsed by default)
+**Files:** Create/modify `david-assessment-timeline.tsx`, `david-risk-review-surface.tsx`, and any shared David query hook/component.
+- [ ] On account open, auto-run the backend live investigation from Task 1-1.6 once per account/source hash. Show loading/progress, then render backend trace events, citations, deterministic basis, and model execution proof. The panel is collapsed by default; expanding shows live trace rows. If the live investigation fails, render a clear unavailable state and stop execution for owner approval during QA rather than falling back to scripted text. Commit `feat: david v2 live agent assessment timeline`.
 
 ### Task 1-2.5: Action packet + HITL gate + audit receipt
 **Files:** Create `david-action-packet.tsx` (reuse `approval-gate-dialog`/`audit-confirmation-panel`/`approval-controls` contract at `approval-controls.tsx:41`).
 - [ ] Outcome banner + packet rows from `model.actionPacket`; "Mark basis reviewed" arms "Send action packet"; "Inspect basis" opens read-only `Sheet`; "Simulate alternatives" disabled with tooltip "Read-only in this build". Approve → `POST /api/approval {actionId:"credit-v2:<id>",...}`; on 200, **re-fetch `/credit/v2` (or router refresh) so the committed status + audit hash render from the backend read-back (Task 1-1.4), not from local state**; show "external send remains gated"; failure → blocked, no optimistic success. Browser-verify approve on Greenleaf **and** that the committed hash survives a reload (proves backend-sourced). Commit `feat: david v2 gated action packet with governed approval`.
 
-### Task 1-2.6: Copilot dock (scripted)
+### Task 1-2.6: Copilot dock (real live LLM, Maya-pattern proof)
 **Files:** Create `david-copilot-dock.tsx`.
-- [ ] Right rail; idle = 3 suggestions ("Why is Crestline high risk?", "Which accounts need action this week?", "Show the gaming-flag account [D]"); active = question + conductor line + per-step agent checklist synced to timeline + verdict chip; free-text input **disabled** ("coming with the query agent"). All from model. Browser-verify. Commit `feat: david v2 investigation copilot dock (scripted)`.
+- [ ] Right rail; idle = 3 suggestions ("Why is Crestline high risk?", "Which accounts need action this week?", "Show the gaming-flag account [D]"); free-text input enabled and posts to `/api/credit/query`. Active state renders answer, cited records/docs, trace, and a collapsed-by-default `Model execution` drawer showing mode, agent names, handoffs, input/output/total/cached tokens when available, source hash/run id, deterministic basis, and raw-model policy suppressed. Browser-verify against the real backend; no route fulfillment. Commit `feat: david v2 live investigation copilot dock`.
 
 ### Task 1-2.7: Sources drawer + provenance
 **Files:** Create `david-sources-drawer.tsx`; modify `david-workspace-shell.tsx`.
@@ -376,7 +394,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 ### Task 1-4.2: Real-backend e2e + screenshots
 **Files:** Create `tests/e2e/david-credit-v2-e2e.ts` (match `shared-cockpit-surfaces-regression-e2e.ts` bootstrap); modify `package.json` (`test:e2e:david-v2`).
-- [ ] Beats (1440 + 1280 screenshots → `output/playwright/david-v2/`): login david → `/credit` still default; `/credit/v2` queue 4 rows (Crestline `HIGH`+`Flag [D]`); open Crestline → 8-step stream, `HIGH RISK` banner, Collections tile `HIGH`; **assert no approval/query network calls on open**; reviewed→approve → audit hash + `POST /api/approval` 200 **+ committed hash persists on reload**; Maya `/forensics/shadcn` Overview shows `maya-containment-brief`. Run against **real API + Supabase, no fixtures/route-fulfillment**. Commit `test: david v2 real-backend e2e storyline`.
+- [ ] Beats (1440 + 1280 screenshots → `output/playwright/david-v2/`): login david → `/credit` still default; `/credit/v2` queue 4 rows (Crestline `HIGH`+`Flag [D]`); assert the prototype walkthrough strip is absent; open Crestline → auto-runs exactly one selected-account live investigation, shows `HIGH RISK` banner and Collections tile `HIGH`; drawer panels Agent Assessment, Signals In, Outcome, and Action are collapsed by default; expand Agent Assessment and assert `modelExecution.mode:"live_openai_agents"`, agent names, handoff count, token usage/usage snapshot, cited credit/source/evidence records, and raw model text suppressed; ask one copilot question through `/api/credit/query`; reviewed→approve → audit hash + `POST /api/approval` 200 **+ committed hash persists on reload**; Maya `/forensics/shadcn` Overview and live investigation/query path still pass. Run against **real API + Supabase, no fixtures/route-fulfillment**. Commit `test: david v2 real-backend e2e storyline`.
 
 ### Task 1-4.3: David visual-review gate (≥4.5/5 — REQUIRED before cutover — Codex Medium #6)
 **Contract:** `david-shadcn-execution-package.md` requires **component score ≥4.5/5 and overall David surface ≥4.5/5**, plus a signed provenance matrix, before visual approval.
@@ -427,10 +445,10 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 1. **Milestone 0 shipped first:** prod `/forensics/shadcn` warm load < ~2s; Maya e2e/shared-surfaces green; merged to main before David started.
 2. **Prod safety:** each milestone on its own branch → PR → main; no direct main edits; existing surfaces behave identically until intended cutover.
 3. **Deterministic, non-static truth:** every visible number derives from Supabase rows or governed `credit_policy` params; unit tests pin 4 verdicts + 16 ranks + rule-derived packet amounts to the workbook; builder fails closed on mismatch/missing table; **no fixture/static business value renders**.
-4. **Mockup parity:** login → queue → dossier (stepper, facts, S1–S8 signals, 2×2 mesh, verdict+basis+refs) → streamed 8-step timeline → rule-derived action packet → reviewed-gate → governed approval with real audit hash → gated posture.
+4. **Mockup parity:** login → queue → dossier (stepper, facts, S1–S8 signals, 2×2 mesh, verdict+basis+refs) → collapsed drawers → auto-run live investigation with token usage/model execution proof → rule-derived action packet → reviewed-gate → governed approval with real audit hash → gated posture.
 5. **Closed loop both ways:** Maya Overview shows containment (M6) → Risk Mesh; David Crestline shows [D] from forensics S3.
 6. **Provenance honesty (I-30):** SAP-named sources always carry the synthetic badge; as-of shown; no "Connected" without a loaded source.
-7. **HITL discipline (I-7/I-20/I-8):** opening anything sends no approval/query request (e2e-asserted); only explicit approve posts; failure blocks, never optimistic.
+7. **HITL discipline (I-7/I-20/I-8):** opening an account may auto-run the approved read-only investigation query, but it must not send approval or external-action requests. Only explicit approve posts; failure blocks, never optimistic.
 8. **Maya undisturbed:** exactly one Maya file changed (single additive mount, defensive null-render); Maya invariants + e2e green before and after.
 9. **Retire + landing:** `/credit` serves the new surface; old arbitration workstation retired; landing "David demo" lands on it.
 10. **Reuse:** no new deps; David UI entirely `cockpit/components/ui` + lucide + Maya-lifted patterns.
@@ -451,13 +469,14 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 - [ ] **1-1.3** `GET /credit/v2`
 - [ ] **1-1.4** credit-v2 action resolver (`findPendingAction`) + governed approvals + receipt read-back
 - [ ] **1-1.5** cockpit fetcher
+- [ ] **1-1.6** credit evidence docs + live David investigation/query route
 - [ ] **1-2.0** data-provenance matrix (before UI approval)
 - [ ] **1-2.1** route scaffold + RED boundary tests
-- [ ] **1-2.2** shell + walkthrough strip (D-UI-1) + topbar + queue
+- [ ] **1-2.2** shell + no walkthrough strip (D-UI-1 owner removal) + topbar + queue
 - [ ] **1-2.3** dossier + mesh + verdict
-- [ ] **1-2.4** streamed timeline
+- [ ] **1-2.4** auto-run live investigation timeline, collapsed by default
 - [ ] **1-2.5** action packet + HITL + audit
-- [ ] **1-2.6** copilot dock (scripted)
+- [ ] **1-2.6** copilot dock (real live LLM, Maya-pattern proof)
 - [ ] **1-2.7** sources drawer + provenance
 - [ ] **1-2.8** action-packets outbox + behavioural watchlist sections (D-UI-2)
 - [ ] **1-3.1** Maya containment card (additive) + regression green
@@ -475,6 +494,6 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 1. **Reduced-limit rule:** keep `round(exposure × 1.2, $100k)` → Harbor $1.5M. `reduce_limit_buffer=1.2`, `reduce_limit_rounding=100000` in `credit_policy`.
 2. **`/credit/command`:** retire it **after** David v2 reaches prod → **Task 1-5.4** (separate follow-up PR).
 3. **Workbook reference text:** no update required; the fitted thresholds in `credit_policy` govern and are the source of truth (builder fails closed against seeded ranks).
-4. **D-UI-1:** **keep** the top 4-step walkthrough strip → `david-walkthrough-strip.tsx` (Task 1-2.2 Step 2b), bound to real flow state.
+4. **D-UI-1:** **removed by owner on 2026-07-08**. Delete/avoid the top 4-step walkthrough strip and assert `Recoup · Prototype` does not render on David.
 5. **D-UI-2:** **build** Action packets (approved-packet outbox) + Behavioural watchlist (gaming-flag accounts) as real read-only sections → **Task 1-2.8**.
 6. **D-UI-3:** **drop** the sidebar persona switcher; current-persona chip only.
