@@ -3,14 +3,12 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   ClipboardListIcon,
-  DatabaseIcon,
   LayoutDashboardIcon,
-  SendIcon,
   SearchIcon,
+  SendIcon,
   ShieldAlertIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import {
   Sidebar,
@@ -33,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { LogoutButton } from "../../app/logout-button.tsx";
 import type { CreditRiskReviewModel } from "../../app/cockpit-data.ts";
 import { davidAccent } from "./david-accent.ts";
+import { DavidSourcesDrawer } from "./david-sources-drawer.tsx";
 
 export type DavidSurfaceSection = "action-packets" | "risk-review" | "watchlist";
 
@@ -43,10 +42,10 @@ interface DavidWorkspaceShellProps {
   navCounts: CreditRiskReviewModel["navCounts"];
   onSearchChange: (value: string) => void;
   onSectionChange: (section: DavidSurfaceSection) => void;
-  provenanceLabel: string;
   readySections?: readonly DavidSurfaceSection[];
   runSummary: string;
   searchValue: string;
+  sources: CreditRiskReviewModel["sources"];
   walkthroughStrip?: ReactNode;
 }
 
@@ -84,10 +83,10 @@ export function DavidWorkspaceShell({
   navCounts,
   onSearchChange,
   onSectionChange,
-  provenanceLabel,
   readySections = ["risk-review"],
   runSummary,
   searchValue,
+  sources,
   walkthroughStrip
 }: Readonly<DavidWorkspaceShellProps>) {
   const readySectionSet = new Set(readySections);
@@ -213,12 +212,9 @@ export function DavidWorkspaceShell({
                     </InputGroup>
                   </div>
                   <Badge className="h-9 px-3 text-xs" variant="outline">
-                    {provenanceLabel}
+                    {sources.topbarLabel}
                   </Badge>
-                  <Button disabled size="sm" type="button" variant="outline">
-                    <DatabaseIcon aria-hidden="true" data-icon="button-icon" />
-                    <span>Sources</span>
-                  </Button>
+                  <DavidSourcesDrawer sources={sources} />
                   <LogoutButton className="inline-flex" size="sm" variant="outline">
                     Sign out
                   </LogoutButton>

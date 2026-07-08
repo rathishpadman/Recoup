@@ -205,6 +205,20 @@ export interface CreditRiskCopilotModel {
   title: string;
 }
 
+export interface CreditSourceConnector {
+  connectorKey: "bureau-payment-history" | "contract-tpm" | "sap-odata" | "supabase-tools";
+  label: string;
+  statusLabel: string;
+  synthetic: boolean;
+}
+
+export interface CreditSourcesModel {
+  auditTrailLabel: string;
+  connectors: CreditSourceConnector[];
+  externalActionsLabel: string;
+  topbarLabel: string;
+}
+
 export interface CreditMeshPositionModel {
   contractGap: boolean;
   contractGapReason?: string | undefined;
@@ -294,6 +308,7 @@ export interface CreditRiskReviewModel {
     tone: VerdictTone;
     valueLabel: string;
   }>;
+  sources: CreditSourcesModel;
   sourceLabel: string;
   surface: "credit-risk-review";
 }
@@ -407,6 +422,37 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
         )
       }
     ],
+    sources: {
+      auditTrailLabel: "Audit trail on",
+      connectors: [
+        {
+          connectorKey: "sap-odata",
+          label: "SAP OData",
+          statusLabel: "Synthetic read-model available",
+          synthetic: true
+        },
+        {
+          connectorKey: "supabase-tools",
+          label: "Supabase tools data",
+          statusLabel: "Governed tables loaded",
+          synthetic: false
+        },
+        {
+          connectorKey: "bureau-payment-history",
+          label: "Bureau/payment-history",
+          statusLabel: "Synthetic payment-history available",
+          synthetic: true
+        },
+        {
+          connectorKey: "contract-tpm",
+          label: "Contract & TPM repo",
+          statusLabel: "Governed references loaded",
+          synthetic: false
+        }
+      ],
+      externalActionsLabel: "External actions blocked",
+      topbarLabel: `SAP AR read-model (synthetic) · as of ${rows.snapshot.asOfDate}`
+    },
     sourceLabel: `as-of ${rows.snapshot.asOfDate} (synthetic)`,
     surface: "credit-risk-review"
   };

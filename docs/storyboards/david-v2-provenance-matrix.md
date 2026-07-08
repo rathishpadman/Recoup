@@ -11,8 +11,7 @@ Rules:
 
 Current contract gaps that must stay honest in UI:
 
-1. Detailed source-drawer connector statuses are not yet emitted by the backend read model.
-2. Mesh tiles are covered: `accounts[].meshPositions[]` already carries `recordIds`, `deterministicBasis`, and `contractGap` fallback.
+1. Mesh tiles are covered: `accounts[].meshPositions[]` already carries `recordIds`, `deterministicBasis`, and `contractGap` fallback.
 
 | Beat | Component | Visible field | Backend source | System of record | Record IDs | Deterministic basis | Fallback behavior |
 |---|---|---|---|---|---|---|---|
@@ -50,9 +49,10 @@ Current contract gaps that must stay honest in UI:
 | `1-2.5` | `david-action-packet` | Audit receipt hash | `GET /credit/v2 -> accounts[].packet.auditEntryHash` from `approval_records.audit_entry_hash` | Approval/audit | `accounts[].packet.recordIds` | `n/a - append-only audit receipt hash` | `Source unavailable` |
 | `1-2.6` | `david-copilot-dock` | Idle suggested questions | `GET /credit/v2 -> copilot.suggestions[]` | Backend read model | `n/a - scripted prompt metadata` | `n/a - scripted dock prompts` | `fail closed` |
 | `1-2.6` | `david-copilot-dock` | Conductor line and checklist state | `GET /credit/v2 -> accounts[].copilotConductorLine`, `accounts[].assessmentSteps[]`, `accounts[].verdict`, `accounts[].verdictTone` | Backend read model | `accounts[].assessmentSteps[].recordIds` | `accounts[].copilotConductorLine`; checklist rows replay `assessmentSteps[].foundLine` | `fail closed` |
-| `1-2.7` | `david-sources-drawer` | Connector rows (`SAP OData (synthetic)`, `Supabase tools data`, `Bureau/payment-history (synthetic)`, `Contract & TPM repo`) with statuses | No dedicated connector readiness object yet in `GET /credit/v2`; current coverage is limited to `sourceLabel` and `accounts[].assessmentSteps[].sourceLabel` | Contract gap | `accounts[].assessmentSteps[].recordIds` only if reused as evidence | `Contract gap` | `Contract gap` |
-| `1-2.7` | `david-sources-drawer` | `External actions blocked` posture | `GET /credit/v2 -> accounts[].packet.requiresHumanApproval`, `accounts[].packet.dispatchedExternally=false` | Approval/read model | `accounts[].packet.recordIds` | `accounts[].packet.basis` | `fail closed` |
-| `1-2.7` | `david-sources-drawer` | `Audit trail on` posture | `GET /credit/v2 -> accounts[].packet.approvalStatus`, `auditEntryHash` when committed | Approval/audit | `accounts[].packet.recordIds` | `n/a - audit receipt presence and governed approval flow` | `Source unavailable` |
+| `1-2.7` | `david-workspace-shell` | Topbar provenance chip | `GET /credit/v2 -> sources.topbarLabel` | Backend read model | `n/a - provenance summary` | `n/a - topbar provenance summary` | `fail closed` |
+| `1-2.7` | `david-sources-drawer` | Connector rows (`SAP OData (synthetic)`, `Supabase tools data`, `Bureau/payment-history (synthetic)`, `Contract & TPM repo`) with statuses | `GET /credit/v2 -> sources.connectors[]` | Backend read model | `n/a - provenance metadata` | `n/a - connector status metadata` | `fail closed` |
+| `1-2.7` | `david-sources-drawer` | `External actions blocked` posture | `GET /credit/v2 -> sources.externalActionsLabel` | Backend read model backed by approval policy | `n/a - governance posture` | `n/a - governed approval posture` | `fail closed` |
+| `1-2.7` | `david-sources-drawer` | `Audit trail on` posture | `GET /credit/v2 -> sources.auditTrailLabel` | Backend read model backed by approval/audit contract | `n/a - governance posture` | `n/a - audit posture label` | `fail closed` |
 | `1-2.8` | `david-action-packets-outbox` | Approved packet rows (`customer`, `verdict`, `routeLabel`, packet summary) | `GET /credit/v2 -> accounts[packet.approvalStatus="committed"]` plus `packet.title`, `packet.detail` | Approval/read model | `accounts[].packet.recordIds` | `accounts[].packet.basis` | `empty state` |
 | `1-2.8` | `david-action-packets-outbox` | Approved packet audit hash | `GET /credit/v2 -> accounts[].packet.auditEntryHash` | Approval/audit | `accounts[].packet.recordIds` | `n/a - append-only audit receipt hash` | `empty state` |
 | `1-2.8` | `david-behavioural-watchlist` | Watchlist account rows (`customer`, `Flag [D]`, cited signal scenarios) | `GET /credit/v2 -> accounts[gamingFlag=true]`, `signals[]` | Behavioural containment/read model | `accounts[].signals[].recordIds` | `accounts[].signals[].basis` | `empty state` |
@@ -61,5 +61,5 @@ Current contract gaps that must stay honest in UI:
 ## Review summary
 
 - The current backend already covers queue metrics, per-account metrics, signals, mesh tiles, verdict basis, packet rows, approval receipt read-back, and watchlist counts.
-- `Contract gap` remains the correct posture for detailed connector/source statuses in the sources drawer.
+- No current `Contract gap` remains on the queue, dossier, packet, copilot rail, or sources drawer fields covered in this matrix.
 - No frontend component should invent those missing values. If those surfaces need business-facing copy beyond the rows above, add the backend field first in an approved slice.

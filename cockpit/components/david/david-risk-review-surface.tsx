@@ -96,9 +96,9 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       navCounts={model.navCounts}
       onSearchChange={setSearch}
       onSectionChange={setActiveSection}
-      provenanceLabel={model.sourceLabel}
       runSummary={runSummary}
       searchValue={search}
+      sources={model.sources}
       walkthroughStrip={
         <DavidWalkthroughStrip
           displayName={displayName}

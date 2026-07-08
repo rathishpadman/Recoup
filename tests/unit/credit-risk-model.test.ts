@@ -110,6 +110,42 @@ describe("credit risk review model", () => {
     );
   });
 
+  it("emits the sources drawer contract from the backend read model", () => {
+    const model = buildCreditRiskReviewModel(loadCreditRiskFixtureRows());
+
+    expect(model.sources).toEqual({
+      auditTrailLabel: "Audit trail on",
+      connectors: [
+        {
+          connectorKey: "sap-odata",
+          label: "SAP OData",
+          statusLabel: "Synthetic read-model available",
+          synthetic: true
+        },
+        {
+          connectorKey: "supabase-tools",
+          label: "Supabase tools data",
+          statusLabel: "Governed tables loaded",
+          synthetic: false
+        },
+        {
+          connectorKey: "bureau-payment-history",
+          label: "Bureau/payment-history",
+          statusLabel: "Synthetic payment-history available",
+          synthetic: true
+        },
+        {
+          connectorKey: "contract-tpm",
+          label: "Contract & TPM repo",
+          statusLabel: "Governed references loaded",
+          synthetic: false
+        }
+      ],
+      externalActionsLabel: "External actions blocked",
+      topbarLabel: "SAP AR read-model (synthetic) · as of 2026-01-26"
+    });
+  });
+
   it("marks a mesh tile as a contract gap when the seeded basis rows are incomplete", () => {
     const rows = loadCreditRiskFixtureRows();
     const broken = structuredClone(rows);

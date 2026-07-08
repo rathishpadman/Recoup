@@ -641,6 +641,20 @@ export interface CreditRiskCopilotModel {
   title: string;
 }
 
+export interface CreditSourceConnector {
+  connectorKey: "bureau-payment-history" | "contract-tpm" | "sap-odata" | "supabase-tools";
+  label: string;
+  statusLabel: string;
+  synthetic: boolean;
+}
+
+export interface CreditSourcesModel {
+  auditTrailLabel: string;
+  connectors: CreditSourceConnector[];
+  externalActionsLabel: string;
+  topbarLabel: string;
+}
+
 export interface CreditRiskMeshPositionModel {
   contractGap: boolean;
   contractGapReason?: string | undefined;
@@ -730,6 +744,7 @@ export interface CreditRiskReviewModel {
     tone: CreditRiskVerdictTone;
     valueLabel: string;
   }>;
+  sources: CreditSourcesModel;
   sourceLabel: string;
   surface: "credit-risk-review";
 }
