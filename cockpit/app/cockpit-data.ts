@@ -571,6 +571,152 @@ export interface CreditCockpitModel {
   };
 }
 
+export type CreditRiskVerdict = "CLEAR" | "WATCH" | "ELEVATED" | "HIGH";
+export type CreditRiskVerdictTone = "clear" | "watch" | "elevated" | "high";
+export type CreditRiskMeshPosition = "Credit" | "Fulfilment" | "Billing" | "Collections";
+export type CreditRiskApprovalStatus = "awaiting" | "committed";
+
+export interface CreditRiskPacketRow {
+  amountValue: number;
+  amountLabel: string;
+  detail: string;
+  kind: "hold" | "limit" | "monitor" | "reduce" | "release";
+  label: string;
+}
+
+export interface CreditRiskPacketModel {
+  actionId: string;
+  approvalStatus: CreditRiskApprovalStatus;
+  auditEntryHash?: string | undefined;
+  basis: string;
+  deterministicBasis: Record<string, string | number | boolean>;
+  detail: string;
+  dispatchedExternally: false;
+  recordIds: string[];
+  requiresHumanApproval: true;
+  routeLabel: string;
+  rows: CreditRiskPacketRow[];
+  title: string;
+}
+
+export interface CreditRiskSignalModel {
+  basis: string;
+  feedsMesh: string;
+  gamingFlag: boolean;
+  meshPosition: string;
+  note: string;
+  recordIds: string[];
+  routeLabel: string;
+  scenarioId: string;
+  tone: CreditRiskVerdictTone;
+  verdict: "VALID" | "INVALID" | "PARTIAL";
+}
+
+export interface CreditRiskAssessmentStep {
+  agentName: string;
+  didLine: string;
+  foundLine: string;
+  isFinal: boolean;
+  key: string;
+  phase: "overnight";
+  recordIds: string[];
+  sourceLabel: string;
+  toolLabel?: string | undefined;
+  verdict?: CreditRiskVerdict | undefined;
+  verdictLabel?: string | undefined;
+}
+
+export interface CreditRiskMeshPositionModel {
+  contractGap: boolean;
+  contractGapReason?: string | undefined;
+  deterministicBasis: string | null;
+  driverSignals: string;
+  interpretation: string;
+  keyMetric: string;
+  position: CreditRiskMeshPosition;
+  recordIds: string[];
+  status: "OK" | "WATCH" | "ELEVATED" | "HIGH";
+  statusRank: number;
+  statusTone: CreditRiskVerdictTone;
+}
+
+export interface CreditRiskAccountModel {
+  accountId: string;
+  actionPacket: CreditRiskPacketRow[];
+  channel: string;
+  creditLimitAmount: number;
+  creditLimitLabel: string;
+  customer: string;
+  daysBeyondTerms: number;
+  daysBeyondTermsLabel: string;
+  dsoDays: number;
+  dsoLabel: string;
+  exposureAmount: number;
+  exposureLabel: string;
+  facts: Array<{
+    key: "days-beyond-terms" | "dso" | "open-disputes" | "payment-trend";
+    label: string;
+    tone: CreditRiskVerdictTone;
+    valueLabel: string;
+  }>;
+  gamingFlag: boolean;
+  leadLabel: string;
+  meshPositions: CreditRiskMeshPositionModel[];
+  openDisputeAmount: number;
+  openDisputeAmountLabel: string;
+  openDisputeCount: number;
+  packet: CreditRiskPacketModel;
+  paymentTrend: "Healthy" | "Slowing" | "Stable";
+  paymentTrendLabel: string;
+  paymentTrendTone: CreditRiskVerdictTone;
+  priorAvgDaysToPay: number;
+  priorAvgDaysToPayLabel: string;
+  recentAvgDaysToPay: number;
+  recentAvgDaysToPayLabel: string;
+  recordIds: string[];
+  relationshipOwner: string;
+  routeLabel: "Contain" | "Monitor" | "Reduce" | "Release";
+  routeLine: string;
+  segment: string;
+  signals: CreditRiskSignalModel[];
+  termsDays: number;
+  termsLabel: string;
+  totalSalesAmount: number;
+  totalSalesLabel: string;
+  unsupportedAmount: number;
+  unsupportedAmountLabel: string;
+  utilisationRatio: number;
+  utilisationLabel: string;
+  utilisationPercent: number;
+  verdict: CreditRiskVerdict;
+  verdictBasis: string;
+  verdictTone: CreditRiskVerdictTone;
+  assessmentSteps: CreditRiskAssessmentStep[];
+}
+
+export interface CreditRiskReviewModel {
+  accounts: CreditRiskAccountModel[];
+  asOfDate: string;
+  asOfLabel: string;
+  navCounts: {
+    actionPackets: number;
+    riskReview: number;
+    watchlist: number;
+  };
+  portfolio: {
+    totalExposureAmount: number;
+    totalExposureLabel: string;
+  };
+  queueStats: Array<{
+    key: "accounts" | "elevated" | "high" | "watch-clear";
+    label: string;
+    tone: CreditRiskVerdictTone;
+    valueLabel: string;
+  }>;
+  sourceLabel: string;
+  surface: "credit-risk-review";
+}
+
 export interface CfoSummaryCockpitModel {
   surface: "cfo-summary";
   metrics: Array<{ label: string; value: string }>;
@@ -829,6 +975,10 @@ export async function fetchLoginModel(): Promise<LoginCockpitModel> {
 
 export async function fetchCreditModel(): Promise<CreditCockpitModel> {
   return fetchJson<CreditCockpitModel>("/credit");
+}
+
+export async function fetchCreditRiskReviewModel(): Promise<CreditRiskReviewModel> {
+  return fetchJson<CreditRiskReviewModel>("/credit/v2");
 }
 
 export async function fetchCfoModel(): Promise<CfoSummaryCockpitModel> {
