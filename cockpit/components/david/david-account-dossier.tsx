@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidAssessmentTimeline } from "./david-assessment-timeline.tsx";
 import { DavidMeshTiles } from "./david-mesh-tiles.tsx";
 import { DavidSignalsIn } from "./david-signals-in.tsx";
 import { DavidVerdictBanner } from "./david-verdict-banner.tsx";
@@ -17,6 +18,8 @@ interface DavidAccountDossierProps {
   accounts: CreditRiskAccountModel[];
   onClearSelection: () => void;
   onSelectAccount: (accountId: string) => void;
+  onTimelinePlaybackComplete: (accountId: string) => void;
+  shouldStreamTimeline: boolean;
 }
 
 const dossierSteps = [
@@ -31,7 +34,9 @@ export function DavidAccountDossier({
   account,
   accounts,
   onClearSelection,
-  onSelectAccount
+  onSelectAccount,
+  onTimelinePlaybackComplete,
+  shouldStreamTimeline
 }: Readonly<DavidAccountDossierProps>) {
   return (
     <section className="grid gap-4" data-testid="david-account-dossier">
@@ -131,6 +136,12 @@ export function DavidAccountDossier({
           </div>
         </CardHeader>
       </Card>
+
+      <DavidAssessmentTimeline
+        account={account}
+        onPlaybackComplete={onTimelinePlaybackComplete}
+        shouldStream={shouldStreamTimeline}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <DavidSignalsIn account={account} />

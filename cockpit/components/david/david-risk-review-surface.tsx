@@ -17,6 +17,7 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
   const [selectedAccountId, setSelectedAccountId] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<"ALL" | CreditRiskVerdict>("ALL");
   const [search, setSearch] = React.useState("");
+  const [playedTimelineAccountIds, setPlayedTimelineAccountIds] = React.useState<string[]>([]);
 
   const filteredAccounts = React.useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -49,6 +50,7 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
   }, [filteredAccounts, selectedAccountId]);
 
   const selectedAccount = selectedAccountId === null ? undefined : model.accounts.find((account) => account.accountId === selectedAccountId);
+  const shouldStreamTimeline = selectedAccount === undefined ? false : !playedTimelineAccountIds.includes(selectedAccount.accountId);
   const greetingName = displayName.split(/\s+/u)[0] ?? displayName;
   const runSummary = `Weekly credit risk review . ${model.navCounts.riskReview.toString()} accounts flagged . ${model.portfolio.totalExposureLabel} exposure`;
 
@@ -89,6 +91,10 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
               setSelectedAccountId(null);
             }}
             onSelectAccount={setSelectedAccountId}
+            onTimelinePlaybackComplete={(accountId) => {
+              setPlayedTimelineAccountIds((current) => (current.includes(accountId) ? current : [...current, accountId]));
+            }}
+            shouldStreamTimeline={shouldStreamTimeline}
           />
         )}
       </main>
