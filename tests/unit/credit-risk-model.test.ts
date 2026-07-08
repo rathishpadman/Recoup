@@ -66,6 +66,267 @@ describe("credit risk review model", () => {
     expect(() => buildCreditRiskReviewModel(broken)).toThrow(/mesh position mismatch/i);
   });
 
+  it("recalculates a complete newly supplied account from source rows", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const dynamicRows = structuredClone(rows);
+
+    dynamicRows.accounts.push({
+      accountId: "ACC-NOV",
+      channel: "Regional retail",
+      creditLimit: 1_000_000,
+      customer: "North Valley Market",
+      gamingFlag: false,
+      relationshipOwner: "David Kim",
+      segment: "Growth grocery",
+      termsNetDays: 30
+    });
+    dynamicRows.arOpenItems.push(
+      {
+        accountId: "ACC-NOV",
+        agingBucket: "31-60",
+        amountOpen: 500_000,
+        daysPastDue: 20,
+        disputed: true,
+        dueDate: 46_046,
+        invoiceDate: 46_016,
+        invoiceNo: "NOV-1001",
+        note: "New account dynamic fixture",
+        termsNetDays: 30
+      },
+      {
+        accountId: "ACC-NOV",
+        agingBucket: "Current",
+        amountOpen: 300_000,
+        daysPastDue: 0,
+        disputed: false,
+        dueDate: 46_054,
+        invoiceDate: 46_024,
+        invoiceNo: "NOV-1002",
+        note: null,
+        termsNetDays: 30
+      }
+    );
+    dynamicRows.salesMonthly.push(
+      ...Array.from({ length: 11 }, (_, index) => ({
+        accountId: "ACC-NOV",
+        creditSales: 600_000,
+        period: `2025-${String(index + 1).padStart(2, "0")}`
+      })),
+      { accountId: "ACC-NOV", creditSales: 700_000, period: "2025-12" }
+    );
+    dynamicRows.paymentHistory.push(
+      {
+        accountId: "ACC-NOV",
+        amountPaid: 240_000,
+        daysToPay: 28,
+        invoiceNo: "NOV-P1",
+        onTime: true,
+        paymentId: "PAY-NOV-P1",
+        window: "Prior"
+      },
+      {
+        accountId: "ACC-NOV",
+        amountPaid: 260_000,
+        daysToPay: 30,
+        invoiceNo: "NOV-P2",
+        onTime: true,
+        paymentId: "PAY-NOV-P2",
+        window: "Prior"
+      },
+      {
+        accountId: "ACC-NOV",
+        amountPaid: 230_000,
+        daysToPay: 34,
+        invoiceNo: "NOV-R1",
+        onTime: false,
+        paymentId: "PAY-NOV-R1",
+        window: "Recent"
+      },
+      {
+        accountId: "ACC-NOV",
+        amountPaid: 220_000,
+        daysToPay: 36,
+        invoiceNo: "NOV-R2",
+        onTime: false,
+        paymentId: "PAY-NOV-R2",
+        window: "Recent"
+      }
+    );
+    dynamicRows.deductions.push(
+      {
+        accountId: "ACC-NOV",
+        claimAmount: 11_000,
+        customer: "North Valley Market",
+        evidenceRefs: "EVD-CREDIT-ACC-NOV-AR",
+        feedsMesh: "Collections",
+        gamingFlag: false,
+        lines: 1,
+        recoverAmount: 7_000,
+        routing: "Recovery",
+        scenarioId: "S9",
+        type: "Allowance dispute",
+        validAmount: 0,
+        verdict: "INVALID"
+      },
+      {
+        accountId: "ACC-NOV",
+        claimAmount: 9_000,
+        customer: "North Valley Market",
+        evidenceRefs: "EVD-CREDIT-ACC-NOV-AR",
+        feedsMesh: "Collections",
+        gamingFlag: false,
+        lines: 1,
+        recoverAmount: 8_000,
+        routing: "Recovery",
+        scenarioId: "S10",
+        type: "Short-pay backup gap",
+        validAmount: 0,
+        verdict: "INVALID"
+      }
+    );
+    dynamicRows.deductionLines.push(
+      {
+        accountId: "ACC-NOV",
+        deductionType: "Allowance dispute",
+        invoiceNo: "NOV-1001",
+        lineAmount: 11_000,
+        lineId: "L-NOV-1",
+        scenarioId: "S9",
+        verdict: "INVALID"
+      },
+      {
+        accountId: "ACC-NOV",
+        deductionType: "Short-pay backup gap",
+        invoiceNo: "NOV-1002",
+        lineAmount: 9_000,
+        lineId: "L-NOV-2",
+        scenarioId: "S10",
+        verdict: "INVALID"
+      }
+    );
+    dynamicRows.contractTpm.push(
+      {
+        accountId: "ACC-NOV",
+        detail: "Allowance requires cited backup before credit release.",
+        referenceId: "CTR-NOV-ALLOWANCE",
+        termsDays: 30,
+        type: "Contract",
+        usedInScenario: "S9",
+        value: null
+      },
+      {
+        accountId: "ACC-NOV",
+        detail: "Short-pay support must include remittance and POD.",
+        referenceId: "TPM-NOV-BACKUP",
+        termsDays: null,
+        type: "TPM",
+        usedInScenario: "S10",
+        value: null
+      }
+    );
+    dynamicRows.evidenceDocuments.push({
+      accountId: "ACC-NOV",
+      contentHash: "n".repeat(64),
+      documentId: "EVD-CREDIT-ACC-NOV-AR",
+      documentType: "credit-risk-evidence",
+      recordIds: ["ACC-NOV", "S9", "S10", "credit_ar_open_items", "credit_deductions"],
+      sourceMode: "synthetic",
+      synthetic: true,
+      title: "North Valley AR aging and deduction evidence packet"
+    });
+    dynamicRows.riskMeshPositions.push(
+      {
+        accountId: "ACC-NOV",
+        driverSignals: "",
+        interpretation: "Exposure is below governed credit escalation thresholds.",
+        keyMetric: "Utilisation 80%",
+        position: "Credit",
+        status: "OK",
+        statusRank: 0
+      },
+      {
+        accountId: "ACC-NOV",
+        driverSignals: "",
+        interpretation: "No fulfilment escalation signal in the supplied deductions.",
+        keyMetric: "No OTIF/SLA valid deductions",
+        position: "Fulfilment",
+        status: "OK",
+        statusRank: 0
+      },
+      {
+        accountId: "ACC-NOV",
+        driverSignals: "",
+        interpretation: "No valid promo or pricing billing exposure.",
+        keyMetric: "No valid billing deductions",
+        position: "Billing",
+        status: "OK",
+        statusRank: 0
+      },
+      {
+        accountId: "ACC-NOV",
+        driverSignals: "S9, S10",
+        interpretation: "Unsupported deductions meet the governed elevated threshold.",
+        keyMetric: "Unsupported $15,000",
+        position: "Collections",
+        status: "ELEVATED",
+        statusRank: 2
+      }
+    );
+
+    const account = byId(buildCreditRiskReviewModel(dynamicRows), "ACC-NOV");
+
+    expect(account.exposureAmount).toBe(800_000);
+    expect(account.utilisationRatio).toBe(0.8);
+    expect(account.utilisationPercent).toBe(80);
+    expect(account.dsoDays).toBe(40);
+    expect(account.daysBeyondTerms).toBe(10);
+    expect(account.openDisputeCount).toBe(2);
+    expect(account.openDisputeAmount).toBe(20_000);
+    expect(account.unsupportedAmount).toBe(15_000);
+    expect(account.verdict).toBe("ELEVATED");
+    expect(account.packet.routeLabel).toBe("Reduce");
+    expect(account.actionPacket.find((packet) => packet.kind === "reduce")).toMatchObject({
+      amountLabel: "$1M",
+      amountValue: 1_000_000
+    });
+    expect(account.meshPositions.map((position) => `${position.position}:${position.status}`)).toEqual([
+      "Credit:OK",
+      "Fulfilment:OK",
+      "Billing:OK",
+      "Collections:ELEVATED"
+    ]);
+  });
+
+  it("fails closed when a newly supplied account has only partial source data", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const partialRows = structuredClone(rows);
+
+    partialRows.accounts.push({
+      accountId: "ACC-PARTIAL",
+      channel: "Regional retail",
+      creditLimit: 1_000_000,
+      customer: "Partial Source Market",
+      gamingFlag: false,
+      relationshipOwner: "David Kim",
+      segment: "Growth grocery",
+      termsNetDays: 30
+    });
+    partialRows.arOpenItems.push({
+      accountId: "ACC-PARTIAL",
+      agingBucket: "Current",
+      amountOpen: 100_000,
+      daysPastDue: 0,
+      disputed: false,
+      dueDate: 46_054,
+      invoiceDate: 46_024,
+      invoiceNo: "PARTIAL-1001",
+      note: null,
+      termsNetDays: 30
+    });
+
+    expect(() => buildCreditRiskReviewModel(partialRows)).toThrow(/missing source rows for account ACC-PARTIAL/i);
+  });
+
   it("templates assessment steps from computed values and only adds containment for gaming accounts", () => {
     const model = buildCreditRiskReviewModel(loadCreditRiskFixtureRows());
     const crestline = byId(model, "ACC-CRE");
