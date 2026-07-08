@@ -458,7 +458,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 ### Current execution status (updated 2026-07-08 23:24 IST)
 
-**Branch evidence:** `feature/david-credit-v2` is pushed at `676d449aeab83f88124788b0c07b31d7cf8e52c5`; PR #5 is open, non-draft, and mergeable. No production merge, production deploy, or `/credit/command` retirement has been performed.
+**Branch evidence:** `feature/david-credit-v2` is pushed at `ea4ea2f11f702e6201a3d586623145127994461c`; PR #5 is open, non-draft, and mergeable. No production merge, production deploy, or `/credit/command` retirement has been performed.
 
 **Completed locally / in PR #5:**
 
