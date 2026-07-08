@@ -456,6 +456,24 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 **Owner answers already locked:** David investigation auto-runs once per selected account/source hash; Codex has approval to create governed docs/table if required; update the original attached plan in place before prod movement.
 
+### Current execution status (updated 2026-07-08 23:24 IST)
+
+**Branch evidence:** `feature/david-credit-v2` is pushed at `676d449aeab83f88124788b0c07b31d7cf8e52c5`; PR #5 is open, non-draft, and mergeable. No production merge, production deploy, or `/credit/command` retirement has been performed.
+
+**Completed locally / in PR #5:**
+
+- Owner feedback remediation is implemented locally: the top prototype strip is removed, duplicate `Good morning, David` is removed from detail, the worklist and decision flow match the owner HTML direction, Agent Assessment / Signals In / Outcome / Action panels are collapsed by default, and the model-execution drawer exposes live-agent mode, agents, handoffs, tokens, source/run metadata, and raw-output suppression.
+- David backend values are derived from `credit_*` rows and governed policy, not React constants. Evidence: `tests/unit/credit-risk-model.test.ts` includes seeded-account checks plus a complete newly supplied account fixture (`ACC-NOV`) that recalculates exposure, utilization, DSO, days beyond terms, dispute count/amount, unsupported amount, verdict, mesh ranks, and action packet from source rows; it also includes partial-source fail-closed coverage (`ACC-PARTIAL`).
+- David live investigation follows the Maya pattern: `creditRiskQuerySession`, `credit_risk.answer`, live OpenAI Agents SDK traces, handoff count, token usage/provider usage snapshot, suppressed raw output, and citations tied to credit/source/evidence records are covered by unit and E2E tests.
+- Maya containment inclusion is additive and local E2E still shows Maya fast: latest local David E2E log showed `/forensics/shadcn` at 380ms then 236ms, `/api/forensics` at 392ms, and `/api/connectors` at 966ms.
+- Fresh local gates after the final reviewer gap fix: `npm.cmd run test -- tests/unit/credit-risk-model.test.ts` passed 1 file / 10 tests; `npm.cmd run verify` passed lint, typecheck, 137 files / 1206 tests, dependency-cruiser, and release readiness; `npm.cmd run test:e2e:david-v2` passed locally with audit hash `bf16e94a66d668cab9fcc2931a54ae25c876ff882f25a4fad037c9da9b77f135`.
+
+**Pending / blocked before release complete:**
+
+- Protected Vercel preview browser smoke reaches the app but cannot complete David because the preview frontend calls backend `/credit/v2` while the configured backend is the current production Render API, which returns 404 until this PR's backend is deployed. Vercel runtime log evidence: `Cockpit model failed for /credit/v2: 404`.
+- Production movement still requires explicit owner approval: merge PR #5, wait for Render/Vercel prod deploys, run David + Maya prod smoke, and capture backend-vs-Supabase proof for at least one `HIGH` and one non-`HIGH` account.
+- `/credit/command` retirement remains deferred by plan: do it only after David v2 is prod-verified, in a separate `chore/retire-credit-command` PR.
+
 ---
 
 ## Success criteria (demo acceptance)
