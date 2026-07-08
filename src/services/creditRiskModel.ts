@@ -152,6 +152,17 @@ export interface CreditPacketModel {
   title: string;
 }
 
+export interface CreditRiskApprovalAction {
+  actionId: string;
+  basis: string;
+  deterministicBasis: Record<string, string | number | boolean>;
+  detail: string;
+  dispatchedExternally: false;
+  proposedBy: "agent:credit-risk-review";
+  recordIds: string[];
+  requiresHumanApproval: true;
+}
+
 export interface CreditSignalModel {
   basis: string;
   feedsMesh: string;
@@ -297,6 +308,12 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
   assertRequiredRows(rows);
   const approvalReceipts = indexApprovalReceipts(rows.approvalReceipts ?? []);
   const accounts = rows.accounts.map((account) => buildAccountModel(account, rows, approvalReceipts));
+  const knownActionIds = new Set(accounts.map((account) => account.packet.actionId));
+  for (const actionId of approvalReceipts.keys()) {
+    if (!knownActionIds.has(actionId)) {
+      throw new Error(`Unknown credit approval receipt for ${actionId}.`);
+    }
+  }
   const approvedActionCount = accounts.filter((account) => account.packet.approvalStatus === "committed").length;
   const totalExposure = sumAmountNumbers(accounts.map((account) => account.exposureAmount));
 
@@ -351,6 +368,19 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
     ],
     sourceLabel: `as-of ${rows.snapshot.asOfDate} (synthetic)`,
     surface: "credit-risk-review"
+  };
+}
+
+export function buildCreditRiskApprovalAction(account: CreditRiskAccountModel): CreditRiskApprovalAction {
+  return {
+    actionId: account.packet.actionId,
+    basis: account.packet.basis,
+    deterministicBasis: { ...account.packet.deterministicBasis },
+    detail: account.packet.detail,
+    dispatchedExternally: false,
+    proposedBy: "agent:credit-risk-review",
+    recordIds: [...account.packet.recordIds],
+    requiresHumanApproval: true
   };
 }
 

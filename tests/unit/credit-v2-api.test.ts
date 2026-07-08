@@ -19,6 +19,8 @@ const cockpitAuthHeaders = {
 } as const;
 
 const governedConfigEnv = {
+  RECOUP_MEMORY_BACKEND: "supabase",
+  RECOUP_SUPABASE_MEMORY_TABLE: "recoup_memory_records",
   SUPABASE_SERVICE_ROLE_KEY: "supabase-secret-key",
   SUPABASE_URL: "https://recoup.supabase.co"
 } as const;
@@ -77,6 +79,62 @@ describe("GET /credit/v2", () => {
       await close(server);
     }
   });
+
+  it("reads committed approval receipts from governed backend records", async () => {
+    const { baseUrl, server } = await listen(creditRiskFetcher([], {
+      approvalRecords: [
+        approvalRecordRow("credit-v2:ACC-CRE", ["credit-v2:ACC-CRE", "ACC-CRE", "S4"], "a".repeat(64))
+      ]
+    }));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, {
+        headers: cockpitAuthHeaders
+      });
+      const body = (await response.json()) as {
+        accounts: Array<{
+          accountId: string;
+          packet: { actionId: string; approvalStatus: string; auditEntryHash?: string };
+        }>;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.accounts.find((account) => account.accountId === "ACC-CRE")?.packet).toMatchObject({
+        actionId: "credit-v2:ACC-CRE",
+        approvalStatus: "committed",
+        auditEntryHash: "a".repeat(64)
+      });
+      expect(body.accounts.find((account) => account.accountId === "ACC-HAR")?.packet).toMatchObject({
+        actionId: "credit-v2:ACC-HAR",
+        approvalStatus: "awaiting"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed when approval receipts reference an unknown credit-v2 account", async () => {
+    const { baseUrl, server } = await listen(creditRiskFetcher([], {
+      approvalRecords: [
+        approvalRecordRow("credit-v2:ACC-UNKNOWN", ["credit-v2:ACC-UNKNOWN", "ACC-UNKNOWN"], "b".repeat(64))
+      ]
+    }));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, {
+        headers: cockpitAuthHeaders
+      });
+      const body = (await response.json()) as { error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toMatchObject({
+        error: "Credit approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    } finally {
+      await close(server);
+    }
+  });
 });
 
 async function listen(memoryFetcher: SupabaseMemoryFetch): Promise<{ baseUrl: string; server: Server }> {
@@ -113,10 +171,11 @@ async function close(server: Server): Promise<void> {
 
 function creditRiskFetcher(
   calls: string[],
-  options: { emptyTables?: string[] } = {}
+  options: { approvalRecords?: Array<Record<string, unknown>>; emptyTables?: string[] } = {}
 ): SupabaseMemoryFetch {
   const fixture = loadCreditRiskFixtureRows();
   const emptyTables = new Set(options.emptyTables ?? []);
+  const approvalRecords = options.approvalRecords ?? [];
 
   return (url, init) => {
     calls.push(url);
@@ -127,6 +186,10 @@ function creditRiskFetcher(
 
     if (url.includes("/rest/v1/recoup_config")) {
       return Promise.resolve(jsonResponse(governedConfigPostgrestRows()));
+    }
+
+    if (url.includes("/rest/v1/recoup_memory_records")) {
+      return Promise.resolve(jsonResponse(approvalRecords));
     }
 
     const tableName = new URL(url).pathname.split("/").at(-1);
@@ -145,4 +208,22 @@ function jsonResponse(body: unknown): Response {
     },
     status: 200
   });
+}
+
+function approvalRecordRow(actionId: string, recordIds: string[], auditEntryHash: string): Record<string, unknown> {
+  return {
+    category: "approval_records",
+    created_at: new Date(0).toISOString(),
+    id: `approval:${actionId}`,
+    payload_json: {
+      actionId,
+      approverId: "human:maya-lead",
+      auditEntryHash,
+      decision: "approve",
+      status: "human_decided"
+    },
+    record_ids_json: recordIds,
+    scope: `approval:${actionId}`,
+    trust_level: "trusted"
+  };
 }

@@ -116,7 +116,10 @@ import {
   type ApprovalRecordSourceMetadata,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
-import { buildCreditRiskReviewModel } from "./creditRiskModel.js";
+import {
+  buildCreditRiskReviewModel,
+  type CreditRiskApprovalReceipt
+} from "./creditRiskModel.js";
 import {
   buildSourceHealthResultsFromSnapshots,
   type SourceHealthResult,
@@ -620,7 +623,24 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    response.json(buildCreditRiskReviewModel(rows));
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
+
+    try {
+      response.json(
+        buildCreditRiskReviewModel({
+          ...rows,
+          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+        })
+      );
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "Credit approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    }
   });
 
   app.get("/cfo", async (_request, response) => {
@@ -1512,12 +1532,18 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         ...(parsed.data.approverId === undefined ? {} : { approverId: parsed.data.approverId }),
         ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason })
       };
+      const creditRiskRows =
+        parsed.data.actionId.startsWith("credit-v2:") ? await loadRequiredCreditRiskRows(request, response) : undefined;
+      if (parsed.data.actionId.startsWith("credit-v2:") && creditRiskRows === undefined) {
+        return;
+      }
       const supabaseAuditChain =
         runtimeEnv.RECOUP_MEMORY_BACKEND === "supabase"
           ? createSupabaseAuditChainRepositoryFromEnv(runtimeEnv, options.memoryFetcher)
           : undefined;
       if (supabaseAuditChain !== undefined) {
         const prepared = prepareApprovalDecision(approvalInput, {
+          ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
           ...serviceContext,
           governedConfig,
           ...(reconciliation === undefined ? {} : { reconciliation }),
@@ -2174,6 +2200,47 @@ interface ApprovalRecordsSnapshot {
   source: ApprovalRecordSourceMetadata;
 }
 
+function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): CreditRiskApprovalReceipt[] {
+  const receipts: CreditRiskApprovalReceipt[] = [];
+
+  for (const record of records) {
+    if (record.category !== "approval_records" || record.trustLevel !== "trusted") {
+      continue;
+    }
+
+    const actionId = readApprovalPayloadString(record, "actionId");
+    const approverId = readApprovalPayloadString(record, "approverId");
+    const auditEntryHash = readApprovalPayloadString(record, "auditEntryHash");
+    const status = readApprovalPayloadString(record, "status");
+
+    if (!actionId?.startsWith("credit-v2:")) {
+      continue;
+    }
+
+    const expectedScope = `approval:${actionId}`;
+    if (
+      record.id !== expectedScope ||
+      record.scope !== expectedScope ||
+      approverId === undefined ||
+      !approverId.startsWith("human:") ||
+      status !== "human_decided" ||
+      auditEntryHash === undefined ||
+      !/^[a-f0-9]{64}$/u.test(auditEntryHash) ||
+      !record.recordIds.includes(actionId)
+    ) {
+      continue;
+    }
+
+    receipts.push({
+      actionId,
+      approvalStatus: "committed",
+      auditEntryHash
+    });
+  }
+
+  return receipts;
+}
+
 async function loadApprovalRecords(
   env: RuntimeEnv,
   memoryFetcher: SupabaseMemoryFetch | undefined
@@ -2204,6 +2271,11 @@ async function loadApprovalRecords(
   } finally {
     memoryStore.close();
   }
+}
+
+function readApprovalPayloadString(record: MemoryRecord, key: string): string | undefined {
+  const value = record.payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 async function loadApprovalRecordsOrFailClosed(

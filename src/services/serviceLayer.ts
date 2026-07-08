@@ -32,6 +32,11 @@ import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 import { assessHarborSentinel } from "../agents/sentinel.js";
 import {
+  buildCreditRiskApprovalAction,
+  buildCreditRiskReviewModel,
+  type CreditRiskRows
+} from "./creditRiskModel.js";
+import {
   emailSendCapabilitiesForPrincipal,
   emailStatusSecret,
   readRecoupEmailConfig,
@@ -64,6 +69,7 @@ interface ServiceTool {
 
 export interface ServiceInvocationContext {
   actorCapabilities?: string[];
+  creditRiskRows?: CreditRiskRows;
   decisionConfidenceThreshold?: DecisionConfidenceThreshold;
   governedConfig?: GovernedConfigValues;
   queryAnswerScope?: {
@@ -565,6 +571,16 @@ function isServiceToolName(name: string): name is ServiceToolName {
 }
 
 function findPendingAction(actionId: string, context: ServiceInvocationContext): ProposedExternalAction {
+  if (actionId.startsWith("credit-v2:")) {
+    const rows = readCreditRiskRows(context);
+    const account = buildCreditRiskReviewModel(rows).accounts.find((entry) => entry.packet.actionId === actionId);
+    if (account !== undefined) {
+      return buildCreditRiskApprovalAction(account);
+    }
+
+    throw new Error("Action not found.");
+  }
+
   const governedConfig = readGovernedConfig(context);
   const source = readSourcePort(context);
   const forensicsRun = runForensicsInvestigation({
@@ -842,6 +858,14 @@ function readGovernedConfig(context: ServiceInvocationContext): GovernedConfigVa
   }
 
   return context.governedConfig;
+}
+
+function readCreditRiskRows(context: ServiceInvocationContext): CreditRiskRows {
+  if (context.creditRiskRows === undefined) {
+    throw new Error("Credit risk source snapshot required.");
+  }
+
+  return context.creditRiskRows;
 }
 
 function readSourcePort(context: ServiceInvocationContext): SourcePort {
