@@ -12,6 +12,7 @@ import {
   SheetTrigger
 } from "@/components/ui/sheet";
 import type { CreditRiskReviewModel } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 
 interface DavidSourcesDrawerProps {
   sources: CreditRiskReviewModel["sources"];
@@ -35,13 +36,23 @@ export function DavidSourcesDrawer({ sources }: Readonly<DavidSourcesDrawerProps
         <div className="mt-6 grid gap-4">
           <div className="grid gap-3">
             {sources.connectors.map((connector) => (
-              <div className="grid gap-2 rounded-lg border bg-muted/20 p-3" data-testid="david-source-connector" key={connector.connectorKey}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>{connectorIcon(connector.connectorKey)}</span>
-                  <span className="font-medium">{connector.label}</span>
-                  {connector.synthetic ? <Badge variant="outline">synthetic</Badge> : null}
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-3" data-testid="david-source-connector" key={connector.connectorKey}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span>{connectorIcon(connector.connectorKey)}</span>
+                    <span className="truncate font-medium">{connector.label}</span>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {connector.synthetic ? <Badge variant="outline">synthetic</Badge> : null}
+                    <Badge variant="secondary">{connector.checkedAtLabel}</Badge>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">{connector.statusLabel}</p>
+                <div className="grid gap-1 text-sm">
+                  <span className="text-foreground">{connector.statusLabel}</span>
+                  <span className="text-muted-foreground">{connector.sourceModeLabel}</span>
+                </div>
+                <DavidRecordDisclosure items={connector.proofItems} label={`${connector.proofItems.length.toString()} proof checks`} />
+                <DavidRecordDisclosure items={connector.recordIds} label={`${connector.recordIds.length.toString()} source record groups`} variant="secondary" />
               </div>
             ))}
           </div>
@@ -59,7 +70,7 @@ export function DavidSourcesDrawer({ sources }: Readonly<DavidSourcesDrawerProps
               <ShieldCheckIcon aria-hidden="true" className="size-4" />
               <span className="font-medium">{sources.auditTrailLabel}</span>
             </div>
-            <p className="text-sm text-muted-foreground">Committed approval receipts remain append-only and render back into `/credit/v2`.</p>
+            <p className="text-sm text-muted-foreground">Committed approval receipts remain append-only and render back into `/credit`.</p>
           </div>
         </div>
       </SheetContent>

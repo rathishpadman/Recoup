@@ -642,8 +642,12 @@ export interface CreditRiskCopilotModel {
 }
 
 export interface CreditSourceConnector {
+  checkedAtLabel: string;
   connectorKey: "bureau-payment-history" | "contract-tpm" | "sap-odata" | "supabase-tools";
   label: string;
+  proofItems: string[];
+  recordIds: string[];
+  sourceModeLabel: string;
   statusLabel: string;
   synthetic: boolean;
 }

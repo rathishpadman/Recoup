@@ -90,6 +90,32 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
   const timelineVisibleCount = selectedAccount === undefined ? 0 : (timelineVisibleCounts[selectedAccount.accountId] ?? 0);
   const greetingName = displayName.split(/\s+/u)[0] ?? displayName;
   const runSummary = `Weekly credit risk review . ${model.navCounts.riskReview.toString()} accounts flagged . ${model.portfolio.totalExposureLabel} exposure`;
+  const accountQueue = (
+    <DavidAccountQueue
+      accounts={filteredAccounts}
+      filter={filter}
+      greetingName={greetingName}
+      onFilterChange={setFilter}
+      onSelectAccount={setSelectedAccountId}
+      queueStats={model.queueStats}
+      selectedAccountId={selectedAccountId}
+      sourceLabel={model.sourceLabel}
+    />
+  );
+  const accountDossier =
+    selectedAccount === undefined ? null : (
+      <DavidAccountDossier
+        account={selectedAccount}
+        accounts={model.accounts}
+        onClearSelection={() => {
+          setSelectedAccountId(null);
+        }}
+        onSelectAccount={setSelectedAccountId}
+        onTimelinePlaybackComplete={handleTimelinePlaybackComplete}
+        onTimelineVisibleCountChange={handleTimelineVisibleCountChange}
+        shouldStreamTimeline={shouldStreamTimeline}
+      />
+    );
 
   return (
     <DavidWorkspaceShell
@@ -113,29 +139,8 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       {activeSection === "risk-review" ? (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">
           <main className="grid gap-4">
-            <DavidAccountQueue
-              accounts={filteredAccounts}
-              filter={filter}
-              greetingName={greetingName}
-              onFilterChange={setFilter}
-              onSelectAccount={setSelectedAccountId}
-              queueStats={model.queueStats}
-              selectedAccountId={selectedAccountId}
-              sourceLabel={model.sourceLabel}
-            />
-            {selectedAccount === undefined ? null : (
-              <DavidAccountDossier
-                account={selectedAccount}
-                accounts={model.accounts}
-                onClearSelection={() => {
-                  setSelectedAccountId(null);
-                }}
-                onSelectAccount={setSelectedAccountId}
-                onTimelinePlaybackComplete={handleTimelinePlaybackComplete}
-                onTimelineVisibleCountChange={handleTimelineVisibleCountChange}
-                shouldStreamTimeline={shouldStreamTimeline}
-              />
-            )}
+            {selectedAccount === undefined ? accountQueue : accountDossier}
+            {selectedAccount === undefined ? null : accountQueue}
           </main>
           <DavidCopilotDock
             activeSuggestionId={activeCopilotSuggestionId}

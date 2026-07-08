@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel, CreditRiskMeshPosition } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import {
   davidBadgeVariantByTone,
   davidBorderClassByTone,
@@ -70,13 +71,7 @@ export function DavidMeshTiles({ account }: Readonly<{ account: CreditRiskAccoun
                 <p className="text-sm">{position.deterministicBasis}</p>
               </div>
             )}
-            <div className="flex flex-wrap gap-2">
-              {position.recordIds.map((recordId) => (
-                <Badge key={recordId} variant="outline">
-                  {recordId}
-                </Badge>
-              ))}
-            </div>
+            <DavidRecordDisclosure items={position.recordIds} label={`${position.recordIds.length.toString()} source records`} />
           </CardContent>
         </Card>
       ))}

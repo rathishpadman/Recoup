@@ -36,6 +36,11 @@ describe("cockpit v1.2 premium component contract", () => {
     const forensics = readFileSync("cockpit/app/forensics/page.tsx", "utf8");
     const run = readFileSync("cockpit/app/run/page.tsx", "utf8");
     const credit = readFileSync("cockpit/app/credit/page.tsx", "utf8");
+    const davidSurface = readFileSync("cockpit/components/david/david-risk-review-surface.tsx", "utf8");
+    const davidShell = readFileSync("cockpit/components/david/david-workspace-shell.tsx", "utf8");
+    const davidPacket = readFileSync("cockpit/components/david/david-action-packet.tsx", "utf8");
+    const davidSources = readFileSync("cockpit/components/david/david-sources-drawer.tsx", "utf8");
+    const davidRecords = readFileSync("cockpit/components/david/david-record-disclosure.tsx", "utf8");
     const cfo = readFileSync("cockpit/app/cfo/page.tsx", "utf8");
 
     expect(forensics).toContain("<ToolStatusRail");
@@ -43,9 +48,19 @@ describe("cockpit v1.2 premium component contract", () => {
     expect(forensics).toContain("<AuditVerifyChip");
     expect(run).toContain("<ToolStatusRail");
     expect(run).toContain("<AgentTraceVisualizer");
-    expect(credit).toContain("<NegotiationGraph");
-    expect(credit).toContain("<AuditVerifyChip");
-    expect(credit).toContain("account-360-panel");
+    expect(credit).toContain("<DavidRiskReviewSurface");
+    expect(credit).toContain("fetchCreditRiskReviewModel");
+    expect(credit).not.toContain("<NegotiationGraph");
+    expect(credit).not.toContain("<AuditVerifyChip");
+    expect(credit).not.toContain("account-360-panel");
+    expect(davidSurface).toContain("DavidAccountQueue");
+    expect(davidSurface).toContain("DavidAccountDossier");
+    expect(davidSurface).toContain("DavidActionPacketsOutbox");
+    expect(davidSurface).toContain("DavidBehaviouralWatchlist");
+    expect(davidShell).toContain('data-testid="david-shadcn-workbench"');
+    expect(davidPacket).toContain("<DavidApprovalGateDialog");
+    expect(davidSources).toContain("DavidRecordDisclosure");
+    expect(davidRecords).toContain("<details");
     expect(cfo).toContain("board-metric-ledger");
     expect(cfo).toContain("cfo-provenance-footer");
   });

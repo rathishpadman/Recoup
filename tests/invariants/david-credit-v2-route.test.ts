@@ -21,27 +21,37 @@ function readTree(root: string): string {
 }
 
 describe("David credit v2 route scaffold", () => {
-  it("ships as a guarded App Router route backed by the credit-v2 read model", () => {
-    const pagePath = "cockpit/app/credit/v2/page.tsx";
-    const loadingPath = "cockpit/app/credit/v2/loading.tsx";
+  it("ships as the guarded /credit App Router route backed by the credit-v2 read model", () => {
+    const pagePath = "cockpit/app/credit/page.tsx";
+    const legacyRedirectPath = "cockpit/app/credit/v2/route.ts";
     const surfacePath = "cockpit/components/david/david-risk-review-surface.tsx";
-    const loadingShellPath = "cockpit/components/david/david-shadcn-loading-shell.tsx";
 
     expect(existsSync(pagePath)).toBe(true);
-    expect(existsSync(loadingPath)).toBe(true);
+    expect(existsSync(legacyRedirectPath)).toBe(true);
     expect(existsSync(surfacePath)).toBe(true);
-    expect(existsSync(loadingShellPath)).toBe(true);
 
     const page = readFileSync(pagePath, "utf8");
-    const loading = readFileSync(loadingPath, "utf8");
+    const legacyRedirect = readFileSync(legacyRedirectPath, "utf8");
 
-    expect(page).toContain('requireRouteAccess("/credit/v2")');
+    expect(page).toContain('requireRouteAccess("/credit")');
     expect(page).toContain("fetchCreditRiskReviewModel");
     expect(page).toContain("DavidRiskReviewSurface");
-    expect(page).not.toContain("decimal.js");
-    expect(page).not.toContain("src/core");
-    expect(page).not.toContain("src/services");
-    expect(loading).toContain("DavidShadcnLoadingShell");
+    for (const forbidden of [
+      "ApprovalControls",
+      "AuditVerifyChip",
+      "NegotiationGraph",
+      "fetchCreditModel",
+      "premium-components",
+      "decimal.js",
+      "src/core",
+      "src/services"
+    ]) {
+      expect(page).not.toContain(forbidden);
+    }
+
+    expect(legacyRedirect).toContain("NextResponse.redirect");
+    expect(legacyRedirect).toContain('new URL("/credit", request.url)');
+    expect(legacyRedirect).toContain("status: 308");
   });
 
   it("keeps David scaffold components inside the cockpit boundary", () => {

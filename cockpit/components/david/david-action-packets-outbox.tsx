@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowRightIcon, CheckCircle2Icon } from "lucide-react";
+import { ArrowRightIcon, CheckCircle2Icon, LockKeyholeIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone } from "./david-verdict-tokens.ts";
 
 interface DavidActionPacketsOutboxProps {
@@ -59,6 +60,18 @@ export function DavidActionPacketsOutbox({ accounts, onOpenAccount }: Readonly<D
                   <CheckCircle2Icon aria-hidden="true" className="size-4 text-emerald-600 dark:text-emerald-300" />
                   <span className="font-medium">{account.packet.title}</span>
                 </div>
+                <p className="text-sm text-muted-foreground">{account.packet.basis}</p>
+                <div className="grid gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div className="flex items-center gap-2">
+                    <LockKeyholeIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                    <div className="grid gap-0.5">
+                      <span className="text-sm font-medium">External send remains gated</span>
+                      <span className="text-xs text-muted-foreground">Approval receipt is committed; packet dispatch is still draft-only.</span>
+                    </div>
+                  </div>
+                  <Badge variant="outline">Not sent</Badge>
+                </div>
+                <DavidRecordDisclosure items={account.packet.recordIds} label={`${account.packet.recordIds.length.toString()} cited packet records`} variant="secondary" />
                 <div className="grid gap-1">
                   <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Audit hash</span>
                   <code className="break-all rounded-md border bg-muted/20 px-2 py-1 text-xs">{account.packet.auditEntryHash}</code>

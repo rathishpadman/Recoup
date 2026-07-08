@@ -214,7 +214,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
             <Alert data-testid="david-action-packet-refreshing">
               <ExternalLinkIcon aria-hidden="true" data-icon="inline-start" />
               <AlertTitle>Refreshing governed receipt</AlertTitle>
-              <AlertDescription>The route is waiting for `/credit/v2` to return the committed approval hash from the backend.</AlertDescription>
+              <AlertDescription>The route is waiting for `/credit` to return the committed approval hash from the backend.</AlertDescription>
             </Alert>
           ) : hasCommittedReceipt ? (
             <Alert data-testid="david-action-packet-receipt">

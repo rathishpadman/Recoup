@@ -206,8 +206,12 @@ export interface CreditRiskCopilotModel {
 }
 
 export interface CreditSourceConnector {
+  checkedAtLabel: string;
   connectorKey: "bureau-payment-history" | "contract-tpm" | "sap-odata" | "supabase-tools";
   label: string;
+  proofItems: string[];
+  recordIds: string[];
+  sourceModeLabel: string;
   statusLabel: string;
   synthetic: boolean;
 }
@@ -426,26 +430,52 @@ export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskRevi
       auditTrailLabel: "Audit trail on",
       connectors: [
         {
+          checkedAtLabel: `Checked ${rows.snapshot.asOfDate}`,
           connectorKey: "sap-odata",
           label: "SAP OData",
+          proofItems: [`credit_snapshot:${rows.snapshot.asOfDate}`, `credit_ar_open_items:${rows.arOpenItems.length.toString()}`],
+          recordIds: ["credit_snapshot", "credit_ar_open_items"],
+          sourceModeLabel: "synthetic SAP read-model",
           statusLabel: "Synthetic read-model available",
           synthetic: true
         },
         {
+          checkedAtLabel: `Checked ${rows.snapshot.asOfDate}`,
           connectorKey: "supabase-tools",
           label: "Supabase tools data",
+          proofItems: [
+            `credit_accounts:${rows.accounts.length.toString()}`,
+            `credit_policy:${Object.keys(rows.policy).length.toString()}`,
+            `credit_risk_mesh_positions:${rows.riskMeshPositions.length.toString()}`
+          ],
+          recordIds: ["credit_accounts", "credit_policy", "credit_risk_mesh_positions"],
+          sourceModeLabel: "governed Supabase tables",
           statusLabel: "Governed tables loaded",
           synthetic: false
         },
         {
+          checkedAtLabel: `Checked ${rows.snapshot.asOfDate}`,
           connectorKey: "bureau-payment-history",
           label: "Bureau/payment-history",
+          proofItems: [
+            `credit_payment_history:${rows.paymentHistory.length.toString()}`,
+            `credit_sales_monthly:${rows.salesMonthly.length.toString()}`
+          ],
+          recordIds: ["credit_payment_history", "credit_sales_monthly"],
+          sourceModeLabel: "synthetic payment source",
           statusLabel: "Synthetic payment-history available",
           synthetic: true
         },
         {
+          checkedAtLabel: `Checked ${rows.snapshot.asOfDate}`,
           connectorKey: "contract-tpm",
           label: "Contract & TPM repo",
+          proofItems: [
+            `credit_contract_tpm:${rows.contractTpm.length.toString()}`,
+            `credit_deduction_lines:${rows.deductionLines.length.toString()}`
+          ],
+          recordIds: ["credit_contract_tpm", "credit_deduction_lines"],
+          sourceModeLabel: "governed contract references",
           statusLabel: "Governed references loaded",
           synthetic: false
         }

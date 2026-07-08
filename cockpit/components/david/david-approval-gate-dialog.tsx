@@ -121,7 +121,7 @@ export function DavidApprovalGateDialog({
             <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
             <AlertTitle>Governed approval</AlertTitle>
             <AlertDescription>
-              The approval route will refresh `/credit/v2` and wait for the backend receipt before this packet changes to committed.
+              The approval route will refresh `/credit` and wait for the backend receipt before this packet changes to committed.
             </AlertDescription>
           </Alert>
 

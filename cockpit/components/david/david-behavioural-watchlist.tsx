@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowRightIcon, ShieldAlertIcon } from "lucide-react";
+import { ArrowRightIcon, ListChecksIcon, ShieldAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 
 interface DavidBehaviouralWatchlistProps {
   accounts: CreditRiskAccountModel[];
@@ -55,13 +56,28 @@ export function DavidBehaviouralWatchlist({ accounts, onOpenAccount }: Readonly<
                   <ShieldAlertIcon aria-hidden="true" className="size-4 text-destructive" />
                   <span className="font-medium">{`${gamingSignals.length.toString()} gaming-linked signal${gamingSignals.length === 1 ? "" : "s"}`}</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {citedRecordIds.map((recordId) => (
-                    <Badge key={`${account.accountId}-${recordId}`} variant="outline">
-                      {recordId}
-                    </Badge>
+                <div className="grid gap-2">
+                  {gamingSignals.map((signal) => (
+                    <div className="grid gap-2 rounded-md border bg-muted/20 p-3" key={`${account.accountId}-${signal.scenarioId}`}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">{signal.scenarioId}</Badge>
+                        <Badge variant="outline">{signal.verdict}</Badge>
+                        <span className="text-xs text-muted-foreground">{signal.routeLabel}</span>
+                      </div>
+                      <p className="text-sm text-foreground">{signal.basis}</p>
+                      <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                        <span>{signal.note}</span>
+                        <span>{`${signal.meshPosition} handoff . ${signal.feedsMesh}`}</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-background/70 p-3 text-sm">
+                  <ListChecksIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                  <span className="font-medium">Containment review handoff</span>
+                  <span className="text-muted-foreground">No hold or term action leaves the cockpit without human approval.</span>
+                </div>
+                <DavidRecordDisclosure items={citedRecordIds} label={`${citedRecordIds.length.toString()} watchlist records`} />
               </CardContent>
             </Card>
           );

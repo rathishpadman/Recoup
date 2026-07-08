@@ -35,7 +35,7 @@ interface SharedRouteSpec {
 const sharedRoutes = [
   { anchor: /CFO Readout|Board metric ledger/u, loginId: "CFO", manifestName: "cfo view if live", name: "cfo", path: "/cfo" },
   {
-    anchor: /Credit Arbitration|Credit Sentinel alert/u,
+    anchor: /Weekly credit risk review|Action packets|Behavioural watchlist/u,
     loginId: "david",
     manifestName: "david credit risk if live",
     name: "credit",
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       await loginAsDemoUser(page, baseUrl, route.loginId);
       await checkedGoto(page, `${baseUrl}${route.path}`, route.name);
       await page.getByText(route.anchor).first().waitFor({ state: "visible", timeout: 45_000 });
-      await page.screenshot({ fullPage: true, path: join(screenshotDir, `shared-${route.name}.png`) });
+      await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, `shared-${route.name}.png`) });
       assertNoBrowserErrors(errors, route.name);
       await page.close();
     }

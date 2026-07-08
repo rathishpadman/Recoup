@@ -81,7 +81,7 @@ export function LandingHero() {
                   <ArrowRight className="size-4" data-icon="inline-end" />
                 </a>
               </Button>
-              <span className="text-center text-xs text-muted-foreground">Director of Credit & Collections - risk arbitration</span>
+              <span className="text-center text-xs text-muted-foreground">Director of Credit & Collections - weekly risk review</span>
             </div>
           </div>
         </div>

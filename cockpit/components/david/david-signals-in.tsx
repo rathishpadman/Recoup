@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
 export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
@@ -41,13 +42,7 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
               <p className="text-sm font-medium">{signal.note}</p>
               <p className="text-sm text-muted-foreground">{signal.basis}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {signal.recordIds.map((recordId) => (
-                <Badge key={recordId} variant="outline">
-                  {recordId}
-                </Badge>
-              ))}
-            </div>
+            <DavidRecordDisclosure items={signal.recordIds} label={`${signal.recordIds.length.toString()} cited records`} />
           </div>
         ))}
       </CardContent>

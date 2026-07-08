@@ -117,26 +117,42 @@ describe("credit risk review model", () => {
       auditTrailLabel: "Audit trail on",
       connectors: [
         {
+          checkedAtLabel: "Checked 2026-01-26",
           connectorKey: "sap-odata",
           label: "SAP OData",
+          proofItems: ["credit_snapshot:2026-01-26", "credit_ar_open_items:22"],
+          recordIds: ["credit_snapshot", "credit_ar_open_items"],
+          sourceModeLabel: "synthetic SAP read-model",
           statusLabel: "Synthetic read-model available",
           synthetic: true
         },
         {
+          checkedAtLabel: "Checked 2026-01-26",
           connectorKey: "supabase-tools",
           label: "Supabase tools data",
+          proofItems: ["credit_accounts:4", "credit_policy:7", "credit_risk_mesh_positions:16"],
+          recordIds: ["credit_accounts", "credit_policy", "credit_risk_mesh_positions"],
+          sourceModeLabel: "governed Supabase tables",
           statusLabel: "Governed tables loaded",
           synthetic: false
         },
         {
+          checkedAtLabel: "Checked 2026-01-26",
           connectorKey: "bureau-payment-history",
           label: "Bureau/payment-history",
+          proofItems: ["credit_payment_history:24", "credit_sales_monthly:48"],
+          recordIds: ["credit_payment_history", "credit_sales_monthly"],
+          sourceModeLabel: "synthetic payment source",
           statusLabel: "Synthetic payment-history available",
           synthetic: true
         },
         {
+          checkedAtLabel: "Checked 2026-01-26",
           connectorKey: "contract-tpm",
           label: "Contract & TPM repo",
+          proofItems: ["credit_contract_tpm:8", "credit_deduction_lines:20"],
+          recordIds: ["credit_contract_tpm", "credit_deduction_lines"],
+          sourceModeLabel: "governed contract references",
           statusLabel: "Governed references loaded",
           synthetic: false
         }

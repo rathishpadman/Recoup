@@ -73,14 +73,20 @@ async function main(): Promise<void> {
     await loginAsDemoUser(page, baseUrl, "CFO");
     await resetApprovalStateInBrowser(page, crestline.packet.actionId, "Prepare David v2 real-backend browser proof.");
     await waitForApprovalStatus("ACC-CRE", "awaiting");
-    await loginAsDemoUser(page, baseUrl, "david");
+    await verifyLandingDavidDemoCta(page, baseUrl);
     assert(new URL(page.url()).pathname === "/credit", `David default route was ${page.url()} instead of /credit.`);
-    await page.getByText(/Credit Arbitration|Credit Sentinel alert/u).first().waitFor({ state: "visible", timeout: 45_000 });
-    await page.screenshot({ fullPage: true, path: join(screenshotDir, "task-1-4-2-credit-default-1440.png") });
-
-    await checkedGoto(page, `${baseUrl}/credit/v2`, "david v2");
     await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
+    await waitForClientHydration(page, 'input[aria-label="Search accounts in review"]');
+    await waitForClientHydration(page, 'input[placeholder="coming with the query agent"]');
+    await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-credit-default-1440.png") });
+
+    await checkedGoto(page, `${baseUrl}/credit/v2`, "david v2");
+    assert(new URL(page.url()).pathname === "/credit", `David legacy /credit/v2 route did not resolve to /credit. Current URL: ${page.url()}.`);
+    await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 45_000 });
+    await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
+    await waitForClientHydration(page, 'input[aria-label="Search accounts in review"]');
+    await waitForClientHydration(page, 'input[placeholder="coming with the query agent"]');
 
     const queueRows = page.locator('[data-testid="david-queue-account-row"]');
     await waitForCount(queueRows, 4, 45_000, "David queue rows");
@@ -88,7 +94,7 @@ async function main(): Promise<void> {
     await crestlineRow.waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(crestlineRow, "Flag [D]", "Crestline queue row gaming flag");
     await expectTextInLocator(crestlineRow, "HIGH", "Crestline queue row verdict");
-    await page.screenshot({ fullPage: true, path: join(screenshotDir, "task-1-4-2-queue-1440.png") });
+    await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-queue-1440.png") });
 
     const forbiddenRequestsOnOpen: string[] = [];
     const requestListener = (request: import("playwright").Request) => {
@@ -151,13 +157,13 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="david-action-packet-receipt"]').waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), auditHash, "David receipt after reload");
     await page.setViewportSize({ width: 1280, height: 1000 });
-    await page.screenshot({ fullPage: true, path: join(screenshotDir, "task-1-4-2-approved-1280.png") });
+    await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-approved-1280.png") });
 
     await loginAsDemoUser(page, baseUrl, "Maya");
     await checkedGoto(page, `${baseUrl}/forensics/shadcn`, "maya overview");
     await page.locator('[data-testid="maya-root-section-overview"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="maya-containment-brief"]').waitFor({ state: "visible", timeout: 45_000 });
-    await page.screenshot({ fullPage: true, path: join(screenshotDir, "task-1-4-2-maya-containment-1280.png") });
+    await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-maya-containment-1280.png") });
 
     assertNoBrowserErrors(errors, "david credit v2 real-backend e2e");
     console.log(JSON.stringify({ apiUrl, auditHash, ok: true, screenshots: screenshotDir }, null, 2));
@@ -184,6 +190,19 @@ function requireAccount(model: CreditRiskReviewModel, accountId: string): Credit
   assert(account !== undefined, `Credit v2 backend did not expose account ${accountId}.`);
 
   return account;
+}
+
+async function verifyLandingDavidDemoCta(page: Page, baseUrl: string): Promise<void> {
+  await checkedGoto(page, `${baseUrl}/`, "Recoup landing David demo CTA");
+  await page.getByRole("tab", { name: "Demo" }).click();
+  const demoPanel = page.getByTestId("recoup-landing-tab-demo");
+  await demoPanel.waitFor({ state: "visible", timeout: 15_000 });
+  await expectTextInLocator(demoPanel, "Review the 4-account weekly risk queue", "David landing demo card");
+  await page.getByTestId("recoup-landing-david-cta").click();
+  await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("loginId") === "david", { timeout: 15_000 });
+  const loginIdValue = await page.locator('input[name="loginId"]').inputValue();
+  assert(loginIdValue === "david", `David landing CTA prefilled loginId=${loginIdValue}.`);
+  await loginAsDemoUser(page, baseUrl, "david");
 }
 
 async function resetApprovalStateInBrowser(page: Page, actionId: string, reason: string): Promise<void> {
@@ -263,6 +282,21 @@ async function expectTextInLocator(
 ): Promise<void> {
   const text = normalizeUiText(await locator.innerText({ timeout: 45_000 }));
   assert(text.includes(expectedText), `${label} did not include ${expectedText}. Rendered: ${text}`);
+}
+
+async function waitForClientHydration(page: Page, selector: string): Promise<void> {
+  await page.waitForFunction(
+    (targetSelector) => {
+      const element = document.querySelector(targetSelector);
+      if (element === null) {
+        return false;
+      }
+
+      return Object.keys(element).some((key) => key.startsWith("__reactProps$") || key.startsWith("__reactFiber$"));
+    },
+    selector,
+    { timeout: 10_000 }
+  );
 }
 
 function normalizeUiText(value: string): string {

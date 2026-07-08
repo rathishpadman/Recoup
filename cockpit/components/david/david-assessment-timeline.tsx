@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel, CreditRiskAssessmentStep } from "../../app/cockpit-data.ts";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
 interface DavidAssessmentTimelineProps {
@@ -150,14 +151,7 @@ function DavidAssessmentStep({
         </div>
         <div className="rounded-md border bg-background/80 px-3 py-2 text-sm font-medium">{step.didLine}</div>
         <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">{step.foundLine}</div>
-        <div className="flex flex-wrap gap-1.5">
-          {step.recordIds.slice(0, 5).map((recordId) => (
-            <Badge key={`${step.key}-${recordId}`} variant="outline">
-              {recordId}
-            </Badge>
-          ))}
-          {step.recordIds.length > 5 ? <Badge variant="outline">{`+${String(step.recordIds.length - 5)} more`}</Badge> : null}
-        </div>
+        <DavidRecordDisclosure items={step.recordIds} label={`${step.recordIds.length.toString()} trace records`} />
       </div>
     </li>
   );
