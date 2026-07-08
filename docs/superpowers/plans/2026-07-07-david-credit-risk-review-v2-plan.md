@@ -412,6 +412,16 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 ---
 
+### Task 1-5.5: Prod Maya cache regression troubleshooting record (added 2026-07-08)
+**Trigger:** Owner observed `https://recoup-self-eta.vercel.app/forensics/shadcn` taking >60s even after the cache patch.
+- [ ] **Step 1:** Run an authenticated Maya prod browser probe and record first render time plus two `/api/forensics` probes with `x-recoup-read-model-cache`, status, and elapsed time. Expected warm state: `hit` and sub-2s API response.
+- [ ] **Step 2:** Probe `/api/connectors` the same way; confirm it also returns `x-recoup-read-model-cache: hit`, since connector cold-load can feel like the Maya page itself is cold.
+- [ ] **Step 3:** Inspect Vercel production deployment metadata and env-key presence only: `RECOUP_API_URL`, `NEXT_PUBLIC_RECOUP_API_URL`, `RECOUP_READ_MODEL_CACHE`, `RECOUP_READ_MODEL_BACKGROUND_REFRESH`; do not print secret values. If cache flags are absent, defaults must still be enabled by `read-model-cache.ts`.
+- [ ] **Step 4:** Check Render request logs for `/forensics`, `/forensics/refresh`, and `/connectors` during the probe window. Warm cache hits should not synchronously call Render `/forensics`.
+- [ ] **Step 5:** If the owner can reproduce >60s while probes show cache hits, classify as Vercel/serverless or browser-session cold start and capture HAR/performance timing. If probes show `miss` or no cache header, treat as a cache regression and fix before closing the goal.
+
+---
+
 ## Success criteria (demo acceptance)
 
 1. **Milestone 0 shipped first:** prod `/forensics/shadcn` warm load < ~2s; Maya e2e/shared-surfaces green; merged to main before David started.
@@ -458,6 +468,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 - [ ] **1-5.2** repoint landing David demo
 - [ ] **1-5.3** PR → main → prod verified
 - [ ] **1-5.4** retire `/credit/command` (separate PR, after prod)
+- [ ] **1-5.5** prod Maya cache regression troubleshooting record
 
 ## Owner decisions (resolved 2026-07-07)
 
