@@ -103,18 +103,18 @@ function buildCreditRiskApprovalFetcher(input: {
   const auditHead = input.auditHead ?? [];
 
   return (url, init) => {
-    const body = stringifyRequestBody(init?.body);
+    const body = stringifyRequestBody(init.body);
 
-    if (init?.method === "GET" && url.includes("/rest/v1/recoup_audit_chain")) {
+    if (init.method === "GET" && url.includes("/rest/v1/recoup_audit_chain")) {
       return Promise.resolve(testJsonResponse(auditHead));
     }
 
-    if (init?.method === "POST" && url.includes("/rest/v1/rpc/recoup_commit_approval_audit")) {
+    if (init.method === "POST" && url.includes("/rest/v1/rpc/recoup_commit_approval_audit")) {
       input.onRpcPayload?.(JSON.parse(body ?? "{}") as Record<string, unknown>);
       return Promise.resolve(testJsonResponse({ committed: true }));
     }
 
-    if (init?.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
+    if (init.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
       return Promise.resolve(testJsonResponse(approvalRows));
     }
 

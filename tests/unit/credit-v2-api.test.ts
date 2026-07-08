@@ -202,7 +202,7 @@ function creditRiskFetcher(
 
   return (url, init) => {
     calls.push(url);
-    expect(init?.headers).toMatchObject({
+    expect(init.headers).toMatchObject({
       apikey: "supabase-secret-key",
       authorization: "Bearer supabase-secret-key"
     });

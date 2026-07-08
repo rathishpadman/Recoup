@@ -98,7 +98,7 @@ export function rowsForCreditRiskTable(
         status_rank: row.statusRank
       }));
     case "credit_policy":
-      return Object.entries(fixture.policy).map(([key, value]) => ({
+      return (Object.entries(fixture.policy) as Array<[string, number]>).map(([key, value]) => ({
         key,
         value
       }));

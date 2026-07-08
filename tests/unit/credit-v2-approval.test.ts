@@ -23,10 +23,10 @@ describe("credit-v2 approval resolver", () => {
       detail: "Contain exposure and keep every external send gated behind human review.",
       dispatchedExternally: false,
       proposedBy: "agent:credit-risk-review",
-      recordIds: expect.arrayContaining(["ACC-CRE", "S6", "L15", "CTR CRE-PRC-24"]),
       requiresHumanApproval: true
     });
     const action = prepared.action as CreditRiskApprovalAction;
+    expect(action.recordIds).toEqual(expect.arrayContaining(["ACC-CRE", "S6", "L15", "CTR CRE-PRC-24"]));
     expect(action.basis).toContain("is HIGH because Credit=ELEVATED");
     expect(action.basis).toContain("Collections=HIGH");
     expect(action.deterministicBasis).toMatchObject({

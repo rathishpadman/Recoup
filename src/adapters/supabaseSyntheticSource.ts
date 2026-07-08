@@ -136,20 +136,17 @@ const creditRiskPolicyKeys = [
   "reduceLimitBuffer",
   "reduceLimitRounding"
 ] as const satisfies readonly (keyof CreditPolicy)[];
-const creditRiskRequiredTableNames = [
-  "credit_snapshot",
-  "credit_accounts",
-  "credit_ar_open_items",
-  "credit_sales_monthly",
-  "credit_payment_history",
-  "credit_deductions",
-  "credit_deduction_lines",
-  "credit_contract_tpm",
-  "credit_risk_mesh_positions",
-  "credit_policy"
-] as const;
-
-type CreditRiskTableName = (typeof creditRiskRequiredTableNames)[number];
+type CreditRiskTableName =
+  | "credit_snapshot"
+  | "credit_accounts"
+  | "credit_ar_open_items"
+  | "credit_sales_monthly"
+  | "credit_payment_history"
+  | "credit_deductions"
+  | "credit_deduction_lines"
+  | "credit_contract_tpm"
+  | "credit_risk_mesh_positions"
+  | "credit_policy";
 
 const creditRiskSnapshotRowSchema = z.object({
   as_of_date: z.string().min(1),

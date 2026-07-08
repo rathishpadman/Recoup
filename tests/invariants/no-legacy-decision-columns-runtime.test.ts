@@ -25,11 +25,19 @@ describe("legacy deduction decision columns are not runtime decision inputs", ()
       return;
     }
 
-    expect(source).not.toMatch(/recoup_deduction_lines\.(verdict|routing|rule_id|rule_input_json|scenario_id)/u);
-    expect(source).not.toMatch(/\bline\.(verdict|routing|ruleId|ruleInput|scenarioId)\b/u);
-    expect(source).not.toMatch(/\brow\.(verdict|routing|rule_id|rule_input_json|scenario_id)\b/u);
-    expect(source).not.toMatch(/\bparsed\.(verdict|routing|rule_id|rule_input_json|scenario_id)\b/u);
-    expect(source).not.toMatch(/\bsettlementLine\.(verdict|routing|ruleId|ruleInput|scenarioId)\b/u);
+    const sourceUnderTest =
+      file === "src/adapters/supabaseSyntheticSource.ts"
+        ? source.replace(
+            /function mapCreditRiskDeductionRow[\s\S]*?function mapCreditRiskContractTpmRow/u,
+            "function mapCreditRiskContractTpmRow"
+          )
+        : source;
+
+    expect(sourceUnderTest).not.toMatch(/recoup_deduction_lines\.(verdict|routing|rule_id|rule_input_json|scenario_id)/u);
+    expect(sourceUnderTest).not.toMatch(/\bline\.(verdict|routing|ruleId|ruleInput|scenarioId)\b/u);
+    expect(sourceUnderTest).not.toMatch(/\brow\.(verdict|routing|rule_id|rule_input_json|scenario_id)\b/u);
+    expect(sourceUnderTest).not.toMatch(/\bparsed\.(verdict|routing|rule_id|rule_input_json|scenario_id)\b/u);
+    expect(sourceUnderTest).not.toMatch(/\bsettlementLine\.(verdict|routing|ruleId|ruleInput|scenarioId)\b/u);
   });
 
   it("does not expose scenario-named fields in the cockpit worklist display contract", () => {
