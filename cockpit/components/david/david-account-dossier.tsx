@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
+import { DavidActionPacket } from "./david-action-packet.tsx";
 import { DavidAssessmentTimeline } from "./david-assessment-timeline.tsx";
 import { DavidMeshTiles } from "./david-mesh-tiles.tsx";
 import { DavidSignalsIn } from "./david-signals-in.tsx";
@@ -149,6 +150,8 @@ export function DavidAccountDossier({
       </div>
 
       <DavidVerdictBanner account={account} />
+
+      <DavidActionPacket account={account} />
     </section>
   );
 }
