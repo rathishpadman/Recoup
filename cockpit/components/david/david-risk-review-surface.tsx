@@ -4,6 +4,8 @@ import * as React from "react";
 import type { CreditRiskReviewModel, CreditRiskVerdict } from "../../app/cockpit-data.ts";
 import { DavidAccountDossier } from "./david-account-dossier.tsx";
 import { DavidAccountQueue } from "./david-account-queue.tsx";
+import { DavidActionPacketsOutbox } from "./david-action-packets-outbox.tsx";
+import { DavidBehaviouralWatchlist } from "./david-behavioural-watchlist.tsx";
 import { DavidCopilotDock } from "./david-copilot-dock.tsx";
 import { DavidWalkthroughStrip } from "./david-walkthrough-strip.tsx";
 import { DavidWorkspaceShell, type DavidSurfaceSection } from "./david-workspace-shell.tsx";
@@ -96,6 +98,7 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       navCounts={model.navCounts}
       onSearchChange={setSearch}
       onSectionChange={setActiveSection}
+      readySections={["risk-review", "action-packets", "watchlist"]}
       runSummary={runSummary}
       searchValue={search}
       sources={model.sources}
@@ -107,49 +110,67 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
         />
       }
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">
-        <main className="grid gap-4">
-          <DavidAccountQueue
-            accounts={filteredAccounts}
-            filter={filter}
-            greetingName={greetingName}
-            onFilterChange={setFilter}
-            onSelectAccount={setSelectedAccountId}
-            queueStats={model.queueStats}
-            selectedAccountId={selectedAccountId}
-            sourceLabel={model.sourceLabel}
-          />
-          {selectedAccount === undefined ? null : (
-            <DavidAccountDossier
-              account={selectedAccount}
-              accounts={model.accounts}
-              onClearSelection={() => {
-                setSelectedAccountId(null);
-              }}
+      {activeSection === "risk-review" ? (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">
+          <main className="grid gap-4">
+            <DavidAccountQueue
+              accounts={filteredAccounts}
+              filter={filter}
+              greetingName={greetingName}
+              onFilterChange={setFilter}
               onSelectAccount={setSelectedAccountId}
-              onTimelinePlaybackComplete={handleTimelinePlaybackComplete}
-              onTimelineVisibleCountChange={handleTimelineVisibleCountChange}
-              shouldStreamTimeline={shouldStreamTimeline}
+              queueStats={model.queueStats}
+              selectedAccountId={selectedAccountId}
+              sourceLabel={model.sourceLabel}
             />
-          )}
-        </main>
-        <DavidCopilotDock
-          activeSuggestionId={activeCopilotSuggestionId}
-          copilot={model.copilot}
-          onActivateSuggestion={(suggestionId) => {
-            setActiveCopilotSuggestionId(suggestionId);
-            const suggestion = model.copilot.suggestions.find((entry) => entry.suggestionId === suggestionId);
-            if (suggestion?.targetAccountId !== undefined) {
-              setSelectedAccountId(suggestion.targetAccountId);
-              return;
-            }
+            {selectedAccount === undefined ? null : (
+              <DavidAccountDossier
+                account={selectedAccount}
+                accounts={model.accounts}
+                onClearSelection={() => {
+                  setSelectedAccountId(null);
+                }}
+                onSelectAccount={setSelectedAccountId}
+                onTimelinePlaybackComplete={handleTimelinePlaybackComplete}
+                onTimelineVisibleCountChange={handleTimelineVisibleCountChange}
+                shouldStreamTimeline={shouldStreamTimeline}
+              />
+            )}
+          </main>
+          <DavidCopilotDock
+            activeSuggestionId={activeCopilotSuggestionId}
+            copilot={model.copilot}
+            onActivateSuggestion={(suggestionId) => {
+              setActiveCopilotSuggestionId(suggestionId);
+              const suggestion = model.copilot.suggestions.find((entry) => entry.suggestionId === suggestionId);
+              if (suggestion?.targetAccountId !== undefined) {
+                setSelectedAccountId(suggestion.targetAccountId);
+                return;
+              }
 
-            setSelectedAccountId((current) => current ?? model.accounts[0]?.accountId ?? null);
+              setSelectedAccountId((current) => current ?? model.accounts[0]?.accountId ?? null);
+            }}
+            selectedAccount={selectedAccount}
+            timelineVisibleCount={timelineVisibleCount}
+          />
+        </div>
+      ) : activeSection === "action-packets" ? (
+        <DavidActionPacketsOutbox
+          accounts={model.accounts}
+          onOpenAccount={(accountId) => {
+            setSelectedAccountId(accountId);
+            setActiveSection("risk-review");
           }}
-          selectedAccount={selectedAccount}
-          timelineVisibleCount={timelineVisibleCount}
         />
-      </div>
+      ) : (
+        <DavidBehaviouralWatchlist
+          accounts={model.accounts}
+          onOpenAccount={(accountId) => {
+            setSelectedAccountId(accountId);
+            setActiveSection("risk-review");
+          }}
+        />
+      )}
     </DavidWorkspaceShell>
   );
 }
