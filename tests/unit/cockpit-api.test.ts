@@ -31,6 +31,8 @@ import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { recoupCorrelationIdHeader } from "../../src/middleware/logging.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
+import { rowsForCreditRiskTable } from "./fixtures/creditRiskSupabaseFixture.js";
 
 const cockpitAuthEnv = {
   RECOUP_COCKPIT_ALLOWED_ORIGINS: "http://127.0.0.1:3000",
@@ -88,6 +90,49 @@ async function close(server: Server): Promise<void> {
 
       resolve();
     });
+  });
+}
+
+function buildCreditRiskApprovalFetcher(input: {
+  approvalRows?: unknown[];
+  auditHead?: { entry_hash: string; seq: number }[];
+  onRpcPayload?: (payload: Record<string, unknown>) => void;
+} = {}): SupabaseMemoryFetch {
+  const fixture = loadCreditRiskFixtureRows();
+  const approvalRows = input.approvalRows ?? [];
+  const auditHead = input.auditHead ?? [];
+
+  return (url, init) => {
+    const body = stringifyRequestBody(init?.body);
+
+    if (init?.method === "GET" && url.includes("/rest/v1/recoup_audit_chain")) {
+      return Promise.resolve(testJsonResponse(auditHead));
+    }
+
+    if (init?.method === "POST" && url.includes("/rest/v1/rpc/recoup_commit_approval_audit")) {
+      input.onRpcPayload?.(JSON.parse(body ?? "{}") as Record<string, unknown>);
+      return Promise.resolve(testJsonResponse({ committed: true }));
+    }
+
+    if (init?.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
+      return Promise.resolve(testJsonResponse(approvalRows));
+    }
+
+    const tableName = new URL(url).pathname.split("/").at(-1);
+    if (tableName !== undefined && tableName.startsWith("credit_")) {
+      return Promise.resolve(testJsonResponse(rowsForCreditRiskTable(fixture, tableName)));
+    }
+
+    return Promise.resolve(testJsonResponse([], 404));
+  };
+}
+
+function testJsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json"
+    },
+    status
   });
 }
 
@@ -4526,6 +4571,76 @@ describe("S5 cockpit API", () => {
           verifiedHumanPrincipal: cockpitAuthEnv.RECOUP_COCKPIT_HUMAN_PRINCIPAL
         })
       ).toThrow("Supabase approval persistence required for approvals.decide.");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("approves a governed credit-v2 action through POST /approval", async () => {
+    const actionId = "credit-v2:ACC-CRE";
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv
+      },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "c".repeat(64), seq: 8 }],
+        onRpcPayload(payload) {
+          rpcPayloads.push(payload);
+        }
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId,
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const approval = (await response.json()) as { actionId: string; auditEntryHash: string; status: string };
+
+      expect(response.status).toBe(200);
+      expect(approval).toMatchObject({ actionId, status: "human_decided" });
+      expect(approval.auditEntryHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(rpcPayloads).toHaveLength(1);
+      expect(rpcPayloads[0]?.["p_memory_id"]).toBe(`approval:${actionId}`);
+      expect(rpcPayloads[0]?.["p_memory_record_ids_json"]).toEqual(expect.arrayContaining([actionId, "ACC-CRE"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("returns 404 for an unknown governed credit-v2 approval action id", async () => {
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv
+      },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "d".repeat(64), seq: 9 }],
+        onRpcPayload(payload) {
+          rpcPayloads.push(payload);
+        }
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId: "credit-v2:ACC-UNKNOWN",
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string };
+
+      expect(response.status).toBe(404);
+      expect(body.error).toBe("Action not found.");
+      expect(rpcPayloads).toHaveLength(0);
     } finally {
       await close(server);
     }

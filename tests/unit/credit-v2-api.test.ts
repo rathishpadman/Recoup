@@ -135,6 +135,29 @@ describe("GET /credit/v2", () => {
       await close(server);
     }
   });
+
+  it("fails closed when a trusted credit-v2 approval receipt is malformed", async () => {
+    const { baseUrl, server } = await listen(creditRiskFetcher([], {
+      approvalRecords: [
+        approvalRecordRow("credit-v2:ACC-CRE", ["credit-v2:ACC-CRE", "ACC-CRE"], "not-a-hash")
+      ]
+    }));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, {
+        headers: cockpitAuthHeaders
+      });
+      const body = (await response.json()) as { error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toMatchObject({
+        error: "Credit approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    } finally {
+      await close(server);
+    }
+  });
 });
 
 async function listen(memoryFetcher: SupabaseMemoryFetch): Promise<{ baseUrl: string; server: Server }> {

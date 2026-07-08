@@ -2209,13 +2209,17 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
     }
 
     const actionId = readApprovalPayloadString(record, "actionId");
+    if (!looksLikeCreditRiskApprovalRecord(record, actionId)) {
+      continue;
+    }
+
+    if (actionId === undefined || !actionId.startsWith("credit-v2:")) {
+      throw new Error("Malformed credit approval receipt.");
+    }
+
     const approverId = readApprovalPayloadString(record, "approverId");
     const auditEntryHash = readApprovalPayloadString(record, "auditEntryHash");
     const status = readApprovalPayloadString(record, "status");
-
-    if (!actionId?.startsWith("credit-v2:")) {
-      continue;
-    }
 
     const expectedScope = `approval:${actionId}`;
     if (
@@ -2228,7 +2232,7 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
       !/^[a-f0-9]{64}$/u.test(auditEntryHash) ||
       !record.recordIds.includes(actionId)
     ) {
-      continue;
+      throw new Error("Malformed credit approval receipt.");
     }
 
     receipts.push({
@@ -2239,6 +2243,14 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
   }
 
   return receipts;
+}
+
+function looksLikeCreditRiskApprovalRecord(record: MemoryRecord, actionId: string | undefined): boolean {
+  return (
+    actionId?.startsWith("credit-v2:") === true ||
+    record.id.startsWith("approval:credit-v2:") ||
+    record.scope.startsWith("approval:credit-v2:")
+  );
 }
 
 async function loadApprovalRecords(
