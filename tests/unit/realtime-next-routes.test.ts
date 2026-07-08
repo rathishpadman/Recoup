@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as postDemoReset } from "../../cockpit/app/api/admin/demo-reset/route.js";
 import { POST as postApproval } from "../../cockpit/app/api/approval/route.js";
 import { GET as getConnectors } from "../../cockpit/app/api/connectors/route.js";
+import { GET as getWarmBackend } from "../../cockpit/app/api/cron/warm-backend/route.js";
 import { GET as getForensicsEvents } from "../../cockpit/app/api/forensics/events/route.js";
 import { GET as getForensics } from "../../cockpit/app/api/forensics/route.js";
 import { POST as postForensicsRefresh } from "../../cockpit/app/api/forensics/refresh/route.js";
@@ -53,6 +54,7 @@ const cfoEnvPatch = {
 
 describe("Realtime Next proxy routes", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
@@ -468,6 +470,40 @@ describe("Realtime Next proxy routes", () => {
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
     expect(body).toEqual(backendModel);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails closed quickly when the warm-backend health probe hangs", async () => {
+    vi.useFakeTimers();
+    stubRouteEnv({
+      ...mayaEnvPatch,
+      RECOUP_WARM_BACKEND_TIMEOUT_MS: "25"
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe("http://recoup-api.test/healthz");
+      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let settled = false;
+    const responsePromise = getWarmBackend().then((response) => {
+      settled = true;
+
+      return response;
+    });
+
+    await vi.advanceTimersByTimeAsync(26);
+    await Promise.resolve();
+
+    expect(settled).toBe(true);
+    const response = await responsePromise;
+    const body = (await response.json()) as { ok?: boolean };
+
+    expect(response.status).toBe(504);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {
