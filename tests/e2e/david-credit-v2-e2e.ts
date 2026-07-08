@@ -144,7 +144,8 @@ async function main(): Promise<void> {
     const auditHash = approvalResult.auditEntryHash;
 
     await page.locator('[data-testid="david-action-packet-receipt"]').waitFor({ state: "visible", timeout: 45_000 });
-    await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), auditHash, "David committed receipt");
+    await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), formatAuditHash(auditHash), "David committed receipt");
+    await page.locator(`[data-testid="david-action-packet-receipt"] code[title="${auditHash}"]`).waitFor({ state: "visible", timeout: 10_000 });
     const committedModel = await waitForApprovalStatus("ACC-CRE", "committed", auditHash);
     assert(
       committedModel.meshPositions.some((position) => position.position === "Collections" && position.status === "HIGH"),
@@ -155,7 +156,8 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="david-queue-account-row"][data-account-id="ACC-CRE"]').first().click();
     await page.locator('[data-testid="david-action-packet-receipt"]').waitFor({ state: "visible", timeout: 45_000 });
-    await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), auditHash, "David receipt after reload");
+    await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), formatAuditHash(auditHash), "David receipt after reload");
+    await page.locator(`[data-testid="david-action-packet-receipt"] code[title="${auditHash}"]`).waitFor({ state: "visible", timeout: 10_000 });
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-approved-1280.png") });
 
@@ -301,6 +303,14 @@ async function waitForClientHydration(page: Page, selector: string): Promise<voi
 
 function normalizeUiText(value: string): string {
   return value.replace(/\s+/gu, " ").trim();
+}
+
+function formatAuditHash(hash: string): string {
+  if (hash.length <= 24) {
+    return hash;
+  }
+
+  return `${hash.slice(0, 12)}...${hash.slice(-8)}`;
 }
 
 function normalizeBaseUrl(url: string): string {

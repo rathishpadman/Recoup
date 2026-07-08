@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowRightIcon, CheckCircle2Icon, LockKeyholeIcon } from "lucide-react";
+import { ArrowRightIcon, LockKeyholeIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { davidBadgeVariantByTone } from "./david-verdict-tokens.ts";
@@ -30,57 +31,93 @@ export function DavidActionPacketsOutbox({ accounts, onOpenAccount }: Readonly<D
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3">
-          {approvedPackets.map((account) => (
-            <Card className="rounded-lg shadow-[var(--shadow-xs)]" data-testid="david-action-packet-row" key={account.accountId}>
-              <CardHeader className="gap-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="grid gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle className="text-base">{account.customer}</CardTitle>
-                      <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.verdict}</Badge>
-                      <Badge variant="secondary">{account.packet.routeLabel}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{account.packet.detail}</p>
-                  </div>
-                  <Button
-                    onClick={() => {
-                      onOpenAccount(account.accountId);
-                    }}
-                    type="button"
-                    variant="outline"
-                  >
-                    <ArrowRightIcon aria-hidden="true" data-icon="inline-start" />
-                    Open account
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="grid gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CheckCircle2Icon aria-hidden="true" className="size-4 text-emerald-600 dark:text-emerald-300" />
-                  <span className="font-medium">{account.packet.title}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{account.packet.basis}</p>
-                <div className="grid gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="flex items-center gap-2">
-                    <LockKeyholeIcon aria-hidden="true" className="size-4 text-muted-foreground" />
-                    <div className="grid gap-0.5">
-                      <span className="text-sm font-medium">External send remains gated</span>
-                      <span className="text-xs text-muted-foreground">Approval receipt is committed; packet dispatch is still draft-only.</span>
-                    </div>
-                  </div>
-                  <Badge variant="outline">Not sent</Badge>
-                </div>
-                <DavidRecordDisclosure items={account.packet.recordIds} label={`${account.packet.recordIds.length.toString()} cited packet records`} variant="secondary" />
-                <div className="grid gap-1">
-                  <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Audit hash</span>
-                  <code className="break-all rounded-md border bg-muted/20 px-2 py-1 text-xs">{account.packet.auditEntryHash}</code>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card className="rounded-lg shadow-[var(--shadow-xs)]">
+          <CardHeader className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="text-base">Committed packet ledger</CardTitle>
+              <Badge variant="secondary">{`${approvedPackets.length.toString()} committed`}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Verdict</TableHead>
+                  <TableHead>Packet</TableHead>
+                  <TableHead>Receipt</TableHead>
+                  <TableHead>Posture</TableHead>
+                  <TableHead className="text-right">Open</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {approvedPackets.map((account) => (
+                  <TableRow data-testid="david-action-packet-row" key={account.accountId}>
+                    <TableCell className="min-w-[12rem]">
+                      <div className="grid gap-1">
+                        <span className="font-medium">{account.customer}</span>
+                        <span className="text-xs text-muted-foreground">{account.accountId}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.verdict}</Badge>
+                        <Badge variant="secondary">{account.packet.routeLabel}</Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell className="min-w-[18rem] whitespace-normal">
+                      <div className="grid gap-1">
+                        <span className="font-medium">{account.packet.title}</span>
+                        <span className="text-xs text-muted-foreground">{account.packet.detail}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <code className="rounded-md border bg-muted/20 px-2 py-1 text-xs" title={account.packet.auditEntryHash}>
+                        {formatAuditHash(account.packet.auditEntryHash)}
+                      </code>
+                    </TableCell>
+                    <TableCell className="min-w-[12rem] whitespace-normal">
+                      <div className="flex items-start gap-2 text-sm">
+                        <LockKeyholeIcon aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+                        <span>External send gated</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        onClick={() => {
+                          onOpenAccount(account.accountId);
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <ArrowRightIcon aria-hidden="true" data-icon="inline-start" />
+                        Open
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {approvedPackets.map((account) => (
+              <DavidRecordDisclosure
+                items={account.packet.recordIds}
+                key={`${account.accountId}-records`}
+                label={`${account.customer}: ${account.packet.recordIds.length.toString()} cited packet records`}
+                variant="secondary"
+              />
+            ))}
+          </CardContent>
+        </Card>
       )}
     </section>
   );
+}
+
+function formatAuditHash(hash: string | undefined): string {
+  if (hash === undefined || hash.length <= 24) {
+    return hash ?? "receipt pending";
+  }
+
+  return `${hash.slice(0, 12)}...${hash.slice(-8)}`;
 }

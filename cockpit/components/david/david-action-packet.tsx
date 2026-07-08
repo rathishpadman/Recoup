@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
+import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import {
   davidBadgeVariantByTone,
   davidBorderClassByTone,
@@ -107,7 +108,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
               >
                 <div className="grid gap-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{row.kind}</Badge>
+                    <Badge variant="outline">{packetKindLabel(row.kind)}</Badge>
                     <span className="font-medium">{row.label}</span>
                   </div>
                   <p className="text-sm text-muted-foreground">{row.detail}</p>
@@ -162,14 +163,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
                       </div>
                     </div>
                     <div className="grid gap-2">
-                      <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Cited records</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {account.packet.recordIds.map((recordId) => (
-                          <Badge key={recordId} variant="outline">
-                            {recordId}
-                          </Badge>
-                        ))}
-                      </div>
+                      <DavidRecordDisclosure items={account.packet.recordIds} label={`${account.packet.recordIds.length.toString()} cited records`} />
                     </div>
                   </div>
                 </SheetContent>
@@ -224,8 +218,11 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
                 <span>Human decision recorded. External send remains gated.</span>
                 <div className="grid gap-1">
                   <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Audit hash</span>
-                  <code className={cn("break-all rounded-md border bg-background px-2 py-1 text-xs", davidTextClassByTone[account.verdictTone])}>
-                    {account.packet.auditEntryHash}
+                  <code
+                    className={cn("w-fit rounded-md border bg-background px-2 py-1 text-xs", davidTextClassByTone[account.verdictTone])}
+                    title={account.packet.auditEntryHash}
+                  >
+                    {formatAuditHash(account.packet.auditEntryHash)}
                   </code>
                 </div>
               </AlertDescription>
@@ -264,4 +261,27 @@ function formatBasisKey(key: string): string {
     .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
     .replace(/[_-]/gu, " ")
     .replace(/\b\w/gu, (character) => character.toUpperCase());
+}
+
+function packetKindLabel(kind: CreditRiskAccountModel["packet"]["rows"][number]["kind"]): string {
+  switch (kind) {
+    case "hold":
+      return "Hold review";
+    case "limit":
+      return "Limit guardrail";
+    case "monitor":
+      return "Monitor";
+    case "reduce":
+      return "Limit reduction";
+    case "release":
+      return "Standard release";
+  }
+}
+
+function formatAuditHash(hash: string | undefined): string {
+  if (hash === undefined || hash.length <= 24) {
+    return hash ?? "receipt pending";
+  }
+
+  return `${hash.slice(0, 12)}...${hash.slice(-8)}`;
 }
