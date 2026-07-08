@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET as getForensics } from "../../cockpit/app/api/forensics/route.js";
 import {
+  buildForensicsReadModelBusinessHashes,
   mayaForensicsReadModelKey,
   readModelCacheHeader,
   readModelReceiptHashHeader,
@@ -46,6 +47,8 @@ describe("Forensics route read-model cache", () => {
       surface: "forensics-analyst",
       worklist: [{ lineId: "S6-L1" }]
     };
+    const cachedSourceRecordIds = ["S6-L1", "recoup_deduction_lines"];
+    const cachedBusinessHashes = buildForensicsReadModelBusinessHashes(cachedSourceRecordIds);
     let sawCacheLookup = false;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = fetchInputUrl(input);
@@ -60,7 +63,7 @@ describe("Forensics route read-model cache", () => {
               payload_hash: "a".repeat(64),
               payload_json: cachedModel,
               persona: "maya",
-              source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
+              source_record_ids_json: cachedSourceRecordIds,
               source_refreshed_at: "2026-07-01T01:12:16.319Z",
               surface: "forensics-analyst"
             }
@@ -90,6 +93,8 @@ describe("Forensics route read-model cache", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get(readModelCacheHeader)).toBe("hit");
     expect(response.headers.get(readModelSourceRefreshedAtHeader)).toBe("2026-07-01T01:12:16.319Z");
+    expect(response.headers.get(readModelReceiptHashHeader)).toBe(cachedBusinessHashes.receiptHash);
+    expect(response.headers.get(readModelSourceHashHeader)).toBe(cachedBusinessHashes.sourceHash);
     expect(body).toEqual(cachedModel);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
