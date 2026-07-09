@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
 import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
+import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import type { SupabaseMemoryFetch } from "../../src/memory/supabaseStore.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
 import {
@@ -437,6 +438,146 @@ describe("POST /credit/query", () => {
       });
       expect(body.trace.some((event) => event.agentName === "Action Packet Drafter")).toBe(true);
       expect(body.trace.every((event) => event.recordIds.includes("ACC-CRE"))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("prices structure-only David negotiation drafts from the live agent through backend code", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      expect(request.input).toContain("credit_negotiation.draft_structures");
+      expect(request.input).toContain("ORD-HARBOR-6534");
+      expect(request.mcpServiceContext?.dealOptimizerRows).toBeDefined();
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_handoff",
+          nextAgentName: "Action Packet Drafter",
+          recordIds
+        })
+      );
+
+      return (async function* stream() {
+        const draftToolInput = {
+          accountId: "ACC-HAR",
+          orderId: "ORD-HARBOR-6534",
+          recordIds: ["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"],
+          structures: [
+            {
+              candidateId: "agent-max-release-85",
+              collateralRatio: "1.25",
+              depositPct: "60",
+              financingSpreadBps: "100",
+              releasePct: "85",
+              trancheCount: 3
+            }
+          ]
+        };
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", {
+          arguments: {
+            accountId: "ACC-HAR",
+            question: "Draft a safe structure for the Harbor counter-offer.",
+            recordIds
+          }
+        });
+        yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", {
+          output: {
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "CreditRiskEvidenceDocument",
+              primarySourceLabel: "Supabase credit evidence documents",
+              primarySourceSystem: "supabase",
+              selectedEvidence: [
+                {
+                  documentId: "EVD-CREDIT-ACC-HAR-TERMS",
+                  recordIds: ["ACC-HAR", "S1", "S2", "credit_contract_tpm"]
+                }
+              ],
+              selectedRecordIds: recordIds,
+              sourceFreshness: "snapshot",
+              transportLabel: "Governed credit risk read-model",
+              transportLayer: "supabase_credit_risk"
+            }
+          }
+        });
+        yield sdkToolEvent("tool_called", "credit_negotiation_draft_structures", "Action Packet Drafter", {
+          arguments: draftToolInput
+        });
+        yield sdkToolEvent("tool_output", "credit_negotiation_draft_structures", "Action Packet Drafter", {
+          output: invokeServiceTool("credit_negotiation.draft_structures", draftToolInput, request.mcpServiceContext)
+        });
+        yield {
+          data: {
+            response: {
+              usage: {
+                input_tokens: 900,
+                output_tokens: 100,
+                total_tokens: 1000
+              }
+            },
+            type: "response.completed"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(creditRiskFetcher([]), {
+      creditRiskStreamRunner: liveRunner,
+      env: { OPENAI_API_KEY: "sk-test-credit-query" }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({
+          accountId: "ACC-HAR",
+          question: "Draft a safe structure for the Harbor counter-offer.",
+          recordIds: ["ACC-HAR", "S1", "S2", "EVD-CREDIT-ACC-HAR-TERMS"]
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        modelExecution?: { mode: string; rawModelTextPolicy: string };
+        negotiationDraft?: {
+          deterministicBasis: string;
+          model: {
+            rankedCandidates: Array<{ candidateId: string; objectiveValueLabel: string; rank: number }>;
+          };
+          toolName: string;
+        };
+        trace: Array<{ toolName?: string }>;
+      };
+
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        rawModelTextPolicy: "suppressed"
+      });
+      expect(body.negotiationDraft).toMatchObject({
+        deterministicBasis: "credit_negotiation.draft_structures + deterministic deal optimizer",
+        model: {
+          rankedCandidates: [
+            {
+              candidateId: "agent-max-release-85",
+              objectiveValueLabel: "$75,077.00",
+              rank: 1
+            }
+          ]
+        },
+        toolName: "credit_negotiation.draft_structures"
+      });
+      expect(JSON.stringify(body.negotiationDraft)).not.toContain("raw");
+      expect(body.trace.some((event) => event.toolName === "credit_negotiation.draft_structures")).toBe(true);
     } finally {
       await close(server);
     }

@@ -78,7 +78,7 @@ describe("Maya MCP agent gateway", () => {
     }
 
     expect(options.toolFilter).toEqual({
-      allowedToolNames: ["audit.read", "credit_risk.answer"]
+      allowedToolNames: ["audit.read", "credit_risk.answer", "credit_negotiation.draft_structures"]
     });
     expect(JSON.parse(Buffer.from(encodedScope, "base64url").toString("utf8"))).toEqual({
       accountId: "ACC-CRE",

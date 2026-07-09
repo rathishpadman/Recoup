@@ -4,6 +4,7 @@ import {
   parseCreditNegotiationDraftStructures,
   priceAgentDraftedDealStructures
 } from "../../src/services/creditNegotiationDrafts.js";
+import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
 
 const baseSimRows = {
@@ -165,5 +166,96 @@ describe("credit negotiation LLM draft structures", () => {
         sourceRecordIds: ["credit_negotiation.draft_structures:agent-over-deposit"]
       }
     ]);
+  });
+
+  it("exposes a governed MCP service tool that prices only structure-only drafts", () => {
+    const result = invokeServiceTool(
+      "credit_negotiation.draft_structures",
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        recordIds: ["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"],
+        structures: [
+          {
+            candidateId: "agent-max-release-85",
+            collateralRatio: "1.25",
+            depositPct: "60",
+            financingSpreadBps: "100",
+            releasePct: "85",
+            trancheCount: 3
+          }
+        ]
+      },
+      {
+        creditRiskAnswerScope: {
+          accountId: "ACC-HAR",
+          recordIds: ["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"]
+        },
+        creditRiskRows: loadCreditRiskFixtureRows(),
+        dealOptimizerRows: {
+          policyRows: creditNegotiationPolicyCandidateRows,
+          simRows: baseSimRows
+        }
+      }
+    ) as {
+      model: {
+        rankedCandidates: Array<{ candidateId: string; objectiveValueLabel: string }>;
+      };
+      sourceReads: {
+        canonicalModel: string;
+        selectedRecordIds: string[];
+        transportLayer: string;
+      };
+      sourceReadStatus: string;
+    };
+
+    expect(result.sourceReadStatus).toBe("source_backed_selected_scope");
+    expect(result.sourceReads).toMatchObject({
+      canonicalModel: "CreditNegotiationDraftDealModel",
+      transportLayer: "supabase_credit_negotiation"
+    });
+    expect(result.sourceReads.selectedRecordIds).toEqual(
+      expect.arrayContaining(["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"])
+    );
+    expect(result.model.rankedCandidates).toEqual([
+      expect.objectContaining({
+        candidateId: "agent-max-release-85",
+        objectiveValueLabel: "$75,077.00"
+      })
+    ]);
+  });
+
+  it("rejects draft pricing outside the selected David account/order scope", () => {
+    expect(() =>
+      invokeServiceTool(
+        "credit_negotiation.draft_structures",
+        {
+          accountId: "ACC-CRE",
+          orderId: "ORD-HARBOR-6534",
+          recordIds: ["ACC-CRE", "ORD-HARBOR-6534"],
+          structures: [
+            {
+              candidateId: "agent-wrong-account",
+              collateralRatio: "1.00",
+              depositPct: "10",
+              financingSpreadBps: "100",
+              releasePct: "40",
+              trancheCount: 1
+            }
+          ]
+        },
+        {
+          creditRiskAnswerScope: {
+            accountId: "ACC-CRE",
+            recordIds: ["ACC-CRE", "ORD-HARBOR-6534"]
+          },
+          creditRiskRows: loadCreditRiskFixtureRows(),
+          dealOptimizerRows: {
+            policyRows: creditNegotiationPolicyCandidateRows,
+            simRows: baseSimRows
+          }
+        }
+      )
+    ).toThrow(/credit_negotiation\.draft_structures order is outside the selected David account scope/u);
   });
 });

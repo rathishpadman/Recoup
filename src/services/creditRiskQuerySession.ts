@@ -2,6 +2,7 @@ import { openAiPromptCacheConfig } from "../../config/openaiPromptCache.js";
 import {
   collectLiveForensicsAgentRun,
   type ForensicsQueryTraceEvent,
+  type LiveForensicsSdkToolOutput,
   type OpenAiTokenUsageSnapshot,
   type StreamLiveForensicsTraceOptions
 } from "../agents/liveForensicsStream.js";
@@ -13,6 +14,8 @@ import {
   type AgentHookAuditReceiptInput
 } from "./conductor.js";
 import type { CreditRiskAccountModel, CreditRiskReviewModel, CreditRiskRows } from "./creditRiskModel.js";
+import type { DealOptimizerModel, DealOptimizerRows } from "./dealOptimizer.js";
+import type { CreditNegotiationPolicyRow } from "./creditNegotiationPolicy.js";
 import { invokeServiceTool } from "./serviceLayer.js";
 
 export const creditRiskQueryDeterministicBasis =
@@ -22,6 +25,7 @@ export const liveCreditRiskQueryAnswerGuardBasis =
 const liveCreditRiskQueryRequiredBasis = "OpenAI Agents SDK live trace required for David credit risk query answers." as const;
 const liveCreditRiskQuerySessionBasis =
   "CreditRiskReviewModel + Supabase credit evidence documents + deterministic credit_risk.answer guard + OpenAI Agents SDK live trace" as const;
+const creditNegotiationDraftBasis = "credit_negotiation.draft_structures + deterministic deal optimizer" as const;
 
 export type CreditRiskQueryLiveAgentTraceOptions = Pick<
   StreamLiveForensicsTraceOptions,
@@ -62,6 +66,10 @@ export interface CreditRiskQueryCitation {
 
 export interface CreditRiskQuerySessionInput {
   accountId: string;
+  dealOptimizerRows?: {
+    policyRows: readonly CreditNegotiationPolicyRow[];
+    simRows: DealOptimizerRows;
+  };
   liveAgentTrace?: CreditRiskQueryLiveAgentTraceOptions;
   model: CreditRiskReviewModel;
   question: string;
@@ -74,12 +82,23 @@ export interface CreditRiskQuerySessionResponse {
   citations: CreditRiskQueryCitation[];
   deterministicBasis?: string;
   modelExecution?: CreditRiskQueryModelExecution;
+  negotiationDraft?: CreditRiskNegotiationDraftResult;
   trace: ForensicsQueryTraceEvent[];
+}
+
+export interface CreditRiskNegotiationDraftResult {
+  deterministicBasis: typeof creditNegotiationDraftBasis;
+  model: DealOptimizerModel;
+  toolName: "credit_negotiation.draft_structures";
 }
 
 interface NormalizedCreditRiskQueryRequest {
   account: CreditRiskAccountModel;
   effectiveRecordIds: string[];
+  negotiationOrders: Array<{
+    orderId: string;
+    sourceRecordIds: string[];
+  }>;
   question: string;
 }
 
@@ -115,6 +134,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
         accountId: request.account.accountId,
         recordIds: request.effectiveRecordIds
       },
+      ...(input.dealOptimizerRows === undefined ? {} : { dealOptimizerRows: input.dealOptimizerRows }),
       creditRiskRows: input.rows
     }
   });
@@ -145,6 +165,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
           accountId: request.account.accountId,
           recordIds: request.effectiveRecordIds
         },
+        ...(input.dealOptimizerRows === undefined ? {} : { dealOptimizerRows: input.dealOptimizerRows }),
         creditRiskRows: input.rows
       }
     });
@@ -200,6 +221,12 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
     );
   }
 
+  const negotiationDraft = buildCreditNegotiationDraftResult(
+    liveRun.toolOutputs,
+    liveRun.hookReceipts,
+    request.account.accountId
+  );
+
   return {
     ...deterministicResponse,
     deterministicBasis: liveCreditRiskQuerySessionBasis,
@@ -216,6 +243,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
       ...(liveRun.tokenUsage === 0 ? {} : { tokenUsage: liveRun.tokenUsage }),
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot })
     },
+    ...(negotiationDraft === undefined ? {} : { negotiationDraft }),
     trace: [...liveTrace, ...deterministicResponse.trace]
   };
 }
@@ -248,7 +276,15 @@ function normalizeCreditRiskQueryRequest(
     return undefined;
   }
 
-  return { account, effectiveRecordIds, question };
+  const negotiationOrders =
+    input.dealOptimizerRows?.simRows.orders
+      .filter((order) => order.accountId === account.accountId)
+      .map((order) => ({
+        orderId: order.orderId,
+        sourceRecordIds: [...order.sourceRecordIds]
+      })) ?? [];
+
+  return { account, effectiveRecordIds, negotiationOrders, question };
 }
 
 function buildDeterministicCreditRiskQueryResponse(
@@ -306,6 +342,64 @@ function hasCreditRiskQueryAnswerSourceRead(
       hasCreditRiskSelectedEvidenceForScope(receipt.toolOutputSelectedEvidenceRecordIds, accountId, scopedRecordIds)
     );
   });
+}
+
+function hasCreditNegotiationDraftSourceRead(
+  receipts: readonly AgentHookAuditReceipt[],
+  accountId: string
+): boolean {
+  return receipts.some((receipt) => {
+    const selectedRecordIds = dedupe([
+      ...(receipt.toolOutputSelectedRecordIds ?? []),
+      ...(receipt.toolOutputSelectedEvidenceRecordIds ?? [])
+    ]);
+    return (
+      receipt.hook === "agent_tool_end" &&
+      normalizeCreditRiskLiveMcpToolName(receipt.toolName) === "credit_negotiation.draft_structures" &&
+      receipt.toolOutputSourceReadStatus === "source_backed_selected_scope" &&
+      receipt.toolOutputCanonicalModel === "CreditNegotiationDraftDealModel" &&
+      receipt.toolOutputTransportLayer === "supabase_credit_negotiation" &&
+      receipt.recordIds.includes(accountId) &&
+      selectedRecordIds.includes(accountId) &&
+      selectedRecordIds.some((recordId) => recordId !== accountId)
+    );
+  });
+}
+
+function buildCreditNegotiationDraftResult(
+  toolOutputs: readonly LiveForensicsSdkToolOutput[] | undefined,
+  receipts: readonly AgentHookAuditReceipt[],
+  accountId: string
+): CreditRiskNegotiationDraftResult | undefined {
+  if (!hasCreditNegotiationDraftSourceRead(receipts, accountId)) {
+    return undefined;
+  }
+
+  const output = toolOutputs?.find(
+    (candidate) => normalizeCreditRiskLiveMcpToolName(candidate.toolName) === "credit_negotiation.draft_structures"
+  );
+  const payload = toRecord(output?.payload);
+  if (payload?.sourceReadStatus !== "source_backed_selected_scope") {
+    return undefined;
+  }
+  const sourceReads = toRecord(payload.sourceReads);
+  if (
+    sourceReads?.canonicalModel !== "CreditNegotiationDraftDealModel" ||
+    sourceReads.transportLayer !== "supabase_credit_negotiation"
+  ) {
+    return undefined;
+  }
+
+  const model = readDealOptimizerModel(payload.model);
+  if (model === undefined) {
+    return undefined;
+  }
+
+  return {
+    deterministicBasis: creditNegotiationDraftBasis,
+    model,
+    toolName: "credit_negotiation.draft_structures"
+  };
 }
 
 function shouldRetryMissingCreditRiskMcpRead(retryCap: number | undefined): boolean {
@@ -421,6 +515,9 @@ function mergeLiveCreditRiskAgentRuns(
     events: [...first.events, ...second.events],
     hookReceipts: [...first.hookReceipts, ...second.hookReceipts],
     status: second.status === "completed" ? second.status : first.status,
+    ...((first.toolOutputs ?? second.toolOutputs) === undefined
+      ? {}
+      : { toolOutputs: [...(first.toolOutputs ?? []), ...(second.toolOutputs ?? [])] }),
     tokenUsage: first.tokenUsage + second.tokenUsage,
     ...mergeCreditRiskTokenUsageSnapshot(first.tokenUsageSnapshot, second.tokenUsageSnapshot)
   };
@@ -465,7 +562,14 @@ function buildLiveCreditRiskQueryInput(
     `Selected account: ${request.account.accountId}`,
     `Selected record IDs: ${request.effectiveRecordIds.join(", ")}.`,
     "Step 1: call the SDK-visible governed MCP function tool credit_risk_answer (Recoup service credit_risk.answer) exactly once with accountId, question, and selected record IDs.",
-    "Step 2: after credit_risk_answer returns any result: Do not call credit_risk_answer again. Immediately call the Agents SDK handoff function transfer_to_Action_Packet_Drafter to hand off to Action Packet Drafter.",
+    ...(request.negotiationOrders.length === 0
+      ? []
+      : [
+          `Negotiation draft tool is available for order IDs: ${request.negotiationOrders.map((order) => `${order.orderId} (${order.sourceRecordIds.join(", ")})`).join("; ")}.`,
+          "If the question asks to draft, simulate, negotiate, counter, or price a deal structure, call the SDK-visible governed MCP function tool credit_negotiation_draft_structures (Recoup service credit_negotiation.draft_structures) exactly once after credit_risk_answer.",
+          "The credit_negotiation_draft_structures structures array must contain only candidateId, collateralRatio, depositPct, financingSpreadBps, releasePct, and trancheCount. Do not include amount, dollar, price, revenue, cost, loss, objective, or objectiveValue fields."
+        ]),
+    "Step 2: after any required source tools return: Do not call credit_risk_answer again. Immediately call the Agents SDK handoff function transfer_to_Action_Packet_Drafter to hand off to Action Packet Drafter.",
     "Do not call actions.*, decisions.*, approvals.*, or ERP mutation tools.",
     "Return only concise lifecycle status. Raw model text is suppressed; Recoup code produces the visible business answer.",
     ...evidenceLines
@@ -580,6 +684,9 @@ function normalizeCreditRiskLiveMcpToolName(toolName: string | undefined): strin
   if (toolName === "credit_risk_answer") {
     return "credit_risk.answer";
   }
+  if (toolName === "credit_negotiation_draft_structures") {
+    return "credit_negotiation.draft_structures";
+  }
 
   return toolName;
 }
@@ -669,6 +776,32 @@ function readStringArray(value: unknown): string[] | undefined {
 
   const values = dedupe(value.filter((entry): entry is string => typeof entry === "string"));
   return values.length === 0 ? undefined : values;
+}
+
+function readDealOptimizerModel(value: unknown): DealOptimizerModel | undefined {
+  const record = toRecord(value);
+  if (record === undefined) {
+    return undefined;
+  }
+
+  const optimizerRunId = readNonEmptyString(record.optimizerRunId);
+  const orderId = readNonEmptyString(record.orderId);
+  const policyHash = readNonEmptyString(record.policyHash);
+  const sourceHash = readNonEmptyString(record.sourceHash);
+  const sourceRecordIds = readStringArray(record.sourceRecordIds);
+  if (
+    optimizerRunId === undefined ||
+    orderId === undefined ||
+    policyHash === undefined ||
+    sourceHash === undefined ||
+    !Array.isArray(record.rankedCandidates) ||
+    !Array.isArray(record.rejectedCandidates) ||
+    sourceRecordIds === undefined
+  ) {
+    return undefined;
+  }
+
+  return record as unknown as DealOptimizerModel;
 }
 
 function toRecord(value: unknown): Record<string, unknown> | undefined {

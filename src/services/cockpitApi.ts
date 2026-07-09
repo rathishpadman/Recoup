@@ -784,6 +784,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (approvalRecordsSnapshot === undefined) {
       return;
     }
+    const dealOptimizerRows = await loadOptionalDealOptimizerRows();
 
     const runControl = await loadRequiredRunControl(request, response);
     if (runControl === undefined) {
@@ -815,6 +816,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           runner
         },
         model,
+        ...(dealOptimizerRows === undefined ? {} : { dealOptimizerRows }),
         question: parsedRequest.data.question,
         recordIds: parsedRequest.data.recordIds,
         rows
@@ -1217,6 +1219,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       }
 
       throw error;
+    }
+  }
+
+  async function loadOptionalDealOptimizerRows() {
+    try {
+      return await loadDealOptimizerSourceRows(runtimeEnv, options.memoryFetcher);
+    } catch {
+      return undefined;
     }
   }
 

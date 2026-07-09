@@ -27,6 +27,7 @@ import {
   createSupabaseSapEvidenceReaderFromEnv,
   createSupabaseSettlementRunReaderFromEnv,
   createSupabaseSyntheticSourceReaderFromEnv,
+  loadDealOptimizerSourceRows,
   loadCreditRiskRows,
   sourcePortFromSupabaseSnapshots,
   type SupabaseRiskObservationSourceConfig
@@ -239,6 +240,23 @@ function mcpSdkInputSchemaForTool(toolName: string) {
       recordIds: z.array(z.string().min(1)).min(1)
     };
   }
+  if (toolName === "credit_negotiation.draft_structures") {
+    return {
+      accountId: z.string().min(1),
+      orderId: z.string().min(1),
+      recordIds: z.array(z.string().min(1)).min(1),
+      structures: z.array(
+        z.object({
+          candidateId: z.string().min(1),
+          collateralRatio: z.string().regex(/^\d+(\.\d+)?$/u),
+          depositPct: z.string().regex(/^\d+(\.\d+)?$/u),
+          financingSpreadBps: z.string().regex(/^\d+(\.\d+)?$/u),
+          releasePct: z.string().regex(/^\d+(\.\d+)?$/u),
+          trancheCount: z.number().int().min(1)
+        }).strict()
+      ).min(1)
+    };
+  }
   if (toolName === "email.sendApproved") {
     return {
       actionId: z.string().min(1),
@@ -415,9 +433,11 @@ async function loadOptionalMcpServiceContext(
     })
   ]);
   const creditRiskRows = await loadOptionalCreditRiskRows(runtimeEnv, fetcher);
+  const dealOptimizerRows = await loadOptionalDealOptimizerRows(runtimeEnv, fetcher);
 
   return {
     ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
+    ...(dealOptimizerRows === undefined ? {} : { dealOptimizerRows }),
     governedConfig,
     requireSupabaseSapEvidence: true,
     requireSupabaseSyntheticEvidence: true,
@@ -433,6 +453,17 @@ async function loadOptionalCreditRiskRows(
 ): Promise<ServiceInvocationContext["creditRiskRows"]> {
   try {
     return await loadCreditRiskRows(runtimeEnv, fetcher);
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadOptionalDealOptimizerRows(
+  runtimeEnv: RuntimeEnv,
+  fetcher: SupabaseMemoryFetch | undefined
+): Promise<ServiceInvocationContext["dealOptimizerRows"]> {
+  try {
+    return await loadDealOptimizerSourceRows(runtimeEnv, fetcher);
   } catch {
     return undefined;
   }

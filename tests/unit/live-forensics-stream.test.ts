@@ -89,6 +89,73 @@ describe("live forensics Agents SDK stream", () => {
     });
   });
 
+  it("captures allowed structured MCP tool outputs without exposing raw model text", async () => {
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield {
+        item: {
+          agent: { name: "Action Packet Drafter" },
+          rawItem: {
+            name: "credit_negotiation_draft_structures",
+            output: {
+              model: {
+                orderId: "ORD-HARBOR-6534",
+                rankedCandidates: [
+                  {
+                    candidateId: "agent-max-release-85",
+                    objectiveValueLabel: "$75,077.00"
+                  }
+                ]
+              },
+              sourceReadStatus: "source_backed_selected_scope",
+              sourceReads: {
+                canonicalModel: "CreditNegotiationDraftDealModel",
+                primarySourceLabel: "Supabase credit negotiation simulated feeds",
+                primarySourceSystem: "supabase",
+                selectedEvidence: [
+                  {
+                    documentId: "ORD-HARBOR-6534",
+                    recordIds: ["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"]
+                  }
+                ],
+                selectedRecordIds: ["ACC-HAR", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"],
+                sourceFreshness: "snapshot",
+                transportLabel: "Governed credit negotiation simulated feeds",
+                transportLayer: "supabase_credit_negotiation"
+              }
+            },
+            type: "function_call_result"
+          }
+        },
+        name: "tool_output",
+        type: "run_item_stream_event"
+      };
+    };
+
+    const result = await collectLiveForensicsAgentRun({
+      agentHookRecordIds: ["ACC-HAR", "ORD-HARBOR-6534"],
+      allowedToolNames: ["credit_negotiation.draft_structures"],
+      env: { OPENAI_API_KEY: "sk-test-secret" },
+      maxTurns: 7,
+      retryCap: 0,
+      runner
+    });
+
+    expect(result.toolOutputs).toHaveLength(1);
+    expect(result.toolOutputs?.[0]?.agentName).toBe("Action Packet Drafter");
+    expect(result.toolOutputs?.[0]?.toolName).toBe("credit_negotiation.draft_structures");
+    const payload = result.toolOutputs?.[0]?.payload;
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      throw new Error("Expected structured tool output payload.");
+    }
+    const model = (payload as { model?: unknown }).model;
+    if (typeof model !== "object" || model === null || Array.isArray(model)) {
+      throw new Error("Expected structured tool output model.");
+    }
+    expect((model as { orderId?: unknown }).orderId).toBe("ORD-HARBOR-6534");
+    expect(JSON.stringify(result)).not.toContain("raw model");
+  });
+
   it("aggregates total token usage across retried live SDK attempts", async () => {
     let runnerCalls = 0;
     const runner: LiveForensicsStreamRunner = async function* () {
