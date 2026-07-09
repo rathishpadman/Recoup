@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionPacketDrafterAgent,
   containmentIntentAgent,
   conversationalQueryAgent,
   createForensicsInvestigatorAgent,
@@ -92,6 +93,13 @@ describe("agent runtime roster", () => {
       text: { verbosity: "low" }
     });
     expect(sentinelAgent.modelSettings).toEqual({
+      providerData: {
+        prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+      },
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" }
+    });
+    expect(actionPacketDrafterAgent.modelSettings).toEqual({
       providerData: {
         prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
       },

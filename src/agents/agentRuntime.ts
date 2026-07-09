@@ -45,9 +45,42 @@ export function createForensicsInvestigatorAgent(options: AgentMcpServerOptions 
   });
 }
 
+export function createActionPacketDrafterAgent(options: AgentMcpServerOptions = {}) {
+  return new Agent({
+    name: "Action Packet Drafter",
+    model: runtimeModels.fast,
+    modelSettings: runtimeModelSettings.actionPacketDrafter,
+    instructions: assembleRecoupPrompt({
+      agentPrompt: loadAgentPrompt(promptFiles.recoveryDrafter),
+      capability: "credit_risk"
+    }).prompt,
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
+}
+
+export function createCreditSentinelAgent(options: AgentMcpServerOptions = {}) {
+  const actionPacketDrafter = createActionPacketDrafterAgent(options);
+
+  return new Agent({
+    name: "Credit Sentinel",
+    model: runtimeModels.reasoning,
+    modelSettings: runtimeModelSettings.sentinel,
+    instructions: assembleRecoupPrompt({
+      agentPrompt: loadAgentPrompt(promptFiles.sentinel),
+      capability: "credit_risk"
+    }).prompt,
+    handoffs: [actionPacketDrafter],
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
+}
+
 export const recoveryDrafterAgent = createRecoveryDrafterAgent();
 
 export const forensicsInvestigatorAgent = createForensicsInvestigatorAgent();
+
+export const actionPacketDrafterAgent = createActionPacketDrafterAgent();
+
+export const creditSentinelAgent = createCreditSentinelAgent();
 
 export const sentinelAgent = new Agent({
   name: "Sentinel",

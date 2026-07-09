@@ -4,9 +4,11 @@ import type { ProposedHoldAction } from "../tools/actions/proposeHold.js";
 import type { ProposedTermsAction } from "../tools/actions/proposeTerms.js";
 import type { RouteBillingAction } from "../tools/actions/routeBilling.js";
 import type { ContainmentReviewAction } from "../agents/containment.js";
+import type { CreditRiskApprovalAction } from "./creditRiskModel.js";
 
 export type ProposedExternalAction =
   | ContainmentReviewAction
+  | CreditRiskApprovalAction
   | DraftOutreachAction
   | DraftRebillAction
   | ProposedHoldAction

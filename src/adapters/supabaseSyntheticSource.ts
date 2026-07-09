@@ -2,6 +2,19 @@ import { z } from "zod";
 import { sha256CanonicalJson } from "../../config/governed.js";
 import type { RuntimeEnv } from "../../config/env.js";
 import type { RuleId } from "../core/rules/index.js";
+import type {
+  AccountRow as CreditRiskAccountRow,
+  ArOpenItemRow as CreditRiskArOpenItemRow,
+  ContractTpmRow as CreditRiskContractTpmRow,
+  CreditEvidenceDocumentRow as CreditRiskEvidenceDocumentRow,
+  CreditPolicy,
+  CreditRiskRows,
+  DeductionLineRow as CreditRiskDeductionLineRow,
+  DeductionRow as CreditRiskDeductionRow,
+  PaymentHistoryRow as CreditRiskPaymentHistoryRow,
+  RiskMeshPositionRow as CreditRiskMeshPositionRow,
+  SalesMonthlyRow as CreditRiskSalesMonthlyRow
+} from "../services/creditRiskModel.js";
 import type { RealEvidenceDataset } from "../services/evidenceMaterializer.js";
 import type { ReconciliationReceipt } from "../services/reconciliationEngine.js";
 import { DeductionClaimSchema, type DeductionClaim } from "../types/claims.js";
@@ -115,6 +128,145 @@ export interface SupabaseRiskObservationSnapshotReaderOptions {
 const jsonArraySchema = z.preprocess(parseJsonCell, z.array(z.string().min(1)));
 const jsonObjectSchema = z.preprocess(parseJsonCell, z.record(z.unknown()));
 const syntheticProvenanceSchema = z.literal("synthetic");
+const creditRiskPolicyKeys = [
+  "collectionsElevatedUnsupported",
+  "collectionsHighUnsupported",
+  "creditElevatedUtil",
+  "creditHighUtil",
+  "creditWatchDaysBeyondTerms",
+  "reduceLimitBuffer",
+  "reduceLimitRounding"
+] as const satisfies readonly (keyof CreditPolicy)[];
+type CreditRiskTableName =
+  | "credit_snapshot"
+  | "credit_accounts"
+  | "credit_ar_open_items"
+  | "credit_sales_monthly"
+  | "credit_payment_history"
+  | "credit_deductions"
+  | "credit_deduction_lines"
+  | "credit_contract_tpm"
+  | "credit_evidence_documents"
+  | "credit_risk_mesh_positions"
+  | "credit_policy";
+
+const creditRiskSnapshotRowSchema = z.object({
+  as_of_date: z.string().min(1),
+  id: z.string().min(1)
+});
+
+const creditRiskAccountRowSchema = z.object({
+  account_id: z.string().min(1),
+  channel: z.string().min(1),
+  credit_limit: z.coerce.number(),
+  customer: z.string().min(1),
+  gaming_flag: z.boolean(),
+  owner: z.string().min(1),
+  segment: z.string().min(1),
+  terms_days: z.coerce.number().int()
+});
+
+const creditRiskArOpenItemRowSchema = z.object({
+  account_id: z.string().min(1),
+  aging_bucket: z.string().min(1),
+  amount_open: z.coerce.number(),
+  days_past_due: z.coerce.number().int(),
+  disputed: z.boolean(),
+  due_date: z.string().min(1),
+  invoice_date: z.string().min(1),
+  invoice_no: z.string().min(1),
+  note: z.string().nullable().optional(),
+  terms_days: z.coerce.number().int()
+});
+
+const creditRiskSalesMonthlyRowSchema = z.object({
+  account_id: z.string().min(1),
+  credit_sales: z.coerce.number(),
+  period: z.string().min(1)
+});
+
+const creditRiskPaymentHistoryRowSchema = z.object({
+  account_id: z.string().min(1),
+  amount_paid: z.coerce.number(),
+  days_to_pay: z.coerce.number().int(),
+  invoice_no: z.string().min(1),
+  on_time: z.boolean(),
+  pay_window: z.enum(["Prior", "Recent"]),
+  payment_id: z.string().min(1)
+});
+
+const creditRiskDeductionRowSchema = z.object({
+  account_id: z.string().min(1),
+  claim_amount: z.coerce.number(),
+  deduction_type: z.string().min(1),
+  evidence_refs: z.string().nullable().optional(),
+  feeds_mesh: z.string().min(1),
+  gaming_flag: z.boolean(),
+  lines: z.coerce.number().int(),
+  recover_amount: z.coerce.number(),
+  routing: z.string().min(1),
+  scenario_id: z.string().min(1),
+  valid_amount: z.coerce.number(),
+  verdict: z.enum(["VALID", "INVALID", "PARTIAL"])
+});
+
+const creditRiskDeductionLineRowSchema = z.object({
+  account_id: z.string().min(1),
+  deduction_type: z.string().min(1),
+  invoice_no: z.string().min(1),
+  line_amount: z.coerce.number(),
+  line_id: z.string().min(1),
+  scenario_id: z.string().min(1),
+  verdict: z.string().min(1)
+});
+
+const creditRiskContractTpmRowSchema = z.object({
+  account_id: z.string().min(1),
+  detail: z.string().min(1),
+  reference_id: z.string().min(1),
+  type: z.string().min(1),
+  used_in_scenario: z.string().min(1),
+  value: z.coerce.number().nullable().optional()
+});
+
+const creditRiskEvidenceDocumentRowSchema = z.object({
+  account_id: z.string().min(1),
+  content_hash: z.string().min(1),
+  document_id: z.string().min(1),
+  document_type: z.string().min(1),
+  record_ids: jsonArraySchema,
+  source_mode: z.string().min(1),
+  synthetic: z.boolean(),
+  title: z.string().min(1)
+});
+
+const creditRiskMeshPositionRowSchema = z.object({
+  account_id: z.string().min(1),
+  driver_signals: z.string().nullable().optional(),
+  interpretation: z.string().min(1),
+  key_metric: z.string().min(1),
+  position: z.enum(["Credit", "Fulfilment", "Billing", "Collections"]),
+  status: z.enum(["OK", "WATCH", "ELEVATED", "HIGH"]),
+  status_rank: z.coerce.number().int()
+});
+
+const creditRiskPolicyRowSchema = z.object({
+  key: z.enum(creditRiskPolicyKeys),
+  value: z.coerce.number()
+});
+
+export class MissingCreditRiskSourceError extends Error {
+  readonly missingSource: string;
+  readonly sourceTableName: CreditRiskTableName;
+
+  constructor(sourceTableName: CreditRiskTableName, cause?: unknown) {
+    super(`Supabase credit risk ${sourceTableName} rows are unavailable or failed validation.`);
+    this.cause = cause;
+    this.missingSource = `supabase-credit-risk-${sourceTableName}`;
+    this.name = "MissingCreditRiskSourceError";
+    this.sourceTableName = sourceTableName;
+  }
+}
 
 const bureauRowSchema = z.object({
   as_of_date: z.string().min(1),
@@ -788,6 +940,154 @@ export function createSupabaseRiskObservationSnapshotReaderFromEnv(
   });
 }
 
+export async function loadCreditRiskRows(
+  env: Partial<Pick<RuntimeEnv, "SUPABASE_SERVICE_ROLE_KEY" | "SUPABASE_URL">>,
+  fetcher?: SupabaseSyntheticSourceFetch
+): Promise<CreditRiskRows> {
+  if (env.SUPABASE_URL === undefined || env.SUPABASE_SERVICE_ROLE_KEY === undefined) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for credit risk rows.");
+  }
+
+  const baseUrl = normalizeSupabaseUrl(env.SUPABASE_URL);
+  const supabaseFetch = fetcher ?? fetch;
+  const [
+    snapshotRows,
+    accountRows,
+    arOpenItemRows,
+    salesMonthlyRows,
+    paymentHistoryRows,
+    deductionRows,
+    deductionLineRows,
+    contractTpmRows,
+    evidenceDocumentRows,
+    meshPositionRows,
+    policyRows
+  ] = await Promise.all([
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_snapshot"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "account_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_accounts"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "invoice_no.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_ar_open_items"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "account_id.asc,period.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_sales_monthly"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "payment_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_payment_history"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "scenario_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_deductions"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "line_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_deduction_lines"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "reference_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_contract_tpm"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "account_id.asc,document_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_evidence_documents"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "account_id.asc,position.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_risk_mesh_positions"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "key.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_policy"
+    })
+  ]);
+
+  const snapshots = parseCreditRiskRows("credit_snapshot", snapshotRows, creditRiskSnapshotRowSchema);
+  const accounts = parseCreditRiskRows("credit_accounts", accountRows, creditRiskAccountRowSchema).map(mapCreditRiskAccountRow);
+  const arOpenItems = parseCreditRiskRows("credit_ar_open_items", arOpenItemRows, creditRiskArOpenItemRowSchema).map(
+    mapCreditRiskArOpenItemRow
+  );
+  const salesMonthly = parseCreditRiskRows("credit_sales_monthly", salesMonthlyRows, creditRiskSalesMonthlyRowSchema).map(
+    mapCreditRiskSalesMonthlyRow
+  );
+  const paymentHistory = parseCreditRiskRows(
+    "credit_payment_history",
+    paymentHistoryRows,
+    creditRiskPaymentHistoryRowSchema
+  ).map(mapCreditRiskPaymentHistoryRow);
+  const deductions = parseCreditRiskRows("credit_deductions", deductionRows, creditRiskDeductionRowSchema).map(
+    mapCreditRiskDeductionRow
+  );
+  const deductionLines = parseCreditRiskRows(
+    "credit_deduction_lines",
+    deductionLineRows,
+    creditRiskDeductionLineRowSchema
+  ).map(mapCreditRiskDeductionLineRow);
+  const contractTpm = parseCreditRiskRows("credit_contract_tpm", contractTpmRows, creditRiskContractTpmRowSchema).map(
+    mapCreditRiskContractTpmRow
+  );
+  const evidenceDocuments = parseCreditRiskRows(
+    "credit_evidence_documents",
+    evidenceDocumentRows,
+    creditRiskEvidenceDocumentRowSchema
+  ).map(mapCreditRiskEvidenceDocumentRow);
+  const riskMeshPositions = parseCreditRiskRows(
+    "credit_risk_mesh_positions",
+    meshPositionRows,
+    creditRiskMeshPositionRowSchema
+  ).map(mapCreditRiskMeshPositionRow);
+  const policy = mapCreditRiskPolicyRows(parseCreditRiskRows("credit_policy", policyRows, creditRiskPolicyRowSchema));
+
+  const currentSnapshot = snapshots.find((row) => row.id === "current") ?? snapshots[0];
+  if (currentSnapshot === undefined) {
+    throw new MissingCreditRiskSourceError("credit_snapshot");
+  }
+
+  return {
+    accounts,
+    arOpenItems,
+    contractTpm,
+    deductions,
+    deductionLines,
+    evidenceDocuments,
+    paymentHistory,
+    policy,
+    riskMeshPositions,
+    salesMonthly,
+    snapshot: {
+      asOfDate: currentSnapshot.as_of_date
+    }
+  };
+}
+
 async function requestSupabaseRows(
   fetcher: SupabaseSyntheticSourceFetch,
   input: {
@@ -820,6 +1120,172 @@ async function requestSupabaseRows(
   }
 
   return rows.map((row: unknown) => row);
+}
+
+function parseCreditRiskRows<T>(
+  tableName: CreditRiskTableName,
+  rows: readonly unknown[],
+  schema: z.ZodType<T>
+): T[] {
+  if (rows.length === 0) {
+    throw new MissingCreditRiskSourceError(tableName);
+  }
+
+  try {
+    return rows.map((row) => schema.parse(row));
+  } catch (error) {
+    throw new MissingCreditRiskSourceError(tableName, error);
+  }
+}
+
+function mapCreditRiskAccountRow(row: z.infer<typeof creditRiskAccountRowSchema>): CreditRiskAccountRow {
+  return {
+    accountId: row.account_id,
+    channel: row.channel,
+    creditLimit: row.credit_limit,
+    customer: row.customer,
+    gamingFlag: row.gaming_flag,
+    relationshipOwner: row.owner,
+    segment: row.segment,
+    termsNetDays: row.terms_days
+  };
+}
+
+function mapCreditRiskArOpenItemRow(row: z.infer<typeof creditRiskArOpenItemRowSchema>): CreditRiskArOpenItemRow {
+  return {
+    accountId: row.account_id,
+    agingBucket: row.aging_bucket,
+    amountOpen: row.amount_open,
+    daysPastDue: row.days_past_due,
+    disputed: row.disputed,
+    dueDate: isoDateToExcelSerial(row.due_date),
+    invoiceDate: isoDateToExcelSerial(row.invoice_date),
+    invoiceNo: row.invoice_no,
+    note: row.note ?? null,
+    termsNetDays: row.terms_days
+  };
+}
+
+function mapCreditRiskSalesMonthlyRow(row: z.infer<typeof creditRiskSalesMonthlyRowSchema>): CreditRiskSalesMonthlyRow {
+  return {
+    accountId: row.account_id,
+    creditSales: row.credit_sales,
+    period: row.period
+  };
+}
+
+function mapCreditRiskPaymentHistoryRow(
+  row: z.infer<typeof creditRiskPaymentHistoryRowSchema>
+): CreditRiskPaymentHistoryRow {
+  return {
+    accountId: row.account_id,
+    amountPaid: row.amount_paid,
+    daysToPay: row.days_to_pay,
+    invoiceNo: row.invoice_no,
+    onTime: row.on_time,
+    paymentId: row.payment_id,
+    window: row.pay_window
+  };
+}
+
+function mapCreditRiskDeductionRow(row: z.infer<typeof creditRiskDeductionRowSchema>): CreditRiskDeductionRow {
+  return {
+    accountId: row.account_id,
+    claimAmount: row.claim_amount,
+    evidenceRefs: row.evidence_refs ?? "",
+    feedsMesh: row.feeds_mesh,
+    gamingFlag: row.gaming_flag,
+    lines: row.lines,
+    recoverAmount: row.recover_amount,
+    routing: row.routing,
+    scenarioId: row.scenario_id,
+    type: row.deduction_type,
+    validAmount: row.valid_amount,
+    verdict: row.verdict
+  };
+}
+
+function mapCreditRiskDeductionLineRow(
+  row: z.infer<typeof creditRiskDeductionLineRowSchema>
+): CreditRiskDeductionLineRow {
+  return {
+    accountId: row.account_id,
+    deductionType: row.deduction_type,
+    invoiceNo: row.invoice_no,
+    lineAmount: row.line_amount,
+    lineId: row.line_id,
+    scenarioId: row.scenario_id,
+    verdict: row.verdict
+  };
+}
+
+function mapCreditRiskContractTpmRow(row: z.infer<typeof creditRiskContractTpmRowSchema>): CreditRiskContractTpmRow {
+  return {
+    accountId: row.account_id,
+    detail: row.detail,
+    referenceId: row.reference_id,
+    type: row.type,
+    usedInScenario: row.used_in_scenario,
+    value: row.value ?? null
+  };
+}
+
+function mapCreditRiskEvidenceDocumentRow(
+  row: {
+    account_id: string;
+    content_hash: string;
+    document_id: string;
+    document_type: string;
+    record_ids?: unknown;
+    source_mode: string;
+    synthetic: boolean;
+    title: string;
+  }
+): CreditRiskEvidenceDocumentRow {
+  return {
+    accountId: row.account_id,
+    contentHash: row.content_hash,
+    documentId: row.document_id,
+    documentType: row.document_type,
+    recordIds: z.array(z.string().min(1)).parse(row.record_ids),
+    sourceMode: row.source_mode,
+    synthetic: row.synthetic,
+    title: row.title
+  };
+}
+
+function mapCreditRiskMeshPositionRow(
+  row: z.infer<typeof creditRiskMeshPositionRowSchema>
+): CreditRiskMeshPositionRow {
+  return {
+    accountId: row.account_id,
+    driverSignals: row.driver_signals ?? "",
+    interpretation: row.interpretation,
+    keyMetric: row.key_metric,
+    position: row.position,
+    status: row.status,
+    statusRank: row.status_rank
+  };
+}
+
+function mapCreditRiskPolicyRows(rows: Array<z.infer<typeof creditRiskPolicyRowSchema>>): CreditPolicy {
+  const policyEntries = Object.fromEntries(rows.map((row) => [row.key, row.value])) as Partial<CreditPolicy>;
+  for (const key of creditRiskPolicyKeys) {
+    if (policyEntries[key] === undefined) {
+      throw new MissingCreditRiskSourceError("credit_policy");
+    }
+  }
+
+  return policyEntries as CreditPolicy;
+}
+
+function isoDateToExcelSerial(value: string): number {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Supabase credit risk date ${value} failed validation.`);
+  }
+
+  return (timestamp - Date.UTC(1899, 11, 30)) / (24 * 60 * 60 * 1000);
 }
 
 async function requestSyntheticRows(

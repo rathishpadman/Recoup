@@ -31,6 +31,8 @@ import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { recoupCorrelationIdHeader } from "../../src/middleware/logging.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
+import { rowsForCreditRiskTable } from "./fixtures/creditRiskSupabaseFixture.js";
 
 const cockpitAuthEnv = {
   RECOUP_COCKPIT_ALLOWED_ORIGINS: "http://127.0.0.1:3000",
@@ -88,6 +90,49 @@ async function close(server: Server): Promise<void> {
 
       resolve();
     });
+  });
+}
+
+function buildCreditRiskApprovalFetcher(input: {
+  approvalRows?: unknown[];
+  auditHead?: { entry_hash: string; seq: number }[];
+  onRpcPayload?: (payload: Record<string, unknown>) => void;
+} = {}): SupabaseMemoryFetch {
+  const fixture = loadCreditRiskFixtureRows();
+  const approvalRows = input.approvalRows ?? [];
+  const auditHead = input.auditHead ?? [];
+
+  return (url, init) => {
+    const body = stringifyRequestBody(init.body);
+
+    if (init.method === "GET" && url.includes("/rest/v1/recoup_audit_chain")) {
+      return Promise.resolve(testJsonResponse(auditHead));
+    }
+
+    if (init.method === "POST" && url.includes("/rest/v1/rpc/recoup_commit_approval_audit")) {
+      input.onRpcPayload?.(JSON.parse(body ?? "{}") as Record<string, unknown>);
+      return Promise.resolve(testJsonResponse({ committed: true }));
+    }
+
+    if (init.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
+      return Promise.resolve(testJsonResponse(approvalRows));
+    }
+
+    const tableName = new URL(url).pathname.split("/").at(-1);
+    if (tableName !== undefined && tableName.startsWith("credit_")) {
+      return Promise.resolve(testJsonResponse(rowsForCreditRiskTable(fixture, tableName)));
+    }
+
+    return Promise.resolve(testJsonResponse([], 404));
+  };
+}
+
+function testJsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json"
+    },
+    status
   });
 }
 
@@ -1053,6 +1098,84 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("does not add hidden vector file IDs to selected Maya case query citations", async () => {
+    const liveRunner = liveQueryRunnerWithForensicsHandoff();
+    const visibleS1SelectedRecordIds = [
+      "CLAIM-S1-L1",
+      "S1-L1",
+      "EVD-CARRIER-PHOTO-S1-L1",
+      "EVD-CARRIER-REPORT-S1-L1",
+      "EVD-REMIT-S1-L1",
+      "SAP-90000002",
+      "PHOTO-CARRIER-1",
+      "INV-S1-1",
+      "INV-90000002",
+      "TOOLS-DATA:S1",
+      "USCU_S03",
+      "S1-L2",
+      "PHOTO-CARRIER-2",
+      "INV-S1-2",
+      "S1-L3",
+      "PHOTO-CARRIER-3",
+      "INV-S1-3",
+      "SAP-C_BillingDocumentItemFs:90000002",
+      "DOC-S1-L1",
+      "DOC-S1-L2",
+      "DOC-S1-L3",
+      "RECON-S1-L1",
+      "RECON-S1-L2",
+      "RECON-S1-L3",
+      "REMIT-S1-L1",
+      "REMIT-S1-L2",
+      "REMIT-S1-L3",
+      "CARRIER-PHOTO-S1-L1",
+      "CARRIER-PHOTO-S1-L2",
+      "CARRIER-PHOTO-S1-L3",
+      "CARRIER-REPORT-S1-L1",
+      "CARRIER-REPORT-S1-L2",
+      "CARRIER-REPORT-S1-L3"
+    ];
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitAuthEnv,
+        OPENAI_API_KEY: "sk-test-live-query",
+        OPENAI_EVIDENCE_VECTOR_STORE_ID: "vs_evidence_test",
+        RECOUP_DATA_MODE: "real-backend",
+        RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "0"
+      },
+      forensicsStreamRunner: liveRunner,
+      memoryFetcher: successfulRealBackendSourceFetcher([]),
+      openAiVectorStoreFetcher: () => Promise.resolve(vectorStoreSearchResponseForS1HiddenFile())
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "What evidence supports this selected case verdict and route?",
+          recordIds: visibleS1SelectedRecordIds,
+          selectedLineId: "S1-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: Array<{ recordId: string }>;
+        modelExecution?: { mode: string };
+      };
+      const citedRecordIds = body.citations.map((citation) => citation.recordId);
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toContain("S1-L1");
+      expect(body.modelExecution?.mode).toBe("live_openai_agents");
+      expect(citedRecordIds).toContain("S1-L1");
+      expect(citedRecordIds).not.toContain("file-2jUrCkC64XYwCxcJT1YctF");
+      expect(citedRecordIds.every((recordId) => visibleS1SelectedRecordIds.includes(recordId))).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("accepts current selected evidence pack and worklist provenance for S5 forensic query sessions", async () => {
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
     const { baseUrl, server } = await listen({
@@ -1427,13 +1550,7 @@ describe("S5 cockpit API", () => {
         "S6-L1",
         "INV-S6-1",
         "SAP-INV-S6-1",
-        "PRICE-CLAUSE-1",
-        "DOC-S6-L1",
-        "S6-L2",
-        "PRICE-CLAUSE-2",
-        "INV-S6-2",
-        "SAP-INV-S6-2",
-        "DOC-S6-L2"
+        "PRICE-CLAUSE-1"
       ];
       expect(queryScope["id"]).toBe("session:cockpit-run:maya-query-scope");
       expect(queryScope["scope"]).toBe("session:cockpit-run");
@@ -4531,6 +4648,76 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("approves a governed credit-v2 action through POST /approval", async () => {
+    const actionId = "credit-v2:ACC-CRE";
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv
+      },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "c".repeat(64), seq: 8 }],
+        onRpcPayload(payload) {
+          rpcPayloads.push(payload);
+        }
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId,
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const approval = (await response.json()) as { actionId: string; auditEntryHash: string; status: string };
+
+      expect(response.status).toBe(200);
+      expect(approval).toMatchObject({ actionId, status: "human_decided" });
+      expect(approval.auditEntryHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(rpcPayloads).toHaveLength(1);
+      expect(rpcPayloads[0]?.["p_memory_id"]).toBe(`approval:${actionId}`);
+      expect(rpcPayloads[0]?.["p_memory_record_ids_json"]).toEqual(expect.arrayContaining([actionId, "ACC-CRE"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("returns 404 for an unknown governed credit-v2 approval action id", async () => {
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv
+      },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "d".repeat(64), seq: 9 }],
+        onRpcPayload(payload) {
+          rpcPayloads.push(payload);
+        }
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId: "credit-v2:ACC-UNKNOWN",
+          decision: "approve"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string };
+
+      expect(response.status).toBe(404);
+      expect(body.error).toBe("Action not found.");
+      expect(rpcPayloads).toHaveLength(0);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("persists Supabase-backed approval finality and the hash-chained audit entry", async () => {
     const actionId = "route-billing:S1-L2";
     const durableHead = "d".repeat(64);
@@ -7085,6 +7272,36 @@ function vectorStoreSearchResponseForS6(): Response {
           file_id: "file-vector-runtime-contract",
           filename: "pricing-clause.pdf",
           score: 0.91
+        }
+      ]
+    }),
+    { status: 200 }
+  );
+}
+
+function vectorStoreSearchResponseForS1HiddenFile(): Response {
+  return new Response(
+    JSON.stringify({
+      data: [
+        {
+          attributes: {
+            customer_id: "CUST-GREENLEAF",
+            documentType: "carrier-report",
+            provenance: "synthetic",
+            record_id: "CARRIER-REPORT-S1-L1",
+            recordIds: ["S1-L1", "CARRIER-REPORT-S1-L1"],
+            scenario_type: "Damaged product, evidence received",
+            source_table: "recoup_src_docs"
+          },
+          content: [
+            {
+              text: "Vector recall found the carrier report supporting the valid damaged-product deduction.",
+              type: "text"
+            }
+          ],
+          file_id: "file-2jUrCkC64XYwCxcJT1YctF",
+          filename: "carrier-damage-report.pdf",
+          score: 0.92
         }
       ]
     }),

@@ -95,6 +95,12 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(root).toContain("65–80%");
     expect(root).toContain("O2C leakages amount to 3–5% of EBITDA.");
     expect(root).toContain("GPT-5.5, GPT-4.1, GPT Realtime");
+    expect(root).toContain("David - Weekly Credit Risk Review");
+    expect(root).toContain("Review the 4-account weekly risk queue");
+    expect(root).toContain("Weekly Credit Risk Review");
+    expect(root).not.toContain("David - Credit & Arbitration Cockpit");
+    expect(root).not.toContain("Credit & Arbitration Cockpit");
+    expect(root).not.toContain("Director of Credit & Collections - risk arbitration");
     expect(root).toContain("Data is synthetic. The governance architecture, audit trail, scoring logic, and UI flows are presented as real product behavior.");
   });
 
@@ -613,23 +619,24 @@ describe("S5 cockpit business-logic boundary", () => {
 
   it("keeps David credit display labels in the canonical read model", () => {
     const page = readFileSync("cockpit/app/credit/page.tsx", "utf8");
+    const data = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
+    const model = readFileSync("src/services/creditRiskModel.ts", "utf8");
 
-    expect(page).toContain("model.readoutStatusLabels");
-    expect(page).toContain("model.account.detailRows");
-    expect(page).toContain("model.account.summaryRows");
-    expect(page).toContain("model.sentinel.detailRows");
-    expect(page).toContain("model.sentinel.recordStripLabel");
-    expect(page).toContain("item.recordStripLabel");
-    expect(page).toContain("model.actionQueueSummaryLabel");
-    expect(page).toContain("model.partialHold.scoreReadout");
-    expect(page).toContain("model.partialHold.releaseReadout");
-    expect(page).toContain("model.partialHold.splitRows");
-    expect(page).toContain("model.partialHold.ledgerRows");
-    expect(page).toContain("model.partialHold.criteriaHeaders");
-    expect(page).toContain("model.termProposal.summaryLabel");
-    expect(page).toContain("model.termProposal.readyStateLabel");
-    expect(page).toContain("model.termProposal.packetRows");
-    expect(page).toContain("model.termProposal.commandLabels");
+    expect(page).toContain("fetchCreditRiskReviewModel");
+    expect(page).toContain("DavidRiskReviewSurface");
+    expect(page).toContain('requireRouteAccess("/credit")');
+    expect(data).toContain("CreditRiskReviewModel");
+    expect(data).toContain("CreditRiskAccountModel");
+    expect(data).toContain("/credit");
+    expect(model).toContain("queueStats");
+    expect(model).toContain("sourceLabel");
+    expect(model).toContain("routeLine");
+    expect(model).toContain("leadLabel");
+    expect(model).toContain("facts");
+    expect(model).toContain("assessmentSteps");
+    expect(model).toContain("packetRows");
+    expect(model).toContain("deterministicBasis");
+    expect(model).toContain("recordIds");
     expect(page).not.toMatch(/<small>\s*Account ID\s*<\/small>/u);
     expect(page).not.toMatch(/<small>\s*Legal entity\s*<\/small>/u);
     expect(page).not.toMatch(/<small>\s*Industry\s*<\/small>/u);
@@ -676,26 +683,34 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(page).not.toMatch(/<span>\s*Risk mitigants\s*<\/span>/u);
     expect(page).not.toMatch(/<button type="button">\s*Simulate alternatives\s*<\/button>/u);
     expect(page).not.toMatch(/<button type="button">\s*Send action packet\s*<\/button>/u);
+    expect(page).not.toContain("model.readoutStatusLabels");
+    expect(page).not.toContain("model.partialHold");
+    expect(page).not.toContain("model.termProposal");
+    expect(page).not.toContain("<NegotiationGraph");
+    expect(page).not.toContain("<AuditVerifyChip");
   });
 
   it("keeps the David credit decision workbench compact without clipping cited basis", () => {
     const page = readFileSync("cockpit/app/credit/page.tsx", "utf8");
-    const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
+    const surface = readFileSync("cockpit/components/david/david-risk-review-surface.tsx", "utf8");
+    const packet = readFileSync("cockpit/components/david/david-action-packet.tsx", "utf8");
+    const approvalGate = readFileSync("cockpit/components/david/david-approval-gate-dialog.tsx", "utf8");
+    const recordDisclosure = readFileSync("cockpit/components/david/david-record-disclosure.tsx", "utf8");
 
-    expect(page).toContain('className="score-basis-note"');
-    expect(page).toContain('className="credit-action-decision-row"');
-    expect(page).toContain('className="credit-provenance-strip"');
-    expect(page).toContain("<RecordStrip label={item.recordStripLabel} recordIds={item.recordIds} />");
-
-    expect(cssBlock(styles, ".credit-arbitration-workstation .score-hero small")).not.toMatch(
-      /\b(?:max-height|overflow)\s*:/u
-    );
-    expect(cssBlock(styles, ".credit-arbitration-workstation .credit-action-table > .credit-action-decision-row")).toContain(
-      "grid-template-columns: minmax(108px, 0.36fr) minmax(0, 1fr)"
-    );
-    expect(cssBlock(styles, ".credit-arbitration-workstation .credit-provenance-strip .record-strip code")).toContain(
-      "font-size: 9px"
-    );
+    expect(page).toContain("<DavidRiskReviewSurface");
+    expect(surface).toContain("DavidAccountDossier");
+    expect(surface).toContain("DavidAccountQueue");
+    expect(surface).toContain('data-testid="david-risk-review-surface"');
+    expect(surface).toContain("selectedAccount === undefined ? accountQueue : accountDossier");
+    expect(packet).toContain('testId="david-action-packet"');
+    expect(packet).toContain('data-testid="david-action-packet-receipt"');
+    expect(packet).toContain("External send remains gated");
+    expect(packet).toContain("<DavidApprovalGateDialog");
+    expect(approvalGate).toContain('fetch("/api/approval"');
+    expect(approvalGate).toContain("Approval service returned an incomplete governed receipt.");
+    expect(recordDisclosure).toContain("<details");
+    expect(recordDisclosure).toContain("group-open/records");
+    expect(recordDisclosure).toContain("items.map");
   });
 
   it("loads cockpit data through typed REST and SSE API boundaries", () => {
@@ -872,15 +887,17 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(forensics).toContain("ApprovalControls");
     expect(forensics).toContain("actions={model.selected.approvalActions}");
     const credit = readFileSync("cockpit/app/credit/page.tsx", "utf8");
-    expect(credit).toContain("ApprovalControls");
-    expect(credit).toContain("actionId={item.actionId}");
-    expect(credit).toContain("item.actionLabel");
-    expect(credit).toContain('className="credit-action-basis"');
-    expect(credit).toContain("<RecordStrip label={item.recordStripLabel} recordIds={item.recordIds} />");
-    const styles = readFileSync("cockpit/app/styles.css", "utf8");
-    expect(styles).toContain(".credit-action-basis {");
-    expect(styles).toContain(".credit-arbitration-workstation .credit-action-table .credit-action-basis .record-strip code");
-    expect(styles).not.toMatch(/\.credit-arbitration-workstation\s+\.credit-action-table\s+code\s*\{[^}]*display:\s*none/isu);
+    const actionPacket = readFileSync("cockpit/components/david/david-action-packet.tsx", "utf8");
+    const approvalGate = readFileSync("cockpit/components/david/david-approval-gate-dialog.tsx", "utf8");
+    expect(credit).toContain("fetchCreditRiskReviewModel");
+    expect(credit).toContain("DavidRiskReviewSurface");
+    expect(credit).toContain('requireRouteAccess("/credit")');
+    expect(actionPacket).toContain("<DavidApprovalGateDialog");
+    expect(actionPacket).toContain('data-testid="david-send-action-packet"');
+    expect(actionPacket).toContain("External send remains gated");
+    expect(approvalGate).toContain('fetch("/api/approval"');
+    expect(approvalGate).toContain('JSON.stringify({ actionId, decision: "approve" })');
+    expect(approvalGate).toContain("auditEntryHash");
     expect(forensics).toContain("aria-selected={isSelected}");
     expect(forensics).toContain("item.lineIds.includes(model.selected.lineId)");
     expect(forensics).toContain("item.customerLabel");

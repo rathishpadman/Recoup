@@ -1,3 +1,5 @@
+import { loadLocalRuntimeEnvFiles } from "../../config/localRuntimeEnv.ts";
+
 const apiBaseUrl = process.env.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
 export interface MayaFieldProvenance {
@@ -571,6 +573,242 @@ export interface CreditCockpitModel {
   };
 }
 
+export type CreditRiskVerdict = "CLEAR" | "WATCH" | "ELEVATED" | "HIGH";
+export type CreditRiskVerdictTone = "clear" | "watch" | "elevated" | "high";
+export type CreditRiskMeshPosition = "Credit" | "Fulfilment" | "Billing" | "Collections";
+export type CreditRiskApprovalStatus = "awaiting" | "committed";
+
+export interface CreditRiskPacketRow {
+  amountValue: number;
+  amountLabel: string;
+  detail: string;
+  kind: "hold" | "limit" | "monitor" | "reduce" | "release";
+  label: string;
+}
+
+export interface CreditRiskPacketModel {
+  actionId: string;
+  approvalStatus: CreditRiskApprovalStatus;
+  auditEntryHash?: string | undefined;
+  basis: string;
+  deterministicBasis: Record<string, string | number | boolean>;
+  detail: string;
+  dispatchedExternally: false;
+  recordIds: string[];
+  requiresHumanApproval: true;
+  routeLabel: string;
+  rows: CreditRiskPacketRow[];
+  title: string;
+}
+
+export interface CreditRiskSignalModel {
+  basis: string;
+  feedsMesh: string;
+  gamingFlag: boolean;
+  meshPosition: string;
+  note: string;
+  recordIds: string[];
+  routeLabel: string;
+  scenarioId: string;
+  tone: CreditRiskVerdictTone;
+  verdict: "VALID" | "INVALID" | "PARTIAL";
+}
+
+export interface CreditRiskAssessmentStep {
+  agentName: string;
+  didLine: string;
+  foundLine: string;
+  isFinal: boolean;
+  key: string;
+  phase: "overnight";
+  recordIds: string[];
+  sourceLabel: string;
+  toolLabel?: string | undefined;
+  verdict?: CreditRiskVerdict | undefined;
+  verdictLabel?: string | undefined;
+}
+
+export interface CreditRiskCopilotSuggestion {
+  question: string;
+  suggestionId: "accounts-needing-action" | "crestline-high-risk" | "gaming-flag-account";
+  targetAccountId?: string | undefined;
+}
+
+export interface CreditRiskCopilotModel {
+  conductorLabel: string;
+  note: string;
+  readinessLabel: string;
+  suggestions: CreditRiskCopilotSuggestion[];
+  title: string;
+}
+
+export interface CreditSourceConnector {
+  checkedAtLabel: string;
+  connectorKey: "bureau-payment-history" | "contract-tpm" | "sap-odata" | "supabase-tools";
+  label: string;
+  proofItems: string[];
+  recordIds: string[];
+  sourceModeLabel: string;
+  statusLabel: string;
+  synthetic: boolean;
+}
+
+export interface CreditSourcesModel {
+  auditTrailLabel: string;
+  connectors: CreditSourceConnector[];
+  externalActionsLabel: string;
+  topbarLabel: string;
+}
+
+export interface CreditRiskMeshPositionModel {
+  contractGap: boolean;
+  contractGapReason?: string | undefined;
+  deterministicBasis: string | null;
+  driverSignals: string;
+  interpretation: string;
+  keyMetric: string;
+  position: CreditRiskMeshPosition;
+  recordIds: string[];
+  status: "OK" | "WATCH" | "ELEVATED" | "HIGH";
+  statusRank: number;
+  statusTone: CreditRiskVerdictTone;
+}
+
+export interface CreditRiskEvidenceDocumentModel {
+  contentHash: string;
+  deterministicBasis: string;
+  documentId: string;
+  recordIds: string[];
+  sourceModeLabel: string;
+  synthetic: boolean;
+  title: string;
+}
+
+export interface CreditRiskAccountModel {
+  accountId: string;
+  actionPacket: CreditRiskPacketRow[];
+  channel: string;
+  copilotConductorLine: string;
+  creditLimitAmount: number;
+  creditLimitLabel: string;
+  customer: string;
+  daysBeyondTerms: number;
+  daysBeyondTermsLabel: string;
+  dsoDays: number;
+  dsoLabel: string;
+  evidenceDocuments: CreditRiskEvidenceDocumentModel[];
+  exposureAmount: number;
+  exposureLabel: string;
+  facts: Array<{
+    key: "days-beyond-terms" | "dso" | "open-disputes" | "payment-trend";
+    label: string;
+    tone: CreditRiskVerdictTone;
+    valueLabel: string;
+  }>;
+  gamingFlag: boolean;
+  leadLabel: string;
+  meshPositions: CreditRiskMeshPositionModel[];
+  openDisputeAmount: number;
+  openDisputeAmountLabel: string;
+  openDisputeCount: number;
+  packet: CreditRiskPacketModel;
+  paymentTrend: "Healthy" | "Slowing" | "Stable";
+  paymentTrendLabel: string;
+  paymentTrendTone: CreditRiskVerdictTone;
+  priorAvgDaysToPay: number;
+  priorAvgDaysToPayLabel: string;
+  recentAvgDaysToPay: number;
+  recentAvgDaysToPayLabel: string;
+  recordIds: string[];
+  relationshipOwner: string;
+  routeLabel: "Contain" | "Monitor" | "Reduce" | "Release";
+  routeLine: string;
+  segment: string;
+  signals: CreditRiskSignalModel[];
+  termsDays: number;
+  termsLabel: string;
+  totalSalesAmount: number;
+  totalSalesLabel: string;
+  unsupportedAmount: number;
+  unsupportedAmountLabel: string;
+  utilisationRatio: number;
+  utilisationLabel: string;
+  utilisationPercent: number;
+  verdict: CreditRiskVerdict;
+  verdictBasis: string;
+  verdictTone: CreditRiskVerdictTone;
+  assessmentSteps: CreditRiskAssessmentStep[];
+}
+
+export interface CreditRiskQueryResponse {
+  answer?: string;
+  citations: Array<{
+    deterministicBasis: string;
+    recordId: string;
+    sourceLabel: string;
+    title: string;
+  }>;
+  deterministicBasis?: string;
+  modelExecution?: {
+    agentNames?: string[];
+    deterministicBasis: string;
+    handoffCount?: number;
+    mode: "blocked_live_agent_trace" | "blocked_missing_credentials" | "live_openai_agents";
+    promptCache?: {
+      cachedTokens?: number;
+      capability: "credit_risk";
+      inputTokens?: number;
+      outputTokens?: number;
+      promptCacheKey: string;
+      promptPrefixVersion: string;
+    };
+    rawModelTextPolicy?: "suppressed";
+    reason?: string;
+    sourceReadMode?: "governed_backend_fallback" | "live_sdk_mcp";
+    tokenUsage?: number;
+    tokenUsageSnapshot?: {
+      cachedTokens?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens: number;
+    };
+  };
+  trace: Array<{
+    agentName: string;
+    hook: string;
+    label: string;
+    nextAgentName?: string;
+    phase: string;
+    recordIds: string[];
+    toolName?: string;
+  }>;
+}
+
+export interface CreditRiskReviewModel {
+  accounts: CreditRiskAccountModel[];
+  asOfDate: string;
+  asOfLabel: string;
+  copilot: CreditRiskCopilotModel;
+  navCounts: {
+    actionPackets: number;
+    riskReview: number;
+    watchlist: number;
+  };
+  portfolio: {
+    totalExposureAmount: number;
+    totalExposureLabel: string;
+  };
+  queueStats: Array<{
+    key: "accounts" | "elevated" | "high" | "watch-clear";
+    label: string;
+    tone: CreditRiskVerdictTone;
+    valueLabel: string;
+  }>;
+  sources: CreditSourcesModel;
+  sourceLabel: string;
+  surface: "credit-risk-review";
+}
+
 export interface CfoSummaryCockpitModel {
   surface: "cfo-summary";
   metrics: Array<{ label: string; value: string }>;
@@ -831,6 +1069,10 @@ export async function fetchCreditModel(): Promise<CreditCockpitModel> {
   return fetchJson<CreditCockpitModel>("/credit");
 }
 
+export async function fetchCreditRiskReviewModel(): Promise<CreditRiskReviewModel> {
+  return fetchJson<CreditRiskReviewModel>("/credit/v2");
+}
+
 export async function fetchCfoModel(): Promise<CfoSummaryCockpitModel> {
   return fetchJson<CfoSummaryCockpitModel>("/cfo");
 }
@@ -856,8 +1098,8 @@ export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalF
 }
 
 function buildServerCockpitAuthHeaders(): HeadersInit | undefined {
-  const principal = process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL?.trim();
-  const token = process.env.RECOUP_COCKPIT_AUTH_TOKEN?.trim();
+  const principal = readServerRuntimeValue("RECOUP_COCKPIT_HUMAN_PRINCIPAL");
+  const token = readServerRuntimeValue("RECOUP_COCKPIT_AUTH_TOKEN");
   if (principal === undefined || principal.length === 0 || token === undefined || token.length === 0) {
     return undefined;
   }
@@ -866,4 +1108,13 @@ function buildServerCockpitAuthHeaders(): HeadersInit | undefined {
     "x-recoup-human-principal": principal,
     "x-recoup-human-token": token
   };
+}
+
+function readServerRuntimeValue(name: "RECOUP_COCKPIT_AUTH_TOKEN" | "RECOUP_COCKPIT_HUMAN_PRINCIPAL"): string | undefined {
+  const processValue = process.env[name]?.trim();
+  if (processValue !== undefined && processValue.length > 0) {
+    return processValue;
+  }
+
+  return loadLocalRuntimeEnvFiles()[name]?.trim();
 }

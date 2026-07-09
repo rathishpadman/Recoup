@@ -1,0 +1,1513 @@
+{
+  "snapshot": {
+    "asOfDate": "2026-01-26"
+  },
+  "accounts": [
+    {
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "channel": "Strategic retail",
+      "segment": "Tier-1 National Retail",
+      "creditLimit": 4500000,
+      "termsNetDays": 45,
+      "riskVerdictOfRecord": "HIGH",
+      "recommendedAction": "Contain",
+      "gamingFlag": true,
+      "relationshipOwner": "D. Okafor"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "channel": "Foodservice distributor",
+      "segment": "Regional Distributor",
+      "creditLimit": 1800000,
+      "termsNetDays": 30,
+      "riskVerdictOfRecord": "ELEVATED",
+      "recommendedAction": "Reduce",
+      "gamingFlag": false,
+      "relationshipOwner": "D. Okafor"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "channel": "Club channel",
+      "segment": "Warehouse Club",
+      "creditLimit": 3200000,
+      "termsNetDays": 45,
+      "riskVerdictOfRecord": "WATCH",
+      "recommendedAction": "Monitor",
+      "gamingFlag": false,
+      "relationshipOwner": "D. Okafor"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "channel": "Regional wholesaler",
+      "segment": "Natural/Organic WS",
+      "creditLimit": 650000,
+      "termsNetDays": 45,
+      "riskVerdictOfRecord": "CLEAR",
+      "recommendedAction": "Release",
+      "gamingFlag": false,
+      "relationshipOwner": "D. Okafor"
+    }
+  ],
+  "arOpenItems": [
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190001",
+      "invoiceDate": 46021,
+      "dueDate": 46066,
+      "termsNetDays": 45,
+      "amountOpen": 720000,
+      "daysPastDue": -18,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190002",
+      "invoiceDate": 46001,
+      "dueDate": 46046,
+      "termsNetDays": 45,
+      "amountOpen": 640000,
+      "daysPastDue": 2,
+      "agingBucket": "1-30",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190003",
+      "invoiceDate": 45989,
+      "dueDate": 46034,
+      "termsNetDays": 45,
+      "amountOpen": 560000,
+      "daysPastDue": 14,
+      "agingBucket": "1-30",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190004",
+      "invoiceDate": 45966,
+      "dueDate": 46011,
+      "termsNetDays": 45,
+      "amountOpen": 610000,
+      "daysPastDue": 37,
+      "agingBucket": "31-60",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190005",
+      "invoiceDate": 45945,
+      "dueDate": 45990,
+      "termsNetDays": 45,
+      "amountOpen": 540000,
+      "daysPastDue": 58,
+      "agingBucket": "31-60",
+      "disputed": true,
+      "note": "Partly disputed (S6)"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190006",
+      "invoiceDate": 45920,
+      "dueDate": 45965,
+      "termsNetDays": 45,
+      "amountOpen": 470000,
+      "daysPastDue": 83,
+      "agingBucket": "61-90",
+      "disputed": true,
+      "note": "Partly disputed (S3)"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "invoiceNo": "90190007",
+      "invoiceDate": 45901,
+      "dueDate": 45946,
+      "termsNetDays": 45,
+      "amountOpen": 380000,
+      "daysPastDue": 102,
+      "agingBucket": "90+",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190101",
+      "invoiceDate": 46011,
+      "dueDate": 46058,
+      "termsNetDays": 30,
+      "amountOpen": 260000,
+      "daysPastDue": -10,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190102",
+      "invoiceDate": 45995,
+      "dueDate": 46040,
+      "termsNetDays": 30,
+      "amountOpen": 240000,
+      "daysPastDue": 8,
+      "agingBucket": "1-30",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190103",
+      "invoiceDate": 45979,
+      "dueDate": 46024,
+      "termsNetDays": 30,
+      "amountOpen": 230000,
+      "daysPastDue": 24,
+      "agingBucket": "1-30",
+      "disputed": true,
+      "note": "Partly disputed (S7)"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190104",
+      "invoiceDate": 45961,
+      "dueDate": 46006,
+      "termsNetDays": 30,
+      "amountOpen": 210000,
+      "daysPastDue": 42,
+      "agingBucket": "31-60",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190105",
+      "invoiceDate": 45944,
+      "dueDate": 45989,
+      "termsNetDays": 30,
+      "amountOpen": 180000,
+      "daysPastDue": 59,
+      "agingBucket": "31-60",
+      "disputed": true,
+      "note": "Partly disputed (S8)"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "invoiceNo": "90190106",
+      "invoiceDate": 45926,
+      "dueDate": 45971,
+      "termsNetDays": 30,
+      "amountOpen": 120000,
+      "daysPastDue": 77,
+      "agingBucket": "61-90",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-VAL",
+      "invoiceNo": "90190201",
+      "invoiceDate": 46028,
+      "dueDate": 46073,
+      "termsNetDays": 45,
+      "amountOpen": 520000,
+      "daysPastDue": -25,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-VAL",
+      "invoiceNo": "90190202",
+      "invoiceDate": 46013,
+      "dueDate": 46058,
+      "termsNetDays": 45,
+      "amountOpen": 480000,
+      "daysPastDue": -10,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-VAL",
+      "invoiceNo": "90190203",
+      "invoiceDate": 45997,
+      "dueDate": 46042,
+      "termsNetDays": 45,
+      "amountOpen": 420000,
+      "daysPastDue": 6,
+      "agingBucket": "1-30",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-VAL",
+      "invoiceNo": "90190204",
+      "invoiceDate": 45982,
+      "dueDate": 46027,
+      "termsNetDays": 45,
+      "amountOpen": 340000,
+      "daysPastDue": 21,
+      "agingBucket": "1-30",
+      "disputed": true,
+      "note": "Partly disputed (S5)"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "invoiceNo": "90190205",
+      "invoiceDate": 45964,
+      "dueDate": 46009,
+      "termsNetDays": 45,
+      "amountOpen": 220000,
+      "daysPastDue": 39,
+      "agingBucket": "31-60",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-GRE",
+      "invoiceNo": "90190301",
+      "invoiceDate": 46026,
+      "dueDate": 46071,
+      "termsNetDays": 45,
+      "amountOpen": 96000,
+      "daysPastDue": -23,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-GRE",
+      "invoiceNo": "90190302",
+      "invoiceDate": 46010,
+      "dueDate": 46055,
+      "termsNetDays": 45,
+      "amountOpen": 84000,
+      "daysPastDue": -7,
+      "agingBucket": "Current",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-GRE",
+      "invoiceNo": "90190303",
+      "invoiceDate": 45999,
+      "dueDate": 46044,
+      "termsNetDays": 45,
+      "amountOpen": 72000,
+      "daysPastDue": 4,
+      "agingBucket": "1-30",
+      "disputed": false,
+      "note": null
+    },
+    {
+      "accountId": "ACC-GRE",
+      "invoiceNo": "90190304",
+      "invoiceDate": 45985,
+      "dueDate": 46030,
+      "termsNetDays": 45,
+      "amountOpen": 60000,
+      "daysPastDue": 18,
+      "agingBucket": "1-30",
+      "disputed": true,
+      "note": "Disputed-valid (S1)"
+    }
+  ],
+  "salesMonthly": [
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-02",
+      "creditSales": 1638000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-03",
+      "creditSales": 1690000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-04",
+      "creditSales": 1725000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-05",
+      "creditSales": 1759000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-06",
+      "creditSales": 1811000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-07",
+      "creditSales": 1776000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-08",
+      "creditSales": 1673000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-09",
+      "creditSales": 1707000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-10",
+      "creditSales": 1794000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-11",
+      "creditSales": 1863000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2025-12",
+      "creditSales": 1897000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "period": "2026-01",
+      "creditSales": 1707000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-02",
+      "creditSales": 678000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-03",
+      "creditSales": 699000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-04",
+      "creditSales": 713000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-05",
+      "creditSales": 728000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-06",
+      "creditSales": 749000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-07",
+      "creditSales": 735000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-08",
+      "creditSales": 692000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-09",
+      "creditSales": 706000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-10",
+      "creditSales": 742000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-11",
+      "creditSales": 771000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2025-12",
+      "creditSales": 785000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "period": "2026-01",
+      "creditSales": 706000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-02",
+      "creditSales": 1172000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-03",
+      "creditSales": 1209000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-04",
+      "creditSales": 1234000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-05",
+      "creditSales": 1259000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-06",
+      "creditSales": 1296000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-07",
+      "creditSales": 1271000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-08",
+      "creditSales": 1197000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-09",
+      "creditSales": 1222000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-10",
+      "creditSales": 1283000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-11",
+      "creditSales": 1333000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2025-12",
+      "creditSales": 1358000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "period": "2026-01",
+      "creditSales": 1222000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-02",
+      "creditSales": 216000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-03",
+      "creditSales": 223000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-04",
+      "creditSales": 228000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-05",
+      "creditSales": 232000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-06",
+      "creditSales": 239000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-07",
+      "creditSales": 235000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-08",
+      "creditSales": 221000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-09",
+      "creditSales": 225000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-10",
+      "creditSales": 237000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-11",
+      "creditSales": 246000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2025-12",
+      "creditSales": 250000,
+      "basis": "Credit sales (billed), monthly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "period": "2026-01",
+      "creditSales": 226000,
+      "basis": "Credit sales (billed), monthly"
+    }
+  ],
+  "paymentHistory": [
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0001",
+      "invoiceNo": "901E000",
+      "invoiceDate": 45870,
+      "dueDate": 45915,
+      "paymentDate": 45918,
+      "daysToPay": 48,
+      "amountPaid": 420000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0002",
+      "invoiceNo": "901E111",
+      "invoiceDate": 45900,
+      "dueDate": 45945,
+      "paymentDate": 45952,
+      "daysToPay": 52,
+      "amountPaid": 425000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0003",
+      "invoiceNo": "901E222",
+      "invoiceDate": 45930,
+      "dueDate": 45975,
+      "paymentDate": 45985,
+      "daysToPay": 55,
+      "amountPaid": 430000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0004",
+      "invoiceNo": "901E333",
+      "invoiceDate": 45960,
+      "dueDate": 46005,
+      "paymentDate": 46020,
+      "daysToPay": 60,
+      "amountPaid": 435000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0005",
+      "invoiceNo": "901E444",
+      "invoiceDate": 45990,
+      "dueDate": 46035,
+      "paymentDate": 46053,
+      "daysToPay": 63,
+      "amountPaid": 440000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "paymentId": "PMT-0006",
+      "invoiceNo": "901E555",
+      "invoiceDate": 46020,
+      "dueDate": 46065,
+      "paymentDate": 46088,
+      "daysToPay": 68,
+      "amountPaid": 445000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0007",
+      "invoiceNo": "901R000",
+      "invoiceDate": 45870,
+      "dueDate": 45900,
+      "paymentDate": 45921,
+      "daysToPay": 51,
+      "amountPaid": 180000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0008",
+      "invoiceNo": "901R111",
+      "invoiceDate": 45900,
+      "dueDate": 45930,
+      "paymentDate": 45953,
+      "daysToPay": 53,
+      "amountPaid": 185000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0009",
+      "invoiceNo": "901R222",
+      "invoiceDate": 45930,
+      "dueDate": 45960,
+      "paymentDate": 45980,
+      "daysToPay": 50,
+      "amountPaid": 190000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0010",
+      "invoiceNo": "901R333",
+      "invoiceDate": 45960,
+      "dueDate": 45990,
+      "paymentDate": 46012,
+      "daysToPay": 52,
+      "amountPaid": 195000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0011",
+      "invoiceNo": "901R444",
+      "invoiceDate": 45990,
+      "dueDate": 46020,
+      "paymentDate": 46040,
+      "daysToPay": 50,
+      "amountPaid": 200000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "paymentId": "PMT-0012",
+      "invoiceNo": "901R555",
+      "invoiceDate": 46020,
+      "dueDate": 46050,
+      "paymentDate": 46073,
+      "daysToPay": 53,
+      "amountPaid": 205000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0013",
+      "invoiceNo": "901L000",
+      "invoiceDate": 45870,
+      "dueDate": 45915,
+      "paymentDate": 45917,
+      "daysToPay": 47,
+      "amountPaid": 360000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0014",
+      "invoiceNo": "901L111",
+      "invoiceDate": 45900,
+      "dueDate": 45945,
+      "paymentDate": 45949,
+      "daysToPay": 49,
+      "amountPaid": 365000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0015",
+      "invoiceNo": "901L222",
+      "invoiceDate": 45930,
+      "dueDate": 45975,
+      "paymentDate": 45976,
+      "daysToPay": 46,
+      "amountPaid": 370000,
+      "onTime": false,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0016",
+      "invoiceNo": "901L333",
+      "invoiceDate": 45960,
+      "dueDate": 46005,
+      "paymentDate": 46008,
+      "daysToPay": 48,
+      "amountPaid": 375000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0017",
+      "invoiceNo": "901L444",
+      "invoiceDate": 45990,
+      "dueDate": 46035,
+      "paymentDate": 46037,
+      "daysToPay": 47,
+      "amountPaid": 380000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "paymentId": "PMT-0018",
+      "invoiceNo": "901L555",
+      "invoiceDate": 46020,
+      "dueDate": 46065,
+      "paymentDate": 46069,
+      "daysToPay": 49,
+      "amountPaid": 385000,
+      "onTime": false,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0019",
+      "invoiceNo": "901E000",
+      "invoiceDate": 45870,
+      "dueDate": 45915,
+      "paymentDate": 45910,
+      "daysToPay": 40,
+      "amountPaid": 52000,
+      "onTime": true,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0020",
+      "invoiceNo": "901E111",
+      "invoiceDate": 45900,
+      "dueDate": 45945,
+      "paymentDate": 45942,
+      "daysToPay": 42,
+      "amountPaid": 57000,
+      "onTime": true,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0021",
+      "invoiceNo": "901E222",
+      "invoiceDate": 45930,
+      "dueDate": 45975,
+      "paymentDate": 45969,
+      "daysToPay": 39,
+      "amountPaid": 62000,
+      "onTime": true,
+      "window": "Prior"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0022",
+      "invoiceNo": "901E333",
+      "invoiceDate": 45960,
+      "dueDate": 46005,
+      "paymentDate": 45998,
+      "daysToPay": 38,
+      "amountPaid": 67000,
+      "onTime": true,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0023",
+      "invoiceNo": "901E444",
+      "invoiceDate": 45990,
+      "dueDate": 46035,
+      "paymentDate": 46030,
+      "daysToPay": 40,
+      "amountPaid": 72000,
+      "onTime": true,
+      "window": "Recent"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "paymentId": "PMT-0024",
+      "invoiceNo": "901E555",
+      "invoiceDate": 46020,
+      "dueDate": 46065,
+      "paymentDate": 46061,
+      "daysToPay": 41,
+      "amountPaid": 77000,
+      "onTime": true,
+      "window": "Recent"
+    }
+  ],
+  "deductions": [
+    {
+      "scenarioId": "S1",
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "type": "Damaged product (evidence)",
+      "lines": 3,
+      "claimAmount": 8200,
+      "verdict": "VALID",
+      "validAmount": 8200,
+      "recoverAmount": 0,
+      "routing": "Billing: credit memo",
+      "gamingFlag": false,
+      "feedsMesh": "Fulfilment",
+      "evidenceRefs": "POD DLV8023370 \u00b7 CR DR-4471 \u00b7 photos"
+    },
+    {
+      "scenarioId": "S2",
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "type": "Promo missed at invoicing",
+      "lines": 2,
+      "claimAmount": 14600,
+      "verdict": "VALID",
+      "validAmount": 14600,
+      "recoverAmount": 0,
+      "routing": "Billing: credit + re-bill",
+      "gamingFlag": false,
+      "feedsMesh": "Billing",
+      "evidenceRefs": "TPM CR-Q3-ENDCAP-118"
+    },
+    {
+      "scenarioId": "S3",
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "type": "Shortage claim (POD full)",
+      "lines": 4,
+      "claimAmount": 21300,
+      "verdict": "INVALID",
+      "validAmount": 0,
+      "recoverAmount": 21300,
+      "routing": "Recovery + gaming flag [D]",
+      "gamingFlag": true,
+      "feedsMesh": "Collections",
+      "evidenceRefs": "POD DLV8023410-413"
+    },
+    {
+      "scenarioId": "S4",
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "type": "OTIF fine (SLA valid)",
+      "lines": 2,
+      "claimAmount": 9800,
+      "verdict": "VALID",
+      "validAmount": 9800,
+      "recoverAmount": 0,
+      "routing": "Billing: accept",
+      "gamingFlag": false,
+      "feedsMesh": "Fulfilment",
+      "evidenceRefs": "CTR VM-SLA-22 \u00b7 DLV8023450"
+    },
+    {
+      "scenarioId": "S5",
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "type": "OTIF fine (on time)",
+      "lines": 3,
+      "claimAmount": 12700,
+      "verdict": "INVALID",
+      "validAmount": 0,
+      "recoverAmount": 12700,
+      "routing": "Recovery (timestamp)",
+      "gamingFlag": false,
+      "feedsMesh": "Collections",
+      "evidenceRefs": "POD timestamp DLV8023455"
+    },
+    {
+      "scenarioId": "S6",
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "type": "Pricing chargeback",
+      "lines": 2,
+      "claimAmount": 18400,
+      "verdict": "INVALID",
+      "validAmount": 0,
+      "recoverAmount": 18400,
+      "routing": "Recovery (contract clause)",
+      "gamingFlag": false,
+      "feedsMesh": "Collections",
+      "evidenceRefs": "CTR CRE-PRC-24"
+    },
+    {
+      "scenarioId": "S7",
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "type": "Promo overclaim",
+      "lines": 2,
+      "claimAmount": 15900,
+      "verdict": "PARTIAL",
+      "validAmount": 10400,
+      "recoverAmount": 5500,
+      "routing": "Split: credit + recover",
+      "gamingFlag": false,
+      "feedsMesh": "Collections",
+      "evidenceRefs": "TPM HF-DISPLAY-092"
+    },
+    {
+      "scenarioId": "S8",
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "type": "Duplicate deduction",
+      "lines": 2,
+      "claimAmount": 11500,
+      "verdict": "INVALID",
+      "validAmount": 0,
+      "recoverAmount": 11500,
+      "routing": "Recovery (duplicate)",
+      "gamingFlag": false,
+      "feedsMesh": "Collections",
+      "evidenceRefs": "Prior REM 0620"
+    }
+  ],
+  "deductionLines": [
+    {
+      "lineId": "L01",
+      "scenarioId": "S1",
+      "accountId": "ACC-GRE",
+      "invoiceNo": "INV 901001",
+      "deductionType": "Damaged product (evidence)",
+      "lineAmount": 3000,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L02",
+      "scenarioId": "S1",
+      "accountId": "ACC-GRE",
+      "invoiceNo": "INV 901102",
+      "deductionType": "Damaged product (evidence)",
+      "lineAmount": 2800,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L03",
+      "scenarioId": "S1",
+      "accountId": "ACC-GRE",
+      "invoiceNo": "INV 901203",
+      "deductionType": "Damaged product (evidence)",
+      "lineAmount": 2400,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L04",
+      "scenarioId": "S2",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 902004",
+      "deductionType": "Promo missed at invoicing",
+      "lineAmount": 7600,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L05",
+      "scenarioId": "S2",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 902105",
+      "deductionType": "Promo missed at invoicing",
+      "lineAmount": 7000,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L06",
+      "scenarioId": "S3",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 903006",
+      "deductionType": "Shortage claim (POD full)",
+      "lineAmount": 5600,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L07",
+      "scenarioId": "S3",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 903107",
+      "deductionType": "Shortage claim (POD full)",
+      "lineAmount": 5400,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L08",
+      "scenarioId": "S3",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 903208",
+      "deductionType": "Shortage claim (POD full)",
+      "lineAmount": 5200,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L09",
+      "scenarioId": "S3",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 903309",
+      "deductionType": "Shortage claim (POD full)",
+      "lineAmount": 5100,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L10",
+      "scenarioId": "S4",
+      "accountId": "ACC-VAL",
+      "invoiceNo": "INV 904010",
+      "deductionType": "OTIF fine (SLA valid)",
+      "lineAmount": 5200,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L11",
+      "scenarioId": "S4",
+      "accountId": "ACC-VAL",
+      "invoiceNo": "INV 904111",
+      "deductionType": "OTIF fine (SLA valid)",
+      "lineAmount": 4600,
+      "verdict": "VALID"
+    },
+    {
+      "lineId": "L12",
+      "scenarioId": "S5",
+      "accountId": "ACC-VAL",
+      "invoiceNo": "INV 905012",
+      "deductionType": "OTIF fine (on time)",
+      "lineAmount": 4500,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L13",
+      "scenarioId": "S5",
+      "accountId": "ACC-VAL",
+      "invoiceNo": "INV 905113",
+      "deductionType": "OTIF fine (on time)",
+      "lineAmount": 4200,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L14",
+      "scenarioId": "S5",
+      "accountId": "ACC-VAL",
+      "invoiceNo": "INV 905214",
+      "deductionType": "OTIF fine (on time)",
+      "lineAmount": 4000,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L15",
+      "scenarioId": "S6",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 906015",
+      "deductionType": "Pricing chargeback",
+      "lineAmount": 9600,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L16",
+      "scenarioId": "S6",
+      "accountId": "ACC-CRE",
+      "invoiceNo": "INV 906116",
+      "deductionType": "Pricing chargeback",
+      "lineAmount": 8800,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L17",
+      "scenarioId": "S7",
+      "accountId": "ACC-HAR",
+      "invoiceNo": "INV 907017",
+      "deductionType": "Promo overclaim",
+      "lineAmount": 8100,
+      "verdict": "PARTIAL"
+    },
+    {
+      "lineId": "L18",
+      "scenarioId": "S7",
+      "accountId": "ACC-HAR",
+      "invoiceNo": "INV 907118",
+      "deductionType": "Promo overclaim",
+      "lineAmount": 7800,
+      "verdict": "PARTIAL"
+    },
+    {
+      "lineId": "L19",
+      "scenarioId": "S8",
+      "accountId": "ACC-HAR",
+      "invoiceNo": "INV 908019",
+      "deductionType": "Duplicate deduction",
+      "lineAmount": 5900,
+      "verdict": "INVALID"
+    },
+    {
+      "lineId": "L20",
+      "scenarioId": "S8",
+      "accountId": "ACC-HAR",
+      "invoiceNo": "INV 908120",
+      "deductionType": "Duplicate deduction",
+      "lineAmount": 5600,
+      "verdict": "INVALID"
+    }
+  ],
+  "contractTpm": [
+    {
+      "referenceId": "CTR CRE-MSA-22",
+      "accountId": "ACC-CRE",
+      "type": "Master terms",
+      "detail": "Net 45; deduction & chargeback handling",
+      "value": null,
+      "termsDays": 45,
+      "usedInScenario": "General"
+    },
+    {
+      "referenceId": "CTR CRE-PRC-24",
+      "accountId": "ACC-CRE",
+      "type": "Contract price",
+      "detail": "Contracted unit price per case",
+      "value": 50,
+      "termsDays": null,
+      "usedInScenario": "S6"
+    },
+    {
+      "referenceId": "TPM CR-Q3-ENDCAP-118",
+      "accountId": "ACC-CRE",
+      "type": "TPM promo",
+      "detail": "Approved Q3 endcap allowance",
+      "value": 14600,
+      "termsDays": null,
+      "usedInScenario": "S2"
+    },
+    {
+      "referenceId": "CTR VM-SLA-22",
+      "accountId": "ACC-VAL",
+      "type": "SLA terms",
+      "detail": "On-time in-full delivery window (hrs)",
+      "value": 48,
+      "termsDays": null,
+      "usedInScenario": "S4, S5"
+    },
+    {
+      "referenceId": "TPM HF-DISPLAY-092",
+      "accountId": "ACC-HAR",
+      "type": "TPM accrual",
+      "detail": "Approved display-promo accrual",
+      "value": 10400,
+      "termsDays": null,
+      "usedInScenario": "S7"
+    },
+    {
+      "referenceId": "CTR HF-MSA-21",
+      "accountId": "ACC-HAR",
+      "type": "Master terms",
+      "detail": "Net 30; freight & allowance handling",
+      "value": null,
+      "termsDays": 30,
+      "usedInScenario": "General"
+    },
+    {
+      "referenceId": "REM 0620",
+      "accountId": "ACC-HAR",
+      "type": "Prior settlement",
+      "detail": "Deduction previously credited (duplicate basis)",
+      "value": 11500,
+      "termsDays": null,
+      "usedInScenario": "S8"
+    },
+    {
+      "referenceId": "CTR GRE-MSA-22",
+      "accountId": "ACC-GRE",
+      "type": "Master terms",
+      "detail": "Net 45; standard trade terms",
+      "value": null,
+      "termsDays": 45,
+      "usedInScenario": "General"
+    }
+  ],
+  "evidenceDocuments": [
+    {
+      "accountId": "ACC-CRE",
+      "contentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "documentId": "EVD-CREDIT-ACC-CRE-AR",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-CRE",
+        "S3",
+        "S6",
+        "credit_ar_open_items",
+        "credit_deductions"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Crestline AR aging and deduction evidence packet"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "contentHash": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+      "documentId": "EVD-CREDIT-ACC-HAR-TERMS",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-HAR",
+        "S1",
+        "S2",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Harbor Foods terms and recovery evidence packet"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "contentHash": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+      "documentId": "EVD-CREDIT-ACC-VAL-SLA",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-VAL",
+        "S4",
+        "S5",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "ValuMart SLA and carrier signal evidence packet"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "contentHash": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "documentId": "EVD-CREDIT-ACC-GRE-STANDARD",
+      "documentType": "credit-risk-evidence",
+      "recordIds": [
+        "ACC-GRE",
+        "S1",
+        "credit_ar_open_items",
+        "credit_contract_tpm"
+      ],
+      "sourceMode": "synthetic",
+      "synthetic": true,
+      "title": "Greenleaf standard terms and clean support evidence packet"
+    }
+  ],
+  "riskMeshPositions": [
+    {
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "position": "Credit",
+      "status": "ELEVATED",
+      "statusRank": 2,
+      "keyMetric": "Util 87% \u00b7 DSO 68 vs Net 45",
+      "driverSignals": "\u2014",
+      "interpretation": "Exposure high and pays slowly; not a default risk yet"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "position": "Fulfilment",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "PODs confirm full delivery",
+      "driverSignals": "S3",
+      "interpretation": "Claimed shortages were not real"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "position": "Billing",
+      "status": "WATCH",
+      "statusRank": 1,
+      "keyMetric": "1 valid promo gap",
+      "driverSignals": "S2",
+      "interpretation": "Fixable invoicing gap; feed prevention rule"
+    },
+    {
+      "accountId": "ACC-CRE",
+      "customer": "Crestline Grocery",
+      "position": "Collections",
+      "status": "HIGH",
+      "statusRank": 3,
+      "keyMetric": "$39,700 withheld \u00b7 flag [D]",
+      "driverSignals": "S3, S6",
+      "interpretation": "Behavioural gaming pattern confirmed"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "position": "Credit",
+      "status": "WATCH",
+      "statusRank": 1,
+      "keyMetric": "Util 69% \u00b7 DSO 52 vs Net 30",
+      "driverSignals": "\u2014",
+      "interpretation": "Moderate exposure; DSO 22d over terms"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "position": "Fulfilment",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "No delivery exceptions",
+      "driverSignals": "\u2014",
+      "interpretation": "Fulfilment clean"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "position": "Billing",
+      "status": "WATCH",
+      "statusRank": 1,
+      "keyMetric": "Promo accrual mismatch",
+      "driverSignals": "S7",
+      "interpretation": "Loose promo controls"
+    },
+    {
+      "accountId": "ACC-HAR",
+      "customer": "Harbor Foods",
+      "position": "Collections",
+      "status": "ELEVATED",
+      "statusRank": 2,
+      "keyMetric": "$17,000 unsupported",
+      "driverSignals": "S7, S8",
+      "interpretation": "Overclaim + duplicate inflating deductions"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "position": "Credit",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "Util 62% \u00b7 DSO 48 vs Net 45",
+      "driverSignals": "\u2014",
+      "interpretation": "Credit fundamentals healthy"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "position": "Fulfilment",
+      "status": "ELEVATED",
+      "statusRank": 2,
+      "keyMetric": "Genuine SLA miss",
+      "driverSignals": "S4",
+      "interpretation": "Carrier-performance issue (operational)"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "position": "Billing",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "No billing exceptions",
+      "driverSignals": "\u2014",
+      "interpretation": "Billing clean"
+    },
+    {
+      "accountId": "ACC-VAL",
+      "customer": "ValuMart Club",
+      "position": "Collections",
+      "status": "WATCH",
+      "statusRank": 1,
+      "keyMetric": "1 invalid OTIF dispute",
+      "driverSignals": "S5",
+      "interpretation": "Single unsupported fine, in recovery"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "position": "Credit",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "Util 48% \u00b7 DSO 41 vs Net 45",
+      "driverSignals": "\u2014",
+      "interpretation": "Low utilisation; pays inside terms"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "position": "Fulfilment",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "1 damaged shipment (handled)",
+      "driverSignals": "S1",
+      "interpretation": "Documented and credited cleanly"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "position": "Billing",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "No billing exceptions",
+      "driverSignals": "\u2014",
+      "interpretation": "Billing clean"
+    },
+    {
+      "accountId": "ACC-GRE",
+      "customer": "Greenleaf Naturals",
+      "position": "Collections",
+      "status": "OK",
+      "statusRank": 0,
+      "keyMetric": "No overdue balance",
+      "driverSignals": "\u2014",
+      "interpretation": "Single legitimate dispute"
+    }
+  ],
+  "policy": {
+    "creditHighUtil": 0.95,
+    "creditElevatedUtil": 0.85,
+    "creditWatchDaysBeyondTerms": 20,
+    "collectionsHighUnsupported": 25000,
+    "collectionsElevatedUnsupported": 15000,
+    "reduceLimitBuffer": 1.2,
+    "reduceLimitRounding": 100000
+  }
+}

@@ -251,8 +251,8 @@ export const cockpitCards = [
   {
     Icon: ShieldCheck,
     description:
-      "Exposure signals -> deterministic risk scoring -> governed credit proposal -> human-approved action.",
-    title: "David - Credit & Arbitration Cockpit"
+      "Weekly queue -> exposure and DSO drift -> Risk Mesh basis -> governed action packet.",
+    title: "David - Weekly Credit Risk Review"
   }
 ] as const satisfies readonly GuardrailCard[];
 
@@ -275,10 +275,10 @@ export const personaCards = [
     ctaLabel: "Enter as David",
     href: davidLoginHref,
     journey: [
-      "Review account exposure and DSO drift",
-      "Use partial-hold scoring on at-risk accounts",
-      "Review risk-mesh arbitration between lanes",
-      "Approve or reject governed proposals"
+      "Review the 4-account weekly risk queue",
+      "Open account dossiers with exposure, DSO, and cited signals",
+      "Inspect Risk Mesh verdicts and deterministic basis",
+      "Approve governed packets while external send stays gated"
     ],
     name: "David K.",
     role: "Director of Credit & Collections",
@@ -386,7 +386,7 @@ export const aboutRows = [
 export const aboutCapabilities = [
   "Closed-Loop Risk Mesh - arbitration across competing risk positions",
   "Deduction Forensics & Recovery - the hero flow (Maya's cockpit)",
-  "Dynamic Credit Sentinel - governed credit proposals (David's cockpit)",
+  "Dynamic Credit Sentinel - 4-account weekly risk review (David's cockpit)",
   "Behavioral Containment - evidence-gated intent labels and partial holds"
 ] as const;
 

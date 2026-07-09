@@ -8,6 +8,7 @@ import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues 
 import { readCanaryLines, readReconciliationMode } from "../../config/reconciliationRollout.js";
 import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
 import {
+  runOpenAICreditRiskAgentStream,
   streamLiveForensicsTraceEvents,
   type LiveForensicsStreamRunner
 } from "../agents/liveForensicsStream.js";
@@ -58,6 +59,8 @@ import { createLegacySupabaseSettlementRunReaderFromEnv } from "../adapters/lega
 import type { SourcePort } from "../adapters/source.js";
 import {
   createSupabaseSettlementRunReaderFromEnv,
+  loadCreditRiskRows,
+  MissingCreditRiskSourceError,
   createSupabaseRiskObservationSnapshotReaderFromEnv,
   createSupabaseSapEvidenceReaderFromEnv,
   createSupabaseSyntheticSourceReaderFromEnv,
@@ -114,6 +117,11 @@ import {
   type ApprovalRecordSourceMetadata,
   type ForensicsSseEvent
 } from "./cockpitModel.js";
+import {
+  buildCreditRiskReviewModel,
+  type CreditRiskApprovalReceipt
+} from "./creditRiskModel.js";
+import { runCreditRiskQuerySessionWithLiveAgents } from "./creditRiskQuerySession.js";
 import {
   buildSourceHealthResultsFromSnapshots,
   type SourceHealthResult,
@@ -221,6 +229,13 @@ const forensicsWorkspaceQueryRequestSchema = z
   .strict();
 const forensicsQueryRequestSchema = z.union([forensicsWorkspaceQueryRequestSchema, forensicsSelectedQueryRequestSchema]);
 type ForensicsSelectedQueryRequest = z.infer<typeof forensicsSelectedQueryRequestSchema>;
+const creditRiskQueryRequestSchema = z
+  .object({
+    accountId: z.string().trim().min(1, "Credit risk query accountId is required."),
+    question: z.string().trim().min(1, "Credit risk query question is required.").max(500, "Credit risk query question is too long."),
+    recordIds: z.array(z.string().trim().min(1)).min(1, "Credit risk query selected recordIds are required.")
+  })
+  .strict();
 const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
@@ -269,6 +284,7 @@ type CockpitRateLimitedRoute =
   | "GET /run"
   | "POST /admin/demo-reset"
   | "POST /approval"
+  | "POST /credit/query"
   | "POST /forensics/refresh"
   | "POST /forensics/query"
   | "POST /run";
@@ -279,6 +295,7 @@ const cockpitApiRoutes = [
   "GET /forensics/work-items/:lineId",
   "GET /login",
   "GET /credit",
+  "GET /credit/v2",
   "GET /cfo",
   "GET /trace",
   "GET /memory",
@@ -290,6 +307,7 @@ const cockpitApiRoutes = [
   "POST /run",
   "POST /admin/demo-reset",
   "POST /approval",
+  "POST /credit/query",
   "POST /forensics/refresh",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
@@ -297,6 +315,7 @@ const cockpitApiRoutes = [
 ] as const;
 
 export interface CockpitApiOptions {
+  creditRiskStreamRunner?: LiveForensicsStreamRunner;
   env?: RuntimeEnv;
   forensicsStreamRunner?: LiveForensicsStreamRunner;
   memoryFetcher?: SupabaseMemoryFetch;
@@ -603,6 +622,108 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     response.json(buildCreditCockpitModel({ governedConfig, riskObservationSource: source, settlementSource: source }));
+  });
+
+  app.get("/credit/v2", async (request, response) => {
+    const governedConfig = await loadRequiredGovernedConfig(request, response);
+    if (governedConfig === undefined) {
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
+
+    try {
+      response.json(
+        buildCreditRiskReviewModel({
+          ...rows,
+          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+        })
+      );
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "Credit approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+    }
+  });
+
+  app.post("/credit/query", rateLimitAuditEndpoint("POST /credit/query"), async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "realtime"
+      })
+    ) {
+      return;
+    }
+
+    const parsedRequest = creditRiskQueryRequestSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+      response.status(400).json({ error: "Invalid credit risk query request.", issues: parsedRequest.error.issues });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+    if (approvalRecordsSnapshot === undefined) {
+      return;
+    }
+
+    const runControl = await loadRequiredRunControl(request, response);
+    if (runControl === undefined) {
+      return;
+    }
+    const runBudget = createRunBudgetController(runControl.config);
+    runBudget.recordStep({ phase: "query" });
+
+    try {
+      const model = buildCreditRiskReviewModel({
+        ...rows,
+        approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+      });
+      const runner =
+        options.creditRiskStreamRunner ??
+        ((liveRequest) => runOpenAICreditRiskAgentStream(liveRequest, undefined, { env: runtimeEnv }));
+      const queryResponse = await runCreditRiskQuerySessionWithLiveAgents({
+        accountId: parsedRequest.data.accountId,
+        liveAgentTrace: {
+          env: runtimeEnv,
+          maxTurns: runControl.config.phases.query.stepBudget,
+          onRetry() {
+            runBudget.recordRetry({ phase: "query" });
+          },
+          onTokenUsage(tokens: number) {
+            runBudget.recordTokenUsage({ phase: "query", tokens });
+          },
+          retryCap: runControl.config.phases.query.retryCap,
+          runner
+        },
+        model,
+        question: parsedRequest.data.question,
+        recordIds: parsedRequest.data.recordIds,
+        rows
+      });
+
+      response.setHeader("cache-control", "no-store");
+      response.json(queryResponse);
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "David credit risk live investigation is unavailable from governed backend sources.",
+        missingSource: "supabase-credit-risk-query-session"
+      });
+    }
   });
 
   app.get("/cfo", async (_request, response) => {
@@ -960,6 +1081,22 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         missingSource: "supabase-recoup-config-rows"
       });
       return undefined;
+    }
+  }
+
+  async function loadRequiredCreditRiskRows(request: Request, response: Response) {
+    try {
+      return await loadCreditRiskRows(runtimeEnv, options.memoryFetcher);
+    } catch (error) {
+      if (error instanceof MissingCreditRiskSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: `Supabase credit risk ${error.sourceTableName} rows are unavailable or failed validation.`,
+          missingSource: error.missingSource
+        });
+        return undefined;
+      }
+
+      throw error;
     }
   }
 
@@ -1478,12 +1615,18 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         ...(parsed.data.approverId === undefined ? {} : { approverId: parsed.data.approverId }),
         ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason })
       };
+      const creditRiskRows =
+        parsed.data.actionId.startsWith("credit-v2:") ? await loadRequiredCreditRiskRows(request, response) : undefined;
+      if (parsed.data.actionId.startsWith("credit-v2:") && creditRiskRows === undefined) {
+        return;
+      }
       const supabaseAuditChain =
         runtimeEnv.RECOUP_MEMORY_BACKEND === "supabase"
           ? createSupabaseAuditChainRepositoryFromEnv(runtimeEnv, options.memoryFetcher)
           : undefined;
       if (supabaseAuditChain !== undefined) {
         const prepared = prepareApprovalDecision(approvalInput, {
+          ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
           ...serviceContext,
           governedConfig,
           ...(reconciliation === undefined ? {} : { reconciliation }),
@@ -2140,6 +2283,59 @@ interface ApprovalRecordsSnapshot {
   source: ApprovalRecordSourceMetadata;
 }
 
+function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): CreditRiskApprovalReceipt[] {
+  const receipts: CreditRiskApprovalReceipt[] = [];
+
+  for (const record of records) {
+    if (record.category !== "approval_records" || record.trustLevel !== "trusted") {
+      continue;
+    }
+
+    const actionId = readApprovalPayloadString(record, "actionId");
+    if (!looksLikeCreditRiskApprovalRecord(record, actionId)) {
+      continue;
+    }
+
+    if (actionId === undefined || !actionId.startsWith("credit-v2:")) {
+      throw new Error("Malformed credit approval receipt.");
+    }
+
+    const approverId = readApprovalPayloadString(record, "approverId");
+    const auditEntryHash = readApprovalPayloadString(record, "auditEntryHash");
+    const status = readApprovalPayloadString(record, "status");
+
+    const expectedScope = `approval:${actionId}`;
+    if (
+      record.id !== expectedScope ||
+      record.scope !== expectedScope ||
+      approverId === undefined ||
+      !approverId.startsWith("human:") ||
+      status !== "human_decided" ||
+      auditEntryHash === undefined ||
+      !/^[a-f0-9]{64}$/u.test(auditEntryHash) ||
+      !record.recordIds.includes(actionId)
+    ) {
+      throw new Error("Malformed credit approval receipt.");
+    }
+
+    receipts.push({
+      actionId,
+      approvalStatus: "committed",
+      auditEntryHash
+    });
+  }
+
+  return receipts;
+}
+
+function looksLikeCreditRiskApprovalRecord(record: MemoryRecord, actionId: string | undefined): boolean {
+  return (
+    actionId?.startsWith("credit-v2:") === true ||
+    record.id.startsWith("approval:credit-v2:") ||
+    record.scope.startsWith("approval:credit-v2:")
+  );
+}
+
 async function loadApprovalRecords(
   env: RuntimeEnv,
   memoryFetcher: SupabaseMemoryFetch | undefined
@@ -2170,6 +2366,11 @@ async function loadApprovalRecords(
   } finally {
     memoryStore.close();
   }
+}
+
+function readApprovalPayloadString(record: MemoryRecord, key: string): string | undefined {
+  const value = record.payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 async function loadApprovalRecordsOrFailClosed(
@@ -2237,7 +2438,7 @@ function buildMayaSelectedQueryScope(
       item.lineId === request.selectedLineId ||
       item.lineIds.includes(request.selectedLineId)
   );
-  const trustedEvidencePackRecordIds = buildTrustedMayaSelectedEvidencePackRecordIds({
+  const backendEvidencePackRecordIds = buildTrustedMayaSelectedEvidencePackRecordIds({
     selectedEvidencePackRecordIds: selectedDetail.selected.evidencePack.recordIds,
     ...(selectedWorklistItem?.lineIds === undefined ? {} : { selectedWorkItemLineIds: selectedWorklistItem.lineIds }),
     ...(selectedWorklistItem?.provenance.recordIds === undefined
@@ -2246,21 +2447,21 @@ function buildMayaSelectedQueryScope(
   });
   const selectedQueryScopedRecordIds = uniqueRecordIds([
     request.selectedLineId,
-    ...request.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))
+    ...request.recordIds.filter((recordId) => backendEvidencePackRecordIds.includes(recordId))
   ]);
 
   return {
     hasOutOfScopeSubmittedRecordId: request.recordIds.some(
       (recordId) =>
         recordId !== request.selectedLineId &&
-        !trustedEvidencePackRecordIds.includes(recordId)
+        !backendEvidencePackRecordIds.includes(recordId)
     ),
     normalizedRequest: {
       ...request,
       recordIds: selectedQueryScopedRecordIds
     },
     status: "ready",
-    trustedEvidencePackRecordIds
+    trustedEvidencePackRecordIds: selectedQueryScopedRecordIds
   };
 }
 
@@ -3160,6 +3361,7 @@ export async function startCockpitApiRuntime(options: CockpitApiRuntimeOptions =
             : { toolDataSchemaProbeLoader: sourceHealthToolDataSchemaProbeLoader })
         });
   const appOptions: CockpitApiOptions = {
+    ...(options.creditRiskStreamRunner === undefined ? {} : { creditRiskStreamRunner: options.creditRiskStreamRunner }),
     env: runtimeEnv,
     ...(options.forensicsStreamRunner === undefined ? {} : { forensicsStreamRunner: options.forensicsStreamRunner }),
     ...(options.memoryFetcher === undefined ? {} : { memoryFetcher: options.memoryFetcher }),

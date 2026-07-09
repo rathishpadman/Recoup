@@ -40,7 +40,7 @@ export function CtaBand() {
                 <ArrowRight className="size-4" data-icon="inline-end" />
               </a>
             </Button>
-            <span className="text-center text-xs text-muted-foreground">Credit & Arbitration Cockpit</span>
+            <span className="text-center text-xs text-muted-foreground">Weekly Credit Risk Review</span>
           </div>
         </div>
       </div>

@@ -28,6 +28,11 @@ export const runtimeModelSettings = {
     reasoning: { effort: "low" },
     text: { verbosity: "low" }
   },
+  actionPacketDrafter: {
+    providerData: openAiPromptCacheProviderData("credit_risk"),
+    reasoning: { effort: "low" },
+    text: { verbosity: "low" }
+  },
   sentinel: {
     providerData: openAiPromptCacheProviderData("credit_risk"),
     reasoning: { effort: "low" },

@@ -16,6 +16,8 @@ import { releaseOwnerInputSeedRows } from "../../config/releaseOwnerInputs.js";
 import { buildSyntheticDataset } from "../../src/adapters/syntheticData.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
 import type { EvalFinopsCockpitModel } from "../../src/services/evalsFinopsTypes.js";
+import { loadCreditRiskFixtureRows } from "../unit/fixtures/creditRiskFixture.js";
+import { rowsForCreditRiskTable } from "../unit/fixtures/creditRiskSupabaseFixture.js";
 
 type DemoRole = "cfo" | "david" | "maya";
 type DemoLoginId = "CFO" | "Maya" | "david";
@@ -520,7 +522,8 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
   await davidPage.goto(`${appUrl}/forensics`, { waitUntil: "domcontentloaded" });
   await davidPage.waitForURL("**/credit", { timeout: 15_000 });
   assert(davidPage.url().endsWith("/credit"), "David must be redirected away from /forensics");
-  await expectText(davidPage, "Credit Arbitration");
+  await expectLocator(davidPage, '[data-testid="david-shadcn-workbench"]', "David risk review v2 workbench");
+  await expectText(davidPage, "Good morning, David.");
   await davidContext.close();
 
   const cfoContext = await newRoleContext(browser, "cfo", 1440, 900);
@@ -1647,13 +1650,14 @@ async function assertPremiumSurfaces(browser: Browser): Promise<void> {
   const davidContext = await newRoleContext(browser, "david", 1440, 900);
   const credit = await davidContext.newPage();
   await credit.goto(`${appUrl}/credit`, { waitUntil: "networkidle" });
-  await expectLocator(credit, ".account-360-panel", "David Account 360 command header");
-  await expectLocator(credit, ".negotiation-graph", "David NegotiationGraph");
-  await expectLocator(credit, ".audit-verify-chip", "David AuditVerifyChip");
+  await expectLocator(credit, '[data-testid="david-shadcn-workbench"]', "David risk review v2 workbench");
+  await expectLocator(credit, '[data-testid="david-risk-review-queue"]', "David risk review queue");
+  await expectText(credit, "Good morning, David.");
+  await credit.locator('[data-testid="david-queue-account-row"][data-account-id="ACC-CRE"]').click();
+  await expectLocator(credit, '[data-testid="david-account-dossier"]', "David account dossier");
+  await expectLocator(credit, '[data-testid="david-decision-flow"]', "David decision flow");
+  await expectText(credit, "Crestline Grocery");
   await expectText(credit, "Action packet");
-  await expectText(credit, "Risk Mesh supervisor");
-  await expectText(credit, "51.25");
-  await expectText(credit, "55%");
   await davidContext.close();
 
   const davidCommandContext = await newRoleContext(browser, "david", 1440, 900);
@@ -4989,6 +4993,11 @@ function demoSessionForLoginId(loginId: string): DemoProfile | undefined {
 function fixtureSupabaseFetcher(url: string): Promise<Response> {
   const parsedUrl = new URL(url);
   const tableName = parsedUrl.pathname.split("/").at(-1) ?? "";
+
+  if (tableName.startsWith("credit_")) {
+    const rows = rowsForCreditRiskTable(loadCreditRiskFixtureRows(), tableName);
+    return Promise.resolve(new Response(JSON.stringify(rows), { status: 200 }));
+  }
 
   if (tableName === "recoup_config") {
     const keyFilter = parsedUrl.searchParams.get("key") ?? "";

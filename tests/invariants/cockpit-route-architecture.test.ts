@@ -35,6 +35,7 @@ const routeFiles = [
 
 const appApiRouteFiles = [
   "cockpit/app/api/approval/route.ts",
+  "cockpit/app/api/credit/query/route.ts",
   "cockpit/app/api/forensics/refresh/route.ts",
   "cockpit/app/api/forensics/query/route.ts",
   "cockpit/app/api/forensics/work-items/[lineId]/route.ts",
