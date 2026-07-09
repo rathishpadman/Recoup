@@ -231,6 +231,14 @@ This task is mandatory after production movement and before the release can be c
 
 **Owner reminder added 2026-07-09:** deploy success is not release success. After prod movement, verify the landing page with every tab and every visible button, then verify the Maya and David journeys with live agent calls before declaring completion.
 
+Automation command after prod deploy:
+```powershell
+$env:RECOUP_PROD_APP_URL="https://recoup-self-eta.vercel.app"
+$env:RECOUP_PROD_API_URL="https://recoup-api.onrender.com"
+npm run smoke:post-prod
+```
+Expected: the command writes `output/playwright/post-prod-public-smoke/post-prod-public-smoke-results.json` and passes landing tabs/buttons, Maya text query/cache, Maya realtime voice bridge, David account queries, and David backend-vs-Supabase source proof. Do not set `RECOUP_POST_PROD_SKIP_VOICE=1` for release completion unless the owner explicitly accepts a manual voice-query replacement.
+
 - [ ] **Step 1: Smoke stable public alias landing page tabs**
 
 Open the stable production alias, then click every landing tab from the main tab row and from the header navigation:
