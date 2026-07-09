@@ -10,6 +10,33 @@
 
 ---
 
+## Current Execution Status
+
+**Updated:** 2026-07-09T12:56:58+05:30
+**Release candidate branch:** `feature/david-credit-v2`
+**Release candidate head:** `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`
+**Observed `origin/main`:** `e6f43a480ff58a48a55f7882a7bf74824ff419de`
+**PR:** #5 `[codex] Cut over David credit risk review v2`, non-draft, merge state `CLEAN`.
+
+Completed pre-prod evidence:
+- `git status --short --branch` is clean on `feature/david-credit-v2`, and `git ls-remote origin refs/heads/feature/david-credit-v2` matches `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`.
+- Local server probes passed: `http://127.0.0.1:4317/healthz` HTTP 200, `http://localhost:3000/login?loginId=Maya` HTTP 200, and `http://localhost:3000/login?loginId=david` HTTP 200.
+- Full local post-prod smoke harness passed against local app/API using `RECOUP_PROD_APP_URL=http://localhost:3000`, `RECOUP_PROD_API_URL=http://127.0.0.1:4317`, and `npm run smoke:post-prod`.
+- Smoke artifact: `output/playwright/post-prod-public-smoke/post-prod-public-smoke-results.json`.
+- Passed smoke checks: `landing-tabs-buttons`, `maya-eight-scenario-live-query-cache`, `maya-voice-realtime-bridge`, `david-four-account-live-query`, and `david-backend-vs-supabase-credit-source`.
+- Maya live query proof covered `S1-L1` through `S8-L1`, all with `modelExecution.mode = "live_openai_agents"`, scoped citations, token usage, and cache probes with `x-recoup-read-model-cache: hit`.
+- Maya realtime voice bridge proof used `gpt-realtime-2`, `webrtc`, selected-case policy records, and `query.answer` citation parity.
+- David live query proof covered `ACC-CRE`, `ACC-HAR`, `ACC-VAL`, and `ACC-GRE`; backend-vs-Supabase proof compared `ACC-CRE` and `ACC-GRE`.
+- `npm run verify` passed locally after the smoke harness stabilization: 137 test files, 1208 tests, dependency-cruiser clean, and release readiness passed.
+- GitHub PR visibility refreshed successfully after a transient 401: `gh pr view 5` reports head `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`, non-draft, merge state `CLEAN`; `gh run list --commit 7c82aa47c80c8d3753217be993f59bbb9c83f0fd` returned no attached workflow runs.
+
+Remaining hard gates:
+- Task 6 Step 3 is still pending: no production-impacting merge without explicit owner approval in chat.
+- Task 6 Step 4 is still pending: after owner approval, merge/sync verified `main`, deploy Vercel production with `VERCEL_TOKEN`, and record deployment ID/URL.
+- Task 7 is still pending: run `npm run smoke:post-prod` against `https://recoup-self-eta.vercel.app` and `https://recoup-api.onrender.com`; do not call the release complete unless every public-alias landing, Maya, David, cache, voice, approval, and source-proof check passes.
+
+---
+
 ### Task 1: Freeze Release Candidate And Audit Diff
 
 **Files:**
