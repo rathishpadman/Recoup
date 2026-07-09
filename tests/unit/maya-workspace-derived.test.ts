@@ -496,6 +496,30 @@ describe("Maya workspace derived helpers", () => {
     expect(scopedRecordIds).toEqual(["RECON-S1-L1", "POD-S1-L1", "CLAIM-S1-L1"]);
   });
 
+  it("omits provider file IDs from selected-case query scopes", () => {
+    const item = workItem({
+      customerLabel: "Greenleaf Naturals",
+      lineId: "S1-L1",
+      lineIds: ["S1-L1", "S1-L2"],
+      provenance: {
+        deterministicBasis: "work item source",
+        recordIds: ["S1-L1", "POD-S1-L1", "file-vector-runtime-contract", "TOOLS-DATA:S1"],
+        sourceKind: "derived_backend",
+        sourceName: "unit test"
+      },
+      workItemLabel: "Greenleaf deduction group"
+    });
+
+    const pickerRecordIds = buildCopilotCaseOptions([item])[0]?.recordIds ?? [];
+    const selectedPacketRecordIds = buildCaseScopedQueryRecordIds(item, {
+      selectedEvidenceRecordIds: ["S1-L1", "POD-S1-L1", "file-2jUrCkC64XYwCxcJT1YctF", "INV-S1-1"]
+    });
+
+    expect(pickerRecordIds).toEqual(["S1-L1", "S1-L2", "POD-S1-L1", "TOOLS-DATA:S1"]);
+    expect(selectedPacketRecordIds).toEqual(["S1-L1", "POD-S1-L1", "INV-S1-1"]);
+    expect([...pickerRecordIds, ...selectedPacketRecordIds].some((recordId) => recordId.startsWith("file-"))).toBe(false);
+  });
+
   it("prefers the display-ready reason when a stored narrative is also present", () => {
     const storedNarrative =
       "The signed proof of delivery shows the full ordered quantity was received, so Recovery should challenge the shortage.";

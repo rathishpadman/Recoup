@@ -2438,7 +2438,7 @@ function buildMayaSelectedQueryScope(
       item.lineId === request.selectedLineId ||
       item.lineIds.includes(request.selectedLineId)
   );
-  const trustedEvidencePackRecordIds = buildTrustedMayaSelectedEvidencePackRecordIds({
+  const backendEvidencePackRecordIds = buildTrustedMayaSelectedEvidencePackRecordIds({
     selectedEvidencePackRecordIds: selectedDetail.selected.evidencePack.recordIds,
     ...(selectedWorklistItem?.lineIds === undefined ? {} : { selectedWorkItemLineIds: selectedWorklistItem.lineIds }),
     ...(selectedWorklistItem?.provenance.recordIds === undefined
@@ -2447,21 +2447,21 @@ function buildMayaSelectedQueryScope(
   });
   const selectedQueryScopedRecordIds = uniqueRecordIds([
     request.selectedLineId,
-    ...request.recordIds.filter((recordId) => trustedEvidencePackRecordIds.includes(recordId))
+    ...request.recordIds.filter((recordId) => backendEvidencePackRecordIds.includes(recordId))
   ]);
 
   return {
     hasOutOfScopeSubmittedRecordId: request.recordIds.some(
       (recordId) =>
         recordId !== request.selectedLineId &&
-        !trustedEvidencePackRecordIds.includes(recordId)
+        !backendEvidencePackRecordIds.includes(recordId)
     ),
     normalizedRequest: {
       ...request,
       recordIds: selectedQueryScopedRecordIds
     },
     status: "ready",
-    trustedEvidencePackRecordIds
+    trustedEvidencePackRecordIds: selectedQueryScopedRecordIds
   };
 }
 

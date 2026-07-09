@@ -685,10 +685,10 @@ export function buildCaseScopedQueryRecordIds(
   options: { selectedEvidenceRecordIds?: readonly string[] } = {}
 ): string[] {
   if ((options.selectedEvidenceRecordIds?.length ?? 0) > 0) {
-    return dedupeStrings(options.selectedEvidenceRecordIds ?? []);
+    return dedupeQueryableRecordIds(options.selectedEvidenceRecordIds ?? []);
   }
   const lineIds = item.lineIds.length > 0 ? item.lineIds : [item.lineId];
-  return dedupeStrings([...lineIds, ...item.provenance.recordIds, ...(options.selectedEvidenceRecordIds ?? [])]);
+  return dedupeQueryableRecordIds([...lineIds, ...item.provenance.recordIds, ...(options.selectedEvidenceRecordIds ?? [])]);
 }
 
 export function buildConductorSummary(input: MayaConductorSummaryInput): string {
@@ -1559,4 +1559,12 @@ function dedupeWorkItems(items: Array<MayaWorklistItem | undefined>): MayaWorkli
 
 function dedupeStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function dedupeQueryableRecordIds(values: readonly string[]): string[] {
+  return dedupeStrings(values).filter((value) => !isProviderFileRecordId(value));
+}
+
+function isProviderFileRecordId(value: string): boolean {
+  return value.startsWith("file-");
 }
