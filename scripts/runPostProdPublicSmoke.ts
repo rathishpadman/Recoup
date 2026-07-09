@@ -477,8 +477,11 @@ async function loginAsDemoUser(page: Page, loginId: "Maya" | "david"): Promise<v
 
 async function selectDavidAccount(page: Page, account: CreditRiskAccountModel): Promise<void> {
   const row = page.locator(`[data-testid="david-queue-account-row"][data-account-id="${escapeAttributeValue(account.accountId)}"]`);
-  await row.waitFor({ state: "visible", timeout: 45_000 });
-  await row.click();
+  if (await row.isVisible()) {
+    await row.click();
+  } else {
+    await page.getByRole("button", { name: new RegExp(`^${escapeRegExp(account.customer)}$`, "u") }).click();
+  }
   const dossier = page.locator('[data-testid="david-account-dossier"]');
   await dossier.waitFor({ state: "visible", timeout: 45_000 });
   assert((await dossier.innerText()).includes(account.customer), `David dossier did not show ${account.customer}.`);
@@ -607,6 +610,10 @@ function trimTrailingSlash(value: string): string {
 
 function escapeAttributeValue(value: string): string {
   return value.replace(/\\/gu, "\\\\").replace(/"/gu, '\\"');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function assertSameSet(actual: readonly string[], expected: readonly string[], label: string): void {
