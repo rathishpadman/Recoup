@@ -74,9 +74,17 @@ export interface RankedDealCandidate {
   calculationHash: string;
   candidateId: string;
   objectiveValue: string;
+  objectiveValueLabel: string;
   rank: number;
   scenarioCount: number;
   sourceRecordIds: string[];
+  terms: {
+    collateralRatioLabel: string;
+    depositPctLabel: string;
+    financingSpreadLabel: string;
+    releasePctLabel: string;
+    trancheCountLabel: string;
+  };
 }
 
 export interface RejectedDealCandidate {
@@ -174,9 +182,17 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
       calculationHash: result.calculationHash,
       candidateId: result.candidateId,
       objectiveValue: result.objectiveValue,
+      objectiveValueLabel: formatMoneyLabel(result.objectiveValue),
       rank: 0,
       scenarioCount: result.basis.scenarioCount,
-      sourceRecordIds: dedupe([...candidate.sourceRecordIds, ...result.sourceRecordIds])
+      sourceRecordIds: dedupe([...candidate.sourceRecordIds, ...result.sourceRecordIds]),
+      terms: {
+        collateralRatioLabel: `${decimal(candidate.collateralRatio).toString()}x collateral`,
+        depositPctLabel: `${decimal(candidate.depositPct).toString()}% deposit`,
+        financingSpreadLabel: `${decimal(candidate.financingSpreadBps).toString()} bps spread`,
+        releasePctLabel: `${decimal(candidate.releasePct).toString()}% release`,
+        trancheCountLabel: `${candidate.trancheCount.toString()} ${candidate.trancheCount === 1 ? "tranche" : "tranches"}`
+      }
     });
   }
 
@@ -353,6 +369,14 @@ function rejection(candidate: DealOptimizerCandidateStructure, reason: string): 
 
 function compareObjective(left: string, right: string): number {
   return decimal(left).comparedTo(decimal(right));
+}
+
+function formatMoneyLabel(value: string): string {
+  const parsed = decimal(value);
+  return `$${new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  }).format(parsed.toNumber())}`;
 }
 
 function decimal(value: string): Decimal {

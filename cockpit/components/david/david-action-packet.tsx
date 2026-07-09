@@ -7,8 +7,7 @@ import {
   ExternalLinkIcon,
   FileSearchIcon,
   LockKeyholeIcon,
-  ScaleIcon,
-  SparklesIcon
+  ScaleIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,11 +21,11 @@ import {
   SheetTitle,
   SheetTrigger
 } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
 import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
+import { DavidNegotiationWorkbench } from "./david-negotiation-workbench.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import {
   davidBadgeVariantByTone,
@@ -173,19 +172,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
                 </SheetContent>
               </Sheet>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button disabled type="button" variant="outline">
-                        <SparklesIcon aria-hidden="true" data-icon="inline-start" />
-                        Simulate alternatives
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Read-only in this build</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <DavidNegotiationWorkbench account={account} />
 
               <Button
                 data-testid="david-send-action-packet"

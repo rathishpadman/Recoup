@@ -111,6 +111,16 @@ describe("deal optimizer", () => {
       "2:partial-release-55:38888.38",
       "3:low-release-10:-13152.34"
     ]);
+    expect(model.rankedCandidates[0]).toMatchObject({
+      objectiveValueLabel: "$75,077.00",
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "60% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "85% release",
+        trancheCountLabel: "3 tranches"
+      }
+    });
     expect(model.rankedCandidates[0]?.sourceRecordIds).toEqual(
       expect.arrayContaining([
         "credit_orders:ORD-HARBOR-6534",

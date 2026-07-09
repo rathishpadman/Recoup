@@ -784,6 +784,38 @@ export interface CreditRiskQueryResponse {
   }>;
 }
 
+export interface DealOptimizerCandidateModel {
+  calculationHash: string;
+  candidateId: string;
+  objectiveValue: string;
+  objectiveValueLabel: string;
+  rank: number;
+  scenarioCount: number;
+  sourceRecordIds: string[];
+  terms: {
+    collateralRatioLabel: string;
+    depositPctLabel: string;
+    financingSpreadLabel: string;
+    releasePctLabel: string;
+    trancheCountLabel: string;
+  };
+}
+
+export interface DealOptimizerModel {
+  optimizerRunId: string;
+  orderId: string;
+  policyHash: string;
+  rankedCandidates: DealOptimizerCandidateModel[];
+  rejectedCandidates: Array<{
+    candidateId: string;
+    reason: string;
+    sourceRecordIds: string[];
+  }>;
+  seed: 42;
+  sourceHash: string;
+  sourceRecordIds: string[];
+}
+
 export interface CreditRiskReviewModel {
   accounts: CreditRiskAccountModel[];
   asOfDate: string;
