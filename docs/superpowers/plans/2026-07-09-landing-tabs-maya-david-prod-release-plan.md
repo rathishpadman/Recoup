@@ -229,6 +229,8 @@ Expected: `git status --short` is empty, `HEAD` equals `origin/main`, at least o
 
 This task is mandatory after production movement and before the release can be called complete. Run it against the stable public alias, not localhost, and capture the deployment ID/URL beside the smoke evidence.
 
+**Owner reminder added 2026-07-09:** deploy success is not release success. After prod movement, verify the landing page with every tab and every visible button, then verify the Maya and David journeys with live agent calls before declaring completion.
+
 - [ ] **Step 1: Smoke stable public alias landing page tabs**
 
 Open the stable production alias, then click every landing tab from the main tab row and from the header navigation:
@@ -255,6 +257,7 @@ Click every business-visible button/CTA on the public alias:
 - Demo Maya persona card or CTA routes to Maya login.
 - Demo David persona card or CTA routes to David login.
 - Bottom CTA routes to its intended demo/login destination.
+- Any secondary visible CTA or button on the landing page either navigates to its documented target or is intentionally inert with owner-approved evidence.
 
 Expected: every button navigates to the intended route, no disabled/dead buttons appear in the landing page, and no landing-page behavior regresses from the release diff because this release is not intended to change landing functionality.
 
