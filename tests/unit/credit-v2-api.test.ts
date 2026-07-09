@@ -176,6 +176,64 @@ describe("GET /credit/v2", () => {
   });
 });
 
+describe("POST /credit/v2/simulate", () => {
+  it("returns a deterministic Harbor simulation without reading approval records", async () => {
+    const calls: string[] = [];
+    const { baseUrl, server } = await listen(creditRiskFetcher(calls));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/simulate`, {
+        body: JSON.stringify({
+          accountId: "ACC-HAR",
+          scoreOverrides: {
+            dsoPaymentDrift: 90
+          }
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        amountSplit?: { proposedReleaseAmountLabel?: string };
+        externalActionDispatched?: boolean;
+        releaseRatioPercentLabel?: string;
+      };
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        amountSplit: {
+          proposedReleaseAmountLabel: "$640,010.00"
+        },
+        externalActionDispatched: false,
+        releaseRatioPercentLabel: "100%"
+      });
+      expect(calls.some((call) => call.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed when simulation source scores are unavailable for the selected account", async () => {
+    const { baseUrl, server } = await listen(creditRiskFetcher([]));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/simulate`, {
+        body: JSON.stringify({ accountId: "ACC-CRE" }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toMatchObject({
+        error: "David credit simulation is unavailable from governed backend sources.",
+        missingSource: "credit-simulation-partial-hold-scores"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+});
+
 describe("POST /credit/query", () => {
   it("returns a Maya-style live-agent David investigation with token usage and cited credit evidence", async () => {
     const calls: string[] = [];

@@ -91,6 +91,7 @@ import {
   buildForensicsReadModelFreshnessRecordIds,
   isForensicsReadModelFresh
 } from "./evidenceFreshness.js";
+import { buildCreditSimulationModel, CreditSimulationMissingSourceError } from "./creditSimulationModel.js";
 import {
   assertR1SourceReadInput,
   buildOpenAiVectorStoreEvidenceSource,
@@ -236,6 +237,21 @@ const creditRiskQueryRequestSchema = z
     recordIds: z.array(z.string().trim().min(1)).min(1, "Credit risk query selected recordIds are required.")
   })
   .strict();
+const partialHoldSimulationCriterionSchema = z.enum([
+  "orderValueVsExposure",
+  "customerStrategicValue",
+  "dsoPaymentDrift",
+  "orderMargin",
+  "revenueForecast",
+  "paymentPattern"
+]);
+const creditSimulationRequestSchema = z
+  .object({
+    accountId: z.string().trim().min(1, "Credit simulation accountId is required."),
+    scoreOverrides: z.record(partialHoldSimulationCriterionSchema, z.number().finite()).optional(),
+    weightOverrides: z.record(partialHoldSimulationCriterionSchema, z.number().finite()).optional()
+  })
+  .strict();
 const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
@@ -285,6 +301,7 @@ type CockpitRateLimitedRoute =
   | "POST /admin/demo-reset"
   | "POST /approval"
   | "POST /credit/query"
+  | "POST /credit/v2/simulate"
   | "POST /forensics/refresh"
   | "POST /forensics/query"
   | "POST /run";
@@ -308,6 +325,7 @@ const cockpitApiRoutes = [
   "POST /admin/demo-reset",
   "POST /approval",
   "POST /credit/query",
+  "POST /credit/v2/simulate",
   "POST /forensics/refresh",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
@@ -652,6 +670,43 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         error: "Credit approval receipt state is unavailable from governed backend sources.",
         missingSource: "approval_records"
       });
+    }
+  });
+
+  app.post("/credit/v2/simulate", rateLimitAuditEndpoint("POST /credit/v2/simulate"), async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      })
+    ) {
+      return;
+    }
+
+    const parsedRequest = creditSimulationRequestSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+      response.status(400).json({ error: "Invalid credit simulation request.", issues: parsedRequest.error.issues });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    try {
+      response.setHeader("cache-control", "no-store");
+      response.json(buildCreditSimulationModel(parsedRequest.data, rows));
+    } catch (error) {
+      if (error instanceof CreditSimulationMissingSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: "David credit simulation is unavailable from governed backend sources.",
+          missingSource: error.missingSource
+        });
+        return;
+      }
+
+      throw error;
     }
   });
 
