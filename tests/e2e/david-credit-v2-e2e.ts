@@ -36,6 +36,22 @@ interface ApprovalRouteResult {
   status?: unknown;
 }
 
+interface CreditQueryRouteResult {
+  answer?: unknown;
+  citations?: unknown;
+  deterministicBasis?: unknown;
+  modelExecution?: {
+    agentNames?: unknown;
+    handoffCount?: unknown;
+    mode?: unknown;
+    rawModelTextPolicy?: unknown;
+    sourceReadMode?: unknown;
+    tokenUsage?: unknown;
+    tokenUsageSnapshot?: { totalTokens?: unknown };
+  };
+  trace?: Array<{ toolName?: unknown }>;
+}
+
 const localEnv = loadLocalRuntimeEnvFiles();
 const baseUrl = resolveBaseUrl();
 const apiUrl = normalizeBaseUrl(readEnvValue("RECOUP_E2E_API_URL", "http://127.0.0.1:4317"));
@@ -105,7 +121,7 @@ async function main(): Promise<void> {
     };
 
     const creditQueryResponsePromise = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === "/api/credit/query" && response.request().method() === "POST",
+      (response) => isCreditQueryResponseForAccount(response, crestline.accountId),
       { timeout: 90_000 }
     );
 
@@ -126,38 +142,18 @@ async function main(): Promise<void> {
 
     assert(forbiddenRequestsOnOpen.length === 0, `Opening Crestline triggered forbidden network calls: ${forbiddenRequestsOnOpen.join(", ")}.`);
     const creditQueryResponse = await creditQueryResponsePromise;
-    const creditQueryResult = (await creditQueryResponse.json()) as {
-      answer?: unknown;
-      modelExecution?: {
-        mode?: unknown;
-        rawModelTextPolicy?: unknown;
-        sourceReadMode?: unknown;
-        tokenUsage?: unknown;
-        tokenUsageSnapshot?: { totalTokens?: unknown };
-      };
-      trace?: Array<{ toolName?: unknown }>;
-    };
-    assert(creditQueryResponse.ok(), `David credit query route returned HTTP ${creditQueryResponse.status().toString()}.`);
-    assert(
-      creditQueryResult.modelExecution?.mode === "live_openai_agents",
-      `David credit query did not return live_openai_agents mode: ${JSON.stringify(creditQueryResult)}`
-    );
-    assert(creditQueryResult.modelExecution.rawModelTextPolicy === "suppressed", "David credit query did not suppress raw model text.");
-    assert(
-      creditQueryResult.modelExecution.sourceReadMode === "live_sdk_mcp" ||
-        creditQueryResult.modelExecution.sourceReadMode === "governed_backend_fallback",
-      `David credit query did not report governed source-read mode: ${JSON.stringify(creditQueryResult.modelExecution)}`
-    );
-    assert(
-      typeof creditQueryResult.modelExecution.tokenUsage === "number" ||
-        typeof creditQueryResult.modelExecution.tokenUsageSnapshot?.totalTokens === "number",
-      "David credit query did not include token usage."
-    );
-    assert(Array.isArray(creditQueryResult.trace) && creditQueryResult.trace.length > 0, "David credit query did not return trace rows.");
-    assert(
-      creditQueryResult.trace.some((event) => event.toolName === "credit_risk.answer"),
-      `David credit query trace did not include credit_risk.answer: ${JSON.stringify(creditQueryResult.trace)}`
-    );
+    const creditQueryResult = (await creditQueryResponse.json()) as CreditQueryRouteResult;
+    assertDavidLiveCreditQueryResult(crestline, creditQueryResponse.status(), creditQueryResult);
+    await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
+    await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
+    logDavidCreditQueryResult(crestline, creditQueryResult);
+
+    for (const account of initialModel.accounts.filter((candidate) => candidate.accountId !== crestline.accountId)) {
+      const accountQueryResult = await runDavidAccountLiveQuery(page, account);
+      logDavidCreditQueryResult(account, accountQueryResult);
+    }
+
+    await selectDavidAccount(page, crestline);
     await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "Collections", "David mesh tiles");
@@ -318,6 +314,105 @@ async function waitForApprovalStatus(
   throw new Error(`Timed out waiting for ${accountId} packet status ${status}${auditHash === undefined ? "" : ` with hash ${auditHash}`}.`);
 }
 
+async function runDavidAccountLiveQuery(page: Page, account: CreditRiskAccountModel): Promise<CreditQueryRouteResult> {
+  const responsePromise = page.waitForResponse((response) => isCreditQueryResponseForAccount(response, account.accountId), {
+    timeout: 120_000
+  });
+
+  await selectDavidAccount(page, account);
+  const response = await responsePromise;
+  const result = (await response.json()) as CreditQueryRouteResult;
+  assertDavidLiveCreditQueryResult(account, response.status(), result);
+  await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
+  await page.getByText(new RegExp(`${escapeRegExp(account.accountId)} is ${escapeRegExp(account.verdict)} risk`, "u")).waitFor({
+    state: "visible",
+    timeout: 45_000
+  });
+
+  return result;
+}
+
+async function selectDavidAccount(page: Page, account: CreditRiskAccountModel): Promise<void> {
+  const queueRow = page.locator(`[data-testid="david-queue-account-row"][data-account-id="${escapeAttributeValue(account.accountId)}"]`).first();
+  if (await queueRow.isVisible()) {
+    await queueRow.click();
+  } else {
+    await page.getByRole("button", { name: new RegExp(`^${escapeRegExp(account.customer)}$`, "u") }).click();
+  }
+
+  const dossier = page.locator('[data-testid="david-account-dossier"]');
+  await dossier.waitFor({ state: "visible", timeout: 45_000 });
+  await expectTextInLocator(dossier, account.customer, `David account dossier ${account.accountId}`);
+}
+
+function isCreditQueryResponseForAccount(response: import("playwright").Response, accountId: string): boolean {
+  const url = new URL(response.url());
+  if (url.pathname !== "/api/credit/query" || response.request().method() !== "POST") {
+    return false;
+  }
+
+  const payload = safeJsonParse(response.request().postData() ?? "");
+  return typeof payload === "object" && payload !== null && (payload as { accountId?: unknown }).accountId === accountId;
+}
+
+function assertDavidLiveCreditQueryResult(
+  account: CreditRiskAccountModel,
+  httpStatus: number,
+  result: CreditQueryRouteResult
+): void {
+  assert(httpStatus >= 200 && httpStatus < 300, `David credit query for ${account.accountId} returned HTTP ${httpStatus.toString()}.`);
+  assert(typeof result.answer === "string" && result.answer.trim().length > 0, `David credit query for ${account.accountId} returned no answer.`);
+  assert(
+    typeof result.deterministicBasis === "string" && result.deterministicBasis.includes("OpenAI Agents SDK live trace"),
+    `David credit query for ${account.accountId} did not prove OpenAI Agents SDK live trace.`
+  );
+  assert(
+    result.modelExecution?.mode === "live_openai_agents",
+    `David credit query for ${account.accountId} did not return live_openai_agents mode: ${JSON.stringify(result)}`
+  );
+  assert(
+    Array.isArray(result.modelExecution.agentNames) && result.modelExecution.agentNames.length >= 2,
+    `David credit query for ${account.accountId} did not include agent names.`
+  );
+  assert(
+    typeof result.modelExecution.handoffCount === "number" && result.modelExecution.handoffCount > 0,
+    `David credit query for ${account.accountId} did not include a live handoff.`
+  );
+  assert(result.modelExecution.rawModelTextPolicy === "suppressed", `David credit query for ${account.accountId} did not suppress raw model text.`);
+  assert(
+    result.modelExecution.sourceReadMode === "live_sdk_mcp" || result.modelExecution.sourceReadMode === "governed_backend_fallback",
+    `David credit query for ${account.accountId} did not report governed source-read mode: ${JSON.stringify(result.modelExecution)}`
+  );
+  assert(
+    typeof result.modelExecution.tokenUsage === "number" || typeof result.modelExecution.tokenUsageSnapshot?.totalTokens === "number",
+    `David credit query for ${account.accountId} did not include token usage.`
+  );
+  assert(Array.isArray(result.citations) && result.citations.length > 0, `David credit query for ${account.accountId} did not return citations.`);
+  assert(Array.isArray(result.trace) && result.trace.length > 0, `David credit query for ${account.accountId} did not return trace rows.`);
+  assert(
+    result.trace.some((event) => event.toolName === "credit_risk.answer"),
+    `David credit query for ${account.accountId} trace did not include credit_risk.answer: ${JSON.stringify(result.trace)}`
+  );
+}
+
+function logDavidCreditQueryResult(account: CreditRiskAccountModel, result: CreditQueryRouteResult): void {
+  console.log(
+    `DAVID_LIVE_QUERY_RESULT ${JSON.stringify({
+      accountId: account.accountId,
+      agentNames: result.modelExecution?.agentNames ?? [],
+      citationCount: Array.isArray(result.citations) ? result.citations.length : 0,
+      customer: account.customer,
+      handoffCount: result.modelExecution?.handoffCount ?? null,
+      mode: result.modelExecution?.mode ?? null,
+      question: `Why is ${account.customer} ${account.verdict.toLowerCase()} risk?`,
+      sourceReadMode: result.modelExecution?.sourceReadMode ?? null,
+      tokenUsage: result.modelExecution?.tokenUsage ?? result.modelExecution?.tokenUsageSnapshot?.totalTokens ?? null,
+      traceRows: Array.isArray(result.trace) ? result.trace.length : 0,
+      verdict: account.verdict
+    })}`
+  );
+}
+
 async function waitForCount(
   locator: ReturnType<Page["locator"]>,
   expectedCount: number,
@@ -390,6 +485,22 @@ function formatAuditHash(hash: string): string {
 
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/$/u, "");
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function escapeAttributeValue(value: string): string {
+  return value.replace(/\\/gu, "\\\\").replace(/"/gu, "\\\"");
 }
 
 function readEnvValue(key: string, fallback: string): string {
