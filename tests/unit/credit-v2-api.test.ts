@@ -9,6 +9,7 @@ import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
 import {
   governedConfigPostgrestRows,
   releaseOwnerInputPostgrestRows,
+  rowsForCreditNegotiationTable,
   rowsForCreditRiskTable
 } from "./fixtures/creditRiskSupabaseFixture.js";
 
@@ -227,6 +228,64 @@ describe("POST /credit/v2/simulate", () => {
       expect(body).toMatchObject({
         error: "David credit simulation is unavailable from governed backend sources.",
         missingSource: "credit-simulation-partial-hold-scores"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+describe("GET /credit/v2/orders/:orderId/deals", () => {
+  it("returns deterministic ranked deals from Supabase-style simulated rows without reading approval records", async () => {
+    const calls: string[] = [];
+    const { baseUrl, server } = await listen(creditRiskFetcher(calls));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/orders/ORD-HARBOR-6534/deals`, {
+        headers: cockpitAuthHeaders
+      });
+      const body = (await response.json()) as {
+        orderId?: string;
+        rankedCandidates?: Array<{ candidateId: string; objectiveValue: string; rank: number }>;
+        rejectedCandidates?: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.orderId).toBe("ORD-HARBOR-6534");
+      expect(body.rankedCandidates?.map((candidate) => `${String(candidate.rank)}:${candidate.candidateId}:${candidate.objectiveValue}`)).toEqual([
+        "1:max-release-85:75077.00",
+        "2:partial-release-55:38888.38",
+        "3:low-release-10:-13152.34"
+      ]);
+      expect(body.rejectedCandidates).toEqual([]);
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("/rest/v1/credit_orders"),
+          expect.stringContaining("/rest/v1/sim_3pl_inventory"),
+          expect.stringContaining("/rest/v1/sim_cost_of_capital"),
+          expect.stringContaining("/rest/v1/sim_pos_sellthrough"),
+          expect.stringContaining("/rest/v1/credit_negotiation_policy")
+        ])
+      );
+      expect(calls.some((call) => call.includes("/rest/v1/recoup_memory_records"))).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed when a simulated feed table is empty", async () => {
+    const { baseUrl, server } = await listen(creditRiskFetcher([], { emptyTables: ["sim_pos_sellthrough"] }));
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/orders/ORD-HARBOR-6534/deals`, {
+        headers: cockpitAuthHeaders
+      });
+      const body = (await response.json()) as { error: string; missingSource: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toMatchObject({
+        error: "David deal optimizer is unavailable from governed backend sources.",
+        missingSource: "supabase-credit-negotiation-sim_pos_sellthrough"
       });
     } finally {
       await close(server);
@@ -629,7 +688,8 @@ function creditRiskFetcher(
       return Promise.resolve(jsonResponse([]));
     }
 
-    return Promise.resolve(jsonResponse(rowsForCreditRiskTable(fixture, tableName)));
+    const negotiationRows = rowsForCreditNegotiationTable(tableName);
+    return Promise.resolve(jsonResponse(negotiationRows ?? rowsForCreditRiskTable(fixture, tableName)));
   };
 }
 

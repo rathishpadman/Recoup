@@ -59,7 +59,9 @@ import { createLegacySupabaseSettlementRunReaderFromEnv } from "../adapters/lega
 import type { SourcePort } from "../adapters/source.js";
 import {
   createSupabaseSettlementRunReaderFromEnv,
+  loadDealOptimizerSourceRows,
   loadCreditRiskRows,
+  MissingCreditNegotiationSourceError,
   MissingCreditRiskSourceError,
   createSupabaseRiskObservationSnapshotReaderFromEnv,
   createSupabaseSapEvidenceReaderFromEnv,
@@ -87,6 +89,7 @@ import {
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
 import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
+import { buildDealOptimizerModel } from "./dealOptimizer.js";
 import {
   buildForensicsReadModelFreshnessRecordIds,
   isForensicsReadModelFresh
@@ -313,6 +316,7 @@ const cockpitApiRoutes = [
   "GET /login",
   "GET /credit",
   "GET /credit/v2",
+  "GET /credit/v2/orders/:orderId/deals",
   "GET /cfo",
   "GET /trace",
   "GET /memory",
@@ -707,6 +711,51 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       }
 
       throw error;
+    }
+  });
+
+  app.get("/credit/v2/orders/:orderId/deals", async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      })
+    ) {
+      return;
+    }
+
+    const orderId = request.params.orderId;
+    if (orderId.trim().length === 0) {
+      response.status(400).json({ error: "Credit deal optimizer orderId is required." });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    const dealRows = await loadRequiredDealOptimizerRows(request, response);
+    if (dealRows === undefined) {
+      return;
+    }
+
+    try {
+      response.setHeader("cache-control", "no-store");
+      response.json(
+        buildDealOptimizerModel({
+          creditRiskRows: rows,
+          orderId,
+          policyRows: dealRows.policyRows,
+          seed: 42,
+          simRows: dealRows.simRows
+        })
+      );
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "David deal optimizer is unavailable from governed backend sources.",
+        missingSource: "credit-deal-optimizer"
+      });
     }
   });
 
@@ -1146,6 +1195,22 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       if (error instanceof MissingCreditRiskSourceError) {
         sendFailClosedJson(request, response, 503, {
           error: `Supabase credit risk ${error.sourceTableName} rows are unavailable or failed validation.`,
+          missingSource: error.missingSource
+        });
+        return undefined;
+      }
+
+      throw error;
+    }
+  }
+
+  async function loadRequiredDealOptimizerRows(request: Request, response: Response) {
+    try {
+      return await loadDealOptimizerSourceRows(runtimeEnv, options.memoryFetcher);
+    } catch (error) {
+      if (error instanceof MissingCreditNegotiationSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: "David deal optimizer is unavailable from governed backend sources.",
           missingSource: error.missingSource
         });
         return undefined;

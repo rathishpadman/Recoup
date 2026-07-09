@@ -15,6 +15,15 @@ import type {
   RiskMeshPositionRow as CreditRiskMeshPositionRow,
   SalesMonthlyRow as CreditRiskSalesMonthlyRow
 } from "../services/creditRiskModel.js";
+import type {
+  DealOptimizerRows,
+  DealOptimizerCandidateStructure,
+  DealOptimizerCostOfCapitalRow,
+  DealOptimizerInventoryRow,
+  DealOptimizerOrderRow,
+  DealOptimizerSellthroughRow
+} from "../services/dealOptimizer.js";
+import type { CreditNegotiationPolicyRow } from "../services/creditNegotiationPolicy.js";
 import type { RealEvidenceDataset } from "../services/evidenceMaterializer.js";
 import type { ReconciliationReceipt } from "../services/reconciliationEngine.js";
 import { DeductionClaimSchema, type DeductionClaim } from "../types/claims.js";
@@ -149,6 +158,13 @@ type CreditRiskTableName =
   | "credit_evidence_documents"
   | "credit_risk_mesh_positions"
   | "credit_policy";
+type CreditNegotiationTableName =
+  | "credit_orders"
+  | "sim_3pl_inventory"
+  | "sim_cost_of_capital"
+  | "sim_pos_sellthrough"
+  | "credit_deal_candidate_grid"
+  | "credit_negotiation_policy";
 
 const creditRiskSnapshotRowSchema = z.object({
   as_of_date: z.string().min(1),
@@ -255,6 +271,57 @@ const creditRiskPolicyRowSchema = z.object({
   value: z.coerce.number()
 });
 
+const creditOrderRowSchema = z.object({
+  account_id: z.string().min(1),
+  gross_margin_pct: z.string().min(1),
+  order_amount: z.string().min(1),
+  order_id: z.string().min(1),
+  record_ids: jsonArraySchema,
+  units: z.string().min(1)
+});
+
+const dealCandidateStructureRowSchema = z.object({
+  candidate_id: z.string().min(1),
+  collateral_ratio: z.string().min(1),
+  deposit_pct: z.string().min(1),
+  financing_spread_bps: z.string().min(1),
+  record_ids: jsonArraySchema,
+  release_pct: z.string().min(1),
+  tranche_count: z.coerce.number().int().min(1)
+});
+
+const simCostOfCapitalRowSchema = z.object({
+  account_id: z.string().min(1),
+  annual_bps: z.string().min(1),
+  record_ids: jsonArraySchema
+});
+
+const simInventoryRowSchema = z.object({
+  holding_cost_per_unit_per_day: z.string().min(1),
+  holding_days: z.coerce.number().int().min(1),
+  order_id: z.string().min(1),
+  record_ids: jsonArraySchema,
+  scenario_id: z.string().min(1)
+});
+
+const simPosSellthroughRowSchema = z.object({
+  order_id: z.string().min(1),
+  probability: z.string().min(1),
+  record_ids: jsonArraySchema,
+  scenario_id: z.string().min(1),
+  sell_through_pct: z.string().min(1)
+});
+
+const creditNegotiationPolicyRowSchema = z.object({
+  active: z.boolean(),
+  approved_by: z.string().min(1),
+  effective_from: z.string().min(1),
+  key: z.string().min(1),
+  policy_version: z.coerce.number().int(),
+  record_id: z.string().min(1),
+  value_text: z.string().min(1)
+});
+
 export class MissingCreditRiskSourceError extends Error {
   readonly missingSource: string;
   readonly sourceTableName: CreditRiskTableName;
@@ -264,6 +331,19 @@ export class MissingCreditRiskSourceError extends Error {
     this.cause = cause;
     this.missingSource = `supabase-credit-risk-${sourceTableName}`;
     this.name = "MissingCreditRiskSourceError";
+    this.sourceTableName = sourceTableName;
+  }
+}
+
+export class MissingCreditNegotiationSourceError extends Error {
+  readonly missingSource: string;
+  readonly sourceTableName: CreditNegotiationTableName;
+
+  constructor(sourceTableName: CreditNegotiationTableName, cause?: unknown) {
+    super(`Supabase credit negotiation ${sourceTableName} rows are unavailable or failed validation.`);
+    this.cause = cause;
+    this.missingSource = `supabase-credit-negotiation-${sourceTableName}`;
+    this.name = "MissingCreditNegotiationSourceError";
     this.sourceTableName = sourceTableName;
   }
 }
@@ -1088,6 +1168,83 @@ export async function loadCreditRiskRows(
   };
 }
 
+export async function loadDealOptimizerSourceRows(
+  env: Partial<Pick<RuntimeEnv, "SUPABASE_SERVICE_ROLE_KEY" | "SUPABASE_URL">>,
+  fetcher?: SupabaseSyntheticSourceFetch
+): Promise<{ policyRows: CreditNegotiationPolicyRow[]; simRows: DealOptimizerRows }> {
+  if (env.SUPABASE_URL === undefined || env.SUPABASE_SERVICE_ROLE_KEY === undefined) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for deal optimizer rows.");
+  }
+
+  const baseUrl = normalizeSupabaseUrl(env.SUPABASE_URL);
+  const supabaseFetch = fetcher ?? fetch;
+  const [orderRows, inventoryRows, costOfCapitalRows, posSellthroughRows, candidateRows, policyRows] = await Promise.all([
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "order_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_orders"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "order_id.asc,scenario_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "sim_3pl_inventory"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "account_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "sim_cost_of_capital"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "order_id.asc,scenario_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "sim_pos_sellthrough"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "candidate_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_deal_candidate_grid"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "key.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_negotiation_policy"
+    })
+  ]);
+
+  return {
+    policyRows: parseCreditNegotiationRows(
+      "credit_negotiation_policy",
+      policyRows,
+      creditNegotiationPolicyRowSchema
+    ).map(mapCreditNegotiationPolicyRow),
+    simRows: {
+      candidateStructures: parseCreditNegotiationRows(
+        "credit_deal_candidate_grid",
+        candidateRows,
+        dealCandidateStructureRowSchema
+      ).map(mapDealCandidateStructureRow),
+      costOfCapital: parseCreditNegotiationRows(
+        "sim_cost_of_capital",
+        costOfCapitalRows,
+        simCostOfCapitalRowSchema
+      ).map(mapSimCostOfCapitalRow),
+      inventory: parseCreditNegotiationRows("sim_3pl_inventory", inventoryRows, simInventoryRowSchema).map(mapSimInventoryRow),
+      orders: parseCreditNegotiationRows("credit_orders", orderRows, creditOrderRowSchema).map(mapCreditOrderRow),
+      posSellthrough: parseCreditNegotiationRows(
+        "sim_pos_sellthrough",
+        posSellthroughRows,
+        simPosSellthroughRowSchema
+      ).map(mapSimPosSellthroughRow)
+    }
+  };
+}
+
 async function requestSupabaseRows(
   fetcher: SupabaseSyntheticSourceFetch,
   input: {
@@ -1136,6 +1293,85 @@ function parseCreditRiskRows<T>(
   } catch (error) {
     throw new MissingCreditRiskSourceError(tableName, error);
   }
+}
+
+function parseCreditNegotiationRows<T>(
+  tableName: CreditNegotiationTableName,
+  rows: readonly unknown[],
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): T[] {
+  if (rows.length === 0) {
+    throw new MissingCreditNegotiationSourceError(tableName);
+  }
+
+  try {
+    return rows.map((row) => schema.parse(row));
+  } catch (error) {
+    throw new MissingCreditNegotiationSourceError(tableName, error);
+  }
+}
+
+function mapCreditOrderRow(row: z.infer<typeof creditOrderRowSchema>): DealOptimizerOrderRow {
+  return {
+    accountId: row.account_id,
+    grossMarginPct: row.gross_margin_pct,
+    orderAmount: row.order_amount,
+    orderId: row.order_id,
+    sourceRecordIds: row.record_ids,
+    units: row.units
+  };
+}
+
+function mapDealCandidateStructureRow(row: z.infer<typeof dealCandidateStructureRowSchema>): DealOptimizerCandidateStructure {
+  return {
+    candidateId: row.candidate_id,
+    collateralRatio: row.collateral_ratio,
+    depositPct: row.deposit_pct,
+    financingSpreadBps: row.financing_spread_bps,
+    releasePct: row.release_pct,
+    sourceRecordIds: row.record_ids,
+    trancheCount: row.tranche_count
+  };
+}
+
+function mapSimCostOfCapitalRow(row: z.infer<typeof simCostOfCapitalRowSchema>): DealOptimizerCostOfCapitalRow {
+  return {
+    accountId: row.account_id,
+    annualBps: row.annual_bps,
+    sourceRecordIds: row.record_ids
+  };
+}
+
+function mapSimInventoryRow(row: z.infer<typeof simInventoryRowSchema>): DealOptimizerInventoryRow {
+  return {
+    holdingCostPerUnitPerDay: row.holding_cost_per_unit_per_day,
+    holdingDays: row.holding_days,
+    orderId: row.order_id,
+    scenarioId: row.scenario_id,
+    sourceRecordIds: row.record_ids
+  };
+}
+
+function mapSimPosSellthroughRow(row: z.infer<typeof simPosSellthroughRowSchema>): DealOptimizerSellthroughRow {
+  return {
+    orderId: row.order_id,
+    probability: row.probability,
+    scenarioId: row.scenario_id,
+    sellThroughPct: row.sell_through_pct,
+    sourceRecordIds: row.record_ids
+  };
+}
+
+function mapCreditNegotiationPolicyRow(row: z.infer<typeof creditNegotiationPolicyRowSchema>): CreditNegotiationPolicyRow {
+  return {
+    active: row.active,
+    approvedBy: row.approved_by,
+    effectiveFrom: row.effective_from,
+    key: row.key,
+    policyVersion: row.policy_version,
+    recordId: row.record_id,
+    valueText: row.value_text
+  };
 }
 
 function mapCreditRiskAccountRow(row: z.infer<typeof creditRiskAccountRowSchema>): CreditRiskAccountRow {

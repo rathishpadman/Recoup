@@ -1,5 +1,6 @@
 import { governedConfigSeedRows } from "../../../config/governed.js";
 import { releaseOwnerInputSeedRows } from "../../../config/releaseOwnerInputs.js";
+import { creditNegotiationPolicyCandidateRows } from "../../../src/services/creditNegotiationPolicy.js";
 import { loadCreditRiskFixtureRows } from "./creditRiskFixture.js";
 
 export function rowsForCreditRiskTable(
@@ -153,6 +154,106 @@ export function releaseOwnerInputPostgrestRows(): Array<Record<string, unknown>>
     key: row.key,
     value_json: row.valueJson
   }));
+}
+
+export function rowsForCreditNegotiationTable(tableName: string | undefined): Array<Record<string, unknown>> | undefined {
+  switch (tableName) {
+    case "credit_orders":
+      return [
+        {
+          account_id: "ACC-HAR",
+          gross_margin_pct: "0.18",
+          order_amount: "640010.00",
+          order_id: "ORD-HARBOR-6534",
+          record_ids: ["credit_orders:ORD-HARBOR-6534"],
+          units: "1000"
+        }
+      ];
+    case "sim_cost_of_capital":
+      return [
+        {
+          account_id: "ACC-HAR",
+          annual_bps: "900",
+          record_ids: ["sim_cost_of_capital:ACC-HAR:2026-01"]
+        }
+      ];
+    case "sim_3pl_inventory":
+      return [
+        {
+          holding_cost_per_unit_per_day: "0.75",
+          holding_days: 30,
+          order_id: "ORD-HARBOR-6534",
+          record_ids: ["sim_3pl_inventory:ORD-HARBOR-6534:base"],
+          scenario_id: "base-sellthrough"
+        },
+        {
+          holding_cost_per_unit_per_day: "0.75",
+          holding_days: 21,
+          order_id: "ORD-HARBOR-6534",
+          record_ids: ["sim_3pl_inventory:ORD-HARBOR-6534:upside"],
+          scenario_id: "upside-sellthrough"
+        }
+      ];
+    case "sim_pos_sellthrough":
+      return [
+        {
+          order_id: "ORD-HARBOR-6534",
+          probability: "0.60",
+          record_ids: ["sim_pos_sellthrough:ORD-HARBOR-6534:base"],
+          scenario_id: "base-sellthrough",
+          sell_through_pct: "0.80"
+        },
+        {
+          order_id: "ORD-HARBOR-6534",
+          probability: "0.40",
+          record_ids: ["sim_pos_sellthrough:ORD-HARBOR-6534:upside"],
+          scenario_id: "upside-sellthrough",
+          sell_through_pct: "0.95"
+        }
+      ];
+    case "credit_deal_candidate_grid":
+      return [
+        {
+          candidate_id: "partial-release-55",
+          collateral_ratio: "1.00",
+          deposit_pct: "25",
+          financing_spread_bps: "200",
+          record_ids: ["credit_deal_candidate_grid:partial-release-55"],
+          release_pct: "55",
+          tranche_count: 2
+        },
+        {
+          candidate_id: "max-release-85",
+          collateral_ratio: "1.25",
+          deposit_pct: "60",
+          financing_spread_bps: "100",
+          record_ids: ["credit_deal_candidate_grid:max-release-85"],
+          release_pct: "85",
+          tranche_count: 3
+        },
+        {
+          candidate_id: "low-release-10",
+          collateral_ratio: "0.75",
+          deposit_pct: "0",
+          financing_spread_bps: "500",
+          record_ids: ["credit_deal_candidate_grid:low-release-10"],
+          release_pct: "10",
+          tranche_count: 1
+        }
+      ];
+    case "credit_negotiation_policy":
+      return creditNegotiationPolicyCandidateRows.map((row) => ({
+        active: row.active,
+        approved_by: row.approvedBy,
+        effective_from: row.effectiveFrom,
+        key: row.key,
+        policy_version: row.policyVersion,
+        record_id: row.recordId,
+        value_text: row.valueText
+      }));
+    default:
+      return undefined;
+  }
 }
 
 function excelSerialToIsoDate(value: number): string {
