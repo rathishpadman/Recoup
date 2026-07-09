@@ -21,6 +21,7 @@ interface CreditRiskAccountModel {
   customer: string;
   gamingFlag: boolean;
   meshPositions: Array<{ position: string; status: string }>;
+  negotiationOrders: Array<{ orderId: string; sourceRecordIds: string[] }>;
   packet: {
     actionId: string;
     approvalStatus: "awaiting" | "committed";
@@ -58,6 +59,9 @@ const apiUrl = normalizeBaseUrl(readEnvValue("RECOUP_E2E_API_URL", "http://127.0
 const screenshotDir = join("output", "playwright", "david-v2");
 const forbiddenOpenPaths = new Set([
   "/api/approval",
+  "/api/credit/negotiation/email",
+  "/api/credit/negotiation/inbound",
+  "/api/email",
   "/api/forensics/query",
   "/api/query/realtime-client-secret",
   "/api/query/realtime-tool"
@@ -131,7 +135,7 @@ async function main(): Promise<void> {
       await page.locator('[data-testid="david-account-dossier"]').waitFor({ state: "visible", timeout: 45_000 });
       await page.locator('[data-testid="david-assessment-timeline"]').waitFor({ state: "visible", timeout: 45_000 });
       await assertDrawerClosed(page, "david-assessment-timeline");
-      await assertDrawerClosed(page, "david-signals-in");
+      await assertDrawerOpen(page, "david-signals-in");
       await assertDrawerClosed(page, "david-verdict-banner");
       await assertDrawerClosed(page, "david-action-packet");
       await page.getByTestId("david-assessment-timeline-trigger").click();
@@ -153,13 +157,15 @@ async function main(): Promise<void> {
       logDavidCreditQueryResult(account, accountQueryResult);
     }
 
+    await verifyHarborNegotiationWorkbench(page, requireAccount(initialModel, "ACC-HAR"));
+
     await selectDavidAccount(page, crestline);
     await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "Collections", "David mesh tiles");
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "HIGH", "David Collections tile");
 
-    await page.getByTestId("david-action-packet-trigger").click();
+    await ensureDrawerOpen(page, "david-action-packet");
     await page.getByText("Mark basis reviewed", { exact: true }).click();
     const sendActionPacketButton = page.getByTestId("david-send-action-packet");
     await waitForEnabled(sendActionPacketButton, 10_000, "David send action packet button");
@@ -198,7 +204,7 @@ async function main(): Promise<void> {
     await waitForClientHydration(page, 'input[aria-label="Ask David credit copilot"]');
     await page.locator('[data-testid="david-queue-account-row"][data-account-id="ACC-CRE"]').first().click();
     await page.locator('[data-testid="david-account-dossier"]').waitFor({ state: "visible", timeout: 45_000 });
-    await page.getByTestId("david-action-packet-trigger").click();
+    await ensureDrawerOpen(page, "david-action-packet");
     await page.locator('[data-testid="david-action-packet-receipt"]').waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.getByTestId("david-action-packet-receipt"), formatAuditHash(auditHash), "David receipt after reload");
     await page.locator(`[data-testid="david-action-packet-receipt"] code[title="${auditHash}"]`).waitFor({ state: "visible", timeout: 10_000 });
@@ -332,6 +338,54 @@ async function runDavidAccountLiveQuery(page: Page, account: CreditRiskAccountMo
   return result;
 }
 
+async function verifyHarborNegotiationWorkbench(page: Page, harbor: CreditRiskAccountModel): Promise<void> {
+  const [order] = harbor.negotiationOrders;
+  assert(order !== undefined, "Harbor negotiation order must come from the backend read model.");
+  assert(order.sourceRecordIds.includes(`credit_orders:${order.orderId}`), "Harbor negotiation order must cite its governed source row.");
+  await selectDavidAccount(page, harbor);
+  await ensureDrawerOpen(page, "david-action-packet");
+  const simulateButton = page.getByTestId("david-simulate-alternatives");
+  await simulateButton.waitFor({ state: "visible", timeout: 10_000 });
+  await waitForEnabled(simulateButton, 10_000, "David simulate alternatives button");
+  const routeStatuses: number[] = [];
+  const forbiddenRequests: string[] = [];
+  const requestListener = (request: import("playwright").Request) => {
+    const path = new URL(request.url()).pathname;
+    if (forbiddenOpenPaths.has(path)) {
+      forbiddenRequests.push(`${request.method()} ${path}`);
+    }
+  };
+  const responseListener = (response: import("playwright").Response) => {
+    if (
+      new URL(response.url()).pathname === `/api/credit/orders/${order.orderId}/deals` &&
+      response.request().method() === "GET"
+    ) {
+      routeStatuses.push(response.status());
+    }
+  };
+  page.on("request", requestListener);
+  page.on("response", responseListener);
+  await simulateButton.click();
+  const workbench = page.getByTestId("david-negotiation-workbench");
+  try {
+    await workbench.waitFor({ state: "visible", timeout: 45_000 });
+    await workbench.getByText("max-release-85", { exact: true }).first().waitFor({ state: "visible", timeout: 45_000 });
+    await workbench.getByText("$75,077.00", { exact: true }).first().waitFor({ state: "visible", timeout: 45_000 });
+    assert(routeStatuses.length > 0, "Harbor deal optimizer route was not observed.");
+    assert(routeStatuses.every((status) => status >= 200 && status < 300), `Harbor deal optimizer route returned HTTP ${routeStatuses.join(", ")}.`);
+    assert(forbiddenRequests.length === 0, `Harbor simulation triggered forbidden external action calls: ${forbiddenRequests.join(", ")}.`);
+    await expectTextInLocator(workbench, `Order ${order.orderId}`, "Harbor negotiation workbench order");
+    await expectTextInLocator(workbench, "Synthetic 3PL", "Harbor negotiation workbench synthetic source badge");
+    await expectTextInLocator(workbench, "max-release-85", "Harbor negotiation top candidate");
+    await expectTextInLocator(workbench, "$75,077.00", "Harbor negotiation deterministic objective");
+    await page.keyboard.press("Escape");
+    await workbench.waitFor({ state: "hidden", timeout: 10_000 });
+  } finally {
+    page.off("request", requestListener);
+    page.off("response", responseListener);
+  }
+}
+
 async function selectDavidAccount(page: Page, account: CreditRiskAccountModel): Promise<void> {
   const queueRow = page.locator(`[data-testid="david-queue-account-row"][data-account-id="${escapeAttributeValue(account.accountId)}"]`).first();
   if (await queueRow.isVisible()) {
@@ -445,6 +499,20 @@ async function waitForEnabled(locator: ReturnType<Page["getByTestId"]>, timeoutM
 async function assertDrawerClosed(page: Page, testId: string): Promise<void> {
   const state = await page.getByTestId(testId).getAttribute("data-open", { timeout: 10_000 });
   assert(state === "false", `${testId} should be collapsed by default, received data-open=${String(state)}.`);
+}
+
+async function assertDrawerOpen(page: Page, testId: string): Promise<void> {
+  const state = await page.getByTestId(testId).getAttribute("data-open", { timeout: 10_000 });
+  assert(state === "true", `${testId} should be expanded by default, received data-open=${String(state)}.`);
+}
+
+async function ensureDrawerOpen(page: Page, testId: string): Promise<void> {
+  const drawer = page.getByTestId(testId);
+  const state = await drawer.getAttribute("data-open", { timeout: 10_000 });
+  if (state !== "true") {
+    await page.getByTestId(`${testId}-trigger`).click();
+  }
+  await assertDrawerOpen(page, testId);
 }
 
 async function expectTextInLocator(

@@ -16,6 +16,7 @@ describe("tool permissions", () => {
       "audit.read",
       "core.evaluateRule",
       "core.riskMeshClosedLoop",
+      "credit_negotiation.draft_structures",
       "credit_risk.answer",
       "decisions.deductionVerdict",
       "email.sendApproved",
@@ -51,6 +52,10 @@ describe("tool permissions", () => {
       riskClass: "read_only"
     });
     expect(evaluateToolPermission(serviceToolMetadata["credit_risk.answer"])).toMatchObject({
+      decision: "allow",
+      riskClass: "read_only"
+    });
+    expect(evaluateToolPermission(serviceToolMetadata["credit_negotiation.draft_structures"])).toMatchObject({
       decision: "allow",
       riskClass: "read_only"
     });

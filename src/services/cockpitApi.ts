@@ -661,12 +661,22 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (approvalRecordsSnapshot === undefined) {
       return;
     }
+    const dealOptimizerRows = await loadOptionalDealOptimizerRows();
 
     try {
       response.json(
         buildCreditRiskReviewModel({
           ...rows,
-          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+          ...(dealOptimizerRows === undefined
+            ? {}
+            : {
+                negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
+                  accountId: order.accountId,
+                  orderId: order.orderId,
+                  sourceRecordIds: [...order.sourceRecordIds]
+                }))
+              })
         })
       );
     } catch {

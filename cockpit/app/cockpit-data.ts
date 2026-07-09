@@ -708,6 +708,11 @@ export interface CreditRiskAccountModel {
   gamingFlag: boolean;
   leadLabel: string;
   meshPositions: CreditRiskMeshPositionModel[];
+  negotiationOrders: Array<{
+    orderId: string;
+    sourceModeLabel: "governed Supabase negotiation source";
+    sourceRecordIds: string[];
+  }>;
   openDisputeAmount: number;
   openDisputeAmountLabel: string;
   openDisputeCount: number;

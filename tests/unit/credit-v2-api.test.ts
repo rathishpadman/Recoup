@@ -112,6 +112,7 @@ describe("GET /credit/v2", () => {
       const body = (await response.json()) as {
         accounts: Array<{
           accountId: string;
+          negotiationOrders?: Array<{ orderId: string; sourceRecordIds: string[] }>;
           packet: { actionId: string; approvalStatus: string; auditEntryHash?: string };
         }>;
       };
@@ -126,6 +127,13 @@ describe("GET /credit/v2", () => {
         actionId: "credit-v2:ACC-HAR",
         approvalStatus: "awaiting"
       });
+      expect(body.accounts.find((account) => account.accountId === "ACC-HAR")?.negotiationOrders).toEqual([
+        {
+          orderId: "ORD-HARBOR-6534",
+          sourceModeLabel: "governed Supabase negotiation source",
+          sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+        }
+      ]);
     } finally {
       await close(server);
     }

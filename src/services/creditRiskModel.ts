@@ -21,6 +21,7 @@ export interface CreditRiskRows {
   riskMeshPositions: RiskMeshPositionRow[];
   policy: CreditPolicy;
   approvalReceipts?: CreditRiskApprovalReceipt[] | undefined;
+  negotiationOrders?: CreditNegotiationOrderSource[] | undefined;
 }
 
 export interface AccountRow {
@@ -139,6 +140,18 @@ export interface CreditRiskApprovalReceipt {
   actionId: string;
   approvalStatus: ApprovalStatus;
   auditEntryHash: string;
+}
+
+export interface CreditNegotiationOrderSource {
+  accountId: string;
+  orderId: string;
+  sourceRecordIds: readonly string[];
+}
+
+export interface CreditNegotiationOrderModel {
+  orderId: string;
+  sourceModeLabel: "governed Supabase negotiation source";
+  sourceRecordIds: string[];
 }
 
 export interface CreditPacketRow {
@@ -283,6 +296,7 @@ export interface CreditRiskAccountModel {
   gamingFlag: boolean;
   leadLabel: string;
   meshPositions: CreditMeshPositionModel[];
+  negotiationOrders: CreditNegotiationOrderModel[];
   openDisputeAmount: number;
   openDisputeAmountLabel: string;
   openDisputeCount: number;
@@ -584,6 +598,7 @@ function buildAccountModel(
   const verdictTone = toneByVerdict[verdict];
   const signals = buildSignals(deductions, deductionLines, contractTpm);
   const evidenceDocumentModels = buildEvidenceDocuments(evidenceDocuments);
+  const negotiationOrders = buildNegotiationOrders(account.accountId, rows.negotiationOrders ?? []);
   const meshPositions = seededMeshRows
     .slice()
     .sort((left, right) => positionOrder(left.position) - positionOrder(right.position))
@@ -599,6 +614,7 @@ function buildAccountModel(
     }));
   const accountRecordIds = dedupe([
     account.accountId,
+    ...negotiationOrders.flatMap((order) => [order.orderId, ...order.sourceRecordIds]),
     ...evidenceDocumentModels.flatMap((document) => [document.documentId, ...document.recordIds]),
     ...signals.flatMap((signal) => signal.recordIds),
     ...meshPositions.flatMap((position) => position.recordIds)
@@ -714,6 +730,7 @@ function buildAccountModel(
     gamingFlag: account.gamingFlag,
     leadLabel: `${account.customer} is ${verdict} risk`,
     meshPositions,
+    negotiationOrders,
     openDisputeAmount: openDisputeAmount.toNumber(),
     openDisputeAmountLabel: formatMoney(openDisputeAmount),
     openDisputeCount,
@@ -744,6 +761,20 @@ function buildAccountModel(
     verdictBasis,
     verdictTone
   };
+}
+
+function buildNegotiationOrders(
+  accountId: string,
+  orders: readonly CreditNegotiationOrderSource[]
+): CreditNegotiationOrderModel[] {
+  return orders
+    .filter((order) => order.accountId === accountId)
+    .map((order) => ({
+      orderId: order.orderId,
+      sourceModeLabel: "governed Supabase negotiation source" as const,
+      sourceRecordIds: [...order.sourceRecordIds]
+    }))
+    .sort((left, right) => left.orderId.localeCompare(right.orderId));
 }
 
 function buildEvidenceDocuments(rows: readonly CreditEvidenceDocumentRow[]): CreditEvidenceDocumentModel[] {

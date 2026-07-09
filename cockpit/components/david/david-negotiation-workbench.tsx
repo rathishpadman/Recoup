@@ -17,19 +17,22 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import type { CreditRiskAccountModel, DealOptimizerModel } from "../../app/cockpit-data.ts";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 
-const negotiationOrdersByAccountId: Readonly<Record<string, string>> = {
-  "ACC-HAR": "ORD-HARBOR-6534"
-};
-
 export function DavidNegotiationWorkbench({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
-  const orderId = negotiationOrdersByAccountId[account.accountId];
+  const order = account.negotiationOrders[0];
+  const orderId = order?.orderId;
   const [open, setOpen] = React.useState(false);
   const [model, setModel] = React.useState<DealOptimizerModel | undefined>();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
 
   React.useEffect(() => {
-    if (!open || orderId === undefined || model !== undefined || loading) {
+    setModel(undefined);
+    setLoading(false);
+    setError(undefined);
+  }, [orderId]);
+
+  React.useEffect(() => {
+    if (!open || orderId === undefined || model !== undefined) {
       return;
     }
 
@@ -64,7 +67,7 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
     return () => {
       abortController.abort();
     };
-  }, [loading, model, open, orderId]);
+  }, [model, open, orderId]);
 
   if (orderId === undefined) {
     return (
