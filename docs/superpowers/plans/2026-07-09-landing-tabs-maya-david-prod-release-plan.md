@@ -12,14 +12,15 @@
 
 ## Current Execution Status
 
-**Updated:** 2026-07-09T12:56:58+05:30
+**Updated:** 2026-07-09T12:58:31+05:30
 **Release candidate branch:** `feature/david-credit-v2`
-**Release candidate head:** `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`
+**Last full local smoke/verify code-bearing head:** `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`
+**Current PR branch head after docs-only evidence updates:** verify with `git rev-parse HEAD` and `git ls-remote origin refs/heads/feature/david-credit-v2` immediately before merge.
 **Observed `origin/main`:** `e6f43a480ff58a48a55f7882a7bf74824ff419de`
 **PR:** #5 `[codex] Cut over David credit risk review v2`, non-draft, merge state `CLEAN`.
 
 Completed pre-prod evidence:
-- `git status --short --branch` is clean on `feature/david-credit-v2`, and `git ls-remote origin refs/heads/feature/david-credit-v2` matches `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`.
+- `git status --short --branch` was clean on `feature/david-credit-v2` before this status note, and `git ls-remote origin refs/heads/feature/david-credit-v2` matched the pushed PR head.
 - Local server probes passed: `http://127.0.0.1:4317/healthz` HTTP 200, `http://localhost:3000/login?loginId=Maya` HTTP 200, and `http://localhost:3000/login?loginId=david` HTTP 200.
 - Full local post-prod smoke harness passed against local app/API using `RECOUP_PROD_APP_URL=http://localhost:3000`, `RECOUP_PROD_API_URL=http://127.0.0.1:4317`, and `npm run smoke:post-prod`.
 - Smoke artifact: `output/playwright/post-prod-public-smoke/post-prod-public-smoke-results.json`.
@@ -28,7 +29,7 @@ Completed pre-prod evidence:
 - Maya realtime voice bridge proof used `gpt-realtime-2`, `webrtc`, selected-case policy records, and `query.answer` citation parity.
 - David live query proof covered `ACC-CRE`, `ACC-HAR`, `ACC-VAL`, and `ACC-GRE`; backend-vs-Supabase proof compared `ACC-CRE` and `ACC-GRE`.
 - `npm run verify` passed locally after the smoke harness stabilization: 137 test files, 1208 tests, dependency-cruiser clean, and release readiness passed.
-- GitHub PR visibility refreshed successfully after a transient 401: `gh pr view 5` reports head `7c82aa47c80c8d3753217be993f59bbb9c83f0fd`, non-draft, merge state `CLEAN`; `gh run list --commit 7c82aa47c80c8d3753217be993f59bbb9c83f0fd` returned no attached workflow runs.
+- GitHub PR visibility refreshed successfully after a transient 401: `gh pr view 5` reported a non-draft PR with merge state `CLEAN`; `gh run list --commit 7c82aa47c80c8d3753217be993f59bbb9c83f0fd` returned no attached workflow runs for the last full-smoke code head.
 
 Remaining hard gates:
 - Task 6 Step 3 is still pending: no production-impacting merge without explicit owner approval in chat.
