@@ -18,9 +18,24 @@ jobs:
         env:
           WARM_BACKEND_URL: https://recoup-self-eta.vercel.app/api/cron/warm-backend
         run: |
-          status="$(curl -sS -o /tmp/warm-response.json -w "%{http_code}" "$WARM_BACKEND_URL")"
-          cat /tmp/warm-response.json
-          if [ "$status" != "200" ]; then
-            echo "Expected 200 from $WARM_BACKEND_URL, got $status" >&2
-            exit 1
-          fi
+          max_attempts=6
+          attempt=1
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            status=$(curl -sS --max-time 30 -o /tmp/warm-response.json -w '%{http_code}' "$WARM_BACKEND_URL" || true)
+            if [ -s /tmp/warm-response.json ]; then
+              cat /tmp/warm-response.json
+            fi
+
+            if [ "$status" = "200" ]; then
+              exit 0
+            fi
+
+            echo "Attempt $attempt/$max_attempts expected 200 from $WARM_BACKEND_URL, got ${status:-curl-error}" >&2
+            if [ "$attempt" = "$max_attempts" ]; then
+              exit 1
+            fi
+
+            sleep $((attempt * 10))
+            attempt=$((attempt + 1))
+          done
