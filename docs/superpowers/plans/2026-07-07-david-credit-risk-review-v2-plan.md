@@ -440,6 +440,19 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 
 ---
 
+### Task 1-5.6: Mandatory post-prod public smoke matrix (added 2026-07-09)
+**Trigger:** Owner requested a full public-alias browser check after prod movement, including landing tabs/buttons, Maya 8 scenarios, Maya live/voice query, David 4 scenarios, and David query. **Hard gate:** after merge/deploy, do not call the release complete until every item below passes against the stable production alias and the deployment ID/commit are recorded.
+- [ ] **Step 1: Landing page tabs.** Open the stable public alias on desktop and mobile. Click every landing tab from the main tab row and header navigation: `Problem`, `Solution`, `Demo`, `Tech`, `How We Built It`, and `About`. Expected: the selected tab has `aria-selected="true"`, the visible content matches the selected tab, no tab is dead, and no console/page errors appear. This release is not intended to change landing behavior, so any failing landing tab must be classified and owner-approved before release completion.
+- [ ] **Step 2: Landing buttons and CTAs.** Click every business-visible landing button: header Maya, header David, hero Maya, hero David, demo Maya, demo David, and bottom CTA(s). Expected: Maya CTAs route to `/login?loginId=Maya`, David CTAs route to `/login?loginId=david`, no CTA is disabled/dead, and no button regresses from the pre-release behavior.
+- [ ] **Step 3: Maya 8 scenario live text query.** From the public alias, login through `/login?loginId=Maya`; select each Maya case `S1-L1` through `S8-L1`; confirm the selected evidence packet renders; ask one live copilot text query per case: `What evidence supports this selected case verdict and route?`. Expected for each case: HTTP 200, `modelExecution.mode = "live_openai_agents"` or the configured live Maya provider path, citations tied only to the selected evidence packet, token/provider usage where exposed, no raw model output, and no `Forensics query cited records outside the selected evidence packet.` error.
+- [ ] **Step 4: Maya voice query.** From a selected Maya case on the public alias, run one voice/realtime query through the existing voice path. Expected: voice session starts, the query reaches the selected-case backend scope, citations remain inside the selected evidence packet, provider/token metadata is captured where exposed, and no raw model output or out-of-scope citation error appears.
+- [ ] **Step 5: David 4 account live query.** From the public alias, login through `/login?loginId=david`; verify the four David accounts `Crestline Grocery`, `Harbor Foods`, `ValuMart Club`, and `Greenleaf Naturals`; open each account; run one live David copilot query per account. Expected for each account: HTTP 200, `modelExecution.mode = "live_openai_agents"`, agent names present, `handoffCount > 0`, token/provider usage present, citations tied to credit/source/evidence record IDs, raw output suppressed, deterministic backend dollars/verdict/action packet unchanged, drawers collapsed by default, and no duplicate `Good morning, David` section under detail.
+- [ ] **Step 6: Maya cache and source health regression.** During the Maya prod browser pass, record first render time and at least two `/api/forensics` plus `/api/connectors` probes with status, elapsed time, and `x-recoup-read-model-cache`. Expected: warm cache hit behavior remains intact and the previous >60s blank/hydration delay is not reproduced.
+- [ ] **Step 7: Backend-vs-Supabase proof.** After David prod smoke, compare the rendered exposure, dispute count/amount, unsupported amount, verdict, and packet amount for at least one `HIGH` account and one non-`HIGH` account against the live `credit_*` Supabase/read-model source. Expected: UI values match backend/source-derived values; no React-only/static table is the source of business truth.
+- [ ] **Step 8: Stop/rollback rule.** If any landing tab/button, Maya 8-case text query, Maya voice query, David 4-account query, cache behavior, citation scope, approval gate, or backend-vs-Supabase proof fails, stop. Do not call release complete. Capture the failing route, deployment ID, console/network evidence, and either rollback to the prior Vercel deployment or fix forward only after owner approval.
+
+---
+
 ## Owner Feedback Remediation After Local Human QA (added 2026-07-08)
 
 **Source:** owner feedback from local human QA of David's journey and Maya cache behavior. **Hard gate:** no prod movement, preview promotion, or main merge until every item in this remediation section passes with current evidence.
@@ -488,6 +501,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 8. **Maya undisturbed:** exactly one Maya file changed (single additive mount, defensive null-render); Maya invariants + e2e green before and after.
 9. **Retire + landing:** `/credit` serves the new surface; old arbitration workstation retired; landing "David demo" lands on it.
 10. **Reuse:** no new deps; David UI entirely `cockpit/components/ui` + lucide + Maya-lifted patterns.
+11. **Post-prod public smoke:** after production movement, stable public alias passes all landing tabs/buttons, Maya 8 scenario live text queries, Maya voice query, David 4 account live queries, cache/source health, backend-vs-Supabase proof, and approval/citation gates before release completion.
 
 ## Master checklist
 
@@ -524,6 +538,7 @@ Each row is either **covered** by a task, **derived** (value must come off the m
 - [ ] **1-5.3** PR → main → prod verified
 - [ ] **1-5.4** retire `/credit/command` (separate PR, after prod)
 - [ ] **1-5.5** prod Maya cache regression troubleshooting record
+- [ ] **1-5.6** post-prod public smoke matrix: landing all tabs/buttons, Maya 8 text + voice, David 4 + query, cache/source/proof gates
 
 ## Owner decisions (resolved 2026-07-07)
 

@@ -32,11 +32,21 @@ jobs:
             [ "$status" = "200" ]
           }
 
-          for attempt in 1 2 3; do
+          max_attempts=6
+          attempt=1
+
+          while [ "$attempt" -le "$max_attempts" ]; do
             if warm_once "$WARM_BACKEND_URL" "vercel-attempt-${attempt}"; then
               exit 0
             fi
-            sleep 5
+
+            echo "Attempt $attempt/$max_attempts expected 200 from $WARM_BACKEND_URL." >&2
+            if [ "$attempt" = "$max_attempts" ]; then
+              break
+            fi
+
+            sleep $((attempt * 10))
+            attempt=$((attempt + 1))
           done
 
           echo "Vercel warm route did not return 200 after retries; falling back to Render healthz." >&2
