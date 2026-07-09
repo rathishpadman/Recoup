@@ -17,10 +17,32 @@ jobs:
       - name: Ping warm-backend route
         env:
           WARM_BACKEND_URL: https://recoup-self-eta.vercel.app/api/cron/warm-backend
+          WARM_BACKEND_FALLBACK_URL: https://recoup-api.onrender.com/healthz
         run: |
-          status="$(curl -sS -o /tmp/warm-response.json -w "%{http_code}" "$WARM_BACKEND_URL")"
-          cat /tmp/warm-response.json
-          if [ "$status" != "200" ]; then
-            echo "Expected 200 from $WARM_BACKEND_URL, got $status" >&2
-            exit 1
+          warm_once() {
+            url="$1"
+            label="$2"
+            response_file="/tmp/warm-response-${label}.json"
+            status="$(curl -L -sS --connect-timeout 10 --max-time 25 -o "$response_file" -w "%{http_code}" "$url" || true)"
+            echo "${label} status: ${status:-curl-error}"
+            if [ -s "$response_file" ]; then
+              cat "$response_file"
+              echo
+            fi
+            [ "$status" = "200" ]
+          }
+
+          for attempt in 1 2 3; do
+            if warm_once "$WARM_BACKEND_URL" "vercel-attempt-${attempt}"; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Vercel warm route did not return 200 after retries; falling back to Render healthz." >&2
+          if warm_once "$WARM_BACKEND_FALLBACK_URL" "render-fallback"; then
+            exit 0
           fi
+
+          echo "Expected 200 from either warm path, but both failed." >&2
+          exit 1
