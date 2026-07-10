@@ -216,6 +216,56 @@ describe("deal optimizer", () => {
     expect(counterCandidate.objectiveValue).toEqual(expect.stringMatching(/^-?\d+\.\d{2}$/u));
   });
 
+  it("prices a customer counter with governed defaults for missing technical terms", () => {
+    const model = buildDealOptimizerModel({
+      creditRiskRows: loadCreditRiskFixtureRows(),
+      orderId: "ORD-HARBOR-6534",
+      policyRows: creditNegotiationPolicyCandidateRows,
+      seed: 42,
+      simRows: {
+        ...simRows,
+        counterOffers: [
+          {
+            ...harborCounterOffer,
+            counterOfferId: "counter-harbor-r1-customer-terms",
+            extractedTerms: {
+              depositPct: "40",
+              releasePct: "75",
+              trancheCount: 2
+            },
+            source: "email",
+            sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-customer-terms"]
+          }
+        ]
+      }
+    });
+
+    const counterCandidate = model.rankedCandidates.find(
+      (candidate) => candidate.candidateId === "counter-offer:counter-harbor-r1-customer-terms"
+    );
+
+    expect(counterCandidate).toBeDefined();
+    if (counterCandidate === undefined) {
+      return;
+    }
+    expect(counterCandidate.terms).toEqual({
+      collateralRatioLabel: "1.25x collateral",
+      depositPctLabel: "40% deposit",
+      financingSpreadLabel: "100 bps spread",
+      releasePctLabel: "75% release",
+      trancheCountLabel: "2 tranches"
+    });
+    expect(counterCandidate.sourceRecordIds).toEqual(
+      expect.arrayContaining([
+        "credit_counter_offers:counter-harbor-r1-customer-terms",
+        "credit_deal_candidate_grid:max-release-85"
+      ])
+    );
+    expect(model.rejectedCandidates.map((candidate) => candidate.candidateId)).not.toContain(
+      "counter-offer:counter-harbor-r1-customer-terms"
+    );
+  });
+
   it("rejects malformed complete counter-offer terms without failing the whole optimizer", () => {
     const model = buildDealOptimizerModel({
       creditRiskRows: loadCreditRiskFixtureRows(),
@@ -288,7 +338,7 @@ describe("deal optimizer", () => {
     expect(model.rankedCandidates.map((candidate) => candidate.candidateId)).not.toContain("counter-offer:counter-harbor-r1-human-review");
     expect(model.rejectedCandidates).toContainEqual({
       candidateId: "counter-offer:counter-harbor-r1-incomplete",
-      reason: "Counter-offer is missing required deal terms: collateralRatio, financingSpreadBps, trancheCount.",
+      reason: "Counter-offer is missing required customer terms: trancheCount.",
       sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-incomplete"]
     });
     expect(model.rejectedCandidates.map((candidate) => candidate.candidateId)).not.toContain("counter-offer:counter-harbor-r1-human-review");

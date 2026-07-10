@@ -9,7 +9,8 @@ import {
   defaultManualCounterRound,
   negotiationHydratedSendMessage,
   negotiationOrderReceivedLabel,
-  negotiationRoundSummary
+  negotiationRoundSummary,
+  selectNegotiationDraftCandidate
 } from "../../cockpit/components/david/david-negotiation-workbench.tsx";
 import { buildDavidApprovalGateCopy, buildDavidApprovalGateTitle } from "../../cockpit/components/david/david-approval-gate-dialog.tsx";
 import type { CreditRiskAccountModel, DealOptimizerCandidateModel } from "../../cockpit/app/cockpit-data.ts";
@@ -122,6 +123,57 @@ describe("David negotiation workbench", () => {
       routeLabel: "Negotiation email",
       round: 3
     });
+  });
+
+  it("drafts from the priced customer counter candidate after a countered round", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "countered"
+      },
+      nextRound: 2,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+    const rankedFirst = {
+      candidateId: "max-release-85",
+      objectiveValueLabel: "$75,077.00",
+      rank: 1,
+      sourceRecordIds: ["credit_deal_candidate_grid:max-release-85"],
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "60% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "85% release",
+        trancheCountLabel: "3 tranches"
+      }
+    } as DealOptimizerCandidateModel;
+    const customerCounter = {
+      candidateId: "counter-offer:counter-harbor-r1-customer-terms",
+      objectiveValueLabel: "$62,680.44",
+      rank: 2,
+      sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-customer-terms", "credit_deal_candidate_grid:max-release-85"],
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "40% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "75% release",
+        trancheCountLabel: "2 tranches"
+      }
+    } as DealOptimizerCandidateModel;
+
+    const selected = selectNegotiationDraftCandidate(order, {
+      rankedCandidates: [rankedFirst, customerCounter]
+    });
+    const packet = buildNegotiationApprovalPacket({ accountId: "ACC-HAR", customer: "Harbor Foods" }, order, selected);
+
+    expect(selected?.candidateId).toBe("counter-offer:counter-harbor-r1-customer-terms");
+    expect(packet.packetDetail).toContain("Round 2 drafts counter-offer:counter-harbor-r1-customer-terms");
+    expect(packet.packetDetail).toContain("75% release, 40% deposit, 2 tranches");
   });
 
   it("hydrates the negotiation send gate from the exact durable drafted round only", () => {

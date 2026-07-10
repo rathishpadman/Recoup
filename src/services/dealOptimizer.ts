@@ -144,6 +144,19 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
   };
   const scenarios = buildScenarioRows(orderScopedSimRows, order.orderId);
   const holdingCost = uniqueHoldingCost(inventoryForOrder);
+  const annualDefaultProbability = annualDefaultProbabilityForVerdict(policy, creditAccount.verdict);
+  const pdPolicyRecordId = `credit_negotiation_policy:${policyKeyForVerdict(creditAccount.verdict)}:v1`;
+  const technicalDefaultCandidate = selectTechnicalDefaultCandidate({
+    costOfCapital,
+    creditAccount,
+    holdingCost,
+    order,
+    pdPolicyRecordId,
+    policy,
+    scenarioRows: scenarios,
+    seed: input.seed,
+    structures: input.simRows.candidateStructures
+  });
   const counterOfferCandidates: DealOptimizerCandidateStructure[] = [];
   const rejectedCandidates: RejectedDealCandidate[] = [];
   const counterOffersForOrder = (input.simRows.counterOffers ?? []).filter(
@@ -153,7 +166,7 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
       counterOffer.status === "grammar_valid"
   );
   for (const counterOffer of counterOffersForOrder) {
-    const counterCandidate = counterOfferCandidateStructure(counterOffer);
+    const counterCandidate = counterOfferCandidateStructure(counterOffer, technicalDefaultCandidate);
     if ("reason" in counterCandidate) {
       rejectedCandidates.push(counterCandidate);
     } else {
@@ -190,8 +203,6 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
       continue;
     }
 
-    const annualDefaultProbability = annualDefaultProbabilityForVerdict(policy, creditAccount.verdict);
-    const pdPolicyRecordId = `credit_negotiation_policy:${policyKeyForVerdict(creditAccount.verdict)}:v1`;
     const result = calculateDealExpectedValue({
       candidate: candidateTerms(candidate),
       economics: {
@@ -254,24 +265,53 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
 }
 
 function counterOfferCandidateStructure(
-  counterOffer: DealOptimizerCounterOfferRow
+  counterOffer: DealOptimizerCounterOfferRow,
+  technicalDefaultCandidate: DealOptimizerCandidateStructure | undefined
 ): DealOptimizerCandidateStructure | RejectedDealCandidate {
-  const requiredTerms = ["collateralRatio", "depositPct", "financingSpreadBps", "releasePct", "trancheCount"] as const;
-  const missingTerms = requiredTerms.filter((term) => counterOffer.extractedTerms[term] === undefined);
+  const customerTerms = ["depositPct", "releasePct", "trancheCount"] as const;
+  const missingCustomerTerms = customerTerms.filter((term) => counterOffer.extractedTerms[term] === undefined);
   const candidateId = `counter-offer:${counterOffer.counterOfferId}`;
-  if (missingTerms.length > 0) {
+  if (missingCustomerTerms.length > 0) {
     return {
       candidateId,
-      reason: `Counter-offer is missing required deal terms: ${missingTerms.join(", ")}.`,
+      reason: `Counter-offer is missing required customer terms: ${missingCustomerTerms.join(", ")}.`,
       sourceRecordIds: [...counterOffer.sourceRecordIds]
     };
   }
 
-  const collateralRatio = counterOffer.extractedTerms.collateralRatio;
-  const depositPct = counterOffer.extractedTerms.depositPct;
-  const financingSpreadBps = counterOffer.extractedTerms.financingSpreadBps;
-  const releasePct = counterOffer.extractedTerms.releasePct;
-  const trancheCount = counterOffer.extractedTerms.trancheCount;
+  const defaultedTechnicalTerms: Array<"collateralRatio" | "financingSpreadBps"> = [];
+  const termsWithDefaults = { ...counterOffer.extractedTerms };
+  for (const technicalTerm of ["collateralRatio", "financingSpreadBps"] as const) {
+    if (termsWithDefaults[technicalTerm] === undefined) {
+      const defaultValue = technicalDefaultCandidate?.[technicalTerm];
+      if (defaultValue === undefined) {
+        return {
+          candidateId,
+          reason: `Counter-offer is missing required technical term ${technicalTerm} and no governed default candidate is available.`,
+          sourceRecordIds: [...counterOffer.sourceRecordIds]
+        };
+      }
+      termsWithDefaults[technicalTerm] = defaultValue;
+      defaultedTechnicalTerms.push(technicalTerm);
+    }
+  }
+
+  const requiredTerms = ["collateralRatio", "depositPct", "financingSpreadBps", "releasePct", "trancheCount"] as const;
+  const missingTerms = requiredTerms.filter((term) => counterOffer.extractedTerms[term] === undefined);
+  const nonDefaultableMissingTerms = missingTerms.filter((term) => !defaultedTechnicalTerms.includes(term as "collateralRatio" | "financingSpreadBps"));
+  if (nonDefaultableMissingTerms.length > 0) {
+    return {
+      candidateId,
+      reason: `Counter-offer is missing required deal terms: ${nonDefaultableMissingTerms.join(", ")}.`,
+      sourceRecordIds: [...counterOffer.sourceRecordIds]
+    };
+  }
+
+  const collateralRatio = termsWithDefaults.collateralRatio;
+  const depositPct = termsWithDefaults.depositPct;
+  const financingSpreadBps = termsWithDefaults.financingSpreadBps;
+  const releasePct = termsWithDefaults.releasePct;
+  const trancheCount = termsWithDefaults.trancheCount;
   if (
     collateralRatio === undefined ||
     depositPct === undefined ||
@@ -309,9 +349,77 @@ function counterOfferCandidateStructure(
     depositPct: depositPctCandidate,
     financingSpreadBps: financingSpreadBpsCandidate,
     releasePct: releasePctCandidate,
-    sourceRecordIds: [...counterOffer.sourceRecordIds],
+    sourceRecordIds: dedupe([
+      ...counterOffer.sourceRecordIds,
+      ...(defaultedTechnicalTerms.length === 0 ? [] : technicalDefaultCandidate?.sourceRecordIds ?? [])
+    ]),
     trancheCount: trancheCountCandidate
   };
+}
+
+interface TechnicalDefaultCandidateInput {
+  costOfCapital: DealOptimizerCostOfCapitalRow;
+  creditAccount: NonNullable<ReturnType<typeof buildCreditRiskReviewModel>["accounts"][number]>;
+  holdingCost: string;
+  order: DealOptimizerOrderRow;
+  pdPolicyRecordId: string;
+  policy: CreditNegotiationPolicySnapshot;
+  scenarioRows: readonly DealScenarioInput[];
+  seed: 42;
+  structures: readonly DealOptimizerCandidateStructure[];
+}
+
+function selectTechnicalDefaultCandidate(input: TechnicalDefaultCandidateInput): DealOptimizerCandidateStructure | undefined {
+  let bestCandidate:
+    | {
+        objectiveValue: string;
+        structure: DealOptimizerCandidateStructure;
+      }
+    | undefined;
+
+  for (const structure of input.structures) {
+    if (rejectOutOfPolicyCandidate(structure, input.policy) !== undefined) {
+      continue;
+    }
+
+    const result = calculateDealExpectedValue({
+      candidate: candidateTerms(structure),
+      economics: {
+        costOfCapitalAnnualBps: input.costOfCapital.annualBps,
+        grossMarginPct: input.order.grossMarginPct,
+        holdingCostPerUnitPerDay: input.holdingCost,
+        sourceRecordIds: input.costOfCapital.sourceRecordIds
+      },
+      order: {
+        orderAmount: input.order.orderAmount,
+        orderId: input.order.orderId,
+        sourceRecordIds: input.order.sourceRecordIds,
+        units: input.order.units
+      },
+      risk: {
+        annualDefaultProbability: annualDefaultProbabilityForVerdict(input.policy, input.creditAccount.verdict),
+        exposureAmount: input.creditAccount.exposureAmount.toFixed(2),
+        sourceRecordIds: [input.creditAccount.accountId, input.pdPolicyRecordId],
+        verdict: input.creditAccount.verdict
+      },
+      scenarios: input.scenarioRows,
+      seed: input.seed
+    });
+
+    if (
+      bestCandidate === undefined ||
+      compareObjective(result.objectiveValue, bestCandidate.objectiveValue) > 0 ||
+      (compareObjective(result.objectiveValue, bestCandidate.objectiveValue) === 0 &&
+        structure.candidateId.localeCompare(bestCandidate.structure.candidateId) < 0)
+    ) {
+      bestCandidate = {
+        objectiveValue: result.objectiveValue,
+        structure
+      };
+    }
+  }
+
+  return bestCandidate?.structure;
 }
 
 function assertRequiredSources(rows: DealOptimizerRows): void {

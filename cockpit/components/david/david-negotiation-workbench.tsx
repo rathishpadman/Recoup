@@ -460,6 +460,17 @@ export function canSendNegotiationEmailForAction(
   return locallyApprovedActionId === actionId || readHydratedNegotiationApprovalActionId(order) === actionId;
 }
 
+export function selectNegotiationDraftCandidate(
+  order: NegotiationOrder,
+  model: Pick<DealOptimizerModel, "rankedCandidates">
+): DealOptimizerCandidateModel | undefined {
+  if (order.currentRound?.status === "countered") {
+    return model.rankedCandidates.find((candidate) => candidate.candidateId.startsWith("counter-offer:")) ?? model.rankedCandidates[0];
+  }
+
+  return model.rankedCandidates[0];
+}
+
 export function negotiationHydratedSendMessage(order: NegotiationOrder): string | undefined {
   const sentRounds = [order.currentRound, order.latestSentRound].filter(
     (round): round is NonNullable<typeof round> => round?.status === "sent"
@@ -492,7 +503,8 @@ function DealOptimizerView({
   sendingEmail: boolean;
 }>) {
   const topCandidate = model.rankedCandidates[0];
-  const approvalPacket = buildNegotiationApprovalPacket(account, order, topCandidate);
+  const draftCandidate = selectNegotiationDraftCandidate(order, model);
+  const approvalPacket = buildNegotiationApprovalPacket(account, order, draftCandidate);
   const approvalRecorded = canSendNegotiationEmailForAction(order, approvalPacket.actionId, approvalRecordedActionId);
   const displayedSendMessage = sendMessage ?? negotiationHydratedSendMessage(order);
   return (
