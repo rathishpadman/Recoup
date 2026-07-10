@@ -50,6 +50,22 @@ describe("David negotiation workbench", () => {
     expect(html).toContain("Simulate alternatives");
   });
 
+  it("summarizes a countered round without implying no outbound round was sent", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "countered"
+      },
+      nextRound: 2,
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(negotiationRoundSummary(order)).toBe("Round 1 countered / Next outbound round 2");
+  });
+
   it("builds the governed approval packet for the next negotiation round from the top deterministic candidate", () => {
     const order = {
       nextRound: 3,

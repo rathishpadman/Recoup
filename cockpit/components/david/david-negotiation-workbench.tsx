@@ -425,9 +425,20 @@ export function defaultManualCounterRound(order: NegotiationOrder): string {
 }
 
 export function negotiationRoundSummary(order: NegotiationOrder): string {
-  const latestSent = order.latestSentRound === undefined ? "No sent round yet" : `Latest sent round ${order.latestSentRound.round.toString()}`;
+  const latestSent =
+    order.latestSentRound === undefined
+      ? currentNegotiationRoundLabel(order) ?? "No sent round yet"
+      : `Latest sent round ${order.latestSentRound.round.toString()}`;
 
   return `${latestSent} / Next outbound round ${order.nextRound.toString()}`;
+}
+
+function currentNegotiationRoundLabel(order: NegotiationOrder): string | undefined {
+  if (order.currentRound?.status === "countered") {
+    return `Round ${order.currentRound.round.toString()} countered`;
+  }
+
+  return undefined;
 }
 
 export function canSendNegotiationEmailForAction(
