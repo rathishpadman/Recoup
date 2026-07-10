@@ -2,7 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TabsContent } from "@/components/ui/tabs";
-import { DEMO_VIDEO_URL, personaCards, PlayIcon } from "./landing-content.ts";
+import { personaCards } from "./landing-content.ts";
 
 export function DemoPanel() {
   return (
@@ -59,23 +59,8 @@ export function DemoPanel() {
         ))}
       </div>
 
-      <Card className="mt-6 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm ring-0" data-testid="recoup-landing-video-card">
-        <a
-          className="group grid min-h-[220px] place-items-center bg-[radial-gradient(circle_at_center,var(--primary-tint),var(--card)_62%)] p-8 text-center text-foreground no-underline"
-          href={DEMO_VIDEO_URL}
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <span className="mb-4 grid size-16 place-items-center rounded-full bg-primary text-primary-foreground transition-colors group-hover:bg-[color:var(--primary-hover)]">
-            <PlayIcon className="size-7" />
-          </span>
-          <span className="block font-serif text-2xl font-normal">Watch the 3-minute cockpit walkthrough</span>
-          <span className="mt-2 block font-mono text-xs text-muted-foreground">youtube.com/watch?v=VIDEO_ID_HERE - placeholder</span>
-        </a>
-      </Card>
-
       <p className="mt-6 text-center font-serif text-base italic text-muted-foreground">
-        Synthetic data, real governance - nothing is dispatched without a human approval.
+        Synthetic data, real governance - live text and voice queries return cited answers, and nothing is dispatched without human approval.
       </p>
     </TabsContent>
   );

@@ -16,12 +16,13 @@ export function TechPanel() {
 
       <figure className="m-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm" data-testid="recoup-landing-architecture-figure">
         <img
-          alt="Recoup architecture diagram showing sources, deterministic services, agent layer, HITL approval, and audit ledger"
+          alt="Recoup architecture: read-only evidence in, human-approved action out"
           className="block h-auto w-full"
-          src="/architecture-diagram.png"
+          src="/recoup-tech-architecture-infographic.png"
         />
         <figcaption className="border-t border-border/70 px-5 py-3 text-center text-xs text-muted-foreground">
-          The production architecture diagram - evidence flows one way, from read-only sources to the hash-chained audit ledger
+          Evidence flows one way: read-only sources and grounded memory feed agents and deterministic services, then human-approved actions
+          land in the hash-chained audit ledger.
         </figcaption>
       </figure>
 

@@ -37,8 +37,8 @@ export function BuildPanel() {
         ))}
       </div>
 
-      <div className="grid grid-cols-[1.1fr_0.9fr] items-start gap-5 max-[900px]:grid-cols-1">
-        <Card className="gap-0 rounded-xl border border-border bg-card p-6 shadow-sm ring-0">
+      <div className="grid grid-cols-[1.1fr_0.9fr] items-stretch gap-5 max-[900px]:grid-cols-1">
+        <Card className="h-full gap-0 rounded-xl border border-border bg-card p-6 shadow-sm ring-0" data-testid="recoup-landing-invariants-card">
           <p className="mb-4 font-serif text-[15px] italic text-muted-foreground">Invariants that matter - from INVARIANTS.md</p>
           <ul className="flex list-none flex-col gap-3 p-0">
             {invariantSpotlights.map((invariant) => (
@@ -55,7 +55,7 @@ export function BuildPanel() {
           </ul>
         </Card>
 
-        <Card className="gap-0 rounded-xl border border-border bg-card p-6 shadow-sm ring-0">
+        <Card className="h-full gap-0 rounded-xl border border-border bg-card p-6 shadow-sm ring-0" data-testid="recoup-landing-run-flow-card">
           <p className="mb-4 font-serif text-[15px] italic text-muted-foreground">How a run flows</p>
           <div className="flex flex-col">
             {runFlowTimeline.map((step, index) => (

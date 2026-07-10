@@ -12,7 +12,6 @@ import {
   FileText,
   Lock,
   PenLine,
-  PlayCircle,
   Scale,
   Search,
   Server,
@@ -103,7 +102,6 @@ export interface AboutRow {
 
 export const mayaLoginHref = "/login?loginId=Maya";
 export const davidLoginHref = "/login?loginId=david";
-export const DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=VIDEO_ID_HERE";
 
 export const landingThemeVariables = {
   "--accent": "#c2410c",
@@ -150,25 +148,23 @@ export const heroMantra = [
   { Icon: UserCheck, label: "Humans approve" }
 ] as const;
 
-export const evidenceCitations = ["POD-7782", "INV-4411", "SAP-BILL-09"] as const;
-
 export const problemStats = [
   {
     Icon: TrendingDown,
     label: "of gross revenue lost to deductions annually",
-    source: "McKinsey 2026",
+    source: "Industry estimate",
     value: "2–5%"
   },
   {
     Icon: AlertTriangle,
     label: "of shortage claims may be invalid",
-    source: "RVCF Benchmark",
+    source: "Retail claims benchmark",
     value: "65–80%"
   },
   {
     Icon: DollarSign,
     label: "of brands recover less than half of disputed deductions",
-    source: "UpClear 2026",
+    source: "Industry recovery estimate",
     value: "60%"
   }
 ] as const satisfies readonly LandingStat[];
@@ -251,7 +247,7 @@ export const cockpitCards = [
   {
     Icon: ShieldCheck,
     description:
-      "Weekly queue -> exposure and DSO drift -> Risk Mesh basis -> governed action packet.",
+      "Weekly queue -> exposure and DSO drift -> Risk Mesh basis -> David negotiation workbench -> governed action packet.",
     title: "David - Weekly Credit Risk Review"
   }
 ] as const satisfies readonly GuardrailCard[];
@@ -266,7 +262,7 @@ export const personaCards = [
       "Route invalid claims to recovery drafts",
       "Review chain-of-work evidence citations"
     ],
-    name: "Maya R.",
+    name: "Maya Patel",
     role: "Senior Deductions Analyst",
     testId: "recoup-landing-maya-cta",
     tone: "primary"
@@ -278,6 +274,7 @@ export const personaCards = [
       "Review the 4-account weekly risk queue",
       "Open account dossiers with exposure, DSO, and cited signals",
       "Inspect Risk Mesh verdicts and deterministic basis",
+      "Negotiate live email terms through a human-approved send gate",
       "Approve governed packets while external send stays gated"
     ],
     name: "David K.",
@@ -306,15 +303,15 @@ export const guardrailCards = [
 ] as const satisfies readonly GuardrailCard[];
 
 export const capabilityRows = [
-  { capability: "GPT-5.5, GPT-4.1, GPT Realtime", layer: "Runtime models" },
+  { capability: "gpt-5.4 family, gpt-realtime-2, gpt-4o-mini-transcribe", layer: "Runtime models" },
   { capability: "Agents SDK tools with typed evidence gates", layer: "Governance" }
 ] as const satisfies readonly CapabilityRow[];
 
 export const buildMetrics = [
-  { label: "machine-verifiable invariants - every one a release blocker", value: "28" },
-  { label: "unit test files, including mutation & fail-closed matrices", value: "124" },
-  { label: "Playwright E2E journeys across both cockpits", value: "7" },
-  { label: "typed TypeScript modules in the runtime monolith", value: "113" }
+  { label: "invariant controls tracked in INVARIANTS.md", value: "30" },
+  { label: "automated test files across unit, invariant, eval, and browser suites", value: "171" },
+  { label: "browser E2E journey files across cockpit routes", value: "9" },
+  { label: "typed TypeScript modules in the runtime monolith", value: "125" }
 ] as const satisfies readonly MetricCard[];
 
 export const stackCards = [
@@ -323,7 +320,8 @@ export const stackCards = [
     items: [
       "OpenAI Agents SDK orchestration",
       "4 governed capabilities: Risk Mesh, Forensics, Credit Sentinel, Containment",
-      "Pinned models only - config-driven, never ad-hoc"
+      "Pinned models only - config-driven, never ad-hoc",
+      "David live investigation traces agents, handoffs, and token usage"
     ],
     title: "Agent runtime"
   },
@@ -348,7 +346,12 @@ export const stackCards = [
   },
   {
     Icon: Server,
-    items: ["Supabase + SQLite agent memory stores", "Read-only SAP OData adapter - no write client exists", "Zod-typed ports; core has zero source imports"],
+    items: [
+      "Supabase + SQLite agent memory stores",
+      "OpenAI vector store for policy-grounded negotiation retrieval",
+      "Read-only SAP OData adapter - no write client exists",
+      "Zod-typed ports; core has zero source imports"
+    ],
     title: "Data & memory"
   },
   {
@@ -377,7 +380,7 @@ export const runFlowTimeline = [
 
 export const aboutRows = [
   { label: "Demo company", value: "NorthBay Brands (fictional CPG manufacturer)" },
-  { label: "Scope", value: "Deduction forensics, credit arbitration, CFO summary" },
+  { label: "Scope", value: "Deduction forensics, weekly credit risk review, terms negotiation, CFO summary" },
   { label: "Data", value: "Synthetic, seeded (42) - reproducible run to run" },
   { label: "Runtime", value: "Node 22 + TypeScript modular monolith" },
   { label: "Fidelity", value: "Audit trail, scoring logic, and UI flows presented as production-ready" }
@@ -386,10 +389,9 @@ export const aboutRows = [
 export const aboutCapabilities = [
   "Closed-Loop Risk Mesh - arbitration across competing risk positions",
   "Deduction Forensics & Recovery - the hero flow (Maya's cockpit)",
-  "Dynamic Credit Sentinel - 4-account weekly risk review (David's cockpit)",
+  "Dynamic Credit Sentinel - 4-account weekly risk review and terms negotiation (David's cockpit)",
   "Behavioral Containment - evidence-gated intent labels and partial holds"
 ] as const;
 
 export const CheckIcon = CheckCircle2;
-export const PlayIcon = PlayCircle;
 export const UsersIcon = Users;

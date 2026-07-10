@@ -375,15 +375,105 @@ async function assertLandingPage(browser: Browser): Promise<void> {
     await expectVisibleText(page, "Every decision cites evidence");
     await expectVisibleText(page, "Code computes every dollar");
     await expectVisibleText(page, "Humans approve");
+    const heroImage = page.locator('img[src="/recoup-agentic-hero-visual.png"]');
+    await heroImage.waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForFunction(
+      () => {
+        const image = document.querySelector('img[src="/recoup-agentic-hero-visual.png"]');
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+      },
+      undefined,
+      { timeout: 15_000 }
+    );
+    const heroImageRender = await heroImage.evaluate((element) => {
+      const image = element as HTMLImageElement;
+      const rect = image.getBoundingClientRect();
+      return {
+        alt: image.alt,
+        complete: image.complete,
+        height: rect.height,
+        naturalHeight: image.naturalHeight,
+        naturalWidth: image.naturalWidth,
+        width: rect.width
+      };
+    });
+    assert(
+      heroImageRender.complete &&
+        heroImageRender.naturalWidth > 0 &&
+        heroImageRender.naturalHeight > 0 &&
+        heroImageRender.width > 0 &&
+        heroImageRender.height > 0 &&
+        heroImageRender.alt.includes("governed approval"),
+      `Landing hero visual must decode and render the supplied PNG, received ${JSON.stringify(heroImageRender)}`
+    );
     const heroCopy = await page.getByTestId("recoup-landing-hero").innerText();
     assert(!heroCopy.includes("McKinsey"), "Landing hero must not show the reference strip below the persona CTAs");
     assert(!heroCopy.includes("RVCF"), "Landing hero must not show the reference strip below the persona CTAs");
     assert(!heroCopy.includes("APQC"), "Landing hero must not show the reference strip below the persona CTAs");
     assert(!heroCopy.includes("UpClear"), "Landing hero must not show the reference strip below the persona CTAs");
-    await expectVisibleText(page, "McKinsey");
-    await expectVisibleText(page, "RVCF");
-    await expectVisibleText(page, "UpClear");
+    const pageCopy = await page.locator("body").innerText();
+    assert(!pageCopy.includes("McKinsey"), "Landing page must not carry unsourced McKinsey attribution");
+    assert(!pageCopy.includes("RVCF"), "Landing page must not carry unsourced RVCF attribution");
+    assert(!pageCopy.includes("UpClear"), "Landing page must not carry unsourced UpClear attribution");
+    assert(!pageCopy.includes("VIDEO_ID_HERE"), "Landing page must not expose a placeholder demo video URL");
+    await expectVisibleText(page, "Industry estimate");
+    await expectVisibleText(page, "Retail claims benchmark");
     await expectVisibleLocator(page, '[data-testid="recoup-landing-tab-problem"]', "Recoup Problem tab");
+
+    const tablistOverflow = await page.getByRole("tablist", { name: "Recoup overview sections" }).evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        clientWidth: element.clientWidth,
+        overflowX: style.overflowX,
+        scrollWidth: element.scrollWidth
+      };
+    });
+    assert(
+      tablistOverflow.scrollWidth <= tablistOverflow.clientWidth + 2,
+      `Landing tab navigation must not require horizontal scrolling, received ${JSON.stringify(tablistOverflow)}`
+    );
+    assert(
+      tablistOverflow.overflowX !== "auto" && tablistOverflow.overflowX !== "scroll",
+      `Landing tab navigation must not render as a horizontal scroller, received ${JSON.stringify(tablistOverflow)}`
+    );
+    const tabVerticalClearance = await page.evaluate(() => {
+      const tablist = document.querySelector('[role="tablist"][aria-label="Recoup overview sections"]');
+      const activePanel = document.querySelector('[data-testid="recoup-landing-tab-problem"]');
+      const panelEyebrow = activePanel?.querySelector("p");
+      if (!(tablist instanceof HTMLElement) || !(panelEyebrow instanceof HTMLElement)) {
+        return null;
+      }
+
+      const tabRect = tablist.getBoundingClientRect();
+      const eyebrowRect = panelEyebrow.getBoundingClientRect();
+      return {
+        clearance: eyebrowRect.top - tabRect.bottom,
+        eyebrowTop: eyebrowRect.top,
+        tabBottom: tabRect.bottom
+      };
+    });
+    assert(
+      tabVerticalClearance !== null && tabVerticalClearance.clearance >= 16,
+      `Landing tab navigation must not overlap active panel content, received ${JSON.stringify(tabVerticalClearance)}`
+    );
+    const activeTabContainment = await page.getByRole("tablist", { name: "Recoup overview sections" }).evaluate((element) => {
+      const activeTab = element.querySelector('[data-active], [aria-selected="true"]');
+      if (!(activeTab instanceof HTMLElement)) {
+        return null;
+      }
+      const tabRect = activeTab.getBoundingClientRect();
+      const listRect = element.getBoundingClientRect();
+      return {
+        bottomInset: listRect.bottom - tabRect.bottom,
+        listHeight: listRect.height,
+        tabHeight: tabRect.height,
+        topInset: tabRect.top - listRect.top
+      };
+    });
+    assert(
+      activeTabContainment !== null && activeTabContainment.topInset >= -1 && activeTabContainment.bottomInset >= -1,
+      `Landing active tab must stay inside the rail, received ${JSON.stringify(activeTabContainment)}`
+    );
 
     for (const target of [
       { label: "Solution", selector: '[data-testid="recoup-landing-tab-solution"]' },
@@ -409,57 +499,76 @@ async function assertLandingPage(browser: Browser): Promise<void> {
     await expectVisibleText(page, "Act (draft-only)");
     await expectVisibleText(page, "Audit & Govern");
     await expectVisibleText(page, "Governed end to end");
-    await expectVisibleText(page, "28 machine-verifiable invariants enforced in CI");
+    await expectVisibleText(page, "30 invariant controls tracked");
     await expectVisibleText(page, "Code computes dollars and risk math");
     await expectVisibleText(page, "Tamper-evident audit trail");
 
     await page.getByRole("tab", { name: "Tech" }).click();
-    const architectureImage = page.locator('img[src="/architecture-diagram.png"]');
+    const architectureImage = page.getByRole("img", {
+      name: "Recoup architecture: read-only evidence in, human-approved action out"
+    });
     await architectureImage.waitFor({ state: "visible", timeout: 15_000 });
     await page.waitForFunction(
       () => {
-        const image = document.querySelector('img[src="/architecture-diagram.png"]');
-        return (
-          image instanceof HTMLImageElement &&
-          image.complete &&
-          image.naturalWidth > 0 &&
-          image.naturalHeight > 0
-        );
+        const image = document.querySelector('img[src="/recoup-tech-architecture-infographic.png"]');
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
       },
       undefined,
       { timeout: 15_000 }
     );
-    const initialArchitectureImage = await architectureImage.evaluate((image) => {
-      if (!(image instanceof HTMLImageElement)) {
+    const initialArchitectureImage = await architectureImage.evaluate((element) => {
+      if (!(element instanceof HTMLImageElement)) {
         return null;
       }
-      const rect = image.getBoundingClientRect();
+      const rect = element.getBoundingClientRect();
       return {
-        complete: image.complete,
+        complete: element.complete,
         height: rect.height,
-        naturalHeight: image.naturalHeight,
-        naturalWidth: image.naturalWidth,
+        naturalHeight: element.naturalHeight,
+        naturalWidth: element.naturalWidth,
+        src: element.getAttribute("src"),
+        tagName: element.tagName.toLowerCase(),
         width: rect.width
       };
     });
     assert(
       initialArchitectureImage !== null &&
+        initialArchitectureImage.tagName === "img" &&
+        initialArchitectureImage.src === "/recoup-tech-architecture-infographic.png" &&
         initialArchitectureImage.complete &&
         initialArchitectureImage.naturalWidth > 0 &&
         initialArchitectureImage.naturalHeight > 0 &&
         initialArchitectureImage.width > 0 &&
         initialArchitectureImage.height > 0,
-      `architecture diagram must render a decoded image, received ${JSON.stringify(initialArchitectureImage)}`
+      `architecture infographic must render as the supplied decoded PNG, received ${JSON.stringify(initialArchitectureImage)}`
     );
     await expectVisibleText(page, "No ERP write-back");
     await expectVisibleText(page, "Deterministic basis");
     await expectVisibleText(page, "Citations required");
-    await expectVisibleText(page, "GPT-5.5, GPT-4.1, GPT Realtime");
+    await expectVisibleText(page, "gpt-5.4 family, gpt-realtime-2, gpt-4o-mini-transcribe");
 
     await page.getByRole("tab", { name: "How We Built It" }).click();
     await expectVisibleText(page, "OpenAI Agents SDK orchestration");
     const buildCopy = await page.getByTestId("recoup-landing-tab-build").innerText();
     assert(!/Claude|Codex|Superpowers/iu.test(buildCopy), "How We Built It must not expose internal coding tool references");
+    const buildCardHeights = await page.evaluate(() => {
+      const invariantsCard = document.querySelector('[data-testid="recoup-landing-invariants-card"]');
+      const runFlowCard = document.querySelector('[data-testid="recoup-landing-run-flow-card"]');
+      if (!(invariantsCard instanceof HTMLElement) || !(runFlowCard instanceof HTMLElement)) {
+        return null;
+      }
+      const invariantsHeight = invariantsCard.getBoundingClientRect().height;
+      const runFlowHeight = runFlowCard.getBoundingClientRect().height;
+      return {
+        delta: Math.abs(invariantsHeight - runFlowHeight),
+        invariantsHeight,
+        runFlowHeight
+      };
+    });
+    assert(
+      buildCardHeights !== null && buildCardHeights.delta <= 2,
+      `Landing Build invariant and run-flow cards must align in height, received ${JSON.stringify(buildCardHeights)}`
+    );
     assertNoForbiddenRequests(apiRequests, "Public landing page");
     await assertNoHorizontalOverflow(page, "Recoup landing desktop");
     const viewportFit = await page.evaluate(() => ({

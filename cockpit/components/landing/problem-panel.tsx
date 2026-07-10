@@ -33,9 +33,10 @@ export function ProblemPanel() {
           &ldquo;
         </span>
         <p className="m-0 flex-1 font-serif text-[19px] italic leading-7 text-secondary-foreground">
-          "O2C leakages amount to 3–5% of EBITDA. AI-backed tools can help recapture invalid credit memo value."
+          Industry teams do not lose these dollars because one system is wrong. They lose them because the proof, policy, and approval trail
+          sit in different places.
         </p>
-        <cite className="shrink-0 text-[13px] font-semibold not-italic text-primary max-[900px]:hidden">- McKinsey & Company, 2026</cite>
+        <cite className="shrink-0 text-[13px] font-semibold not-italic text-primary max-[900px]:hidden">Industry estimate</cite>
       </blockquote>
 
       <div className="grid grid-cols-3 gap-7 max-[900px]:grid-cols-1">

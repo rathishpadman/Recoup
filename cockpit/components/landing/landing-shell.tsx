@@ -49,14 +49,14 @@ export function LandingShell() {
             onValueChange={handleTabValueChange}
             value={activeTab}
           >
-            <div className="sticky top-[60px] z-30 bg-gradient-to-b from-background from-80% to-transparent py-3.5">
+            <div className="sticky top-[60px] z-30 mb-6 bg-gradient-to-b from-background from-80% to-transparent pb-4 pt-3.5">
               <TabsList
                 aria-label="Recoup overview sections"
-                className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-[10px] border border-border/70 bg-muted p-1"
+                className="grid h-auto w-full grid-cols-6 gap-1 rounded-[10px] border border-border/70 bg-muted p-1 group-data-horizontal/tabs:h-auto max-[1180px]:grid-cols-3 max-[640px]:grid-cols-2"
               >
                 {landingTabs.map((tab) => (
                   <TabsTrigger
-                    className="min-h-9 flex-1 rounded-md px-4 py-2 text-sm font-medium text-muted-foreground data-active:bg-card data-active:text-primary data-active:shadow-sm max-[640px]:flex-none"
+                    className="h-8 min-h-0 min-w-0 rounded-md px-3 py-0 text-center text-sm font-medium text-muted-foreground data-active:bg-card data-active:text-primary data-active:shadow-none max-[640px]:px-2"
                     key={tab.value}
                     value={tab.value}
                   >

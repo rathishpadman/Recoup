@@ -50,7 +50,7 @@ export function SolutionPanel() {
       <div className="my-6 flex justify-center">
         <span className="inline-flex items-center gap-2 rounded-full border border-[color:var(--primary-subtle)] bg-[color:var(--primary-tint)] px-4 py-2 text-center text-xs font-semibold text-primary">
           <ShieldCheck className="size-4" />
-          Governed end to end - 28 machine-verifiable invariants enforced in CI
+          Governed end to end - 30 invariant controls tracked; active release blockers enforced in CI
         </span>
       </div>
 
