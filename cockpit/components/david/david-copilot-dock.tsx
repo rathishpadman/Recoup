@@ -331,6 +331,8 @@ function LiveQueryPanel({
       ) : (
         <p className="text-sm font-medium">{response.answer}</p>
       )}
+      {response.policyRationale === undefined ? null : <DavidPolicyRationalePanel rationale={response.policyRationale} />}
+      {response.negotiationDraft === undefined ? null : <DavidNegotiationDraftPanel draft={response.negotiationDraft} />}
       <div className="grid gap-2 text-xs text-muted-foreground">
         <span>{`${response.citations.length.toString()} citations · ${response.trace.length.toString()} trace rows`}</span>
         {modelExecution?.rawModelTextPolicy === undefined ? null : <span>{rawModelTextPolicyLabel(modelExecution.rawModelTextPolicy)}</span>}
@@ -342,6 +344,91 @@ function LiveQueryPanel({
             <span className="truncate text-muted-foreground">{event.toolName ?? event.hook}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+export function DavidPolicyRationalePanel({
+  rationale
+}: Readonly<{ rationale: NonNullable<CreditRiskQueryResponse["policyRationale"]> }>) {
+  const firstCitation = rationale.citations[0];
+
+  return (
+    <div className="grid gap-3 rounded-lg border bg-muted/15 p-3" data-testid="david-copilot-policy-rationale">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={rationale.status === "available" ? "secondary" : "outline"}>Policy rationale</Badge>
+        <Badge variant="outline">{rationale.message}</Badge>
+      </div>
+      <div className="grid gap-1 text-sm">
+        <span className="font-medium">Exact policy row</span>
+        <span className="text-muted-foreground">
+          {rationale.executablePolicySource} / {rationale.policyKey} = {rationale.policyValueText}
+        </span>
+      </div>
+      {firstCitation === undefined ? (
+        <p className="text-sm text-muted-foreground">No vector rationale citation is available for this policy question.</p>
+      ) : (
+        <div className="grid gap-1 text-sm">
+          <span className="font-medium">Vector rationale</span>
+          <span className="text-muted-foreground">{firstCitation.content}</span>
+          <span className="text-xs text-muted-foreground">{firstCitation.recordId}</span>
+        </div>
+      )}
+      <div className="grid gap-1 text-xs text-muted-foreground">
+        <span>Policy hash {rationale.policyHash.slice(0, 12)}</span>
+        <span>{rationale.deterministicBasis}</span>
+      </div>
+    </div>
+  );
+}
+
+export function DavidNegotiationDraftPanel({
+  draft
+}: Readonly<{ draft: NonNullable<CreditRiskQueryResponse["negotiationDraft"]> }>) {
+  const topCandidate = draft.model.rankedCandidates[0];
+
+  return (
+    <div className="grid gap-3 rounded-lg border bg-muted/15 p-3" data-testid="david-copilot-negotiation-draft">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">Agent-drafted</Badge>
+        <Badge variant="outline">Engine-priced</Badge>
+        <Badge variant="outline">{draft.model.orderId}</Badge>
+      </div>
+      {topCandidate === undefined ? (
+        <p className="text-sm text-muted-foreground">No policy-valid agent-drafted option was priced by the deterministic engine.</p>
+      ) : (
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="grid gap-1">
+              <span className="text-sm font-medium">{topCandidate.candidateId}</span>
+              <span className="text-xs text-muted-foreground">
+                {topCandidate.terms.releasePctLabel} / {topCandidate.terms.depositPctLabel} / {topCandidate.terms.trancheCountLabel}
+              </span>
+            </div>
+            <strong className="text-sm">{topCandidate.objectiveValueLabel}</strong>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span>{topCandidate.terms.collateralRatioLabel}</span>
+            <span>{topCandidate.terms.financingSpreadLabel}</span>
+            <span>{topCandidate.scenarioCount.toString()} scenarios</span>
+          </div>
+        </div>
+      )}
+      {draft.model.rejectedCandidates.length === 0 ? null : (
+        <div className="grid gap-1 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Rejected structures</span>
+          {draft.model.rejectedCandidates.map((candidate) => (
+            <span key={candidate.candidateId}>
+              {candidate.candidateId}: {candidate.reason}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="grid gap-1 text-xs text-muted-foreground">
+        <span>Source hash {draft.model.sourceHash.slice(0, 12)}</span>
+        <span>Policy hash {draft.model.policyHash.slice(0, 12)}</span>
+        <span>{draft.deterministicBasis}</span>
       </div>
     </div>
   );

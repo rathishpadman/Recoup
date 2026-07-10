@@ -104,6 +104,8 @@ export function rowsForCreditRiskTable(
         key,
         value
       }));
+    case "credit_negotiation_rounds":
+      return [];
     case "credit_evidence_documents":
       return [
         {
@@ -241,6 +243,8 @@ export function rowsForCreditNegotiationTable(tableName: string | undefined): Ar
           tranche_count: 1
         }
       ];
+    case "credit_counter_offers":
+      return [];
     case "credit_negotiation_policy":
       return creditNegotiationPolicyCandidateRows.map((row) => ({
         active: row.active,

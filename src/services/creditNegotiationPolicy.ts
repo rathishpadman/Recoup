@@ -1,5 +1,5 @@
 import { Decimal } from "decimal.js";
-import { sha256CanonicalJson } from "../../config/governed.js";
+import { sha256CanonicalJson } from "../../config/governed.ts";
 
 export const creditNegotiationPolicyKeys = [
   "min_deposit_pct",
@@ -58,6 +58,7 @@ export interface CreditNegotiationPolicyRationaleResult {
   policyVersion: number;
   recordId: string;
   source: string;
+  valueConflict?: boolean | undefined;
   valueText?: string | undefined;
 }
 
@@ -70,7 +71,7 @@ export interface CreditNegotiationPolicyRationaleResolution {
 
 const policyVersion = 1;
 const policyEffectiveFrom = "2026-07-09T00:00:00.000Z";
-const ownerApprovedBy = "human:owner-accepted-2026-07-09" as const;
+export const creditNegotiationPolicyOwnerApprovalMarker = "human:owner-accepted-2026-07-09" as const;
 const one = new Decimal(1);
 
 const policyKeySet = new Set<string>(creditNegotiationPolicyKeys);
@@ -201,7 +202,7 @@ export function resolveCreditNegotiationPolicyRationale(
 function buildCandidateRows(values: Record<CreditNegotiationPolicyKey, string>): readonly CreditNegotiationPolicyRow[] {
   return creditNegotiationPolicyKeys.map((key) => ({
     active: true,
-    approvedBy: ownerApprovedBy,
+    approvedBy: creditNegotiationPolicyOwnerApprovalMarker,
     effectiveFrom: policyEffectiveFrom,
     key,
     policyVersion,
@@ -218,8 +219,8 @@ function assertPolicyRow(row: CreditNegotiationPolicyRow): CreditNegotiationPoli
   if (row.policyVersion !== policyVersion) {
     throw new Error(`Credit negotiation policy row ${key} has unsupported version ${String(row.policyVersion)}.`);
   }
-  if (!row.approvedBy.startsWith("human:")) {
-    throw new Error(`Credit negotiation policy row ${key} is not human approved.`);
+  if (row.approvedBy !== creditNegotiationPolicyOwnerApprovalMarker) {
+    throw new Error(`Credit negotiation policy row ${key} is not owner accepted.`);
   }
   if (!Number.isFinite(Date.parse(row.effectiveFrom))) {
     throw new Error(`Credit negotiation policy row ${key} has invalid effectiveFrom.`);
@@ -284,6 +285,9 @@ function rationaleConflictsWithPolicy(
   result: CreditNegotiationPolicyRationaleResult
 ): boolean {
   if (result.source !== "vector-policy-rationale") {
+    return true;
+  }
+  if (result.valueConflict === true) {
     return true;
   }
   if (result.policyVersion !== policy.policyVersion || result.policyHash !== policy.policyHash) {

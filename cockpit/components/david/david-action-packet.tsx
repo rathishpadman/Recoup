@@ -68,6 +68,11 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
 
   const canSendPacket = basisReviewed && !receiptRefreshPending && account.packet.approvalStatus !== "committed";
   const hasCommittedReceipt = account.packet.approvalStatus === "committed" && account.packet.auditEntryHash !== undefined;
+  const workflowState = actionPacketWorkflowState({
+    basisReviewed,
+    hasCommittedReceipt,
+    receiptRefreshPending
+  });
 
   return (
     <>
@@ -80,12 +85,13 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
             </Badge>
           </>
         }
+        dataWorkflowState={workflowState}
         defaultOpen={false}
         description={account.packet.detail}
         testId="david-action-packet"
         title="Outcome and action packet"
       >
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(14rem,0.38fr)]">
             <div className="grid gap-1">
               <div className="text-base font-semibold">{account.packet.title}</div>
               <p className="text-sm text-muted-foreground">{account.packet.detail}</p>
@@ -97,16 +103,17 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
                 davidMutedSurfaceClassByTone[account.verdictTone]
               )}
             >
-              <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Packet</span>
+              <span className="text-xs font-medium text-muted-foreground">Packet</span>
               <strong>{account.packet.title}</strong>
               <span className="text-sm text-muted-foreground">{`${account.packet.recordIds.length.toString()} cited records attached`}</span>
             </div>
           </div>
 
-          <div className="grid gap-3">
+          <div className="divide-y rounded-md border bg-background/80">
             {account.packet.rows.map((row) => (
               <div
-                className="grid gap-3 rounded-lg border bg-background/80 p-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                className="grid gap-2 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                data-testid="david-action-packet-row"
                 key={`${account.packet.actionId}-${row.kind}-${row.label}`}
               >
                 <div className="grid gap-1">
@@ -136,7 +143,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
               </span>
             </label>
 
-            <div className="flex flex-wrap gap-2" data-testid="david-action-packet-command-bar">
+            <div className="flex flex-wrap gap-2" data-can-send={canSendPacket} data-testid="david-action-packet-command-bar">
               <Sheet>
                 <SheetTrigger asChild>
                   <Button type="button" variant="outline">
@@ -183,7 +190,7 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
                 type="button"
               >
                 <ScaleIcon aria-hidden="true" data-icon="inline-start" />
-                Send action packet
+                {hasCommittedReceipt ? "Approval committed" : "Send action packet"}
               </Button>
             </div>
           </div>
@@ -244,6 +251,21 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
       />
     </>
   );
+}
+
+function actionPacketWorkflowState(input: {
+  basisReviewed: boolean;
+  hasCommittedReceipt: boolean;
+  receiptRefreshPending: boolean;
+}): "awaiting-review" | "committed" | "ready" | "refreshing" {
+  if (input.receiptRefreshPending) {
+    return "refreshing";
+  }
+  if (input.hasCommittedReceipt) {
+    return "committed";
+  }
+
+  return input.basisReviewed ? "ready" : "awaiting-review";
 }
 
 function formatBasisKey(key: string): string {

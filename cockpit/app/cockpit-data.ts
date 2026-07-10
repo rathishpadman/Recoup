@@ -709,6 +709,17 @@ export interface CreditRiskAccountModel {
   leadLabel: string;
   meshPositions: CreditRiskMeshPositionModel[];
   negotiationOrders: Array<{
+    currentRound?: {
+      actionId: string;
+      round: number;
+      status: "accepted" | "countered" | "drafted" | "rejected" | "sent" | "withdrawn";
+    };
+    latestSentRound?: {
+      actionId: string;
+      round: number;
+      status: "sent";
+    };
+    nextRound: number;
     orderId: string;
     sourceModeLabel: "governed Supabase negotiation source";
     sourceRecordIds: string[];
@@ -777,6 +788,27 @@ export interface CreditRiskQueryResponse {
       outputTokens?: number;
       totalTokens: number;
     };
+  };
+  negotiationDraft?: {
+    deterministicBasis: "credit_negotiation.draft_structures + deterministic deal optimizer";
+    model: DealOptimizerModel;
+    toolName: "credit_negotiation.draft_structures";
+  };
+  policyRationale?: {
+    citations: Array<{
+      content: string;
+      deterministicBasis: "credit_negotiation_policy exact rows + OpenAI vector policy rationale search";
+      recordId: string;
+      source: "vector-policy-rationale";
+    }>;
+    deterministicBasis: "credit_negotiation_policy exact rows + OpenAI vector policy rationale search";
+    executablePolicySource: "credit_negotiation_policy";
+    message: "Policy rationale available." | "Policy rationale conflict" | "Policy rationale unavailable.";
+    policyHash: string;
+    policyKey: string;
+    policyValueText: string;
+    policyVersion: 1;
+    status: "available" | "human_review_required" | "unavailable";
   };
   trace: Array<{
     agentName: string;

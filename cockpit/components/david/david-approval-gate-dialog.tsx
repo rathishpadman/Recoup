@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 
 interface DavidApprovalGateDialogProps {
   actionId: string;
+  approvalDescription?: string | undefined;
+  governedApprovalDescription?: string | undefined;
   open: boolean;
   onApproved: () => void;
   onOpenChange: (open: boolean) => void;
@@ -24,6 +26,37 @@ interface DavidApprovalGateDialogProps {
   packetTitle: string;
   recordIds: string[];
   routeLabel: string;
+  submitLabel?: string | undefined;
+  submittingLabel?: string | undefined;
+  titleOverride?: string | undefined;
+}
+
+interface DavidApprovalGateCopyOverrides {
+  approvalDescription?: string | undefined;
+  governedApprovalDescription?: string | undefined;
+  submitLabel?: string | undefined;
+  submittingLabel?: string | undefined;
+}
+
+export function buildDavidApprovalGateCopy(overrides: DavidApprovalGateCopyOverrides): {
+  approvalDescription: string;
+  governedApprovalDescription: string;
+  submitLabel: string;
+  submittingLabel: string;
+} {
+  return {
+    approvalDescription:
+      overrides.approvalDescription ?? "This records the human decision only. External send remains gated after approval.",
+    governedApprovalDescription:
+      overrides.governedApprovalDescription ??
+      "The approval route will refresh `/credit` and wait for the backend receipt before this packet changes to committed.",
+    submitLabel: overrides.submitLabel ?? "Approve and refresh",
+    submittingLabel: overrides.submittingLabel ?? "Recording decision..."
+  };
+}
+
+export function buildDavidApprovalGateTitle(packetTitle: string, titleOverride?: string): string {
+  return titleOverride ?? `Send ${packetTitle}?`;
 }
 
 interface ApprovalRouteResult {
@@ -36,16 +69,28 @@ interface ApprovalRouteResult {
 
 export function DavidApprovalGateDialog({
   actionId,
+  approvalDescription,
+  governedApprovalDescription,
   open,
   onApproved,
   onOpenChange,
   packetDetail,
   packetTitle,
   recordIds,
-  routeLabel
+  routeLabel,
+  submitLabel,
+  submittingLabel,
+  titleOverride
 }: Readonly<DavidApprovalGateDialogProps>) {
   const [error, setError] = React.useState<string | undefined>();
   const [submitting, setSubmitting] = React.useState(false);
+  const copy = buildDavidApprovalGateCopy({
+    approvalDescription,
+    governedApprovalDescription,
+    submitLabel,
+    submittingLabel
+  });
+  const dialogTitle = buildDavidApprovalGateTitle(packetTitle, titleOverride);
 
   React.useEffect(() => {
     if (!open) {
@@ -96,10 +141,8 @@ export function DavidApprovalGateDialog({
         <AlertDialogHeader className="gap-2">
           <div className="flex items-start justify-between gap-3">
             <div className="grid gap-1 text-left">
-              <AlertDialogTitle>{`Send ${packetTitle}?`}</AlertDialogTitle>
-              <AlertDialogDescription>
-                This records the human decision only. External send remains gated after approval.
-              </AlertDialogDescription>
+              <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
+              <AlertDialogDescription>{copy.approvalDescription}</AlertDialogDescription>
             </div>
             <AlertDialogCancel asChild>
               <Button aria-label="Close approval dialog" disabled={submitting} size="icon" type="button" variant="ghost">
@@ -120,9 +163,7 @@ export function DavidApprovalGateDialog({
           <Alert>
             <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
             <AlertTitle>Governed approval</AlertTitle>
-            <AlertDescription>
-              The approval route will refresh `/credit` and wait for the backend receipt before this packet changes to committed.
-            </AlertDescription>
+            <AlertDescription>{copy.governedApprovalDescription}</AlertDescription>
           </Alert>
 
           <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
@@ -144,7 +185,7 @@ export function DavidApprovalGateDialog({
           </AlertDialogCancel>
           <Button disabled={submitting} onClick={() => void submitApproval()} type="button">
             <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
-            {submitting ? "Recording decision..." : "Approve and refresh"}
+            {submitting ? copy.submittingLabel : copy.submitLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -23,6 +23,17 @@ export interface DealOptimizerCandidateStructure {
   trancheCount: number;
 }
 
+export interface DealOptimizerCounterOfferRow {
+  accountId: string;
+  counterOfferId: string;
+  extractedTerms: Partial<Record<"collateralRatio" | "depositPct" | "financingSpreadBps" | "releasePct" | "trancheCount", number | string>>;
+  orderId: string;
+  roundId: string;
+  source: "email" | "manual";
+  sourceRecordIds: readonly string[];
+  status: "grammar_valid" | "human_review";
+}
+
 export interface DealOptimizerCostOfCapitalRow {
   accountId: string;
   annualBps: string;
@@ -56,6 +67,7 @@ export interface DealOptimizerSellthroughRow {
 
 export interface DealOptimizerRows {
   candidateStructures: readonly DealOptimizerCandidateStructure[];
+  counterOffers?: readonly DealOptimizerCounterOfferRow[] | undefined;
   costOfCapital: readonly DealOptimizerCostOfCapitalRow[];
   inventory: readonly DealOptimizerInventoryRow[];
   orders: readonly DealOptimizerOrderRow[];
@@ -122,14 +134,40 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
   }
 
   const costOfCapital = findCostOfCapital(input.simRows.costOfCapital, order.accountId);
-  const scenarios = buildScenarioRows(input.simRows, order.orderId);
-  const holdingCost = uniqueHoldingCost(input.simRows.inventory.filter((row) => row.orderId === order.orderId));
+  const inventoryForOrder = input.simRows.inventory.filter((row) => row.orderId === order.orderId);
+  const posSellthroughForOrder = input.simRows.posSellthrough.filter((row) => row.orderId === order.orderId);
+  assertOrderScopedScenarioSources(order.orderId, inventoryForOrder, posSellthroughForOrder);
+  const orderScopedSimRows = {
+    ...input.simRows,
+    inventory: inventoryForOrder,
+    posSellthrough: posSellthroughForOrder
+  };
+  const scenarios = buildScenarioRows(orderScopedSimRows, order.orderId);
+  const holdingCost = uniqueHoldingCost(inventoryForOrder);
+  const counterOfferCandidates: DealOptimizerCandidateStructure[] = [];
+  const rejectedCandidates: RejectedDealCandidate[] = [];
+  const counterOffersForOrder = (input.simRows.counterOffers ?? []).filter(
+    (counterOffer) =>
+      counterOffer.accountId === order.accountId &&
+      counterOffer.orderId === order.orderId &&
+      counterOffer.status === "grammar_valid"
+  );
+  for (const counterOffer of counterOffersForOrder) {
+    const counterCandidate = counterOfferCandidateStructure(counterOffer);
+    if ("reason" in counterCandidate) {
+      rejectedCandidates.push(counterCandidate);
+    } else {
+      counterOfferCandidates.push(counterCandidate);
+    }
+  }
+  const candidateStructures = [...input.simRows.candidateStructures, ...counterOfferCandidates];
   const sourceRecordIds = dedupe([
     ...order.sourceRecordIds,
     ...costOfCapital.sourceRecordIds,
     ...input.simRows.candidateStructures.flatMap((candidate) => candidate.sourceRecordIds),
-    ...input.simRows.inventory.flatMap((row) => row.sourceRecordIds),
-    ...input.simRows.posSellthrough.flatMap((row) => row.sourceRecordIds),
+    ...counterOffersForOrder.flatMap((counterOffer) => counterOffer.sourceRecordIds),
+    ...inventoryForOrder.flatMap((row) => row.sourceRecordIds),
+    ...posSellthroughForOrder.flatMap((row) => row.sourceRecordIds),
     ...policy.sourceRecordIds,
     creditAccount.accountId
   ]);
@@ -137,15 +175,15 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
     accountId: creditAccount.accountId,
     candidates: input.simRows.candidateStructures,
     costOfCapital,
-    inventory: input.simRows.inventory,
+    ...(counterOffersForOrder.length === 0 ? {} : { counterOffers: counterOffersForOrder }),
+    inventory: inventoryForOrder,
     order,
-    posSellthrough: input.simRows.posSellthrough,
+    posSellthrough: posSellthroughForOrder,
     seed: input.seed
   });
   const evaluatedCandidates: RankedDealCandidate[] = [];
-  const rejectedCandidates: RejectedDealCandidate[] = [];
 
-  for (const candidate of input.simRows.candidateStructures) {
+  for (const candidate of candidateStructures) {
     const rejection = rejectOutOfPolicyCandidate(candidate, policy);
     if (rejection !== undefined) {
       rejectedCandidates.push(rejection);
@@ -215,6 +253,67 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
   };
 }
 
+function counterOfferCandidateStructure(
+  counterOffer: DealOptimizerCounterOfferRow
+): DealOptimizerCandidateStructure | RejectedDealCandidate {
+  const requiredTerms = ["collateralRatio", "depositPct", "financingSpreadBps", "releasePct", "trancheCount"] as const;
+  const missingTerms = requiredTerms.filter((term) => counterOffer.extractedTerms[term] === undefined);
+  const candidateId = `counter-offer:${counterOffer.counterOfferId}`;
+  if (missingTerms.length > 0) {
+    return {
+      candidateId,
+      reason: `Counter-offer is missing required deal terms: ${missingTerms.join(", ")}.`,
+      sourceRecordIds: [...counterOffer.sourceRecordIds]
+    };
+  }
+
+  const collateralRatio = counterOffer.extractedTerms.collateralRatio;
+  const depositPct = counterOffer.extractedTerms.depositPct;
+  const financingSpreadBps = counterOffer.extractedTerms.financingSpreadBps;
+  const releasePct = counterOffer.extractedTerms.releasePct;
+  const trancheCount = counterOffer.extractedTerms.trancheCount;
+  if (
+    collateralRatio === undefined ||
+    depositPct === undefined ||
+    financingSpreadBps === undefined ||
+    releasePct === undefined ||
+    trancheCount === undefined
+  ) {
+    throw new Error("Counter-offer term presence check failed.");
+  }
+
+  const collateralRatioCandidate = counterDecimalString(counterOffer, candidateId, "collateralRatio", collateralRatio);
+  if (typeof collateralRatioCandidate !== "string") {
+    return collateralRatioCandidate;
+  }
+  const depositPctCandidate = counterDecimalString(counterOffer, candidateId, "depositPct", depositPct);
+  if (typeof depositPctCandidate !== "string") {
+    return depositPctCandidate;
+  }
+  const financingSpreadBpsCandidate = counterDecimalString(counterOffer, candidateId, "financingSpreadBps", financingSpreadBps);
+  if (typeof financingSpreadBpsCandidate !== "string") {
+    return financingSpreadBpsCandidate;
+  }
+  const releasePctCandidate = counterDecimalString(counterOffer, candidateId, "releasePct", releasePct);
+  if (typeof releasePctCandidate !== "string") {
+    return releasePctCandidate;
+  }
+  const trancheCountCandidate = counterPositiveInteger(counterOffer, candidateId, trancheCount);
+  if (typeof trancheCountCandidate !== "number") {
+    return trancheCountCandidate;
+  }
+
+  return {
+    candidateId,
+    collateralRatio: collateralRatioCandidate,
+    depositPct: depositPctCandidate,
+    financingSpreadBps: financingSpreadBpsCandidate,
+    releasePct: releasePctCandidate,
+    sourceRecordIds: [...counterOffer.sourceRecordIds],
+    trancheCount: trancheCountCandidate
+  };
+}
+
 function assertRequiredSources(rows: DealOptimizerRows): void {
   if (rows.orders.length === 0) {
     throw new Error(`Deal optimizer missing required source: ${sourceNames.orders}.`);
@@ -230,6 +329,19 @@ function assertRequiredSources(rows: DealOptimizerRows): void {
   }
   if (rows.candidateStructures.length === 0) {
     throw new Error(`Deal optimizer missing required source: ${sourceNames.candidateStructures}.`);
+  }
+}
+
+function assertOrderScopedScenarioSources(
+  orderId: string,
+  inventoryRows: readonly DealOptimizerInventoryRow[],
+  posSellthroughRows: readonly DealOptimizerSellthroughRow[]
+): void {
+  if (inventoryRows.length === 0) {
+    throw new Error(`Deal optimizer missing required source: sim_3pl_inventory ${orderId}.`);
+  }
+  if (posSellthroughRows.length === 0) {
+    throw new Error(`Deal optimizer missing required source: sim_pos_sellthrough ${orderId}.`);
   }
 }
 
@@ -377,6 +489,45 @@ function formatMoneyLabel(value: string): string {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2
   }).format(parsed.toNumber())}`;
+}
+
+function counterDecimalString(
+  counterOffer: DealOptimizerCounterOfferRow,
+  candidateId: string,
+  termName: "collateralRatio" | "depositPct" | "financingSpreadBps" | "releasePct",
+  value: number | string
+): string | RejectedDealCandidate {
+  try {
+    return decimal(value.toString()).toString();
+  } catch {
+    return counterOfferRejection(counterOffer, candidateId, `Counter-offer ${termName} must be a finite decimal.`);
+  }
+}
+
+function counterPositiveInteger(
+  counterOffer: DealOptimizerCounterOfferRow,
+  candidateId: string,
+  value: number | string
+): number | RejectedDealCandidate {
+  let parsed: Decimal;
+  try {
+    parsed = decimal(value.toString());
+  } catch {
+    return counterOfferRejection(counterOffer, candidateId, "Counter-offer trancheCount must be a positive integer.");
+  }
+  if (!parsed.isInteger() || parsed.lessThan(1)) {
+    return counterOfferRejection(counterOffer, candidateId, "Counter-offer trancheCount must be a positive integer.");
+  }
+
+  return parsed.toNumber();
+}
+
+function counterOfferRejection(counterOffer: DealOptimizerCounterOfferRow, candidateId: string, reason: string): RejectedDealCandidate {
+  return {
+    candidateId,
+    reason,
+    sourceRecordIds: [...counterOffer.sourceRecordIds]
+  };
 }
 
 function decimal(value: string): Decimal {

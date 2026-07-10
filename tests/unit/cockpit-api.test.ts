@@ -32,7 +32,7 @@ import { settlementRunIdForSource } from "../../src/services/settlementRunIdenti
 import { recoupCorrelationIdHeader } from "../../src/middleware/logging.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
-import { rowsForCreditRiskTable } from "./fixtures/creditRiskSupabaseFixture.js";
+import { rowsForCreditNegotiationTable, rowsForCreditRiskTable } from "./fixtures/creditRiskSupabaseFixture.js";
 
 const cockpitAuthEnv = {
   RECOUP_COCKPIT_ALLOWED_ORIGINS: "http://127.0.0.1:3000",
@@ -119,6 +119,11 @@ function buildCreditRiskApprovalFetcher(input: {
     }
 
     const tableName = new URL(url).pathname.split("/").at(-1);
+    const negotiationRows = rowsForCreditNegotiationTable(tableName);
+    if (negotiationRows !== undefined) {
+      return Promise.resolve(testJsonResponse(negotiationRows));
+    }
+
     if (tableName !== undefined && tableName.startsWith("credit_")) {
       return Promise.resolve(testJsonResponse(rowsForCreditRiskTable(fixture, tableName)));
     }
@@ -4680,6 +4685,90 @@ describe("S5 cockpit API", () => {
       expect(rpcPayloads).toHaveLength(1);
       expect(rpcPayloads[0]?.["p_memory_id"]).toBe(`approval:${actionId}`);
       expect(rpcPayloads[0]?.["p_memory_record_ids_json"]).toEqual(expect.arrayContaining([actionId, "ACC-CRE"]));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("stores David negotiation draft content in the typed round ledger and keeps approval memory hash-only", async () => {
+    const actionId = "credit-v2:negotiation:ORD-HARBOR-6534:r1";
+    const calls: string[] = [];
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    const roundDraftRows: Array<Record<string, unknown>> = [];
+    const davidHeaders = {
+      ...cockpitAuthHeaders,
+      "x-recoup-human-principal": "human:david-credit-lead"
+    };
+    const baseFetcher = buildCreditRiskApprovalFetcher({
+      auditHead: [{ entry_hash: "e".repeat(64), seq: 10 }],
+      onRpcPayload(payload) {
+        rpcPayloads.push(payload);
+      }
+    });
+    const { baseUrl, server } = await listen({
+      env: {
+        ...cockpitApprovalEnv,
+        HARBOR_AP_CONTACT_EMAIL: "harbor-ap@example.com",
+        RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:david-credit-lead"
+      },
+      memoryFetcher(url, init) {
+        if (init.method === "POST" && url.includes("/rest/v1/credit_negotiation_rounds")) {
+          const body = stringifyRequestBody(init.body);
+          const row = JSON.parse(body ?? "{}") as Record<string, unknown>;
+          roundDraftRows.push(row);
+          return Promise.resolve(testJsonResponse([row], 201));
+        }
+        calls.push(`${init.method ?? "GET"} ${new URL(url).pathname}`);
+        return baseFetcher(url, init);
+      }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({
+          actionId,
+          decision: "approve"
+        }),
+        headers: davidHeaders,
+        method: "POST"
+      });
+      const approval = (await response.json()) as { actionId: string; auditEntryHash: string; status: string };
+
+      expect(rpcPayloads, `${JSON.stringify(approval)} calls=${JSON.stringify(calls)}`).toHaveLength(1);
+      expect(response.status, JSON.stringify(approval)).toBe(200);
+      expect(approval).toMatchObject({ actionId, status: "human_decided" });
+      const payload = rpcPayloads[0]?.["p_memory_payload_json"] as Record<string, unknown> | undefined;
+      expect(payload).toMatchObject({
+        actionId,
+        approvedDraftRecordId: `credit_negotiation_rounds:${actionId}`,
+        approvedRecipientConfigKey: "HARBOR_AP_CONTACT_EMAIL",
+        decision: "approve",
+        status: "human_decided"
+      });
+      expect(payload?.["approvedBodyHash"]).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/u));
+      expect(payload?.["approvedSubjectHash"]).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/u));
+      expect(payload).not.toHaveProperty("approvedBody");
+      expect(payload).not.toHaveProperty("approvedSubject");
+      expect(payload?.["approvedToHash"]).toBe(createHash("sha256").update("harbor-ap@example.com").digest("hex"));
+      expect(rpcPayloads[0]?.["p_memory_record_ids_json"]).toEqual(expect.arrayContaining([actionId, "ACC-HAR", "ORD-HARBOR-6534"]));
+      expect(roundDraftRows).toHaveLength(1);
+      expect(roundDraftRows[0]).toMatchObject({
+        account_id: "ACC-HAR",
+        approved_action_id: actionId,
+        order_id: "ORD-HARBOR-6534",
+        round_id: actionId,
+        round_no: 1,
+        status: "drafted"
+      });
+      const proposal = roundDraftRows[0]?.["our_proposal_json"] as Record<string, unknown> | undefined;
+      expect(proposal).toMatchObject({
+        approvedBodyHash: payload?.["approvedBodyHash"],
+        approvedSubject: "[Recoup Deal ORD-HARBOR-6534 - Round 1] Harbor Foods release proposal",
+        approvedSubjectHash: payload?.["approvedSubjectHash"],
+        approvedToHash: payload?.["approvedToHash"]
+      });
+      expect(proposal?.["approvedBody"]).toEqual(expect.stringContaining("Harbor Foods"));
+      expect(proposal?.["approvedBody"]).toEqual(expect.stringContaining("ORD-HARBOR-6534"));
     } finally {
       await close(server);
     }

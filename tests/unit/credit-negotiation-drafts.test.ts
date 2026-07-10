@@ -225,6 +225,53 @@ describe("credit negotiation LLM draft structures", () => {
     ]);
   });
 
+  it("allows selected account evidence IDs alongside the governed negotiation order scope", () => {
+    const result = invokeServiceTool(
+      "credit_negotiation.draft_structures",
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        recordIds: ["ACC-HAR", "S1", "S2", "EVD-CREDIT-ACC-HAR-TERMS", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"],
+        structures: [
+          {
+            candidateId: "agent-selected-evidence-release-85",
+            collateralRatio: "1.25",
+            depositPct: "60",
+            financingSpreadBps: "100",
+            releasePct: "85",
+            trancheCount: 3
+          }
+        ]
+      },
+      {
+        creditRiskAnswerScope: {
+          accountId: "ACC-HAR",
+          recordIds: ["ACC-HAR", "S1", "S2", "EVD-CREDIT-ACC-HAR-TERMS"]
+        },
+        creditRiskRows: loadCreditRiskFixtureRows(),
+        dealOptimizerRows: {
+          policyRows: creditNegotiationPolicyCandidateRows,
+          simRows: baseSimRows
+        }
+      }
+    ) as {
+      model: {
+        rankedCandidates: Array<{ candidateId: string; objectiveValueLabel: string }>;
+      };
+      sourceReads: { selectedRecordIds: string[] };
+      sourceReadStatus: string;
+    };
+
+    expect(result.sourceReadStatus).toBe("source_backed_selected_scope");
+    expect(result.model.rankedCandidates[0]).toMatchObject({
+      candidateId: "agent-selected-evidence-release-85",
+      objectiveValueLabel: "$75,077.00"
+    });
+    expect(result.sourceReads.selectedRecordIds).toEqual(
+      expect.arrayContaining(["ACC-HAR", "S1", "S2", "EVD-CREDIT-ACC-HAR-TERMS", "ORD-HARBOR-6534", "credit_orders:ORD-HARBOR-6534"])
+    );
+  });
+
   it("rejects draft pricing outside the selected David account/order scope", () => {
     expect(() =>
       invokeServiceTool(

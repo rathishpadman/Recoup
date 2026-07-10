@@ -45,6 +45,16 @@ describe("credit negotiation policy", () => {
     );
   });
 
+  it("fails closed when a policy row has a generic human marker instead of the owner acceptance marker", () => {
+    const rows = creditNegotiationPolicyCandidateRows.map((row) =>
+      row.key === "max_deposit_pct" ? { ...row, approvedBy: "human:analyst-reviewed-not-owner" } : row
+    );
+
+    expect(() => parseActiveCreditNegotiationPolicyRows(rows)).toThrow(
+      /Credit negotiation policy row max_deposit_pct is not owner accepted/u
+    );
+  });
+
   it("converts annual verdict default probabilities to the requested deal horizon in code", () => {
     const snapshot = parseActiveCreditNegotiationPolicyRows(creditNegotiationPolicyCandidateRows);
 

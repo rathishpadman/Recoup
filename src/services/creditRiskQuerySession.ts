@@ -6,6 +6,7 @@ import {
   type OpenAiTokenUsageSnapshot,
   type StreamLiveForensicsTraceOptions
 } from "../agents/liveForensicsStream.js";
+import type { OpenAiCreditNegotiationPolicyRationaleReader } from "../adapters/openAiPolicyVectorStore.js";
 import { davidCreditAgentMcpAllowedToolNames } from "../agents/mcpGateway.js";
 import {
   createAgentHookAuditReceipt,
@@ -15,7 +16,12 @@ import {
 } from "./conductor.js";
 import type { CreditRiskAccountModel, CreditRiskReviewModel, CreditRiskRows } from "./creditRiskModel.js";
 import type { DealOptimizerModel, DealOptimizerRows } from "./dealOptimizer.js";
-import type { CreditNegotiationPolicyRow } from "./creditNegotiationPolicy.js";
+import {
+  parseActiveCreditNegotiationPolicyRows,
+  resolveCreditNegotiationPolicyRationale,
+  type CreditNegotiationPolicyKey,
+  type CreditNegotiationPolicyRow
+} from "./creditNegotiationPolicy.js";
 import { invokeServiceTool } from "./serviceLayer.js";
 
 export const creditRiskQueryDeterministicBasis =
@@ -26,10 +32,12 @@ const liveCreditRiskQueryRequiredBasis = "OpenAI Agents SDK live trace required 
 const liveCreditRiskQuerySessionBasis =
   "CreditRiskReviewModel + Supabase credit evidence documents + deterministic credit_risk.answer guard + OpenAI Agents SDK live trace" as const;
 const creditNegotiationDraftBasis = "credit_negotiation.draft_structures + deterministic deal optimizer" as const;
+const creditPolicyRationaleBasis =
+  "credit_negotiation_policy exact rows + OpenAI vector policy rationale search" as const;
 
 export type CreditRiskQueryLiveAgentTraceOptions = Pick<
   StreamLiveForensicsTraceOptions,
-  "env" | "maxTurns" | "onRetry" | "onTokenUsage" | "onTokenUsageSnapshot" | "retryCap" | "runner" | "signal"
+  "env" | "maxTurns" | "onRetry" | "onSdkToolOutput" | "onTokenUsage" | "onTokenUsageSnapshot" | "retryCap" | "runner" | "signal"
 >;
 
 export type CreditRiskQueryModelExecution =
@@ -72,6 +80,7 @@ export interface CreditRiskQuerySessionInput {
   };
   liveAgentTrace?: CreditRiskQueryLiveAgentTraceOptions;
   model: CreditRiskReviewModel;
+  policyRationaleReader?: OpenAiCreditNegotiationPolicyRationaleReader;
   question: string;
   recordIds: string[];
   rows: CreditRiskRows;
@@ -83,6 +92,7 @@ export interface CreditRiskQuerySessionResponse {
   deterministicBasis?: string;
   modelExecution?: CreditRiskQueryModelExecution;
   negotiationDraft?: CreditRiskNegotiationDraftResult;
+  policyRationale?: CreditRiskPolicyRationaleResult;
   trace: ForensicsQueryTraceEvent[];
 }
 
@@ -90,6 +100,23 @@ export interface CreditRiskNegotiationDraftResult {
   deterministicBasis: typeof creditNegotiationDraftBasis;
   model: DealOptimizerModel;
   toolName: "credit_negotiation.draft_structures";
+}
+
+export interface CreditRiskPolicyRationaleResult {
+  citations: Array<{
+    content: string;
+    deterministicBasis: typeof creditPolicyRationaleBasis;
+    recordId: string;
+    source: "vector-policy-rationale";
+  }>;
+  deterministicBasis: typeof creditPolicyRationaleBasis;
+  executablePolicySource: "credit_negotiation_policy";
+  message: "Policy rationale available." | "Policy rationale conflict" | "Policy rationale unavailable.";
+  policyHash: string;
+  policyKey: CreditNegotiationPolicyKey;
+  policyValueText: string;
+  policyVersion: 1;
+  status: "available" | "human_review_required" | "unavailable";
 }
 
 interface NormalizedCreditRiskQueryRequest {
@@ -146,10 +173,12 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
     );
   }
 
+  let validationRetryUsed = false;
   if (
     !hasCreditRiskQueryAnswerSourceRead(liveRun.hookReceipts, request.account.accountId, request.effectiveRecordIds) &&
     shouldRetryMissingCreditRiskMcpRead(liveAgentTrace.retryCap)
   ) {
+    validationRetryUsed = true;
     liveAgentTrace.onRetry?.();
     const retryLiveRun = await collectLiveForensicsAgentRun({
       ...liveAgentTrace,
@@ -158,6 +187,35 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
       input: buildLiveCreditRiskQueryInput(
         request,
         "Previous live trace did not include a successful governed credit_risk_answer source read."
+      ),
+      retryCap: 0,
+      mcpServiceContext: {
+        creditRiskAnswerScope: {
+          accountId: request.account.accountId,
+          recordIds: request.effectiveRecordIds
+        },
+        ...(input.dealOptimizerRows === undefined ? {} : { dealOptimizerRows: input.dealOptimizerRows }),
+        creditRiskRows: input.rows
+      }
+    });
+    liveRun = mergeLiveCreditRiskAgentRuns(liveRun, retryLiveRun);
+  }
+
+  if (
+    wantsCreditNegotiationDraft(request) &&
+    !hasCreditNegotiationDraftSourceRead(liveRun.hookReceipts, request.account.accountId) &&
+    !validationRetryUsed &&
+    shouldRetryMissingCreditRiskMcpRead(liveAgentTrace.retryCap)
+  ) {
+    validationRetryUsed = true;
+    liveAgentTrace.onRetry?.();
+    const retryLiveRun = await collectLiveForensicsAgentRun({
+      ...liveAgentTrace,
+      agentHookRecordIds: request.effectiveRecordIds,
+      allowedToolNames: davidCreditAgentMcpAllowedToolNames,
+      input: buildLiveCreditRiskQueryInput(
+        request,
+        "Previous live trace did not include a successful governed credit_negotiation_draft_structures source read for the requested draft."
       ),
       retryCap: 0,
       mcpServiceContext: {
@@ -226,6 +284,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
     liveRun.hookReceipts,
     request.account.accountId
   );
+  const policyRationale = await buildCreditPolicyRationaleResult(input, request);
 
   return {
     ...deterministicResponse,
@@ -244,6 +303,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot })
     },
     ...(negotiationDraft === undefined ? {} : { negotiationDraft }),
+    ...(policyRationale === undefined ? {} : { policyRationale }),
     trace: [...liveTrace, ...deterministicResponse.trace]
   };
 }
@@ -364,6 +424,108 @@ function hasCreditNegotiationDraftSourceRead(
       selectedRecordIds.some((recordId) => recordId !== accountId)
     );
   });
+}
+
+function wantsCreditNegotiationDraft(request: NormalizedCreditRiskQueryRequest): boolean {
+  return (
+    request.negotiationOrders.length > 0 &&
+    /\b(?:counter|deal|draft|negotiate|negotiation|option|price|simulate|structure|terms)\b/iu.test(request.question)
+  );
+}
+
+async function buildCreditPolicyRationaleResult(
+  input: CreditRiskQuerySessionInput,
+  request: NormalizedCreditRiskQueryRequest
+): Promise<CreditRiskPolicyRationaleResult | undefined> {
+  const policyKey = policyKeyForQuestion(request.question);
+  if (policyKey === undefined || input.dealOptimizerRows === undefined) {
+    return undefined;
+  }
+
+  const policy = parseActiveCreditNegotiationPolicyRows(input.dealOptimizerRows.policyRows);
+  const policyValueText = policy.canonicalValueText[policyKey];
+  if (input.policyRationaleReader === undefined) {
+    return {
+      citations: [],
+      deterministicBasis: creditPolicyRationaleBasis,
+      executablePolicySource: "credit_negotiation_policy",
+      message: "Policy rationale unavailable.",
+      policyHash: policy.policyHash,
+      policyKey,
+      policyValueText,
+      policyVersion: policy.policyVersion,
+      status: "unavailable"
+    };
+  }
+
+  try {
+    const rationaleResults = await input.policyRationaleReader.searchPolicyRationale({
+      canonicalValueText: policyValueText,
+      policyHash: policy.policyHash,
+      policyKey,
+      policyVersion: policy.policyVersion,
+      question: request.question
+    });
+    const resolution = resolveCreditNegotiationPolicyRationale(policy, rationaleResults);
+    return {
+      citations: rationaleResults.map((result) => ({
+        content: result.content,
+        deterministicBasis: creditPolicyRationaleBasis,
+        recordId: result.recordId,
+        source: "vector-policy-rationale"
+      })),
+      deterministicBasis: creditPolicyRationaleBasis,
+      executablePolicySource: "credit_negotiation_policy",
+      message: resolution.message,
+      policyHash: policy.policyHash,
+      policyKey,
+      policyValueText,
+      policyVersion: policy.policyVersion,
+      status: resolution.status
+    };
+  } catch {
+    return {
+      citations: [],
+      deterministicBasis: creditPolicyRationaleBasis,
+      executablePolicySource: "credit_negotiation_policy",
+      message: "Policy rationale unavailable.",
+      policyHash: policy.policyHash,
+      policyKey,
+      policyValueText,
+      policyVersion: policy.policyVersion,
+      status: "unavailable"
+    };
+  }
+}
+
+function policyKeyForQuestion(question: string): CreditNegotiationPolicyKey | undefined {
+  const normalized = question.toLowerCase();
+  if (/\bmax[_\s-]*deposit[_\s-]*pct\b/u.test(normalized) || /(?:max|maximum|cap|capped|ceiling).{0,32}deposit/u.test(normalized)) {
+    return "max_deposit_pct";
+  }
+  if (/\bmin[_\s-]*deposit[_\s-]*pct\b/u.test(normalized) || /(?:min|minimum|floor).{0,32}deposit/u.test(normalized)) {
+    return "min_deposit_pct";
+  }
+  if (/\bmax[_\s-]*release[_\s-]*pct\b/u.test(normalized) || /(?:max|maximum|cap|capped|ceiling).{0,32}release/u.test(normalized)) {
+    return "max_release_pct";
+  }
+  if (/\bmin[_\s-]*release[_\s-]*pct\b/u.test(normalized) || /(?:min|minimum|floor).{0,32}release/u.test(normalized)) {
+    return "min_release_pct";
+  }
+  if (/\bmax[_\s-]*tranches\b/u.test(normalized) || /(?:max|maximum|cap|capped|ceiling).{0,32}tranches?/u.test(normalized)) {
+    return "max_tranches";
+  }
+  if (/\bmax[_\s-]*collateral[_\s-]*ratio\b/u.test(normalized) || /(?:max|maximum|cap|capped|ceiling).{0,32}collateral/u.test(normalized)) {
+    return "max_collateral_ratio";
+  }
+  if (
+    /\bmax[_\s-]*financing[_\s-]*spread[_\s-]*bps\b/u.test(normalized) ||
+    /(?:max|maximum|cap|capped|ceiling).{0,32}(?:financing|spread)/u.test(normalized)
+  ) {
+    return "max_financing_spread_bps";
+  }
+
+  return undefined;
 }
 
 function buildCreditNegotiationDraftResult(
@@ -566,6 +728,10 @@ function buildLiveCreditRiskQueryInput(
       ? []
       : [
           `Negotiation draft tool is available for order IDs: ${request.negotiationOrders.map((order) => `${order.orderId} (${order.sourceRecordIds.join(", ")})`).join("; ")}.`,
+          ...request.negotiationOrders.map(
+            (order) =>
+              `When calling credit_negotiation_draft_structures for ${order.orderId}, recordIds must include ${request.account.accountId}, ${order.orderId}, and ${order.sourceRecordIds.join(", ")}.`
+          ),
           "If the question asks to draft, simulate, negotiate, counter, or price a deal structure, call the SDK-visible governed MCP function tool credit_negotiation_draft_structures (Recoup service credit_negotiation.draft_structures) exactly once after credit_risk_answer.",
           "The credit_negotiation_draft_structures structures array must contain only candidateId, collateralRatio, depositPct, financingSpreadBps, releasePct, and trancheCount. Do not include amount, dollar, price, revenue, cost, loss, objective, or objectiveValue fields."
         ]),

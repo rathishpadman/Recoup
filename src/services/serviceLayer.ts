@@ -32,6 +32,7 @@ import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 import { assessHarborSentinel } from "../agents/sentinel.js";
 import {
+  buildCreditNegotiationApprovalAction,
   buildCreditRiskApprovalAction,
   buildCreditRiskReviewModel,
   type CreditRiskRows
@@ -41,7 +42,7 @@ import {
   priceAgentDraftedDealStructures
 } from "./creditNegotiationDrafts.js";
 import type { CreditNegotiationPolicyRow } from "./creditNegotiationPolicy.js";
-import type { DealOptimizerRows } from "./dealOptimizer.js";
+import { buildDealOptimizerModel, type DealOptimizerRows } from "./dealOptimizer.js";
 import {
   emailSendCapabilitiesForPrincipal,
   emailStatusSecret,
@@ -645,6 +646,40 @@ function isServiceToolName(name: string): name is ServiceToolName {
 }
 
 function findPendingAction(actionId: string, context: ServiceInvocationContext): ProposedExternalAction {
+  if (actionId.startsWith("credit-v2:negotiation:")) {
+    const match = /^credit-v2:negotiation:([^:]+):r([1-9]\d*)$/u.exec(actionId);
+    if (match === null) {
+      throw new Error("Action not found.");
+    }
+
+    const orderId = match[1];
+    const roundValue = match[2];
+    if (orderId === undefined || roundValue === undefined) {
+      throw new Error("Action not found.");
+    }
+
+    const round = Number.parseInt(roundValue, 10);
+    const rows = readCreditRiskRows(context);
+    const model = buildCreditRiskReviewModel(rows);
+    const account = model.accounts.find((entry) => entry.negotiationOrders.some((order) => order.orderId === orderId));
+    const order = account?.negotiationOrders.find((entry) => entry.orderId === orderId);
+    if (account !== undefined && order !== undefined) {
+      const selectedCandidate =
+        context.dealOptimizerRows === undefined
+          ? undefined
+          : buildDealOptimizerModel({
+              creditRiskRows: rows,
+              orderId,
+              policyRows: context.dealOptimizerRows.policyRows,
+              seed: 42,
+              simRows: context.dealOptimizerRows.simRows
+            }).rankedCandidates[0];
+      return buildCreditNegotiationApprovalAction(account, order, round, selectedCandidate);
+    }
+
+    throw new Error("Action not found.");
+  }
+
   if (actionId.startsWith("credit-v2:")) {
     const rows = readCreditRiskRows(context);
     const account = buildCreditRiskReviewModel(rows).accounts.find((entry) => entry.packet.actionId === actionId);
@@ -798,7 +833,9 @@ function priceSourceBackedCreditNegotiationDrafts(input: unknown, context: Servi
     throw new Error("credit_negotiation.draft_structures order is outside the selected David account scope.");
   }
 
-  const allowedRecordIds = new Set([parsed.accountId, parsed.orderId, ...order.sourceRecordIds]);
+  const scopedAccountRecordIds =
+    context.creditRiskAnswerScope?.accountId === parsed.accountId ? context.creditRiskAnswerScope.recordIds : [];
+  const allowedRecordIds = new Set([parsed.accountId, parsed.orderId, ...order.sourceRecordIds, ...scopedAccountRecordIds]);
   if (parsed.recordIds.some((recordId) => !allowedRecordIds.has(recordId))) {
     throw new Error("credit_negotiation.draft_structures input is outside the selected order evidence scope.");
   }

@@ -59,6 +59,7 @@ create table if not exists credit_negotiation_policy (
 create table if not exists credit_deal_scenarios (
   scenario_id text primary key,
   order_id text not null references credit_orders(order_id),
+  candidate_id text not null,
   seed integer not null,
   candidate_json jsonb not null check (jsonb_typeof(candidate_json) = 'object'),
   objective_value numeric not null,
@@ -67,8 +68,98 @@ create table if not exists credit_deal_scenarios (
   source_hash text not null check (source_hash ~ '^[a-f0-9]{64}$'),
   policy_hash text not null check (policy_hash ~ '^[a-f0-9]{64}$'),
   source_record_ids jsonb not null check (jsonb_typeof(source_record_ids) = 'array'),
+  payload_json jsonb not null default '{}'::jsonb check (jsonb_typeof(payload_json) = 'object'),
   created_at timestamptz not null default now(),
   unique(order_id, source_hash, policy_hash, seed, ranked_position)
+);
+
+alter table credit_deal_scenarios add column if not exists candidate_id text;
+alter table credit_deal_scenarios add column if not exists seed integer;
+alter table credit_deal_scenarios add column if not exists candidate_json jsonb;
+alter table credit_deal_scenarios add column if not exists objective_value numeric;
+alter table credit_deal_scenarios add column if not exists ranked_position integer;
+alter table credit_deal_scenarios add column if not exists payload_json jsonb not null default '{}'::jsonb;
+
+create table if not exists credit_negotiation_rounds (
+  round_id text primary key,
+  order_id text not null references credit_orders(order_id),
+  account_id text not null references credit_accounts(account_id),
+  round_no integer not null check (round_no > 0),
+  status text not null check (status in ('drafted','sent','countered','human_review','accepted','rejected','withdrawn','closed')),
+  our_proposal_json jsonb not null default '{}'::jsonb check (jsonb_typeof(our_proposal_json) = 'object'),
+  their_counter_json jsonb check (their_counter_json is null or jsonb_typeof(their_counter_json) = 'object'),
+  approved_action_id text,
+  inbound_email_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(order_id, round_no)
+);
+
+create table if not exists credit_negotiation_sends (
+  send_id text primary key default gen_random_uuid()::text,
+  round_id text not null references credit_negotiation_rounds(round_id),
+  action_id text not null,
+  account_id text not null references credit_accounts(account_id),
+  order_id text not null references credit_orders(order_id),
+  round_no integer not null check (round_no > 0),
+  approved_body_hash text not null check (approved_body_hash ~ '^[a-f0-9]{64}$'),
+  sent_body_hash text check (sent_body_hash is null or sent_body_hash ~ '^[a-f0-9]{64}$'),
+  provider_email_id text,
+  idempotency_key text not null unique,
+  from_email text not null,
+  reply_to_email text not null,
+  to_email text not null,
+  subject text not null,
+  principal text,
+  status text not null check (status in ('pending','sent','failed')),
+  reserved_at timestamptz not null default now(),
+  sent_at timestamptz,
+  unique(action_id)
+);
+
+create table if not exists credit_negotiation_inbound_emails (
+  inbound_email_id text primary key default gen_random_uuid()::text,
+  round_id text not null references credit_negotiation_rounds(round_id),
+  account_id text not null references credit_accounts(account_id),
+  order_id text not null references credit_orders(order_id),
+  round_no integer not null check (round_no > 0),
+  email_id text not null,
+  message_id text,
+  from_email text not null,
+  to_email text not null,
+  subject text not null,
+  source text not null check (source in ('email')),
+  raw_body_hash text not null check (raw_body_hash ~ '^[a-f0-9]{64}$'),
+  text_body_hash text check (text_body_hash is null or text_body_hash ~ '^[a-f0-9]{64}$'),
+  body_fetch_status text not null check (body_fetch_status in ('fetched','failed')),
+  created_at timestamptz not null default now(),
+  unique(email_id)
+);
+
+create table if not exists credit_counter_offers (
+  counter_offer_id text primary key default gen_random_uuid()::text,
+  round_id text not null references credit_negotiation_rounds(round_id),
+  account_id text not null references credit_accounts(account_id),
+  order_id text not null references credit_orders(order_id),
+  source text not null check (source in ('email','manual')),
+  email_id text,
+  message_id text,
+  cited_spans_json jsonb not null default '[]'::jsonb check (jsonb_typeof(cited_spans_json) = 'array'),
+  extracted_terms_json jsonb not null default '{}'::jsonb check (jsonb_typeof(extracted_terms_json) = 'object'),
+  parse_reason text,
+  status text not null check (status in ('grammar_valid','human_review')),
+  created_at timestamptz not null default now(),
+  unique(email_id)
+);
+
+create table if not exists credit_account_contacts (
+  account_id text not null references credit_accounts(account_id),
+  contact_email text not null,
+  contact_name text not null,
+  role text not null default 'ap',
+  created_at timestamptz not null default now(),
+  primary key (account_id, role),
+  unique(account_id, role)
 );
 
 alter table credit_orders enable row level security;
@@ -78,6 +169,11 @@ alter table sim_pos_sellthrough enable row level security;
 alter table credit_deal_candidate_grid enable row level security;
 alter table credit_negotiation_policy enable row level security;
 alter table credit_deal_scenarios enable row level security;
+alter table credit_negotiation_rounds enable row level security;
+alter table credit_negotiation_sends enable row level security;
+alter table credit_negotiation_inbound_emails enable row level security;
+alter table credit_counter_offers enable row level security;
+alter table credit_account_contacts enable row level security;
 
 insert into credit_orders (order_id, account_id, order_amount, gross_margin_pct, units, record_ids)
 values

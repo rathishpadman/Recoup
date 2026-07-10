@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import { z } from "zod";
-import { decisionEvalBars, partialHoldThresholds, seed } from "./thresholds.js";
+import { decisionEvalBars, partialHoldThresholds, seed } from "./thresholds.ts";
 
 const hashPattern = /^[a-f0-9]{64}$/u;
 const sumTolerance = 0.000000001;

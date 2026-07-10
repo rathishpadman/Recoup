@@ -568,7 +568,7 @@ async function ensureCockpit(appUrl: string, appPort: number, env: NodeJS.Proces
   const managedProcess = startManagedProcess(
     "cockpit",
     process.execPath,
-    [nextBin(), "dev", "cockpit", "--hostname", "127.0.0.1", "--port", appPort.toString()],
+    [nextBin(), "dev", "cockpit", "--webpack", "--hostname", "127.0.0.1", "--port", appPort.toString()],
     env
   );
   try {

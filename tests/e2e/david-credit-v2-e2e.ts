@@ -50,6 +50,22 @@ interface CreditQueryRouteResult {
     tokenUsage?: unknown;
     tokenUsageSnapshot?: { totalTokens?: unknown };
   };
+  negotiationDraft?: {
+    deterministicBasis?: unknown;
+    model?: {
+      rankedCandidates?: Array<{ candidateId?: unknown; objectiveValueLabel?: unknown }>;
+      rejectedCandidates?: Array<{ reason?: unknown }>;
+    };
+    toolName?: unknown;
+  };
+  policyRationale?: {
+    citations?: Array<{ content?: unknown; recordId?: unknown; source?: unknown }>;
+    executablePolicySource?: unknown;
+    message?: unknown;
+    policyKey?: unknown;
+    policyValueText?: unknown;
+    status?: unknown;
+  };
   trace?: Array<{ toolName?: unknown }>;
 }
 
@@ -158,6 +174,8 @@ async function main(): Promise<void> {
     }
 
     await verifyHarborNegotiationWorkbench(page, requireAccount(initialModel, "ACC-HAR"));
+    await runHarborNegotiationDraftCopilotQuery(page, requireAccount(initialModel, "ACC-HAR"));
+    await runHarborPolicyRationaleCopilotQuery(page, requireAccount(initialModel, "ACC-HAR"));
 
     await selectDavidAccount(page, crestline);
     await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
@@ -378,12 +396,101 @@ async function verifyHarborNegotiationWorkbench(page: Page, harbor: CreditRiskAc
     await expectTextInLocator(workbench, "Synthetic 3PL", "Harbor negotiation workbench synthetic source badge");
     await expectTextInLocator(workbench, "max-release-85", "Harbor negotiation top candidate");
     await expectTextInLocator(workbench, "$75,077.00", "Harbor negotiation deterministic objective");
+    const resetButton = workbench.getByTestId("david-negotiation-reset");
+    await resetButton.waitFor({ state: "visible", timeout: 10_000 });
+    assert(await resetButton.isEnabled(), "David negotiation reset control must be available for fresh human tests.");
     await page.keyboard.press("Escape");
     await workbench.waitFor({ state: "hidden", timeout: 10_000 });
   } finally {
     page.off("request", requestListener);
     page.off("response", responseListener);
   }
+}
+
+async function runHarborNegotiationDraftCopilotQuery(page: Page, harbor: CreditRiskAccountModel): Promise<void> {
+  const [order] = harbor.negotiationOrders;
+  assert(order !== undefined, "Harbor negotiation order must come from the backend read model.");
+  await selectDavidAccount(page, harbor);
+  const question = `Draft a safe negotiation structure for ${harbor.customer} order ${order.orderId}.`;
+  const responsePromise = page.waitForResponse((response) => isCreditQueryResponseForAccountQuestion(response, harbor.accountId, question), {
+    timeout: 120_000
+  });
+
+  const input = page.getByLabel("Ask David credit copilot");
+  await input.fill(question);
+  await input.press("Enter");
+
+  const response = await responsePromise;
+  const result = (await response.json()) as CreditQueryRouteResult;
+  assertDavidLiveCreditQueryResult(harbor, response.status(), result);
+  assert(
+    result.negotiationDraft?.toolName === "credit_negotiation.draft_structures",
+    `Harbor draft query did not return a governed negotiation draft: ${JSON.stringify(result.negotiationDraft)}`
+  );
+  const rankedCandidates = result.negotiationDraft.model?.rankedCandidates ?? [];
+  const rejectedCandidates = result.negotiationDraft.model?.rejectedCandidates ?? [];
+  assert(rankedCandidates.length > 0 || rejectedCandidates.length > 0, "Harbor draft query returned neither engine-priced ranked candidates nor policy rejection reasons.");
+  const topCandidate = rankedCandidates[0];
+  const firstRejectedCandidate = rejectedCandidates[0];
+  assert(
+    result.trace?.some((event) => event.toolName === "credit_negotiation.draft_structures") === true,
+    `Harbor draft query trace did not include credit_negotiation.draft_structures: ${JSON.stringify(result.trace)}`
+  );
+
+  const draftPanel = page.getByTestId("david-copilot-negotiation-draft");
+  await draftPanel.waitFor({ state: "visible", timeout: 45_000 });
+  await expectTextInLocator(draftPanel, "Agent-drafted", "David copilot negotiation draft panel");
+  await expectTextInLocator(draftPanel, "Engine-priced", "David copilot negotiation draft panel");
+  if (topCandidate !== undefined) {
+    assert(typeof topCandidate.candidateId === "string", "Harbor draft query top candidate omitted candidateId.");
+    assert(typeof topCandidate.objectiveValueLabel === "string", "Harbor draft query top candidate omitted objectiveValueLabel.");
+    await expectTextInLocator(draftPanel, topCandidate.candidateId, "David copilot negotiation draft top candidate");
+    await expectTextInLocator(draftPanel, topCandidate.objectiveValueLabel, "David copilot negotiation draft objective");
+  } else {
+    assert(typeof firstRejectedCandidate?.reason === "string", "Harbor draft query rejected candidate omitted reason.");
+    await expectTextInLocator(draftPanel, "Rejected structures", "David copilot negotiation draft rejected structures");
+    await expectTextInLocator(draftPanel, firstRejectedCandidate.reason, "David copilot negotiation draft rejection reason");
+  }
+  await expectTextInLocator(draftPanel, "credit_negotiation.draft_structures + deterministic deal optimizer", "David copilot negotiation draft basis");
+}
+
+async function runHarborPolicyRationaleCopilotQuery(page: Page, harbor: CreditRiskAccountModel): Promise<void> {
+  const question = "Why is max deposit capped at 60%?";
+  const responsePromise = page.waitForResponse((response) => isCreditQueryResponseForAccountQuestion(response, harbor.accountId, question), {
+    timeout: 120_000
+  });
+
+  await selectDavidAccount(page, harbor);
+  const input = page.getByLabel("Ask David credit copilot");
+  await input.fill(question);
+  await input.press("Enter");
+
+  const response = await responsePromise;
+  const result = (await response.json()) as CreditQueryRouteResult;
+  assertDavidLiveCreditQueryResult(harbor, response.status(), result);
+  assert(
+    result.policyRationale?.executablePolicySource === "credit_negotiation_policy",
+    `David policy query did not keep executable policy anchored to exact rows: ${JSON.stringify(result.policyRationale)}`
+  );
+  assert(result.policyRationale.policyKey === "max_deposit_pct", "David policy query did not resolve max_deposit_pct.");
+  assert(result.policyRationale.policyValueText === "60", "David policy query did not show exact policy value 60.");
+  assert(result.policyRationale.status === "available", `David policy rationale was not available: ${JSON.stringify(result.policyRationale)}`);
+  assert(
+    Array.isArray(result.policyRationale.citations) && result.policyRationale.citations.length > 0,
+    "David policy rationale did not include vector citations."
+  );
+  assert(!JSON.stringify(result.policyRationale).includes("value_text"), "David policy rationale exposed vector-side value_text.");
+  assert(!JSON.stringify(result.policyRationale).includes("valueText"), "David policy rationale exposed vector-side valueText.");
+
+  const policyPanel = page.getByTestId("david-copilot-policy-rationale");
+  await policyPanel.waitFor({ state: "visible", timeout: 45_000 });
+  await expectTextInLocator(policyPanel, "Policy rationale", "David copilot policy rationale panel");
+  await expectTextInLocator(policyPanel, "Exact policy row", "David copilot policy rationale panel");
+  await expectTextInLocator(policyPanel, "credit_negotiation_policy", "David copilot policy exact source");
+  await expectTextInLocator(policyPanel, "max_deposit_pct", "David copilot policy key");
+  await expectTextInLocator(policyPanel, "60", "David copilot policy value");
+  await expectTextInLocator(policyPanel, "Vector rationale", "David copilot vector rationale section");
+  await expectTextInLocator(policyPanel, String(result.policyRationale.citations[0]?.recordId), "David copilot vector citation");
 }
 
 async function selectDavidAccount(page: Page, account: CreditRiskAccountModel): Promise<void> {
@@ -407,6 +514,21 @@ function isCreditQueryResponseForAccount(response: import("playwright").Response
 
   const payload = safeJsonParse(response.request().postData() ?? "");
   return typeof payload === "object" && payload !== null && (payload as { accountId?: unknown }).accountId === accountId;
+}
+
+function isCreditQueryResponseForAccountQuestion(response: import("playwright").Response, accountId: string, question: string): boolean {
+  const url = new URL(response.url());
+  if (url.pathname !== "/api/credit/query" || response.request().method() !== "POST") {
+    return false;
+  }
+
+  const payload = safeJsonParse(response.request().postData() ?? "");
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { accountId?: unknown; question?: unknown }).accountId === accountId &&
+    (payload as { accountId?: unknown; question?: unknown }).question === question
+  );
 }
 
 function assertDavidLiveCreditQueryResult(

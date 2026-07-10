@@ -97,6 +97,7 @@ const davidAccountIds = parseCsvEnv("RECOUP_POST_PROD_DAVID_ACCOUNT_IDS", [
 const skipVoice = process.env.RECOUP_POST_PROD_SKIP_VOICE === "1";
 const queryTimeoutMs = Number(process.env.RECOUP_POST_PROD_QUERY_TIMEOUT_MS ?? "120000");
 const renderBudgetMs = Number(process.env.RECOUP_POST_PROD_MAYA_RENDER_BUDGET_MS ?? "60000");
+const creditWarmLoadBudgetMs = Number(process.env.RECOUP_POST_PROD_CREDIT_WARM_LOAD_BUDGET_MS ?? "5000");
 
 async function main(): Promise<void> {
   await mkdir(outputDir, { recursive: true });
@@ -320,12 +321,10 @@ async function smokeDavid(browser: Browser): Promise<CheckResult> {
   const page = await newInstrumentedPage(browser, { height: 1000, width: 1440 });
   try {
     await loginAsDemoUser(page, "david");
-    await page.goto(`${appUrl}/credit`, { timeout: 60_000, waitUntil: "domcontentloaded" });
-    await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 60_000 });
-    await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 60_000 });
+    const warmLoad = await measureCreditWarmLoad(page);
     for (const account of selectedAccounts) {
       await selectDavidAccount(page, account);
-      await assertDavidDrawersCollapsed(page);
+      await assertDavidDrawerDefaults(page);
       await assertNoDuplicateDavidGreeting(page);
       await runDavidLiveQuery(page, account);
     }
@@ -334,6 +333,7 @@ async function smokeDavid(browser: Browser): Promise<CheckResult> {
 
     return {
       details: {
+        warmLoad,
         accounts: selectedAccounts.map((account) => ({
           accountId: account.accountId,
           customer: account.customer,
@@ -346,6 +346,24 @@ async function smokeDavid(browser: Browser): Promise<CheckResult> {
   } finally {
     await page.close();
   }
+}
+
+async function measureCreditWarmLoad(page: Page): Promise<{ budgetMs: number; elapsedMs: number }> {
+  await openCreditWorkbench(page);
+  const startedAt = Date.now();
+  await openCreditWorkbench(page);
+  const elapsedMs = Date.now() - startedAt;
+  assert(
+    elapsedMs <= creditWarmLoadBudgetMs,
+    `Public /credit warmed load ${elapsedMs.toString()}ms exceeded ${creditWarmLoadBudgetMs.toString()}ms; troubleshoot David /credit slow loading before continuing the release path.`
+  );
+  return { budgetMs: creditWarmLoadBudgetMs, elapsedMs };
+}
+
+async function openCreditWorkbench(page: Page): Promise<void> {
+  await page.goto(`${appUrl}/credit`, { timeout: 60_000, waitUntil: "domcontentloaded" });
+  await page.locator('[data-testid="david-shadcn-workbench"]').waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator('[data-testid="david-risk-review-queue"]').waitFor({ state: "visible", timeout: 60_000 });
 }
 
 async function compareCreditBackendWithSupabase(): Promise<CheckResult> {
@@ -487,11 +505,17 @@ async function selectDavidAccount(page: Page, account: CreditRiskAccountModel): 
   assert((await dossier.innerText()).includes(account.customer), `David dossier did not show ${account.customer}.`);
 }
 
-async function assertDavidDrawersCollapsed(page: Page): Promise<void> {
-  for (const testId of ["david-assessment-timeline", "david-signals-in", "david-verdict-banner", "david-action-packet"]) {
+async function assertDavidDrawerDefaults(page: Page): Promise<void> {
+  await assertDavidDrawerOpen(page, "david-signals-in");
+  for (const testId of ["david-assessment-timeline", "david-verdict-banner", "david-action-packet"]) {
     const state = await page.getByTestId(testId).getAttribute("data-open", { timeout: 10_000 });
     assert(state === "false", `${testId} should be collapsed by default; saw data-open=${String(state)}.`);
   }
+}
+
+async function assertDavidDrawerOpen(page: Page, testId: string): Promise<void> {
+  const state = await page.getByTestId(testId).getAttribute("data-open", { timeout: 10_000 });
+  assert(state === "true", `${testId} should be expanded by default; saw data-open=${String(state)}.`);
 }
 
 async function assertNoDuplicateDavidGreeting(page: Page): Promise<void> {

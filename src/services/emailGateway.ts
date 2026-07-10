@@ -27,6 +27,85 @@ interface ResendEmailProviderBody {
   to: string[];
 }
 
+interface ResendNegotiationEmailProviderBody extends ResendEmailProviderBody {
+  headers?: Record<string, string> | undefined;
+  reply_to: string;
+}
+
+export interface CreditNegotiationEmailDraft {
+  accountId: string;
+  actionId: string;
+  approvedBodyHash: string;
+  body: string;
+  from: string;
+  headers?: Record<string, string> | undefined;
+  orderId: string;
+  replyTo: string;
+  round: number;
+  subject: string;
+  to: string;
+}
+
+export interface CreditNegotiationEmailSendResult {
+  accountId: string;
+  actionId: string;
+  approvedBodyHash: string;
+  idempotencyKey: string;
+  orderId: string;
+  principal?: string | undefined;
+  providerEmailId: string;
+  round: number;
+  sentBodyHash: string;
+  status: string;
+}
+
+interface CreditNegotiationEmailLedgerBase {
+  accountId: string;
+  actionId: string;
+  approvedBodyHash: string;
+  from: string;
+  idempotencyKey: string;
+  orderId: string;
+  principal?: string | undefined;
+  replyTo: string;
+  round: number;
+  subject: string;
+  to: string;
+}
+
+export interface CreditNegotiationEmailPendingLedgerEntry extends CreditNegotiationEmailLedgerBase {
+  reservedAtIso: string;
+  status: "pending";
+}
+
+export interface CreditNegotiationEmailFailedLedgerEntry extends CreditNegotiationEmailLedgerBase {
+  reservedAtIso: string;
+  status: "failed";
+}
+
+export interface CreditNegotiationEmailSendLedgerEntry extends CreditNegotiationEmailLedgerBase {
+  providerEmailId: string;
+  sentAtIso: string;
+  sentBodyHash: string;
+  status: string;
+}
+
+export interface CreditNegotiationEmailSendLedger {
+  insertPending(row: CreditNegotiationEmailPendingLedgerEntry): Promise<CreditNegotiationEmailPendingLedgerEntry>;
+  markFailed(row: CreditNegotiationEmailFailedLedgerEntry): Promise<CreditNegotiationEmailFailedLedgerEntry>;
+  markSent(row: CreditNegotiationEmailSendLedgerEntry): Promise<CreditNegotiationEmailSendLedgerEntry>;
+  readByActionId(
+    actionId: string
+  ): Promise<
+    CreditNegotiationEmailFailedLedgerEntry | CreditNegotiationEmailPendingLedgerEntry | CreditNegotiationEmailSendLedgerEntry | undefined
+  >;
+  readByIdempotencyKey(
+    idempotencyKey: string
+  ): Promise<
+    CreditNegotiationEmailFailedLedgerEntry | CreditNegotiationEmailPendingLedgerEntry | CreditNegotiationEmailSendLedgerEntry | undefined
+  >;
+}
+
 export interface EmailSendReceipt {
   actionId: string;
   bodyHtmlHash: string;
@@ -122,6 +201,148 @@ export async function sendResendEmail(input: {
   } finally {
     emailSendInFlight.delete(sendKey);
   }
+}
+
+export async function sendNegotiationEmail(input: {
+  config: RecoupEmailConfig;
+  draft: CreditNegotiationEmailDraft;
+  fetchImpl?: EmailFetch | undefined;
+  principal?: string | undefined;
+  sendLedger: CreditNegotiationEmailSendLedger;
+}): Promise<CreditNegotiationEmailSendResult> {
+  const sendLedger = (input as { sendLedger?: CreditNegotiationEmailSendLedger | undefined }).sendLedger;
+  if (sendLedger === undefined) {
+    throw new EmailGatewayError("Credit negotiation send ledger is required.", 503);
+  }
+
+  const textBody = input.draft.body;
+  const htmlBody = plainTextEmailHtml(textBody);
+  const sentBodyHash = sha256Hex(textBody);
+  if (sentBodyHash !== input.draft.approvedBodyHash) {
+    throw new EmailGatewayError("Negotiation email body does not match the approved draft.", 409);
+  }
+
+  const providerBody = buildResendNegotiationEmailProviderBody(input.draft, { htmlBody, textBody });
+  const sendKey = creditNegotiationEmailSendKey(input.draft, providerBody);
+  const idempotencyKey = creditNegotiationResendIdempotencyKey(sendKey);
+  const existingActionSend = await sendLedger.readByActionId(input.draft.actionId);
+  if (existingActionSend !== undefined) {
+    if (isCreditNegotiationSentLedgerEntry(existingActionSend)) {
+      return creditNegotiationEmailSendResultFromLedger(existingActionSend, "already_sent");
+    }
+    if (isCreditNegotiationFailedLedgerEntry(existingActionSend)) {
+      throw new EmailGatewayError("Credit negotiation send has already failed.", 409);
+    }
+    throw new EmailGatewayError("Credit negotiation send is already pending.", 409);
+  }
+  const existingSend = await sendLedger.readByIdempotencyKey(idempotencyKey);
+  if (existingSend !== undefined) {
+    if (isCreditNegotiationSentLedgerEntry(existingSend)) {
+      return creditNegotiationEmailSendResultFromLedger(existingSend, "already_sent");
+    }
+    if (isCreditNegotiationFailedLedgerEntry(existingSend)) {
+      throw new EmailGatewayError("Credit negotiation send has already failed.", 409);
+    }
+    throw new EmailGatewayError("Credit negotiation send is already pending.", 409);
+  }
+
+  const pendingEntry: CreditNegotiationEmailPendingLedgerEntry = {
+    accountId: input.draft.accountId,
+    actionId: input.draft.actionId,
+    approvedBodyHash: input.draft.approvedBodyHash,
+    from: input.draft.from,
+    idempotencyKey,
+    orderId: input.draft.orderId,
+    ...(input.principal === undefined ? {} : { principal: input.principal }),
+    replyTo: input.draft.replyTo,
+    reservedAtIso: new Date().toISOString(),
+    round: input.draft.round,
+    status: "pending",
+    subject: input.draft.subject,
+    to: input.draft.to
+  };
+  await sendLedger.insertPending(pendingEntry);
+
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const failedEntry: CreditNegotiationEmailFailedLedgerEntry = { ...pendingEntry, status: "failed" };
+  let response: Response;
+  let payload: Record<string, unknown>;
+  try {
+    response = await fetchImpl("https://api.resend.com/emails", {
+      body: JSON.stringify(providerBody),
+      headers: {
+        authorization: `Bearer ${input.config.resendApiKey}`,
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey
+      },
+      method: "POST"
+    });
+    payload = await readJsonObject(response);
+  } catch (error) {
+    await sendLedger.markFailed(failedEntry);
+    throw new EmailGatewayError("Negotiation email provider send failed.", error instanceof EmailGatewayError ? error.status : 502);
+  }
+
+  if (!response.ok) {
+    await sendLedger.markFailed(failedEntry);
+    throw new EmailGatewayError(`Negotiation email provider send failed. Provider status ${response.status.toString()}.`, response.status);
+  }
+
+  const providerEmailId = readString(payload.id);
+  if (providerEmailId === undefined) {
+    await sendLedger.markFailed(failedEntry);
+    throw new EmailGatewayError("Negotiation email provider response missing message id.", 502);
+  }
+
+  const sentEntry: CreditNegotiationEmailSendLedgerEntry = {
+    accountId: input.draft.accountId,
+    actionId: input.draft.actionId,
+    approvedBodyHash: input.draft.approvedBodyHash,
+    from: input.draft.from,
+    idempotencyKey,
+    orderId: input.draft.orderId,
+    ...(input.principal === undefined ? {} : { principal: input.principal }),
+    providerEmailId,
+    replyTo: input.draft.replyTo,
+    round: input.draft.round,
+    sentAtIso: new Date().toISOString(),
+    sentBodyHash,
+    status: "sent",
+    subject: input.draft.subject,
+    to: input.draft.to
+  };
+  const persistedEntry = await sendLedger.markSent(sentEntry);
+  return creditNegotiationEmailSendResultFromLedger(persistedEntry, persistedEntry.status);
+}
+
+function isCreditNegotiationSentLedgerEntry(
+  entry: CreditNegotiationEmailFailedLedgerEntry | CreditNegotiationEmailPendingLedgerEntry | CreditNegotiationEmailSendLedgerEntry
+): entry is CreditNegotiationEmailSendLedgerEntry {
+  return typeof (entry as { providerEmailId?: unknown }).providerEmailId === "string";
+}
+
+function isCreditNegotiationFailedLedgerEntry(
+  entry: CreditNegotiationEmailFailedLedgerEntry | CreditNegotiationEmailPendingLedgerEntry | CreditNegotiationEmailSendLedgerEntry
+): entry is CreditNegotiationEmailFailedLedgerEntry {
+  return entry.status === "failed";
+}
+
+function creditNegotiationEmailSendResultFromLedger(
+  entry: CreditNegotiationEmailSendLedgerEntry,
+  status: string
+): CreditNegotiationEmailSendResult {
+  return {
+    accountId: entry.accountId,
+    actionId: entry.actionId,
+    approvedBodyHash: entry.approvedBodyHash,
+    idempotencyKey: entry.idempotencyKey,
+    orderId: entry.orderId,
+    ...(entry.principal === undefined ? {} : { principal: entry.principal }),
+    providerEmailId: entry.providerEmailId,
+    round: entry.round,
+    sentBodyHash: entry.sentBodyHash,
+    status
+  };
 }
 
 async function deliverResendEmail(input: {
@@ -329,6 +550,22 @@ function buildResendEmailProviderBody(
   };
 }
 
+function buildResendNegotiationEmailProviderBody(
+  draft: CreditNegotiationEmailDraft,
+  body: { htmlBody: string; textBody: string }
+): ResendNegotiationEmailProviderBody {
+  const headers = normalizeNegotiationEmailHeaders(draft.headers);
+  return {
+    from: draft.from,
+    ...(headers === undefined ? {} : { headers }),
+    html: body.htmlBody,
+    reply_to: draft.replyTo,
+    subject: draft.subject,
+    text: body.textBody,
+    to: [draft.to]
+  };
+}
+
 function emailSendLedgerKey(draft: RecoupEmailDraft, providerBody: ResendEmailProviderBody): string {
   return [
     draft.actionId,
@@ -338,8 +575,21 @@ function emailSendLedgerKey(draft: RecoupEmailDraft, providerBody: ResendEmailPr
   ].join("\u0000");
 }
 
+function creditNegotiationEmailSendKey(
+  draft: CreditNegotiationEmailDraft,
+  providerBody: ResendNegotiationEmailProviderBody
+): string {
+  return [draft.actionId, draft.accountId, draft.orderId, draft.round.toString(), sha256Hex(JSON.stringify(providerBody))].join(
+    "\u0000"
+  );
+}
+
 function resendIdempotencyKey(sendKey: string): string {
   return `recoup-email/${sha256Hex(sendKey)}`;
+}
+
+function creditNegotiationResendIdempotencyKey(sendKey: string): string {
+  return `recoup-credit-negotiation/${sha256Hex(sendKey)}`;
 }
 
 function emailSendResultFromReceipt(receipt: EmailSendReceipt, status: string, statusSecret: string): EmailSendResult {
@@ -358,6 +608,22 @@ function emailSendResultFromReceipt(receipt: EmailSendReceipt, status: string, s
 function plainTextEmailHtml(body: string): string {
   const escaped = escapeHtml(body).replace(/\r?\n/gu, "<br />\n");
   return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#111827;">${escaped}</div>`;
+}
+
+function normalizeNegotiationEmailHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (headers === undefined) {
+    return undefined;
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const key of ["In-Reply-To", "References"] as const) {
+    const value = headers[key]?.trim();
+    if (value !== undefined && value.length > 0) {
+      normalized[key] = value;
+    }
+  }
+
+  return Object.keys(normalized).length === 0 ? undefined : normalized;
 }
 
 function escapeHtml(value: string): string {

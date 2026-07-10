@@ -7,6 +7,7 @@ import type {
   ArOpenItemRow as CreditRiskArOpenItemRow,
   ContractTpmRow as CreditRiskContractTpmRow,
   CreditEvidenceDocumentRow as CreditRiskEvidenceDocumentRow,
+  CreditNegotiationRoundSource,
   CreditPolicy,
   CreditRiskRows,
   DeductionLineRow as CreditRiskDeductionLineRow,
@@ -18,6 +19,7 @@ import type {
 import type {
   DealOptimizerRows,
   DealOptimizerCandidateStructure,
+  DealOptimizerCounterOfferRow,
   DealOptimizerCostOfCapitalRow,
   DealOptimizerInventoryRow,
   DealOptimizerOrderRow,
@@ -164,6 +166,8 @@ type CreditNegotiationTableName =
   | "sim_cost_of_capital"
   | "sim_pos_sellthrough"
   | "credit_deal_candidate_grid"
+  | "credit_counter_offers"
+  | "credit_negotiation_rounds"
   | "credit_negotiation_policy";
 
 const creditRiskSnapshotRowSchema = z.object({
@@ -320,6 +324,26 @@ const creditNegotiationPolicyRowSchema = z.object({
   policy_version: z.coerce.number().int(),
   record_id: z.string().min(1),
   value_text: z.string().min(1)
+});
+
+const creditNegotiationRoundRowSchema = z.object({
+  account_id: z.string().min(1),
+  order_id: z.string().min(1),
+  round_id: z.string().min(1),
+  round_no: z.coerce.number().int().positive(),
+  status: z.enum(["accepted", "countered", "drafted", "rejected", "sent", "withdrawn"])
+});
+
+const creditCounterOfferRowSchema = z.object({
+  account_id: z.string().min(1),
+  counter_offer_id: z.string().min(1),
+  email_id: z.string().nullable().optional(),
+  extracted_terms_json: z.preprocess(parseJsonCell, z.record(z.unknown())),
+  message_id: z.string().nullable().optional(),
+  order_id: z.string().min(1),
+  round_id: z.string().min(1),
+  source: z.enum(["email", "manual"]),
+  status: z.enum(["grammar_valid", "human_review"])
 });
 
 export class MissingCreditRiskSourceError extends Error {
@@ -1041,72 +1065,81 @@ export async function loadCreditRiskRows(
     contractTpmRows,
     evidenceDocumentRows,
     meshPositionRows,
-    policyRows
+    policyRows,
+    negotiationRoundRows
   ] = await Promise.all([
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_snapshot"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "account_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_accounts"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "invoice_no.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_ar_open_items"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "account_id.asc,period.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_sales_monthly"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "payment_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_payment_history"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "scenario_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_deductions"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "line_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_deduction_lines"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "reference_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_contract_tpm"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "account_id.asc,document_id.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_evidence_documents"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "account_id.asc,position.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_risk_mesh_positions"
     }),
-    requestSupabaseRows(supabaseFetch, {
+    requestCreditRiskRows(supabaseFetch, {
       baseUrl,
       orderBy: "key.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_policy"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
+      orderBy: "order_id.asc,round_no.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_negotiation_rounds"
+    }).catch((error: unknown) => {
+      throw new MissingCreditNegotiationSourceError("credit_negotiation_rounds", error);
     })
   ]);
 
@@ -1145,6 +1178,11 @@ export async function loadCreditRiskRows(
     creditRiskMeshPositionRowSchema
   ).map(mapCreditRiskMeshPositionRow);
   const policy = mapCreditRiskPolicyRows(parseCreditRiskRows("credit_policy", policyRows, creditRiskPolicyRowSchema));
+  const negotiationRounds = parseCreditNegotiationRowsAllowEmpty(
+    "credit_negotiation_rounds",
+    negotiationRoundRows,
+    creditNegotiationRoundRowSchema
+  ).map(mapCreditNegotiationRoundRow);
 
   const currentSnapshot = snapshots.find((row) => row.id === "current") ?? snapshots[0];
   if (currentSnapshot === undefined) {
@@ -1160,6 +1198,7 @@ export async function loadCreditRiskRows(
     evidenceDocuments,
     paymentHistory,
     policy,
+    negotiationRounds,
     riskMeshPositions,
     salesMonthly,
     snapshot: {
@@ -1178,7 +1217,7 @@ export async function loadDealOptimizerSourceRows(
 
   const baseUrl = normalizeSupabaseUrl(env.SUPABASE_URL);
   const supabaseFetch = fetcher ?? fetch;
-  const [orderRows, inventoryRows, costOfCapitalRows, posSellthroughRows, candidateRows, policyRows] = await Promise.all([
+  const [orderRows, inventoryRows, costOfCapitalRows, posSellthroughRows, candidateRows, counterOfferRows, policyRows] = await Promise.all([
     requestSupabaseRows(supabaseFetch, {
       baseUrl,
       orderBy: "order_id.asc",
@@ -1211,6 +1250,12 @@ export async function loadDealOptimizerSourceRows(
     }),
     requestSupabaseRows(supabaseFetch, {
       baseUrl,
+      orderBy: "order_id.asc,round_id.asc,counter_offer_id.asc",
+      serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+      tableName: "credit_counter_offers"
+    }),
+    requestSupabaseRows(supabaseFetch, {
+      baseUrl,
       orderBy: "key.asc",
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
       tableName: "credit_negotiation_policy"
@@ -1229,6 +1274,11 @@ export async function loadDealOptimizerSourceRows(
         candidateRows,
         dealCandidateStructureRowSchema
       ).map(mapDealCandidateStructureRow),
+      counterOffers: parseCreditNegotiationRowsAllowEmpty(
+        "credit_counter_offers",
+        counterOfferRows,
+        creditCounterOfferRowSchema
+      ).map(mapCreditCounterOfferRow),
       costOfCapital: parseCreditNegotiationRows(
         "sim_cost_of_capital",
         costOfCapitalRows,
@@ -1279,6 +1329,26 @@ async function requestSupabaseRows(
   return rows.map((row: unknown) => row);
 }
 
+async function requestCreditRiskRows(
+  fetcher: SupabaseSyntheticSourceFetch,
+  input: {
+    baseUrl: string;
+    orderBy?: string;
+    serviceRoleKey: string;
+    tableName: CreditRiskTableName;
+  }
+): Promise<unknown[]> {
+  try {
+    return await requestSupabaseRows(fetcher, input);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new MissingCreditRiskSourceError(input.tableName, error);
+    }
+
+    throw error;
+  }
+}
+
 function parseCreditRiskRows<T>(
   tableName: CreditRiskTableName,
   rows: readonly unknown[],
@@ -1311,6 +1381,18 @@ function parseCreditNegotiationRows<T>(
   }
 }
 
+function parseCreditNegotiationRowsAllowEmpty<T>(
+  tableName: CreditNegotiationTableName,
+  rows: readonly unknown[],
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): T[] {
+  try {
+    return rows.map((row) => schema.parse(row));
+  } catch (error) {
+    throw new MissingCreditNegotiationSourceError(tableName, error);
+  }
+}
+
 function mapCreditOrderRow(row: z.infer<typeof creditOrderRowSchema>): DealOptimizerOrderRow {
   return {
     accountId: row.account_id,
@@ -1332,6 +1414,35 @@ function mapDealCandidateStructureRow(row: z.infer<typeof dealCandidateStructure
     sourceRecordIds: row.record_ids,
     trancheCount: row.tranche_count
   };
+}
+
+function mapCreditCounterOfferRow(row: z.infer<typeof creditCounterOfferRowSchema>): DealOptimizerCounterOfferRow {
+  const extractedTerms: DealOptimizerCounterOfferRow["extractedTerms"] = {};
+  for (const key of ["collateralRatio", "depositPct", "financingSpreadBps", "releasePct", "trancheCount"] as const) {
+    const term = readCounterTerm(row.extracted_terms_json, key);
+    if (term !== undefined) {
+      extractedTerms[key] = term;
+    }
+  }
+
+  return {
+    accountId: row.account_id,
+    counterOfferId: row.counter_offer_id,
+    extractedTerms,
+    orderId: row.order_id,
+    roundId: row.round_id,
+    source: row.source,
+    sourceRecordIds: [`credit_counter_offers:${row.counter_offer_id}`],
+    status: row.status
+  };
+}
+
+function readCounterTerm(
+  terms: Record<string, unknown>,
+  key: "collateralRatio" | "depositPct" | "financingSpreadBps" | "releasePct" | "trancheCount"
+): number | string | undefined {
+  const value = terms[key];
+  return typeof value === "number" || typeof value === "string" ? value : undefined;
 }
 
 function mapSimCostOfCapitalRow(row: z.infer<typeof simCostOfCapitalRowSchema>): DealOptimizerCostOfCapitalRow {
@@ -1371,6 +1482,16 @@ function mapCreditNegotiationPolicyRow(row: z.infer<typeof creditNegotiationPoli
     policyVersion: row.policy_version,
     recordId: row.record_id,
     valueText: row.value_text
+  };
+}
+
+function mapCreditNegotiationRoundRow(row: z.infer<typeof creditNegotiationRoundRowSchema>): CreditNegotiationRoundSource {
+  return {
+    accountId: row.account_id,
+    orderId: row.order_id,
+    round: row.round_no,
+    roundId: row.round_id,
+    status: row.status
   };
 }
 

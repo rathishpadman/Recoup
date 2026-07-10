@@ -94,6 +94,7 @@ describe("David credit v2 route scaffold", () => {
     expect(copilot).not.toContain("disabledInputPlaceholder");
     expect(dossier).toContain("DavidDecisionFlow");
     expect(negotiationWorkbench).toContain("account.negotiationOrders");
+    expect(negotiationWorkbench).not.toContain("round: 1");
     expect(negotiationWorkbench).not.toContain("ORD-HARBOR-6534");
     expect(negotiationWorkbench).not.toContain("ACC-HAR");
     expect(watchlist).not.toContain('new Set(["S3", "S6"])');

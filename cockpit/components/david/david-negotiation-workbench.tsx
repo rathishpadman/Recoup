@@ -1,10 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircleIcon, Loader2Icon, SparklesIcon } from "lucide-react";
+import { useRouter } from "next/navigation.js";
+import { AlertCircleIcon, CheckCircle2Icon, Loader2Icon, RotateCcwIcon, SendIcon, SparklesIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -13,23 +16,58 @@ import {
   SheetTitle,
   SheetTrigger
 } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import type { CreditRiskAccountModel, DealOptimizerModel } from "../../app/cockpit-data.ts";
+import type { CreditRiskAccountModel, DealOptimizerCandidateModel, DealOptimizerModel } from "../../app/cockpit-data.ts";
+import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 
+type NegotiationOrder = CreditRiskAccountModel["negotiationOrders"][number];
+
+interface NegotiationApprovalPacket {
+  actionId: string;
+  packetDetail: string;
+  packetTitle: string;
+  recordIds: string[];
+  routeLabel: "Negotiation email";
+  round: number;
+}
+
 export function DavidNegotiationWorkbench({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
+  const router = useRouter();
   const order = account.negotiationOrders[0];
   const orderId = order?.orderId;
+  const hydratedApprovalActionId = order === undefined ? undefined : readHydratedNegotiationApprovalActionId(order);
   const [open, setOpen] = React.useState(false);
   const [model, setModel] = React.useState<DealOptimizerModel | undefined>();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
+  const [resetting, setResetting] = React.useState(false);
+  const [resetMessage, setResetMessage] = React.useState<string | undefined>();
+  const [manualCounterText, setManualCounterText] = React.useState("");
+  const [manualCounterRound, setManualCounterRound] = React.useState(order === undefined ? "1" : defaultManualCounterRound(order));
+  const [manualCountering, setManualCountering] = React.useState(false);
+  const [manualCounterMessage, setManualCounterMessage] = React.useState<string | undefined>();
+  const [approvalDialogOpen, setApprovalDialogOpen] = React.useState(false);
+  const [approvalRecordedActionId, setApprovalRecordedActionId] = React.useState<string | undefined>(() => hydratedApprovalActionId);
+  const [sendingEmail, setSendingEmail] = React.useState(false);
+  const [sendMessage, setSendMessage] = React.useState<string | undefined>();
 
   React.useEffect(() => {
     setModel(undefined);
     setLoading(false);
     setError(undefined);
-  }, [orderId]);
+    setResetMessage(undefined);
+    setResetting(false);
+    setManualCounterText("");
+    setManualCounterRound(order === undefined ? "1" : defaultManualCounterRound(order));
+    setManualCountering(false);
+    setManualCounterMessage(undefined);
+    setApprovalDialogOpen(false);
+    setApprovalRecordedActionId(hydratedApprovalActionId);
+    setSendingEmail(false);
+    setSendMessage(undefined);
+  }, [hydratedApprovalActionId, order, orderId]);
 
   React.useEffect(() => {
     if (!open || orderId === undefined || model !== undefined) {
@@ -69,7 +107,7 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
     };
   }, [model, open, orderId]);
 
-  if (orderId === undefined) {
+  if (order === undefined || orderId === undefined) {
     return (
       <TooltipProvider>
         <Tooltip>
@@ -85,6 +123,117 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
         </Tooltip>
       </TooltipProvider>
     );
+  }
+  const activeOrder = order;
+
+  async function resetCommunication(): Promise<void> {
+    if (orderId === undefined) {
+      return;
+    }
+
+    setResetting(true);
+    setResetMessage(undefined);
+    try {
+      const response = await fetch("/api/credit/negotiation/reset", {
+        body: JSON.stringify({
+          orderId,
+          reason: "David negotiation workbench fresh-test reset"
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      });
+      if (!response.ok) {
+        setResetMessage("Communication reset unavailable.");
+        return;
+      }
+
+      setResetMessage("Communication reset recorded.");
+      router.refresh();
+    } catch {
+      setResetMessage("Communication reset service unavailable.");
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function recordManualCounter(): Promise<void> {
+    if (orderId === undefined) {
+      return;
+    }
+    const pastedText = manualCounterText.trim();
+    const round = Number.parseInt(manualCounterRound, 10);
+    if (pastedText.length === 0) {
+      setManualCounterMessage("Manual counter text is required.");
+      return;
+    }
+    if (!Number.isInteger(round) || round < 1) {
+      setManualCounterMessage("Manual counter round is required.");
+      return;
+    }
+
+    setManualCountering(true);
+    setManualCounterMessage(undefined);
+    try {
+      const response = await fetch("/api/credit/negotiation/inbound/manual", {
+        body: JSON.stringify({
+          orderId,
+          pastedText,
+          round
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      });
+      const body = (await response.json()) as unknown;
+      if (!response.ok) {
+        setManualCounterMessage(readErrorMessage(body) ?? "Manual counter service unavailable.");
+        return;
+      }
+
+      const status = readStatus(body);
+      setManualCounterMessage(status === "countered" ? "Manual counter recorded." : "Manual counter needs human review.");
+      if (status === "countered") {
+        setManualCounterText("");
+        router.refresh();
+      }
+    } catch {
+      setManualCounterMessage("Manual counter service unavailable.");
+    } finally {
+      setManualCountering(false);
+    }
+  }
+
+  async function sendApprovedNegotiationEmail(packet: NegotiationApprovalPacket): Promise<void> {
+    if (orderId === undefined) {
+      return;
+    }
+
+    setSendingEmail(true);
+    setSendMessage(undefined);
+    try {
+      const response = await fetch("/api/credit/negotiation/email", {
+        body: JSON.stringify({
+          accountId: account.accountId,
+          actionId: packet.actionId,
+          orderId,
+          round: packet.round
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      });
+      const body = (await response.json().catch(() => ({}))) as unknown;
+      if (!response.ok) {
+        setSendMessage(readErrorMessage(body) ?? "Negotiation email send unavailable.");
+        return;
+      }
+
+      const status = readStatus(body);
+      setSendMessage(status === "already_sent" ? "Approved email was already sent." : "Approved email send recorded.");
+      router.refresh();
+    } catch {
+      setSendMessage("Negotiation email send service unavailable.");
+    } finally {
+      setSendingEmail(false);
+    }
   }
 
   return (
@@ -102,12 +251,104 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
         </SheetHeader>
 
         <div className="mt-6 grid gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">Order {orderId}</Badge>
-            <Badge variant="outline">Synthetic 3PL</Badge>
-            <Badge variant="outline">POS sell-through</Badge>
-            <Badge variant="outline">Cost of capital</Badge>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">Order {orderId}</Badge>
+              <Badge variant="outline">Synthetic 3PL</Badge>
+              <Badge variant="outline">POS sell-through</Badge>
+              <Badge variant="outline">Cost of capital</Badge>
+            </div>
+            <Button
+              data-testid="david-negotiation-reset"
+              disabled={resetting}
+              onClick={() => {
+                void resetCommunication();
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {resetting ? (
+                <Loader2Icon aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" />
+              ) : (
+                <RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
+              )}
+              Reset communication
+            </Button>
           </div>
+
+          {resetMessage === undefined ? null : (
+            <Alert data-testid="david-negotiation-reset-status">
+              <AlertTitle>{resetMessage}</AlertTitle>
+              <AlertDescription>Order {orderId} is ready for another email-negotiation test.</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground" data-testid="david-negotiation-round-summary">
+            {negotiationRoundSummary(activeOrder)}
+          </div>
+
+          <div className="grid gap-2 rounded-lg border bg-background/80 p-3">
+            <Label htmlFor="david-manual-counter">Manual counter</Label>
+            <Textarea
+              data-testid="david-negotiation-manual-counter-text"
+              id="david-manual-counter"
+              onChange={(event) => {
+                setManualCounterText(event.target.value);
+              }}
+              placeholder="Harbor can pay 20% deposit and accept 2 tranches."
+              rows={3}
+              value={manualCounterText}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">Source: manual operator paste</span>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground" htmlFor="david-manual-counter-round">
+                  Round
+                </Label>
+                <Input
+                  className="h-8 w-20"
+                  data-testid="david-negotiation-manual-counter-round"
+                  id="david-manual-counter-round"
+                  min={1}
+                  onChange={(event) => {
+                    setManualCounterRound(event.target.value);
+                  }}
+                  type="number"
+                  value={manualCounterRound}
+                />
+                <Button
+                  data-testid="david-negotiation-manual-counter-submit"
+                  disabled={
+                    manualCountering ||
+                    manualCounterText.trim().length === 0 ||
+                    !Number.isInteger(Number.parseInt(manualCounterRound, 10)) ||
+                    Number.parseInt(manualCounterRound, 10) < 1
+                  }
+                  onClick={() => {
+                    void recordManualCounter();
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {manualCountering ? (
+                    <Loader2Icon aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" />
+                  ) : (
+                    <SendIcon aria-hidden="true" data-icon="inline-start" />
+                  )}
+                  Record counter
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {manualCounterMessage === undefined ? null : (
+            <Alert data-testid="david-negotiation-manual-counter-status">
+              <AlertTitle>{manualCounterMessage}</AlertTitle>
+              <AlertDescription>Order {orderId} communication remains approval-gated.</AlertDescription>
+            </Alert>
+          )}
 
           {loading ? (
             <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
@@ -121,7 +362,24 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : model === undefined ? null : (
-            <DealOptimizerView model={model} />
+            <DealOptimizerView
+              account={account}
+              approvalDialogOpen={approvalDialogOpen}
+              approvalRecordedActionId={approvalRecordedActionId}
+              model={model}
+              onApprovalDialogOpenChange={setApprovalDialogOpen}
+              onApprovalRecorded={(actionId) => {
+                setApprovalRecordedActionId(actionId);
+                setApprovalDialogOpen(false);
+                setSendMessage("Human approval recorded. Email send remains separately gated.");
+              }}
+              onSendApproved={(packet) => {
+                void sendApprovedNegotiationEmail(packet);
+              }}
+              order={activeOrder}
+              sendMessage={sendMessage}
+              sendingEmail={sendingEmail}
+            />
           )}
         </div>
       </SheetContent>
@@ -129,8 +387,83 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
   );
 }
 
-function DealOptimizerView({ model }: Readonly<{ model: DealOptimizerModel }>) {
+export function buildNegotiationApprovalPacket(
+  account: Pick<CreditRiskAccountModel, "accountId" | "customer">,
+  order: NegotiationOrder,
+  candidate: DealOptimizerCandidateModel | undefined
+): NegotiationApprovalPacket {
+  const draftedRound = readDraftedNegotiationRound(order);
+  const round = draftedRound?.round ?? order.nextRound;
+  const actionId = draftedRound?.actionId ?? `credit-v2:negotiation:${order.orderId}:r${round.toString()}`;
+  const candidateLabel = candidate?.candidateId ?? "top deterministic option";
+  const terms =
+    candidate === undefined
+      ? "the backend-ranked governed terms"
+      : [
+          candidate.terms.releasePctLabel,
+          candidate.terms.depositPctLabel,
+          candidate.terms.trancheCountLabel,
+          candidate.terms.collateralRatioLabel,
+          candidate.terms.financingSpreadLabel
+        ].join(", ");
+
+  return {
+    actionId,
+    packetDetail:
+      candidate === undefined
+        ? `Round ${round.toString()} drafts ${candidateLabel} for ${account.customer}. Email send stays separately gated.`
+        : `Round ${round.toString()} drafts ${candidateLabel} for ${account.customer}: ${terms}. Objective value ${candidate.objectiveValueLabel}. Email send stays separately gated.`,
+    packetTitle: `Draft ${account.customer} counter`,
+    recordIds: dedupeStrings([actionId, account.accountId, order.orderId, ...order.sourceRecordIds, ...(candidate?.sourceRecordIds ?? [])]),
+    routeLabel: "Negotiation email",
+    round
+  };
+}
+
+export function defaultManualCounterRound(order: NegotiationOrder): string {
+  return (order.latestSentRound?.round ?? 1).toString();
+}
+
+export function negotiationRoundSummary(order: NegotiationOrder): string {
+  const latestSent = order.latestSentRound === undefined ? "No sent round yet" : `Latest sent round ${order.latestSentRound.round.toString()}`;
+
+  return `${latestSent} / Next outbound round ${order.nextRound.toString()}`;
+}
+
+export function canSendNegotiationEmailForAction(
+  order: NegotiationOrder,
+  actionId: string,
+  locallyApprovedActionId: string | undefined
+): boolean {
+  return locallyApprovedActionId === actionId || readHydratedNegotiationApprovalActionId(order) === actionId;
+}
+
+function DealOptimizerView({
+  account,
+  approvalDialogOpen,
+  approvalRecordedActionId,
+  model,
+  onApprovalDialogOpenChange,
+  onApprovalRecorded,
+  onSendApproved,
+  order,
+  sendMessage,
+  sendingEmail
+}: Readonly<{
+  account: CreditRiskAccountModel;
+  approvalDialogOpen: boolean;
+  approvalRecordedActionId: string | undefined;
+  model: DealOptimizerModel;
+  onApprovalDialogOpenChange: (open: boolean) => void;
+  onApprovalRecorded: (actionId: string) => void;
+  onSendApproved: (packet: NegotiationApprovalPacket) => void;
+  order: NegotiationOrder;
+  sendMessage?: string | undefined;
+  sendingEmail: boolean;
+}>) {
   const topCandidate = model.rankedCandidates[0];
+  const approvalPacket = buildNegotiationApprovalPacket(account, order, topCandidate);
+  const approvalRecorded = canSendNegotiationEmailForAction(order, approvalPacket.actionId, approvalRecordedActionId);
   return (
     <div className="grid gap-4">
       {topCandidate === undefined ? (
@@ -151,6 +484,56 @@ function DealOptimizerView({ model }: Readonly<{ model: DealOptimizerModel }>) {
           </div>
         </div>
       )}
+
+      <div className="grid gap-3 rounded-lg border bg-background/80 p-3" data-testid="david-negotiation-approval-send-path">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <span className="text-sm font-medium">Draft and send governed counter</span>
+            <span className="text-xs text-muted-foreground">
+              {approvalPacket.actionId} / {approvalPacket.recordIds.length.toString()} cited records
+            </span>
+          </div>
+          {approvalRecorded ? <Badge variant="secondary">Approved</Badge> : <Badge variant="outline">Approval required</Badge>}
+        </div>
+        <p className="text-sm text-muted-foreground">{approvalPacket.packetDetail}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            data-testid="david-negotiation-draft-counter"
+            disabled={topCandidate === undefined}
+            onClick={() => {
+              onApprovalDialogOpenChange(true);
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <CheckCircle2Icon aria-hidden="true" data-icon="inline-start" />
+            Draft counter
+          </Button>
+          <Button
+            data-testid="david-negotiation-send-approved-email"
+            disabled={!approvalRecorded || sendingEmail}
+            onClick={() => {
+              onSendApproved(approvalPacket);
+            }}
+            size="sm"
+            type="button"
+          >
+            {sendingEmail ? (
+              <Loader2Icon aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" />
+            ) : (
+              <SendIcon aria-hidden="true" data-icon="inline-start" />
+            )}
+            Send approved email
+          </Button>
+        </div>
+        {sendMessage === undefined ? null : (
+          <Alert data-testid="david-negotiation-send-status">
+            <AlertTitle>{sendMessage}</AlertTitle>
+            <AlertDescription>Order {order.orderId} remains governed by the durable send ledger.</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       <div className="grid gap-3">
         {model.rankedCandidates.map((candidate) => (
@@ -186,6 +569,24 @@ function DealOptimizerView({ model }: Readonly<{ model: DealOptimizerModel }>) {
           ))}
         </div>
       )}
+
+      <DavidApprovalGateDialog
+        actionId={approvalPacket.actionId}
+        approvalDescription="This records the human decision for this negotiation draft only. Email send remains separately gated."
+        governedApprovalDescription="The approval route records the backend receipt before the send step unlocks."
+        onApproved={() => {
+          onApprovalRecorded(approvalPacket.actionId);
+        }}
+        onOpenChange={onApprovalDialogOpenChange}
+        open={approvalDialogOpen}
+        packetDetail={approvalPacket.packetDetail}
+        packetTitle={approvalPacket.packetTitle}
+        recordIds={approvalPacket.recordIds}
+        routeLabel={approvalPacket.routeLabel}
+        submitLabel="Approve draft"
+        submittingLabel="Recording approval..."
+        titleOverride="Approve draft counter?"
+      />
     </div>
   );
 }
@@ -196,4 +597,29 @@ function readErrorMessage(value: unknown): string | undefined {
   }
   const record = value as Record<string, unknown>;
   return typeof record.error === "string" ? record.error : undefined;
+}
+
+function readStatus(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.status === "string" ? record.status : undefined;
+}
+
+function readHydratedNegotiationApprovalActionId(order: NegotiationOrder): string | undefined {
+  return readDraftedNegotiationRound(order)?.actionId;
+}
+
+function readDraftedNegotiationRound(order: NegotiationOrder): { actionId: string; round: number } | undefined {
+  return order.currentRound?.status === "drafted"
+    ? {
+        actionId: order.currentRound.actionId,
+        round: order.currentRound.round
+      }
+    : undefined;
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
