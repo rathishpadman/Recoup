@@ -830,6 +830,7 @@ export interface DealOptimizerCandidateModel {
   objectiveValueLabel: string;
   rank: number;
   scenarioCount: number;
+  sourceRoundId?: string | undefined;
   sourceRecordIds: string[];
   terms: {
     collateralRatioLabel: string;

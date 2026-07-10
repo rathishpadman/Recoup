@@ -205,6 +205,7 @@ describe("deal optimizer", () => {
       return;
     }
     expect(counterCandidate.sourceRecordIds.includes("credit_counter_offers:counter-harbor-r1-complete")).toBe(true);
+    expect(counterCandidate.sourceRoundId).toBe("credit-v2:negotiation:ORD-HARBOR-6534:r1");
     expect(counterCandidate.terms).toEqual({
       collateralRatioLabel: "1.1x collateral",
       depositPctLabel: "20% deposit",
@@ -261,6 +262,7 @@ describe("deal optimizer", () => {
         "credit_deal_candidate_grid:max-release-85"
       ])
     );
+    expect(counterCandidate.sourceRoundId).toBe("credit-v2:negotiation:ORD-HARBOR-6534:r1");
     expect(model.rejectedCandidates.map((candidate) => candidate.candidateId)).not.toContain(
       "counter-offer:counter-harbor-r1-customer-terms"
     );

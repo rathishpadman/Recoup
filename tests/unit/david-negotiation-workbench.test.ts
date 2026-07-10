@@ -157,6 +157,7 @@ describe("David negotiation workbench", () => {
       objectiveValueLabel: "$62,680.44",
       rank: 2,
       sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-customer-terms", "credit_deal_candidate_grid:max-release-85"],
+      sourceRoundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
       terms: {
         collateralRatioLabel: "1.25x collateral",
         depositPctLabel: "40% deposit",
@@ -174,6 +175,72 @@ describe("David negotiation workbench", () => {
     expect(selected?.candidateId).toBe("counter-offer:counter-harbor-r1-customer-terms");
     expect(packet.packetDetail).toContain("Round 2 drafts counter-offer:counter-harbor-r1-customer-terms");
     expect(packet.packetDetail).toContain("75% release, 40% deposit, 2 tranches");
+  });
+
+  it("drafts from the current countered round when stale customer counters are also ranked", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        round: 2,
+        status: "countered"
+      },
+      nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+    const rankedFirst = {
+      candidateId: "max-release-85",
+      objectiveValueLabel: "$75,077.00",
+      rank: 1,
+      sourceRecordIds: ["credit_deal_candidate_grid:max-release-85"],
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "60% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "85% release",
+        trancheCountLabel: "3 tranches"
+      }
+    } as DealOptimizerCandidateModel;
+    const staleCounter = {
+      candidateId: "counter-offer:counter-harbor-r1-customer-terms",
+      objectiveValueLabel: "$62,680.44",
+      rank: 2,
+      sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-customer-terms"],
+      sourceRoundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "40% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "75% release",
+        trancheCountLabel: "2 tranches"
+      }
+    } as DealOptimizerCandidateModel & { sourceRoundId: string };
+    const currentCounter = {
+      candidateId: "counter-offer:counter-harbor-r2-customer-terms",
+      objectiveValueLabel: "$62,506.85",
+      rank: 3,
+      sourceRecordIds: ["credit_counter_offers:counter-harbor-r2-customer-terms"],
+      sourceRoundId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+      terms: {
+        collateralRatioLabel: "1.25x collateral",
+        depositPctLabel: "35% deposit",
+        financingSpreadLabel: "100 bps spread",
+        releasePctLabel: "75% release",
+        trancheCountLabel: "2 tranches"
+      }
+    } as DealOptimizerCandidateModel & { sourceRoundId: string };
+
+    const selected = selectNegotiationDraftCandidate(order, {
+      rankedCandidates: [rankedFirst, staleCounter, currentCounter]
+    });
+    const packet = buildNegotiationApprovalPacket({ accountId: "ACC-HAR", customer: "Harbor Foods" }, order, selected);
+
+    expect(selected?.candidateId).toBe("counter-offer:counter-harbor-r2-customer-terms");
+    expect(packet.packetDetail).toContain("Round 3 drafts counter-offer:counter-harbor-r2-customer-terms");
+    expect(packet.packetDetail).toContain("75% release, 35% deposit, 2 tranches");
   });
 
   it("hydrates the negotiation send gate from the exact durable drafted round only", () => {

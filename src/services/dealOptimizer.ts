@@ -19,6 +19,7 @@ export interface DealOptimizerCandidateStructure {
   depositPct: string;
   financingSpreadBps: string;
   releasePct: string;
+  sourceRoundId?: string | undefined;
   sourceRecordIds: readonly string[];
   trancheCount: number;
 }
@@ -89,6 +90,7 @@ export interface RankedDealCandidate {
   objectiveValueLabel: string;
   rank: number;
   scenarioCount: number;
+  sourceRoundId?: string | undefined;
   sourceRecordIds: string[];
   terms: {
     collateralRatioLabel: string;
@@ -234,6 +236,7 @@ export function buildDealOptimizerModel(input: DealOptimizerInput): DealOptimize
       objectiveValueLabel: formatMoneyLabel(result.objectiveValue),
       rank: 0,
       scenarioCount: result.basis.scenarioCount,
+      ...(candidate.sourceRoundId === undefined ? {} : { sourceRoundId: candidate.sourceRoundId }),
       sourceRecordIds: dedupe([...candidate.sourceRecordIds, ...result.sourceRecordIds]),
       terms: {
         collateralRatioLabel: `${decimal(candidate.collateralRatio).toString()}x collateral`,
@@ -349,6 +352,7 @@ function counterOfferCandidateStructure(
     depositPct: depositPctCandidate,
     financingSpreadBps: financingSpreadBpsCandidate,
     releasePct: releasePctCandidate,
+    sourceRoundId: counterOffer.roundId,
     sourceRecordIds: dedupe([
       ...counterOffer.sourceRecordIds,
       ...(defaultedTechnicalTerms.length === 0 ? [] : technicalDefaultCandidate?.sourceRecordIds ?? [])

@@ -1277,6 +1277,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         objectiveValueLabel: candidate.objectiveValueLabel,
         rank: candidate.rank,
         scenarioCount: candidate.scenarioCount,
+        ...(candidate.sourceRoundId === undefined ? {} : { sourceRoundId: candidate.sourceRoundId }),
         terms: candidate.terms
       },
       candidate_id: candidate.candidateId,
@@ -1290,6 +1291,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         objectiveValueLabel: candidate.objectiveValueLabel,
         rank: candidate.rank,
         scenarioCount: candidate.scenarioCount,
+        ...(candidate.sourceRoundId === undefined ? {} : { sourceRoundId: candidate.sourceRoundId }),
         terms: candidate.terms
       },
       policy_hash: model.policyHash,

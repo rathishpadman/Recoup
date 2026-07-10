@@ -465,7 +465,11 @@ export function selectNegotiationDraftCandidate(
   model: Pick<DealOptimizerModel, "rankedCandidates">
 ): DealOptimizerCandidateModel | undefined {
   if (order.currentRound?.status === "countered") {
-    return model.rankedCandidates.find((candidate) => candidate.candidateId.startsWith("counter-offer:")) ?? model.rankedCandidates[0];
+    return (
+      model.rankedCandidates.find(
+        (candidate) => candidate.candidateId.startsWith("counter-offer:") && candidate.sourceRoundId === order.currentRound?.actionId
+      ) ?? model.rankedCandidates[0]
+    );
   }
 
   return model.rankedCandidates[0];
