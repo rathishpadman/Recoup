@@ -165,7 +165,10 @@ async function main(): Promise<void> {
     const creditQueryResult = (await creditQueryResponse.json()) as CreditQueryRouteResult;
     assertDavidLiveCreditQueryResult(crestline, creditQueryResponse.status(), creditQueryResult);
     await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
-    await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
+    await page
+      .getByTestId("david-copilot-live-result")
+      .getByText(/Crestline Grocery is HIGH risk/u)
+      .waitFor({ state: "visible", timeout: 45_000 });
     logDavidCreditQueryResult(crestline, creditQueryResult);
 
     for (const account of initialModel.accounts.filter((candidate) => candidate.accountId !== crestline.accountId)) {
@@ -179,7 +182,10 @@ async function main(): Promise<void> {
 
     await selectDavidAccount(page, crestline);
     await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
-    await page.getByText(/Crestline Grocery is HIGH risk/u).waitFor({ state: "visible", timeout: 45_000 });
+    await page
+      .getByTestId("david-copilot-live-result")
+      .getByText(/Crestline Grocery is HIGH risk/u)
+      .waitFor({ state: "visible", timeout: 45_000 });
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "Collections", "David mesh tiles");
     await expectTextInLocator(page.locator('[data-testid="david-mesh-tiles"]'), "HIGH", "David Collections tile");
 
@@ -349,11 +355,10 @@ async function runDavidAccountLiveQuery(page: Page, account: CreditRiskAccountMo
   const response = await responsePromise;
   const result = (await response.json()) as CreditQueryRouteResult;
   assertDavidLiveCreditQueryResult(account, response.status(), result);
-  await page.locator('[data-testid="david-copilot-live-result"]').waitFor({ state: "visible", timeout: 45_000 });
-  await page.getByText(new RegExp(`${escapeRegExp(account.accountId)} is ${escapeRegExp(account.verdict)} risk`, "u")).waitFor({
-    state: "visible",
-    timeout: 45_000
-  });
+  const liveResult = page.getByTestId("david-copilot-live-result");
+  await liveResult.waitFor({ state: "visible", timeout: 45_000 });
+  await expectTextInLocator(liveResult, account.customer, `David live result ${account.accountId} customer`);
+  await expectTextInLocator(liveResult, account.verdict, `David live result ${account.accountId} verdict`);
 
   return result;
 }
