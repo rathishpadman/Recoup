@@ -9,10 +9,8 @@ import {
 import type { OpenAiCreditNegotiationPolicyRationaleReader } from "../adapters/openAiPolicyVectorStore.js";
 import { davidCreditAgentMcpAllowedToolNames } from "../agents/mcpGateway.js";
 import {
-  createAgentHookAuditReceipt,
   deterministicForensicsHookAuditBasis,
-  type AgentHookAuditReceipt,
-  type AgentHookAuditReceiptInput
+  type AgentHookAuditReceipt
 } from "./conductor.js";
 import type { CreditRiskAccountModel, CreditRiskReviewModel, CreditRiskRows } from "./creditRiskModel.js";
 import type { DealOptimizerModel, DealOptimizerRows } from "./dealOptimizer.js";
@@ -22,7 +20,6 @@ import {
   type CreditNegotiationPolicyKey,
   type CreditNegotiationPolicyRow
 } from "./creditNegotiationPolicy.js";
-import { invokeServiceTool } from "./serviceLayer.js";
 
 export const creditRiskQueryDeterministicBasis =
   "CreditRiskReviewModel + Supabase credit evidence documents + deterministic credit_risk.answer guard" as const;
@@ -55,7 +52,7 @@ export type CreditRiskQueryModelExecution =
         promptPrefixVersion: string;
       };
       rawModelTextPolicy: "suppressed";
-      sourceReadMode: "governed_backend_fallback" | "live_sdk_mcp";
+      sourceReadMode: "live_sdk_mcp";
       tokenUsage?: number;
       tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
     }
@@ -236,26 +233,6 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
     liveRun = mergeLiveCreditRiskAgentRuns(liveRun, retryLiveRun);
   }
 
-  let sourceReadMode: "governed_backend_fallback" | "live_sdk_mcp" | undefined =
-    hasCreditRiskQueryAnswerSourceRead(liveRun.hookReceipts, request.account.accountId, request.effectiveRecordIds)
-      ? "live_sdk_mcp"
-      : undefined;
-
-  if (sourceReadMode === undefined) {
-    const guardedSourceReadReceipts = collectDeterministicCreditRiskAnswerSourceReadReceipts(
-      input,
-      request,
-      request.effectiveRecordIds
-    );
-    if (guardedSourceReadReceipts.length > 0) {
-      liveRun = {
-        ...liveRun,
-        hookReceipts: [...liveRun.hookReceipts, ...guardedSourceReadReceipts]
-      };
-      sourceReadMode = "governed_backend_fallback";
-    }
-  }
-
   const handoffCount = liveRun.hookReceipts.filter((receipt) => receipt.hook === "agent_handoff").length;
   const hasActionPacketHandoff = liveRun.hookReceipts.some(
     (receipt) =>
@@ -304,7 +281,7 @@ export async function runCreditRiskQuerySessionWithLiveAgents(
         ? {}
         : { promptCache: buildCreditRiskPromptCacheMetadata(liveRun.tokenUsageSnapshot) }),
       rawModelTextPolicy: "suppressed",
-      sourceReadMode: sourceReadMode ?? "live_sdk_mcp",
+      sourceReadMode: "live_sdk_mcp",
       ...(liveRun.tokenUsage === 0 ? {} : { tokenUsage: liveRun.tokenUsage }),
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot })
     },
@@ -595,71 +572,6 @@ function shouldRetryMissingCreditRiskMcpRead(retryCap: number | undefined): bool
   return retryCap !== undefined && Number.isInteger(retryCap) && retryCap > 0;
 }
 
-type CreditRiskServiceToolOutputProof = Partial<
-  Pick<
-    AgentHookAuditReceiptInput,
-    | "toolOutputCanonicalModel"
-    | "toolOutputPrimarySourceLabel"
-    | "toolOutputPrimarySourceSystem"
-    | "toolOutputSelectedEvidenceRecordIds"
-    | "toolOutputSelectedRecordIds"
-    | "toolOutputSourceFreshness"
-    | "toolOutputSourceReadStatus"
-    | "toolOutputTransportLabel"
-    | "toolOutputTransportLayer"
-  >
->;
-
-function collectDeterministicCreditRiskAnswerSourceReadReceipts(
-  input: CreditRiskQuerySessionInput,
-  request: NormalizedCreditRiskQueryRequest,
-  scopedRecordIds: readonly string[]
-): AgentHookAuditReceipt[] {
-  try {
-    const result = invokeServiceTool(
-      "credit_risk.answer",
-      {
-        accountId: request.account.accountId,
-        question: request.question,
-        recordIds: [...scopedRecordIds]
-      },
-      {
-        creditRiskAnswerScope: {
-          accountId: request.account.accountId,
-          recordIds: [...scopedRecordIds]
-        },
-        creditRiskRows: input.rows
-      }
-    );
-    const outputProof = creditRiskServiceToolOutputProof(result);
-    if (outputProof === undefined) {
-      return [];
-    }
-
-    return [
-      createAgentHookAuditReceipt({
-        agentName: "Credit Sentinel",
-        deterministicBasis: deterministicForensicsHookAuditBasis,
-        hook: "agent_tool_start",
-        recordIds: [...scopedRecordIds],
-        toolInputRecordIds: [...scopedRecordIds],
-        toolName: "credit_risk.answer"
-      }),
-      createAgentHookAuditReceipt({
-        agentName: "Credit Sentinel",
-        deterministicBasis: deterministicForensicsHookAuditBasis,
-        hook: "agent_tool_end",
-        recordIds: [...scopedRecordIds],
-        toolInputRecordIds: [...scopedRecordIds],
-        toolName: "credit_risk.answer",
-        ...outputProof
-      })
-    ];
-  } catch {
-    return [];
-  }
-}
-
 function hasCreditRiskSelectedRecordScope(
   actual: readonly string[] | undefined,
   accountId: string,
@@ -916,54 +828,6 @@ function dedupeLiveAgentReceipts(receipts: readonly AgentHookAuditReceipt[]): Ag
 
 function dedupe(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
-}
-
-function creditRiskServiceToolOutputProof(result: unknown): CreditRiskServiceToolOutputProof | undefined {
-  const payloadRecord = toRecord(result);
-  const sourceReads = toRecord(payloadRecord?.sourceReads);
-  if (payloadRecord === undefined || sourceReads === undefined) {
-    return undefined;
-  }
-
-  const canonicalModel = readNonEmptyString(sourceReads.canonicalModel);
-  const primarySourceLabel = readNonEmptyString(sourceReads.primarySourceLabel);
-  const primarySourceSystem = readNonEmptyString(sourceReads.primarySourceSystem);
-  const selectedEvidenceRecordIds = collectSelectedEvidenceRecordIds(sourceReads.selectedEvidence);
-  const selectedRecordIds = readStringArray(sourceReads.selectedRecordIds);
-  const sourceFreshness = readNonEmptyString(sourceReads.sourceFreshness);
-  const sourceReadStatus = readNonEmptyString(payloadRecord.sourceReadStatus);
-  const transportLabel = readNonEmptyString(sourceReads.transportLabel);
-  const transportLayer = readNonEmptyString(sourceReads.transportLayer);
-  const outputProof: CreditRiskServiceToolOutputProof = {
-    ...(canonicalModel === undefined ? {} : { toolOutputCanonicalModel: canonicalModel }),
-    ...(primarySourceLabel === undefined ? {} : { toolOutputPrimarySourceLabel: primarySourceLabel }),
-    ...(primarySourceSystem === undefined ? {} : { toolOutputPrimarySourceSystem: primarySourceSystem }),
-    ...(selectedEvidenceRecordIds.length === 0 ? {} : { toolOutputSelectedEvidenceRecordIds: selectedEvidenceRecordIds }),
-    ...(selectedRecordIds === undefined ? {} : { toolOutputSelectedRecordIds: selectedRecordIds }),
-    ...(sourceFreshness === undefined ? {} : { toolOutputSourceFreshness: sourceFreshness }),
-    ...(sourceReadStatus === undefined ? {} : { toolOutputSourceReadStatus: sourceReadStatus }),
-    ...(transportLabel === undefined ? {} : { toolOutputTransportLabel: transportLabel }),
-    ...(transportLayer === undefined ? {} : { toolOutputTransportLayer: transportLayer })
-  };
-
-  return Object.keys(outputProof).length === 0 ? undefined : outputProof;
-}
-
-function collectSelectedEvidenceRecordIds(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const recordIds: string[] = [];
-  for (const evidence of value) {
-    const evidenceRecord = toRecord(evidence);
-    const evidenceRecordIds = readStringArray(evidenceRecord?.recordIds);
-    if (evidenceRecordIds !== undefined) {
-      recordIds.push(...evidenceRecordIds);
-    }
-  }
-
-  return dedupe(recordIds);
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

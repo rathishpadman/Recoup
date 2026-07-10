@@ -27,6 +27,7 @@ describe("I-15 whitelisted typed tools", () => {
       "email.sendApproved",
       "email.status",
       "query.answer",
+      "query.workspace",
       "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",

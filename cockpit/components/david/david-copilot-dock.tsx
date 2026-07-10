@@ -264,7 +264,7 @@ function sourceReadModeLabel(mode: CreditRiskModelExecution["sourceReadMode"]): 
     return "SDK source read";
   }
 
-  return "Governed source read";
+  return "Source read unavailable";
 }
 
 function rawModelTextPolicyLabel(policy: CreditRiskModelExecution["rawModelTextPolicy"]): string {

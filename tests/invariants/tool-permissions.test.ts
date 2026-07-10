@@ -22,6 +22,7 @@ describe("tool permissions", () => {
       "email.sendApproved",
       "email.status",
       "query.answer",
+      "query.workspace",
       "retrieval.bureau",
       "retrieval.docs",
       "retrieval.sap",

@@ -12,7 +12,7 @@ import {
   forensicsInvestigatorAgent
 } from "./agentRuntime.js";
 import type { ForensicsTraceEvent } from "./forensics.js";
-import { Agent, OpenAIProvider, Runner, type RunStreamEvent } from "./openAiAgentsSdk.js";
+import { Agent, OpenAIProvider, Runner, type ModelSettings, type RunStreamEvent } from "./openAiAgentsSdk.js";
 import {
   createMayaMcpGateway,
   davidCreditAgentMcpAllowedToolNames,
@@ -30,6 +30,7 @@ const liveModelDeltaSuppressedText = "Live model text delta received; content su
 
 export interface LiveForensicsStreamRequest {
   agentHookAudit?: LiveForensicsAgentHookAuditOptions;
+  agentStreamOptions?: OpenAIForensicsAgentStreamOptions;
   apiKey: string;
   input: string;
   maxTurns: number;
@@ -64,6 +65,7 @@ export interface OpenAIForensicsAgentStreamOptions {
   env?: RuntimeEnv;
   mcpGatewayFactory?: () => MaybePromise<LiveForensicsMcpGateway | undefined>;
   mcpServiceContext?: ServiceInvocationContext;
+  toolChoice?: ModelSettings["toolChoice"];
 }
 
 export interface StreamLiveForensicsTraceOptions {
@@ -72,6 +74,7 @@ export interface StreamLiveForensicsTraceOptions {
   env?: RuntimeEnv;
   input?: string;
   maxTurns?: number;
+  mcpGatewayFactory?: () => MaybePromise<LiveForensicsMcpGateway | undefined>;
   mcpServiceContext?: ServiceInvocationContext;
   onAgentHookReceipt?: (receipt: AgentHookAuditReceipt) => void;
   onSdkToolOutput?: (output: LiveForensicsSdkToolOutput) => void;
@@ -81,6 +84,7 @@ export interface StreamLiveForensicsTraceOptions {
   retryCap?: number;
   runner?: LiveForensicsStreamRunner;
   signal?: AbortSignal;
+  toolChoice?: ModelSettings["toolChoice"];
 }
 
 export type LiveForensicsAgentRunStatus = "blocked_missing_credentials" | "completed" | "failed";
@@ -155,7 +159,7 @@ export async function collectLiveForensicsAgentRun(
   const sourceRunner =
     options.runner ??
     ((request: LiveForensicsStreamRequest) =>
-      runOpenAIForensicsAgentStream(request, undefined, openAiForensicsStreamOptionsFromEnv(options.env)));
+      runOpenAIForensicsAgentStream(request, undefined, request.agentStreamOptions ?? openAiForensicsStreamOptionsFromTraceOptions(options)));
   const runner: LiveForensicsStreamRunner = async (request) => {
     if (request.agentHookAudit === undefined) {
       return sourceRunner(request);
@@ -166,6 +170,7 @@ export async function collectLiveForensicsAgentRun(
       apiKey: request.apiKey,
       input: request.input,
       maxTurns: request.maxTurns,
+      ...(request.agentStreamOptions === undefined ? {} : { agentStreamOptions: request.agentStreamOptions }),
       ...(request.mcpServiceContext === undefined ? {} : { mcpServiceContext: request.mcpServiceContext }),
       agentHookAudit: {
         onReceipt(receipt) {
@@ -316,6 +321,7 @@ export async function* streamLiveForensicsTraceEvents(
       const agentHookRecordIds = dedupeRecordIds(options.agentHookRecordIds ?? []);
       const sdkToolInputProofs = new Map<string, SdkToolInputProof>();
       const request: LiveForensicsStreamRequest = {
+        agentStreamOptions: openAiForensicsStreamOptionsFromTraceOptions(options),
         apiKey,
         input: options.input ?? liveAgentInput,
         maxTurns: options.maxTurns
@@ -337,7 +343,7 @@ export async function* streamLiveForensicsTraceEvents(
 
       const stream = await (
         options.runner ??
-        ((liveRequest) => runOpenAIForensicsAgentStream(liveRequest, undefined, openAiForensicsStreamOptionsFromEnv(options.env)))
+        ((liveRequest) => runOpenAIForensicsAgentStream(liveRequest, undefined, openAiForensicsStreamOptionsFromTraceOptions(options)))
       )(request);
       for (const receiptEvent of drainAgentHookReceiptEvents(agentHookReceipts)) {
         yield receiptEvent;
@@ -429,7 +435,10 @@ export async function runOpenAIForensicsAgentStream(
     const agent =
       mcpGateway === undefined
         ? forensicsInvestigatorAgent
-        : createForensicsInvestigatorAgent({ mcpServers: mcpGateway.mcpServers });
+        : createForensicsInvestigatorAgent({
+            mcpServers: mcpGateway.mcpServers,
+            ...(options.toolChoice === undefined ? {} : { modelSettings: { parallelToolCalls: false, toolChoice: options.toolChoice } })
+          });
     const stream = await runner.run(agent, request.input, runOptions);
 
     return mcpGateway === undefined ? stream : closeMcpGatewayAfterStream(stream, mcpGateway);
@@ -530,6 +539,16 @@ function openAiForensicsStreamOptionsFromEnv(
   env: RuntimeEnv | undefined
 ): OpenAIForensicsAgentStreamOptions {
   return env === undefined ? {} : { env };
+}
+
+function openAiForensicsStreamOptionsFromTraceOptions(
+  options: Pick<StreamLiveForensicsTraceOptions, "allowedToolNames" | "env" | "toolChoice">
+): OpenAIForensicsAgentStreamOptions {
+  return {
+    ...openAiForensicsStreamOptionsFromEnv(options.env),
+    ...(options.allowedToolNames === undefined ? {} : { allowedToolNames: options.allowedToolNames }),
+    ...(options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice })
+  };
 }
 
 function mapRunStreamEvent(event: unknown): ForensicsTraceEvent | undefined {

@@ -659,6 +659,80 @@ describe("live forensics Agents SDK stream", () => {
     expect(calls).toEqual(["connect", "close"]);
   });
 
+  it("can force the workspace MCP tool choice for live Maya query runs without mutating the handoff agent", async () => {
+    const fakeRunner = new FakeOpenAiRunner();
+    const mcpServer = { name: "recoup-governed-data-plane" } as LiveForensicsMcpGateway["mcpServers"][number];
+    const gateway: LiveForensicsMcpGateway = {
+      mcpServers: [mcpServer],
+      close() {
+        return Promise.resolve();
+      },
+      connect() {
+        return Promise.resolve();
+      }
+    };
+
+    const stream = await runOpenAIForensicsAgentStream(
+      {
+        apiKey: "sk-test-secret",
+        input: "Workspace Maya forensics query.",
+        maxTurns: 7
+      },
+      fakeRunner,
+      {
+        mcpGatewayFactory: () => Promise.resolve(gateway),
+        toolChoice: "query_workspace"
+      }
+    );
+
+    expect(fakeRunner.lastAgent?.modelSettings).toEqual(
+      expect.objectContaining({
+        parallelToolCalls: false,
+        toolChoice: "query_workspace"
+      })
+    );
+    const firstHandoff = fakeRunner.lastAgent?.handoffs[0];
+    const firstHandoffModelSettings =
+      firstHandoff !== undefined && "modelSettings" in firstHandoff ? firstHandoff.modelSettings : undefined;
+    expect(firstHandoffModelSettings).not.toEqual(
+      expect.objectContaining({
+        toolChoice: "query_workspace"
+      })
+    );
+
+    await collect(stream);
+  });
+
+  it("preserves forced MCP tool choice through the default live collector path", async () => {
+    const fakeRunner = new FakeOpenAiRunner();
+    const mcpServer = { name: "recoup-governed-data-plane" } as LiveForensicsMcpGateway["mcpServers"][number];
+    const gateway: LiveForensicsMcpGateway = {
+      mcpServers: [mcpServer],
+      close() {
+        return Promise.resolve();
+      },
+      connect() {
+        return Promise.resolve();
+      }
+    };
+
+    await collectLiveForensicsAgentRun({
+      env: { OPENAI_API_KEY: "sk-test-secret" },
+      maxTurns: 7,
+      mcpGatewayFactory: () => Promise.resolve(gateway),
+      retryCap: 0,
+      runner: (request) => runOpenAIForensicsAgentStream(request, fakeRunner, request.agentStreamOptions),
+      toolChoice: "query_workspace"
+    });
+
+    expect(fakeRunner.lastAgent?.modelSettings).toEqual(
+      expect.objectContaining({
+        parallelToolCalls: false,
+        toolChoice: "query_workspace"
+      })
+    );
+  });
+
   it("records governed MCP source receipts from SDK tool run-item events", async () => {
     const runner: LiveForensicsStreamRunner = async function* () {
       await Promise.resolve();

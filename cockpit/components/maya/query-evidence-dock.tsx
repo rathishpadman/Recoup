@@ -28,6 +28,7 @@ import {
   buildCopilotVerdictBand,
   resolveMayaWorklistReason,
   countEvidenceSourceLabels,
+  resolveCopilotPromptCaseFocus,
   semanticRetrievalBadgeFromDocument
 } from "./maya-workspace-derived.ts";
 import type { MayaCopilotCaseOption } from "./maya-workspace-derived.ts";
@@ -103,6 +104,7 @@ export function QueryEvidenceDock({
   const realtimeAbortControllerRef = React.useRef<AbortController | null>(null);
   const realtimeSessionRef = React.useRef<RealtimeBrowserSession | null>(null);
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
+  const pendingPromptQuestionRef = React.useRef<string | undefined>(undefined);
   const sessionTokenRef = React.useRef(0);
   const onResponseRef = React.useRef(onResponse);
   onResponseRef.current = onResponse;
@@ -219,7 +221,14 @@ export function QueryEvidenceDock({
     }
 
     resetEvidenceIdentityRef.current = selectedEvidenceIdentity;
+    const pendingPromptQuestion = pendingPromptQuestionRef.current;
+    pendingPromptQuestionRef.current = undefined;
     closeActiveSession();
+    if (pendingPromptQuestion !== undefined) {
+      setError(undefined);
+      setQuestion(pendingPromptQuestion);
+      setSubmittedQuestion("");
+    }
   }, [closeActiveSession, selectedEvidenceIdentity]);
 
   React.useEffect(() => {
@@ -393,6 +402,61 @@ export function QueryEvidenceDock({
     });
 
     try {
+      if (activeQueryScope === "workspace") {
+        const workspaceSettlementRunId = settlementRunId?.trim();
+        if (workspaceSettlementRunId === undefined || workspaceSettlementRunId.length === 0) {
+          const message = "Maya needs the current settlement run before workspace voice questions. Refresh Maya and try again.";
+          setVoiceSessionStatus("error");
+          setVoiceStatusMessage(message);
+          setError(message);
+          publishForToken(activeStartToken, activeEvidenceIdentity, {
+            citations: [],
+            message,
+            recordIds: activeRecordIds,
+            status: "error",
+            trace: []
+          });
+          return;
+        }
+
+        setVoiceSessionStatus("processing");
+        setVoiceStatusMessage("Checking workspace evidence.");
+        const response = await fetch("/api/forensics/query", {
+          body: JSON.stringify({
+            question: voiceQuestion,
+            scope: "workspace",
+            settlementRunId: workspaceSettlementRunId
+          }),
+          cache: "no-store",
+          headers: { "content-type": "application/json" },
+          method: "POST",
+          signal: abortController.signal
+        });
+
+        if (!isCurrentSession(activeStartToken)) {
+          return;
+        }
+
+        const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
+        if (!response.ok) {
+          const message = "error" in body && typeof body.error === "string" ? body.error : "Workspace voice query failed.";
+          throw new Error(message);
+        }
+
+        const nextSnapshot = buildQueryEvidenceSnapshot({
+          evidencePackRecordIds: activeEvidencePack.recordIds,
+          queryScope: activeQueryScope,
+          recordIds: activeRecordIds,
+          response: body as QueryEvidenceBackendResponse,
+          selectedLine: activeSelectedLine
+        });
+        setVoiceSessionStatus(responseStatusToVoiceSessionStatus(nextSnapshot.status));
+        setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
+        setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
+        publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
+        return;
+      }
+
       const realtimeSession = await startRealtimeBrowserSession({
         onSnapshot: (voiceSnapshot) => {
           if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
@@ -585,8 +649,19 @@ export function QueryEvidenceDock({
                     className={cn("h-auto min-h-9 justify-between gap-2 whitespace-normal text-left", COPILOT_SOFT_BUTTON_CLASS)}
                     data-testid="maya-query-prompt-chip"
                     disabled={isRunning}
+                    title={prompt.question}
                     onClick={() => {
-                      setQuestion(prompt.question);
+                      const targetLineId = resolveCopilotPromptCaseFocus(prompt, caseOptions);
+                      if (queryScope === "workspace" && targetLineId !== undefined && targetLineId !== casePickerLineId) {
+                        pendingPromptQuestionRef.current = prompt.question;
+                        closeActiveSession({ resetComposer: false });
+                        setCasePickerLineId(targetLineId);
+                      } else {
+                        closeActiveSession({ resetComposer: false });
+                        setError(undefined);
+                        setSubmittedQuestion("");
+                        setQuestion(prompt.question);
+                      }
                     }}
                     type="button"
                     variant="outline"
@@ -1056,12 +1131,20 @@ function ModelExecutionFacts({ response }: { response: QueryEvidenceResponse }) 
     <dl className="grid gap-1 text-sm">
       <ModelFact label="Basis" value={response.deterministicBasis} />
       <ModelFact label="Mode" value={execution.mode} />
+      <ModelFact label="Source read" value={modelExecutionSourceReadModeLabel(execution.sourceReadMode)} />
       <ModelFact label="Agents" value={execution.agentNames.join(", ")} />
       <ModelFact label="Handoffs" value={execution.handoffCount.toString()} />
       <ModelFact label="Raw model text" value={execution.rawModelTextPolicy} />
       <ModelFact label="Tokens" value={execution.tokenUsage?.toString()} />
     </dl>
   );
+}
+
+function modelExecutionSourceReadModeLabel(mode: "live_sdk_mcp" | undefined): string | undefined {
+  if (mode === undefined) {
+    return undefined;
+  }
+  return "Live SDK MCP";
 }
 
 function ModelFact({ label, value }: { label: string; value: string | undefined }) {
@@ -1339,6 +1422,20 @@ function toVoiceSessionStatus(status: RealtimeBrowserSessionSnapshot["status"]):
   }
   if (status === "ended") {
     return "ended";
+  }
+
+  return "error";
+}
+
+function responseStatusToVoiceSessionStatus(status: QueryEvidenceResponse["status"]): VoiceSessionStatus {
+  if (status === "answered") {
+    return "answered";
+  }
+  if (status === "blocked") {
+    return "blocked";
+  }
+  if (status === "connecting") {
+    return "processing";
   }
 
   return "error";

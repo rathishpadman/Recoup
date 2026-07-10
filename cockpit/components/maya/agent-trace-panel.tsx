@@ -531,6 +531,7 @@ function modelExecutionDetailRows(modelExecution: QueryModelExecution): Array<{ 
     rows.push(
       { label: "Agents", value: modelExecution.agentNames.join(", ") },
       { label: "Handoff count", value: modelExecution.handoffCount.toString() },
+      { label: "Source read", value: "Live SDK MCP" },
       { label: "Raw model policy", value: modelExecution.rawModelTextPolicy }
     );
     if (modelExecution.tokenUsage !== undefined) {

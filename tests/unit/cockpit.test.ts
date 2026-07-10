@@ -559,6 +559,41 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.containmentPanel.behavioralEvidenceIds).toEqual(
       expect.arrayContaining(["TPM-CONTRACT-1", "POD-SIGNED-1", "PRICE-CLAUSE-1"])
     );
+    expect(model.containmentPanel.actionBasisLabel).toContain("Repeat invalid shortage and pricing pattern exceeded");
+    expect(model.containmentPanel.methodologyReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Invalid deduction mix",
+          thresholdLabel: "Threshold >= 2",
+          tone: "critical",
+          value: "6 lines"
+        }),
+        expect.objectContaining({
+          label: "No wrongful containment guard",
+          tone: "safe",
+          value: "Passed"
+        })
+      ])
+    );
+    expect(model.containmentPanel.evidenceLinks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Promotion correlation evidence",
+          recordId: "TPM-CONTRACT-1",
+          tone: "evidence"
+        }),
+        expect.objectContaining({
+          label: "Signed POD evidence",
+          recordId: "POD-SIGNED-1",
+          tone: "critical"
+        }),
+        expect.objectContaining({
+          label: "Contract pricing evidence",
+          recordId: "PRICE-CLAUSE-1",
+          tone: "warning"
+        })
+      ])
+    );
     expect(model.containmentPanel.basisRows).toContainEqual(expect.objectContaining({
       label: "Gaming gate",
       value: "governed-config-snapshot"

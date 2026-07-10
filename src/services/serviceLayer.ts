@@ -20,6 +20,8 @@ import {
 import { createAuditEntry, type AuditEntry, type AuditEntryBuildOptions } from "../audit/trail.js";
 import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
 import { evaluateToolPermission, type ToolPermissionMetadata } from "./permissionEngine.js";
+import { buildForensicsWorkspaceQueryResponse } from "./forensicsWorkspaceQuery.js";
+import { settlementRunIdForSource } from "./settlementRunIdentity.js";
 import {
   buildDeductionDecision,
   CoreRuleInputSchema,
@@ -195,6 +197,12 @@ const queryAnswerToolSchema = z
       });
     }
   });
+const queryWorkspaceToolSchema = z
+  .object({
+    question: z.string().min(1).max(500),
+    settlementRunId: z.string().min(1).optional()
+  })
+  .strict();
 const creditRiskAnswerToolSchema = z
   .object({
     accountId: z.string().min(1),
@@ -309,6 +317,7 @@ export const serviceToolMetadata = {
   "email.sendApproved": { riskClass: "communication", sideEffectClass: "external_correspondence", visibility: "mcp" },
   "email.status": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "query.answer": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
+  "query.workspace": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "retrieval.bureau": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "retrieval.docs": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "retrieval.sap": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
@@ -455,6 +464,10 @@ export const serviceTools = {
   "query.answer": {
     schema: queryAnswerToolSchema,
     handler: (input, context) => answerSourceBackedSelectedEvidenceQuery(input, context)
+  },
+  "query.workspace": {
+    schema: queryWorkspaceToolSchema,
+    handler: (input, context) => answerSourceBackedWorkspaceQuery(input, context)
   },
   "credit_risk.answer": {
     schema: creditRiskAnswerToolSchema,
@@ -806,6 +819,31 @@ function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: Servic
       selectedLineId: selectedLine.lineId,
       selectedRecordIds: [...parsed.recordIds]
     }
+  };
+}
+
+function answerSourceBackedWorkspaceQuery(input: unknown, context: ServiceInvocationContext): unknown {
+  const parsed = queryWorkspaceToolSchema.parse(input);
+  const source = readSourcePort(context);
+  const settlementRunId = parsed.settlementRunId ?? settlementRunIdForSource(source.loadSettlementRun());
+  const response = buildForensicsWorkspaceQueryResponse({
+    governedConfig: readGovernedConfig(context),
+    question: parsed.question,
+    ...(context.reconciliation === undefined ? {} : { reconciliation: context.reconciliation }),
+    serviceContext: context,
+    settlementRunId,
+    source
+  });
+  if (response.answer === undefined) {
+    throw new Error("query.workspace could not produce a cited workspace answer.");
+  }
+
+  return {
+    answer: response.answer,
+    citations: response.citations,
+    deterministicBasis: response.deterministicBasis,
+    sourceReadStatus: response.sourceReadStatus,
+    sourceReads: response.sourceReads
   };
 }
 

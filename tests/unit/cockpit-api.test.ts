@@ -563,7 +563,10 @@ describe("S5 cockpit API", () => {
         actionInbox: Array<{ actionId: string }>;
         containmentPanel?: {
           actionPostureLabel: string;
+          actionBasisLabel: string;
           customerId: string;
+          evidenceLinks: Array<{ label: string; recordId: string; tone: string }>;
+          methodologyReasons: Array<{ label: string; thresholdLabel: string; tone: string; value: string }>;
           recordIds: string[];
           statusLabel: string;
         };
@@ -579,6 +582,26 @@ describe("S5 cockpit API", () => {
         statusLabel: "Gaming-gate review candidate"
       });
       expect(model.containmentPanel?.recordIds).toEqual(expect.arrayContaining(["S3-L1", "S6-L1"]));
+      expect(model.containmentPanel?.actionBasisLabel).toContain("Repeat invalid shortage and pricing pattern exceeded");
+      expect(model.containmentPanel?.methodologyReasons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Invalid deduction mix",
+            thresholdLabel: "Threshold >= 2",
+            tone: "critical",
+            value: "6 lines"
+          })
+        ])
+      );
+      expect(model.containmentPanel?.evidenceLinks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Signed POD evidence",
+            recordId: "POD-SIGNED-1",
+            tone: "critical"
+          })
+        ])
+      );
 
       const approvalResponse = await fetch(`${baseUrl}/approval`, {
         body: JSON.stringify({
@@ -1354,13 +1377,16 @@ describe("S5 cockpit API", () => {
 
   it("serves workspace forensic query sessions from the current settlement run only", async () => {
     const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const question = "What did the agents conclude across the settlement run?";
+    const liveRunner = liveWorkspaceQueryRunner(question, settlementRunId);
     const { baseUrl, server } = await listen({
-      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-workspace-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveRunner
     });
     try {
       const response = await fetch(`${baseUrl}/forensics/query`, {
         body: JSON.stringify({
-          question: "What did the agents conclude across the settlement run?",
+          question,
           scope: "workspace",
           settlementRunId
         }),
@@ -1371,19 +1397,27 @@ describe("S5 cockpit API", () => {
         answer?: string;
         citations: Array<{ recordId: string }>;
         deterministicBasis?: string;
+        modelExecution?: { mode: string; rawModelTextPolicy?: string };
         trace: Array<{ phase: string; recordIds: string[] }>;
       };
 
       expect(response.status).toBe(200);
+      expect(liveRunner).toHaveBeenCalledTimes(1);
       expect(body.answer).toContain("8 deduction cases");
       expect(body.answer).toContain("3 valid");
       expect(body.answer).toContain("4 invalid");
       expect(body.answer).toContain("1 partial");
-      expect(body.deterministicBasis).toBe("current settlement run read-model + deterministic forensics decisions");
+      expect(body.deterministicBasis).toBe(
+        "runForensicsInvestigation + evidence source reads + deterministic hook audit trace + OpenAI Agents SDK live trace"
+      );
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        rawModelTextPolicy: "suppressed"
+      });
       expect(body.citations.map((citation) => citation.recordId)).toEqual(
         expect.arrayContaining(["S1-L1", "S2-L1", "S3-L1", "S4-L1", "S5-L1", "S6-L1", "S7-L1", "S8-L1"])
       );
-      expect(body.trace.map((event) => event.phase)).toEqual(["supervisor", "query", "retrieval", "decision"]);
+      expect(body.trace.map((event) => event.phase)).toEqual(expect.arrayContaining(["supervisor", "query", "retrieval", "decision"]));
 
       const stale = await fetch(`${baseUrl}/forensics/query`, {
         body: JSON.stringify({
@@ -1405,8 +1439,10 @@ describe("S5 cockpit API", () => {
 
   it("keeps workspace query citations within the overview worklist citation scope", async () => {
     const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const question = "What did the agents conclude across the settlement run?";
     const { baseUrl, server } = await listen({
-      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-workspace-query", RECOUP_DATA_MODE: "real-backend" },
+      forensicsStreamRunner: liveWorkspaceQueryRunner(question, settlementRunId)
     });
     try {
       const modelResponse = await fetch(`${baseUrl}/forensics`, { headers: cockpitAuthHeaders });
@@ -1426,7 +1462,7 @@ describe("S5 cockpit API", () => {
       ];
       const response = await fetch(`${baseUrl}/forensics/query`, {
         body: JSON.stringify({
-          question: "What did the agents conclude across the settlement run?",
+          question,
           scope: "workspace",
           settlementRunId
         }),
@@ -2950,6 +2986,113 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("bypasses warm forensic source context for workspace live queries while selected-evidence queries stay cached", async () => {
+    const calls: string[] = [];
+    const selectedLiveRunner = liveQueryRunnerWithForensicsHandoff();
+    const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const workspaceQuestion = "Which customers are having invalid deductions?";
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      if (request.input.includes("Workspace Maya forensics query")) {
+        emitForensicsHandoffReceipts(request);
+        const workspaceToolOutput = invokeServiceTool(
+          "query.workspace",
+          { question: workspaceQuestion, settlementRunId },
+          request.mcpServiceContext
+        );
+
+        return (async function* stream() {
+          await Promise.resolve();
+          yield {
+            item: {
+              agent: { name: "Forensics Investigator" },
+              rawItem: {
+                arguments: { question: workspaceQuestion, settlementRunId },
+                name: "query_workspace",
+                type: "function_call"
+              }
+            },
+            name: "tool_called",
+            type: "run_item_stream_event"
+          };
+          yield {
+            item: {
+              agent: { name: "Forensics Investigator" },
+              rawItem: {
+                name: "query_workspace",
+                output: workspaceToolOutput,
+                type: "function_call_result"
+              }
+            },
+            name: "tool_output",
+            type: "run_item_stream_event"
+          };
+        })();
+      }
+
+      return selectedLiveRunner(request);
+    });
+    const server = createServer(
+      createCockpitApi({
+        env: {
+          ...governedConfigEnv,
+          ...cockpitAuthEnv,
+          OPENAI_API_KEY: "sk-test-live-query",
+          RECOUP_DATA_MODE: "real-backend",
+          RECOUP_FORENSICS_SOURCE_CONTEXT_CACHE_TTL_MS: "60000"
+        },
+        forensicsStreamRunner: liveRunner,
+        memoryFetcher: successfulRealBackendSourceFetcher(calls)
+      })
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${String(address.port)}`;
+    const selectedBody = JSON.stringify({
+      question: "Why is this recoverable?",
+      recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    });
+    const workspaceBody = JSON.stringify({
+      question: workspaceQuestion,
+      scope: "workspace",
+      settlementRunId
+    });
+
+    try {
+      const selectedFirst = await fetch(`${baseUrl}/forensics/query`, {
+        body: selectedBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const selectedSecond = await fetch(`${baseUrl}/forensics/query`, {
+        body: selectedBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const selectedSecondBody = (await selectedSecond.json()) as { answer?: string };
+      const selectedSapSourceReads = sourceTableReadCount(calls, "recoup_src_sap");
+      const workspace = await fetch(`${baseUrl}/forensics/query`, {
+        body: workspaceBody,
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const workspaceBodyJson = (await workspace.json()) as { answer?: string; modelExecution?: { sourceReadMode?: string } };
+
+      expect(selectedFirst.status).toBe(200);
+      expect(selectedSecond.status).toBe(200);
+      expect(selectedSecondBody.answer).toContain("S6-L1");
+      expect(selectedSapSourceReads).toBe(expectedForensicsSourceTableReads());
+      expect(workspace.status).toBe(200);
+      expect(workspaceBodyJson.answer).toContain("Crestline Grocery");
+      expect(workspaceBodyJson.modelExecution?.sourceReadMode).toBe("live_sdk_mcp");
+      expect(sourceTableReadCount(calls, "recoup_src_sap")).toBe(expectedForensicsSourceTableReads() * 2);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("expires forensic query source context after the capped technical TTL elapses", async () => {
     const calls: string[] = [];
     const liveRunner = liveQueryRunnerWithForensicsHandoff();
@@ -3228,6 +3371,42 @@ describe("S5 cockpit API", () => {
           question: "Why is this recoverable?",
           recordIds: ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
           selectedLineId: "S6-L1"
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as {
+        answer?: string;
+        citations: unknown[];
+        modelExecution?: { mode: string; reason: string };
+        trace: unknown[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
+      expect(body.trace).toEqual([]);
+      expect(body.modelExecution).toEqual({
+        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+        mode: "blocked_missing_credentials",
+        reason: "OPENAI_API_KEY is not configured"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed for workspace forensic query sessions when live OpenAI agent execution is unavailable", async () => {
+    const settlementRunId = settlementRunIdForSource(serviceSource.loadSettlementRun());
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend" }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/forensics/query`, {
+        body: JSON.stringify({
+          question: "Which customers are having invalid deductions?",
+          scope: "workspace",
+          settlementRunId
         }),
         headers: cockpitAuthHeaders,
         method: "POST"
@@ -6879,6 +7058,48 @@ function liveQueryRunnerWithForensicsHandoff(): ReturnType<typeof vi.fn<LiveFore
       "Live query answer candidate suppressed by Recoup output guard.",
       selectedLiveQueryRecordIds(request)
     );
+  });
+}
+
+function liveWorkspaceQueryRunner(
+  question: string,
+  settlementRunId: string
+): ReturnType<typeof vi.fn<LiveForensicsStreamRunner>> {
+  return vi.fn<LiveForensicsStreamRunner>((request) => {
+    emitForensicsHandoffReceipts(request);
+    const workspaceToolOutput = invokeServiceTool(
+      "query.workspace",
+      { question, settlementRunId },
+      request.mcpServiceContext
+    );
+
+    return (async function* stream() {
+      await Promise.resolve();
+      yield {
+        item: {
+          agent: { name: "Forensics Investigator" },
+          rawItem: {
+            arguments: { question, settlementRunId },
+            name: "query_workspace",
+            type: "function_call"
+          }
+        },
+        name: "tool_called",
+        type: "run_item_stream_event"
+      };
+      yield {
+        item: {
+          agent: { name: "Forensics Investigator" },
+          rawItem: {
+            name: "query_workspace",
+            output: workspaceToolOutput,
+            type: "function_call_result"
+          }
+        },
+        name: "tool_output",
+        type: "run_item_stream_event"
+      };
+    })();
   });
 }
 

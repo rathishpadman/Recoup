@@ -10,6 +10,7 @@ import {
   newPageWithErrors,
   resolveBaseUrl
 } from "./real-evidence-browser-helpers.ts";
+import { validateDavidCreditQueryGolden } from "../helpers/llm-query-golden.js";
 
 interface CreditRiskReviewModel {
   accounts: CreditRiskAccountModel[];
@@ -563,8 +564,8 @@ function assertDavidLiveCreditQueryResult(
   );
   assert(result.modelExecution.rawModelTextPolicy === "suppressed", `David credit query for ${account.accountId} did not suppress raw model text.`);
   assert(
-    result.modelExecution.sourceReadMode === "live_sdk_mcp" || result.modelExecution.sourceReadMode === "governed_backend_fallback",
-    `David credit query for ${account.accountId} did not report governed source-read mode: ${JSON.stringify(result.modelExecution)}`
+    result.modelExecution.sourceReadMode === "live_sdk_mcp",
+    `David credit query for ${account.accountId} did not report live MCP source-read mode: ${JSON.stringify(result.modelExecution)}`
   );
   assert(
     typeof result.modelExecution.tokenUsage === "number" || typeof result.modelExecution.tokenUsageSnapshot?.totalTokens === "number",
@@ -576,6 +577,11 @@ function assertDavidLiveCreditQueryResult(
     result.trace.some((event) => event.toolName === "credit_risk.answer"),
     `David credit query for ${account.accountId} trace did not include credit_risk.answer: ${JSON.stringify(result.trace)}`
   );
+  const goldenErrors = validateDavidCreditQueryGolden(
+    { accountId: account.accountId, customer: account.customer, verdict: account.verdict },
+    result
+  );
+  assert(goldenErrors.length === 0, `David credit query missed golden expectations: ${goldenErrors.join("; ")}`);
 }
 
 function logDavidCreditQueryResult(account: CreditRiskAccountModel, result: CreditQueryRouteResult): void {

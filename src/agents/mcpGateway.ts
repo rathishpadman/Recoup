@@ -16,7 +16,8 @@ import {
 
 export const mayaAgentMcpAllowedToolNames = [
   "audit.read",
-  "query.answer"
+  "query.answer",
+  "query.workspace"
 ] as const;
 export const davidCreditAgentMcpAllowedToolNames = [
   "audit.read",
@@ -79,7 +80,7 @@ export async function createMayaMcpGateway(input: CreateMayaMcpGatewayInput = {}
   const env = input.env ?? process.env;
   const explicitMcpUrl = readConfiguredValue(env.RECOUP_MCP_URL);
 
-  if (explicitMcpUrl !== undefined) {
+  if (explicitMcpUrl !== undefined && input.serviceContext === undefined) {
     return createGatewayFromOptions(buildMayaMcpServerOptions(env, input.serviceContext, input.allowedToolNames));
   }
 

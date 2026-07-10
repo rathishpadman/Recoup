@@ -140,6 +140,16 @@ describe("MCP tool visibility", () => {
         selectedLineId: "S3-L1"
       }
     });
+    expect(
+      facade.callTool("query.workspace", {
+        question: "Which customers are having invalid deductions?"
+      })
+    ).toMatchObject({
+      sourceReadStatus: "source_backed_workspace_scope",
+      sourceReads: {
+        canonicalModel: "ForensicsWorkspaceReadModel"
+      }
+    });
   });
 
   it("denies draft action calls when MCP capabilities are omitted", () => {

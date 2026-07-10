@@ -1349,7 +1349,7 @@ describe("POST /credit/query", () => {
     }
   });
 
-  it("uses Maya-style governed source-read fallback when the live trace lacks the credit_risk.answer receipt", async () => {
+  it("fails closed when the live trace lacks the credit_risk.answer source read", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       const recordIds = request.agentHookAudit?.recordIds ?? [];
       request.agentHookAudit?.onReceipt(
@@ -1418,17 +1418,14 @@ describe("POST /credit/query", () => {
 
       expect(liveRunner).toHaveBeenCalledTimes(2);
       expect(liveRunner.mock.calls[1]?.[0].input).toContain("Validation retry");
-      expect(body.answer).toContain("Crestline Grocery is HIGH risk.");
-      expect(body.answer).not.toContain("The cited basis is");
-      expect(body.citations.map((citation) => citation.recordId)).toEqual(
-        expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
-      );
+      expect(body.answer).toBeUndefined();
+      expect(body.citations).toEqual([]);
       expect(body.modelExecution).toMatchObject({
-        mode: "live_openai_agents",
-        sourceReadMode: "governed_backend_fallback",
-        tokenUsage: 280
+        mode: "blocked_live_agent_trace",
+        reason: "Live Agents SDK trace did not include a successful governed credit_risk.answer source read."
       });
-      expect(body.trace.some((event) => event.toolName === "credit_risk.answer")).toBe(true);
+      expect(body.modelExecution?.sourceReadMode).toBeUndefined();
+      expect(body.trace.some((event) => event.toolName === "credit_risk.answer")).toBe(false);
     } finally {
       await close(server);
     }

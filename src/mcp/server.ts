@@ -233,6 +233,12 @@ function mcpSdkInputSchemaForTool(toolName: string) {
       selectedLineId: z.string().min(1)
     };
   }
+  if (toolName === "query.workspace") {
+    return {
+      question: z.string().min(1).max(500),
+      settlementRunId: z.string().min(1).optional()
+    };
+  }
   if (toolName === "credit_risk.answer") {
     return {
       accountId: z.string().min(1),

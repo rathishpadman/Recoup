@@ -184,6 +184,7 @@ export interface ForensicsCockpitModel {
       provenance: MayaFieldProvenance;
       question: string;
       recordIds: string[];
+      targetLineId?: string;
     }>;
     transcript: {
       english: string;
@@ -218,11 +219,18 @@ export interface ForensicsCockpitModel {
   retrievalStatus: Array<{ source: string; status: "ready"; count: number; provenance: MayaFieldProvenance }>;
   containmentPanel: {
     actionPostureLabel: string;
+    actionBasisLabel: string;
     behavioralEvidenceIds: string[];
     basisRows: Array<{ label: string; value: string; provenance: MayaFieldProvenance }>;
     componentReadoutLabel: string;
     customerId: string;
     customerLabel: string;
+    evidenceLinks: Array<{
+      label: string;
+      reason: string;
+      recordId: string;
+      tone: "critical" | "evidence" | "safe" | "warning";
+    }>;
     handoff: {
       label: string;
       recordIds: string[];
@@ -231,6 +239,15 @@ export interface ForensicsCockpitModel {
       provenance: MayaFieldProvenance;
     };
     intentLabel: string;
+    methodologyReasons: Array<{
+      label: string;
+      provenance: MayaFieldProvenance;
+      reason: string;
+      recordIds: string[];
+      thresholdLabel: string;
+      tone: "critical" | "evidence" | "safe" | "warning";
+      value: string;
+    }>;
     postureLabel: string;
     provenance: MayaFieldProvenance;
     recordIds: string[];
@@ -884,7 +901,7 @@ export function buildForensicsCockpitModel(options: CockpitModelGovernanceOption
       })
     },
     retrievalStatus,
-    containmentPanel: buildContainmentPanel(containmentCandidate, dataset.customers),
+    containmentPanel: buildContainmentPanel(containmentCandidate, dataset.customers, run.containmentActions[0]?.basis),
     whatChanged: `${String(decisionRollup.recoveryLines)} recovery drafts and ${String(decisionRollup.validLines)} Billing prevention drafts are staged for human review.`,
     aiInsight: "Every proposed amount is bound to a deterministic decision delta; live model execution remains blocked in the offline harness."
   };
@@ -1970,13 +1987,15 @@ function buildCreditCommandCenter(model: Omit<CreditCockpitModel, "commandCenter
 
 function buildContainmentPanel(
   candidate: CrestlineM6ContainmentAssessment,
-  customers: SettlementDataset["customers"]
+  customers: SettlementDataset["customers"],
+  actionBasisLabel = "Repeat invalid shortage and pricing pattern exceeded the governed gaming gate; route Soft -> Hard -> Hold review to Risk Mesh without external dispatch."
 ): ForensicsCockpitModel["containmentPanel"] {
   const customer = customers.find((item) => item.customerId === candidate.customerId);
   const components = candidate.deterministicBasis.rScoreComponents;
 
   return {
     actionPostureLabel: "No hold or freeze action staged",
+    actionBasisLabel,
     behavioralEvidenceIds: candidate.behavioralEvidenceIds,
     basisRows: [
       {
@@ -2008,6 +2027,7 @@ function buildContainmentPanel(
     componentReadoutLabel: "Day-1 deterministic component readout; production R-score/R-drift remains out of scope.",
     customerId: candidate.customerId,
     customerLabel: customer?.name ?? labelFromRecordId(candidate.customerId),
+    evidenceLinks: buildContainmentEvidenceLinks(candidate),
     handoff: {
       label: "David / Risk Mesh reference",
       recordIds: candidate.recordIds,
@@ -2016,12 +2036,118 @@ function buildContainmentPanel(
       provenance: containmentProvenance(candidate, "risk mesh review-only handoff")
     },
     intentLabel: candidate.intentLabel,
+    methodologyReasons: buildContainmentMethodologyReasons(candidate),
     postureLabel: "HITL risk review only",
     provenance: containmentProvenance(candidate, "assessCrestlineM6Containment read model"),
     recordIds: candidate.recordIds,
     recordStripLabel: "Containment review record IDs",
     statusLabel: "Gaming-gate review candidate"
   };
+}
+
+function buildContainmentMethodologyReasons(
+  candidate: CrestlineM6ContainmentAssessment
+): ForensicsCockpitModel["containmentPanel"]["methodologyReasons"] {
+  const components = candidate.deterministicBasis.rScoreComponents;
+  const invalidValueRecordIds = uniqueStrings([...candidate.recordIds, ...candidate.behavioralEvidenceIds]);
+
+  return [
+    {
+      label: "Invalid deduction mix",
+      value: `${String(components.invalidLineCount)} lines`,
+      thresholdLabel: `Threshold >= ${String(components.thresholdInvalidLineCount)}`,
+      reason: "Shortage and pricing failures both appear in the same configured review window.",
+      recordIds: candidate.recordIds,
+      tone: "critical",
+      provenance: containmentProvenance(candidate, "rScoreComponents.invalidLineCount")
+    },
+    {
+      label: "Value floor",
+      value: formatMoney(money(components.invalidValueAmount)),
+      thresholdLabel: `Floor ${formatMoney(money(components.invalidValueFloor))}`,
+      reason: "The code-computed value of invalid pattern lines clears the governed floor.",
+      recordIds: invalidValueRecordIds,
+      tone: "warning",
+      provenance: containmentProvenance(candidate, "rScoreComponents.invalidValueAmount")
+    },
+    {
+      label: "Promotion correlation",
+      value: `${String(components.promoCorrelationCount)} correlated lines`,
+      thresholdLabel: `Threshold >= ${String(components.thresholdPromoCorrelationCount)}`,
+      reason: "TPM and contract records correlate the recurring shortage/pricing pattern to a promotion window.",
+      recordIds: candidate.behavioralEvidenceIds,
+      tone: "evidence",
+      provenance: containmentProvenance(candidate, "rScoreComponents.promoCorrelationCount")
+    },
+    {
+      label: "No wrongful containment guard",
+      value: "Passed",
+      thresholdLabel: "HITL review only",
+      reason: "This stays a Risk Mesh review candidate; no hold, freeze, or external action is staged.",
+      recordIds: candidate.recordIds,
+      tone: "safe",
+      provenance: containmentProvenance(candidate, "noWrongfulContainment")
+    }
+  ];
+}
+
+function buildContainmentEvidenceLinks(
+  candidate: CrestlineM6ContainmentAssessment
+): ForensicsCockpitModel["containmentPanel"]["evidenceLinks"] {
+  return uniqueStrings([...candidate.behavioralEvidenceIds, ...candidate.recordIds]).map((recordId) => ({
+    label: containmentEvidenceLabel(recordId),
+    reason: containmentEvidenceReason(recordId),
+    recordId,
+    tone: containmentEvidenceTone(recordId)
+  }));
+}
+
+function containmentEvidenceLabel(recordId: string): string {
+  if (/^TPM-/u.test(recordId)) {
+    return "Promotion correlation evidence";
+  }
+  if (/POD/u.test(recordId)) {
+    return "Signed POD evidence";
+  }
+  if (/PRICE|CONTRACT|CLAUSE/u.test(recordId)) {
+    return "Contract pricing evidence";
+  }
+  if (/^S\d+-L\d+$/u.test(recordId)) {
+    return "Invalid deduction line evidence";
+  }
+
+  return "Source evidence";
+}
+
+function containmentEvidenceReason(recordId: string): string {
+  if (/^TPM-/u.test(recordId)) {
+    return "TPM evidence links the invalid pattern to the promotion correlation branch.";
+  }
+  if (/POD/u.test(recordId)) {
+    return "POD evidence anchors the shortage mismatch branch.";
+  }
+  if (/PRICE|CONTRACT|CLAUSE/u.test(recordId)) {
+    return "Contract evidence anchors the pricing-below-contract branch.";
+  }
+  if (/^S\d+-L\d+$/u.test(recordId)) {
+    return "Deduction line is part of the repeated invalid shortage/pricing pattern.";
+  }
+
+  return "Source record is cited by the governed containment read model.";
+}
+
+function containmentEvidenceTone(recordId: string): "critical" | "evidence" | "safe" | "warning" {
+  if (/^TPM-/u.test(recordId)) {
+    return "evidence";
+  }
+  if (/POD|^S\d+-L\d+$/u.test(recordId)) {
+    return "critical";
+  }
+  if (/PRICE|CONTRACT|CLAUSE/u.test(recordId)) {
+    return "warning";
+  }
+
+  return "safe";
 }
 
 function readGovernedCockpitConfig(options: CockpitModelGovernanceOptions | undefined): GovernedConfigValues {

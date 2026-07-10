@@ -23,7 +23,11 @@ import {
   type AgentHookAuditReceiptInput
 } from "./conductor.js";
 import { invokeServiceTool, type ServiceInvocationContext } from "./serviceLayer.js";
-import { settlementRunIdForSource } from "./settlementRunIdentity.js";
+import {
+  buildForensicsWorkspaceQueryResponse,
+  ForensicsWorkspaceSettlementRunMismatchError,
+  workspaceForensicsQueryBasis
+} from "./forensicsWorkspaceQuery.js";
 
 export type { ForensicsQueryTraceEvent, ForensicsQueryTracePhase };
 
@@ -60,7 +64,6 @@ export const liveForensicsQueryAnswerGuardBasis =
 const liveForensicsQueryRequiredBasis = "OpenAI Agents SDK live trace required for Maya query answers." as const;
 const liveForensicsQuerySessionBasis =
   "runForensicsInvestigation + evidence source reads + deterministic hook audit trace + OpenAI Agents SDK live trace" as const;
-const workspaceForensicsQueryBasis = "current settlement run read-model + deterministic forensics decisions" as const;
 
 export type ForensicsQueryLiveAgentTraceOptions = Pick<
   StreamLiveForensicsTraceOptions,
@@ -82,6 +85,7 @@ export type ForensicsQueryModelExecution =
         promptPrefixVersion: string;
       };
       rawModelTextPolicy: "suppressed";
+      sourceReadMode: "live_sdk_mcp";
       tokenUsage?: number;
       tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
     }
@@ -162,178 +166,133 @@ export class ForensicsQueryLineNotFoundError extends Error {
   }
 }
 
-export class ForensicsWorkspaceSettlementRunMismatchError extends Error {
-  readonly currentSettlementRunId: string;
-
-  constructor(currentSettlementRunId: string) {
-    super("Maya workspace query requires the current settlement run.");
-    this.name = "ForensicsWorkspaceSettlementRunMismatchError";
-    this.currentSettlementRunId = currentSettlementRunId;
-  }
-}
+export { ForensicsWorkspaceSettlementRunMismatchError };
 
 export function runForensicsWorkspaceQuerySession(
   input: ForensicsWorkspaceQuerySessionInput
 ): ForensicsQuerySessionResponse {
-  const question = input.question.trim();
-  if (question.length === 0) {
-    throw new Error("Forensics workspace query requires question.");
+  return buildForensicsWorkspaceQueryResponse(input);
+}
+
+export async function runForensicsWorkspaceQuerySessionWithLiveAgents(
+  input: ForensicsWorkspaceQuerySessionInput & { liveAgentTrace?: ForensicsQueryLiveAgentTraceOptions }
+): Promise<ForensicsQuerySessionResponse> {
+  const deterministicResponse = buildForensicsWorkspaceQueryResponse(input);
+  if (deterministicResponse.answer === undefined) {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Deterministic workspace query answer guard blocked the workspace response."
+    );
   }
 
-  const settlementRun = input.source.loadSettlementRun();
-  const currentSettlementRunId = settlementRunIdForSource(settlementRun);
-  if (input.settlementRunId.trim() !== currentSettlementRunId) {
-    throw new ForensicsWorkspaceSettlementRunMismatchError(currentSettlementRunId);
+  const liveAgentTrace = input.liveAgentTrace;
+  if (liveAgentTrace === undefined) {
+    return blockedLiveAgentQueryResponse("blocked_live_agent_trace", "Live Agents SDK trace options are not configured.");
   }
 
-  const run = (input.runForensics ?? runForensicsInvestigation)({
-    governedConfig: input.governedConfig,
-    ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
-    serviceContext: input.serviceContext,
-    source: input.source
-  });
-  if (run.decisions.length === 0) {
-    return blockedQueryResponse();
+  const apiKey = liveAgentTrace.env?.OPENAI_API_KEY?.trim();
+  if (apiKey === undefined || apiKey.length === 0) {
+    return blockedLiveAgentQueryResponse("blocked_missing_credentials", "OPENAI_API_KEY is not configured");
   }
 
-  const caseSummaries = buildWorkspaceCaseSummaries(run.decisions);
-  if (caseSummaries.length === 0) {
-    return blockedQueryResponse();
-  }
-
-  const citations = buildWorkspaceQueryCitations(caseSummaries);
-  const citedRecordIds = citations.map((citation) => citation.recordId);
-  return {
-    answer: buildDeterministicWorkspaceQueryAnswer({
-      caseSummaries,
-      citationRecordIds: citedRecordIds
+  const liveAgentRecordIds = deterministicResponse.sourceReads.selectedRecordIds;
+  let liveRun = await collectLiveForensicsAgentRun({
+    ...liveAgentTrace,
+    agentHookRecordIds: liveAgentRecordIds,
+    input: buildLiveForensicsWorkspaceQueryInput({
+      question: input.question,
+      recordIds: liveAgentRecordIds,
+      settlementRunId: input.settlementRunId
     }),
-    citations,
-    deterministicBasis: workspaceForensicsQueryBasis,
-    trace: buildWorkspaceQueryTrace(citedRecordIds)
-  };
-}
+    mcpServiceContext: {
+      ...input.serviceContext,
+      governedConfig: input.governedConfig,
+      ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+      source: input.source
+    },
+    toolChoice: "query_workspace"
+  });
 
-interface WorkspaceCaseSummary {
-  basis: string;
-  caseId: string;
-  lineIds: string[];
-  recordIds: string[];
-  routing: string;
-  verdict: string;
-}
-
-function buildWorkspaceCaseSummaries(decisions: readonly DeductionDecision[]): WorkspaceCaseSummary[] {
-  const byCaseId = new Map<string, DeductionDecision[]>();
-  for (const decision of decisions) {
-    const caseId = workspaceCaseIdFromLineId(decision.lineId);
-    byCaseId.set(caseId, [...(byCaseId.get(caseId) ?? []), decision]);
+  if (liveRun.status !== "completed") {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Live Agents SDK trace did not complete for the Maya workspace query."
+    );
   }
 
-  return [...byCaseId.entries()].map(([caseId, caseDecisions]) => {
-    const representative = caseDecisions[0];
-    if (representative === undefined) {
-      throw new Error(`Workspace case ${caseId} has no deterministic forensics decision.`);
-    }
+  if (
+    !hasWorkspaceLiveMcpQueryAnswerProof(liveRun, input.settlementRunId, liveAgentRecordIds) &&
+    shouldRetryMissingSelectedEvidenceMcpRead(liveAgentTrace.retryCap)
+  ) {
+    liveAgentTrace.onRetry?.();
+    const retryLiveRun = await collectLiveForensicsAgentRun({
+      ...liveAgentTrace,
+      agentHookRecordIds: liveAgentRecordIds,
+      input: buildLiveForensicsWorkspaceQueryInput({
+        question: input.question,
+        recordIds: liveAgentRecordIds,
+        settlementRunId: input.settlementRunId,
+        validationRetryReason: "Previous live trace did not include a successful workspace query_workspace source read."
+      }),
+      retryCap: 0,
+      mcpServiceContext: {
+        ...input.serviceContext,
+        governedConfig: input.governedConfig,
+        ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+        source: input.source
+      },
+      toolChoice: "query_workspace"
+    });
+    liveRun = mergeLiveForensicsAgentRuns(liveRun, retryLiveRun);
+  }
 
-    return {
-      basis: representative.basis,
-      caseId,
-      lineIds: caseDecisions.map((decision) => decision.lineId),
-      recordIds: dedupeRecordIds(
-        caseDecisions.flatMap((decision) => [
-          decision.lineId,
-          ...decision.recordIds,
-          ...decision.evidenceDocuments.flatMap((document) => document.recordIds)
-        ])
-      ),
-      routing: representative.routing,
-      verdict: representative.verdict
-    };
-  });
-}
-
-function buildWorkspaceQueryCitations(caseSummaries: readonly WorkspaceCaseSummary[]): ForensicsQueryCitation[] {
-  return caseSummaries.flatMap((summary) =>
-    summary.recordIds.map((recordId) => ({
-      deterministicBasis: workspaceForensicsQueryBasis,
-      documentId: summary.caseId,
-      recordId,
-      source: recordId === summary.caseId || summary.lineIds.includes(recordId) ? "source_backed" : "derived_backend",
-      summary: `${summary.caseId} ${summary.verdict} verdict routed to ${summary.routing}: ${summary.basis}`
-    }))
+  const handoffCount = liveRun.hookReceipts.filter((receipt) => receipt.hook === "agent_handoff").length;
+  const hasRecoveryHandoff = liveRun.hookReceipts.some(
+    (receipt) =>
+      receipt.hook === "agent_handoff" &&
+      receipt.agentName === "Forensics Investigator" &&
+      receipt.nextAgentName === "Recovery Drafter"
   );
-}
+  if (!hasRecoveryHandoff) {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Live Agents SDK trace did not include the required Forensics-to-Recovery handoff."
+    );
+  }
 
-function buildDeterministicWorkspaceQueryAnswer(input: {
-  caseSummaries: readonly WorkspaceCaseSummary[];
-  citationRecordIds: readonly string[];
-}): string {
-  const validCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "valid");
-  const invalidCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "invalid");
-  const partialCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "partial");
-  const billingCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "billing");
-  const recoveryCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "recovery");
-  const citedRecordIds = dedupeRecordIds(input.citationRecordIds);
+  if (!hasWorkspaceLiveMcpQueryAnswerProof(liveRun, input.settlementRunId, liveAgentRecordIds)) {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Live Agents SDK trace did not include a successful workspace MCP query.workspace source read."
+    );
+  }
 
-  return [
-    `The current settlement run has ${input.caseSummaries.length.toString()} deduction cases.`,
-    `Agents returned ${validCount.toString()} valid, ${invalidCount.toString()} invalid, and ${partialCount.toString()} partial verdicts from the read-model.`,
-    `${billingCount.toString()} cases route to Billing and ${recoveryCount.toString()} cases route to Recovery.`,
-    `The answer is limited to cited settlement and evidence record IDs: ${citedRecordIds.join(", ")}.`
-  ].join(" ");
-}
+  const liveTrace = buildLiveAgentQueryTrace(liveRun.hookReceipts, liveAgentRecordIds);
+  if (liveTrace.length === 0) {
+    return blockedLiveAgentQueryResponse(
+      "blocked_live_agent_trace",
+      "Live Agents SDK trace did not produce hook receipts for the Maya workspace query."
+    );
+  }
 
-function buildWorkspaceQueryTrace(citedRecordIds: readonly string[]): SourceAnnotatedForensicsQueryTraceEvent[] {
-  const recordIds = dedupeRecordIds(citedRecordIds);
-  return [
-    workspaceTraceEvent("supervisor", "Settlement run accepted", "Workspace query matched the current settlement run.", recordIds),
-    workspaceTraceEvent("query", "Question normalized", "Workspace question was normalized for a settlement-run report.", recordIds),
-    workspaceTraceEvent("retrieval", "Evidence packet read", "Settlement line and evidence record IDs were read from the current source snapshot.", recordIds),
-    workspaceTraceEvent("decision", "Decision rollup checked", "Deterministic forensics decisions supplied the workspace verdict and routing rollup.", recordIds)
-  ];
-}
-
-function workspaceTraceEvent(
-  phase: ForensicsQueryTracePhase,
-  label: string,
-  message: string,
-  recordIds: readonly string[]
-): SourceAnnotatedForensicsQueryTraceEvent {
-  const hook =
-    phase === "supervisor"
-      ? "agent_start"
-      : phase === "decision"
-        ? "agent_end"
-        : phase === "query"
-          ? "agent_tool_start"
-          : "agent_tool_end";
-
+  const tokenUsage = liveRun.tokenUsage > 0 ? { tokenUsage: liveRun.tokenUsage } : {};
+  const promptCache = buildDeductionForensicsPromptCacheMetadata(liveRun.tokenUsageSnapshot);
   return {
-    agentName: "Recoup Copilot",
-    deterministicBasis: workspaceForensicsQueryBasis,
-    hook,
-    label,
-    message,
-    phase,
-    receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
-    recordIds: [...recordIds],
-    retrievalSource: "source_backed",
-    sourceKind: "derived_backend",
-    ...(phase === "retrieval" ? { toolName: "settlement.run.read" } : {})
+    ...deterministicResponse,
+    deterministicBasis: liveForensicsQuerySessionBasis,
+    modelExecution: {
+      agentNames: dedupeRecordIds(liveRun.hookReceipts.map((receipt) => receipt.agentName)),
+      deterministicBasis: liveForensicsQueryAnswerGuardBasis,
+      handoffCount,
+      mode: "live_openai_agents",
+      ...(promptCache === undefined ? {} : { promptCache }),
+      rawModelTextPolicy: "suppressed",
+      sourceReadMode: "live_sdk_mcp",
+      ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot }),
+      ...tokenUsage
+    },
+    trace: [...liveTrace, ...deterministicResponse.trace]
   };
-}
-
-function countWorkspaceCasesBy(
-  caseSummaries: readonly WorkspaceCaseSummary[],
-  key: "routing" | "verdict",
-  value: string
-): number {
-  return caseSummaries.filter((summary) => summary[key] === value).length;
-}
-
-function workspaceCaseIdFromLineId(lineId: string): string {
-  return lineId.match(/^(S[1-8])-/u)?.[1] ?? lineId;
 }
 
 export function runForensicsQuerySession(input: ForensicsQuerySessionInput): ForensicsQuerySessionResponse {
@@ -532,6 +491,7 @@ export async function runForensicsQuerySessionWithLiveAgents(
       mode: "live_openai_agents",
       ...(promptCache === undefined ? {} : { promptCache }),
       rawModelTextPolicy: "suppressed",
+      sourceReadMode: "live_sdk_mcp",
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot }),
       ...tokenUsage
     },
@@ -1034,6 +994,53 @@ function buildLiveForensicsQueryInput(input: {
   return lines.join("\n");
 }
 
+function buildLiveForensicsWorkspaceQueryInput(input: {
+  question: string;
+  recordIds: readonly string[];
+  settlementRunId: string;
+  validationRetryReason?: string | undefined;
+}): string {
+  return [
+    "Workspace Maya forensics query.",
+    ...(input.validationRetryReason === undefined ? [] : [`Validation retry: ${input.validationRetryReason}`]),
+    `Question: ${input.question}`,
+    `Settlement run: ${input.settlementRunId}`,
+    `Workspace record IDs in scope: ${dedupeRecordIds(input.recordIds).join(", ")}.`,
+    "Step 1: call the SDK-visible governed MCP function tool query_workspace exactly once with this question and settlementRunId.",
+    "Step 2: after query_workspace returns any result: Do not call query_workspace again. Immediately call the Agents SDK handoff function transfer_to_Recovery_Drafter to hand off to Recovery Drafter.",
+    "Step 3: provide a short lifecycle summary only. The API returns the code-computed workspace answer, citations, and deterministic basis, not raw model prose.",
+    "Do not compute verdict counts, customer lists, routing, or dollar amounts in model text. Code computes those from the current read model.",
+    "Do not write or return SQL. Use the governed tool only; external database queries and ERP mutation are forbidden.",
+    "Raw model text is suppressed by Recoup; source IDs and tool proof are retained for the model-execution drawer."
+  ].join("\n");
+}
+
+function hasWorkspaceLiveMcpQueryAnswerProof(
+  liveRun: Awaited<ReturnType<typeof collectLiveForensicsAgentRun>>,
+  settlementRunId: string,
+  scopedRecordIds: readonly string[]
+): boolean {
+  if (liveRun.toolOutputs === undefined) {
+    return false;
+  }
+  const requiredRecordIds = dedupeRecordIds(scopedRecordIds);
+
+  return liveRun.toolOutputs.some((output) => {
+    if (normalizeLiveMcpToolName(output.toolName) !== "query.workspace") {
+      return false;
+    }
+    const payload = toRecord(output.payload);
+    const sourceReads = toRecord(payload?.sourceReads);
+    const outputRecordIds = readStringArray(sourceReads?.selectedRecordIds);
+    return (
+      payload?.sourceReadStatus === "source_backed_workspace_scope" &&
+      readNonEmptyString(sourceReads?.settlementRunId) === settlementRunId &&
+      outputRecordIds !== undefined &&
+      requiredRecordIds.every((recordId) => outputRecordIds.includes(recordId))
+    );
+  });
+}
+
 function buildLiveAgentQueryTrace(
   receipts: readonly AgentHookAuditReceipt[],
   scopedRecordIds: readonly string[]
@@ -1278,6 +1285,9 @@ function traceSourceMetadataForReceipt(receipt: AgentHookAuditReceipt): {
   if (toolName.includes("supabase")) {
     return { retrievalSource: "supabase", sourceKind: "supabase" };
   }
+  if (toolName === "query.workspace") {
+    return { retrievalSource: "source_backed", sourceKind: "derived_backend" };
+  }
   if (toolName.startsWith("retrieval.")) {
     return { retrievalSource: "source_backed", sourceKind: "agent_trace" };
   }
@@ -1299,6 +1309,10 @@ function traceTransportMetadataForReceipt(receipt: AgentHookAuditReceipt): {
 
 function normalizeLiveMcpToolName(toolName: string | undefined): string | undefined {
   return toolName?.replaceAll("_", ".");
+}
+
+function workspaceCaseIdFromLineId(lineId: string): string {
+  return lineId.match(/^(S[1-8])-/u)?.[1] ?? lineId;
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

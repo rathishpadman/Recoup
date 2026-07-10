@@ -12,11 +12,14 @@ import { invokeServiceTool } from "../../src/services/serviceLayer.js";
 import {
   ForensicsQueryLineNotFoundError,
   forensicsQueryDeterministicBasis,
+  runForensicsWorkspaceQuerySessionWithLiveAgents,
   runForensicsQuerySessionWithLiveAgents,
   runForensicsQuerySession,
   type ForensicsQueryTracePhase
 } from "../../src/services/forensicsQuerySession.js";
+import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { fixtureForensicsServiceContext } from "../helpers/forensics-fixtures.js";
+import { validateMayaWorkspaceInvalidDeductionsGolden } from "../helpers/llm-query-golden.js";
 
 const governedConfig = day1GovernedConfigSeed.values;
 const validS6SubmittedRecordIds = ["INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"] as const;
@@ -48,6 +51,139 @@ function runForensicsFromServiceInput(overrides: Partial<Parameters<typeof runFo
 }
 
 describe("forensics query session", () => {
+  it("backs Maya workspace queries with live agent tool proof while code returns the cited run answer", async () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const settlementRunId = settlementRunIdForSource(source.loadSettlementRun());
+    const question = "Which customers are having invalid deductions?";
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      expect(request.input).toContain("Workspace Maya forensics query");
+      expect(request.input).toContain("query_workspace");
+      expect(request.input).toContain("Do not write or return SQL");
+      expect(request.input).toContain("code-computed workspace answer");
+      expect(request.agentHookAudit?.recordIds).toEqual(
+        expect.arrayContaining(["S3-L1", "S5-L1", "S6-L1", "S8-L1"])
+      );
+      expect(request.mcpServiceContext?.governedConfig).toBe(governedConfig);
+      expect(request.mcpServiceContext?.source).toBe(source);
+      if (request.agentHookAudit === undefined) {
+        throw new Error("Expected workspace live query agent hook audit.");
+      }
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Forensics Investigator",
+          hook: "agent_handoff",
+          nextAgentName: "Recovery Drafter",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+      request.agentHookAudit.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Recovery Drafter",
+          hook: "agent_start",
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+
+      const workspaceToolOutput = invokeServiceTool(
+        "query.workspace",
+        { question, settlementRunId },
+        {
+          governedConfig,
+          ...fixtureForensicsServiceContext,
+          source
+        }
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield { usage: { input_tokens: 11, output_tokens: 7 } };
+        yield sdkToolEvent("tool_called", "query_workspace", "Forensics Investigator", {
+          arguments: { question, settlementRunId }
+        });
+        yield sdkToolEvent("tool_output", "query_workspace", "Forensics Investigator", {
+          output: workspaceToolOutput
+        });
+      })();
+    });
+
+    const result = await runForensicsWorkspaceQuerySessionWithLiveAgents({
+      governedConfig,
+      liveAgentTrace: {
+        env: { OPENAI_API_KEY: "sk-test-live-workspace-query" },
+        maxTurns: 2,
+        retryCap: 0,
+        runner: liveRunner
+      },
+      question,
+      serviceContext: fixtureForensicsServiceContext,
+      settlementRunId,
+      source
+    });
+
+    expect(liveRunner).toHaveBeenCalledTimes(1);
+    expect(result.answer).toContain("Crestline Grocery");
+    expect(result.answer).toContain("ValuMart Club");
+    expect(result.answer).toContain("Harbor Foods");
+    expect(result.answer).not.toContain("SELECT");
+    expect(validateMayaWorkspaceInvalidDeductionsGolden(result)).toEqual([]);
+    expect(result.modelExecution).toMatchObject({
+      agentNames: ["Forensics Investigator", "Recovery Drafter"],
+      handoffCount: 1,
+      mode: "live_openai_agents",
+      rawModelTextPolicy: "suppressed",
+      sourceReadMode: "live_sdk_mcp"
+    });
+    expect(result.trace.find((event) => event.toolName === "query.workspace")).toMatchObject({
+      retrievalSource: "source_backed",
+      sourceKind: "derived_backend"
+    });
+  });
+
+  it("fails closed when the live model omits the workspace tool call", async () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const settlementRunId = settlementRunIdForSource(source.loadSettlementRun());
+    const question = "Which customers are having invalid deductions?";
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      emitForensicsHandoffReceipts(request);
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield { usage: { input_tokens: 5, output_tokens: 3 } };
+      })();
+    });
+
+    const result = await runForensicsWorkspaceQuerySessionWithLiveAgents({
+      governedConfig,
+      liveAgentTrace: {
+        env: { OPENAI_API_KEY: "sk-test-live-workspace-query" },
+        maxTurns: 2,
+        retryCap: 1,
+        runner: liveRunner
+      },
+      question,
+      serviceContext: fixtureForensicsServiceContext,
+      settlementRunId,
+      source
+    });
+
+    expect(liveRunner).toHaveBeenCalledTimes(2);
+    expect(result.answer).toBeUndefined();
+    expect(result.citations).toEqual([]);
+    expect(result.trace).toEqual([]);
+    expect(result.modelExecution).toEqual({
+      deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+      mode: "blocked_live_agent_trace",
+      reason: "Live Agents SDK trace did not include a successful workspace MCP query.workspace source read."
+    });
+  });
+
   it("adds live OpenAI Agents SDK handoff trace before returning a live-agent-backed Maya query answer", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       expect(request.input).toContain("Selected Maya forensics query");
@@ -1076,6 +1212,35 @@ function buildQueryHookReceipts(recordIds: string[]) {
       recordIds
     })
   ];
+}
+
+function emitForensicsHandoffReceipts(request: Parameters<LiveForensicsStreamRunner>[0]): void {
+  if (request.agentHookAudit === undefined) {
+    throw new Error("Expected live query agent hook audit.");
+  }
+
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Investigator",
+      hook: "agent_start",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Forensics Investigator",
+      hook: "agent_handoff",
+      nextAgentName: "Recovery Drafter",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
+  request.agentHookAudit.onReceipt(
+    createAgentHookAuditReceipt({
+      agentName: "Recovery Drafter",
+      hook: "agent_start",
+      recordIds: request.agentHookAudit.recordIds
+    })
+  );
 }
 
 function buildCanonicalS6Reconciliation(): NonNullable<Parameters<typeof runForensicsQuerySession>[0]["reconciliation"]> {

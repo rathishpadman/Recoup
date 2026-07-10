@@ -2326,9 +2326,19 @@ describe("Maya shadcn human QA contract", () => {
         !/\bconst\s+shouldShowComposer\b/u.test(stripComments(queryDock)) &&
         !/data-testid="maya-query-input"[\s\S]{0,900}\bcanShowCitedAnswer\b/u.test(stripComments(queryDock)) &&
         !/disabled=\{canShowCitedAnswer\s*\|\|/u.test(stripComments(queryDock)),
+      workspaceVoiceUsesBackendWorkspaceQuery:
+        /async\s+function\s+startVoiceQuery\(\)\s*:\s*Promise<void>\s*\{[\s\S]{0,2600}if\s*\(\s*activeQueryScope\s*===\s*"workspace"\s*\)[\s\S]{0,1300}fetch\("\/api\/forensics\/query"/u.test(
+          stripComments(queryDock)
+        ) &&
+        /async\s+function\s+startVoiceQuery\(\)\s*:\s*Promise<void>\s*\{[\s\S]{0,2600}if\s*\(\s*activeQueryScope\s*===\s*"workspace"\s*\)[\s\S]{0,1300}scope:\s*"workspace"/u.test(
+          stripComments(queryDock)
+        ) &&
+        /async\s+function\s+startVoiceQuery\(\)\s*:\s*Promise<void>\s*\{[\s\S]{0,2600}if\s*\(\s*activeQueryScope\s*===\s*"workspace"\s*\)[\s\S]{0,2200}buildQueryEvidenceSnapshot/u.test(
+          stripComments(queryDock)
+        ),
       promptChipLabelsUseQuestionText:
-        /data-testid="maya-query-prompt-chip"[\s\S]{0,360}\{prompt\.question\}/u.test(stripComments(queryDock)) &&
-        !/data-testid="maya-query-prompt-chip"[\s\S]{0,360}\{prompt\.label\}/u.test(stripComments(queryDock)),
+        /data-testid="maya-query-prompt-chip"[\s\S]{0,900}\{prompt\.question\}/u.test(stripComments(queryDock)) &&
+        !/data-testid="maya-query-prompt-chip"[\s\S]{0,900}\{prompt\.label\}/u.test(stripComments(queryDock)),
       promptChipListIsDeduped:
         (/\b(?:dedupedPromptSuggestions|uniquePromptSuggestions)\b/u.test(stripComments(queryDock)) ||
           /\bdedupePromptSuggestions\b/u.test(stripComments(queryDock))) &&
@@ -2424,6 +2434,7 @@ describe("Maya shadcn human QA contract", () => {
       promptChipSelectsQuestion: true,
       userTurnRendersSubmittedQuestion: true,
       composerRemainsAvailableAfterAnswer: true,
+      workspaceVoiceUsesBackendWorkspaceQuery: true,
       promptChipLabelsUseQuestionText: true,
       promptChipListIsDeduped: true,
       assistantMessageHookTargetsAnswerBubble: true,

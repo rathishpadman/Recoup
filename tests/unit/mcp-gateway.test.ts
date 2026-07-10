@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMayaMcpServerOptions,
+  createMayaMcpGateway,
   davidCreditAgentMcpAllowedToolNames,
   mayaAgentMcpAllowedToolNames
 } from "../../src/agents/mcpGateway.js";
+import type { ServiceInvocationContext } from "../../src/services/serviceLayer.js";
 
 describe("Maya MCP agent gateway", () => {
   it("builds a read-only Streamable HTTP MCP client config without source credentials", () => {
@@ -33,7 +35,8 @@ describe("Maya MCP agent gateway", () => {
     expect(serializedOptions).not.toContain("supabase-secret");
     expect(mayaAgentMcpAllowedToolNames).toEqual([
       "audit.read",
-      "query.answer"
+      "query.answer",
+      "query.workspace"
     ]);
   });
 
@@ -92,6 +95,35 @@ describe("Maya MCP agent gateway", () => {
         RECOUP_MCP_URL: "http://127.0.0.1:4318/mcp"
       })
     ).toThrow("RECOUP_MCP_AUTH_TOKEN is required for Maya MCP agent source access.");
+  });
+
+  it("prefers a context-bound loopback MCP server for live agent source reads", async () => {
+    const serviceContext = { source: { loadSettlementRun: () => ({ deductionLines: [] }) } } as unknown as ServiceInvocationContext;
+    let startedWith: unknown;
+
+    const gateway = await createMayaMcpGateway({
+      env: {
+        RECOUP_MCP_AUTH_TOKEN: "private-token",
+        RECOUP_MCP_URL: "http://127.0.0.1:4318/mcp"
+      },
+      serviceContext,
+      startServer(input) {
+        startedWith = input;
+        return Promise.resolve({
+          baseUrl: "http://127.0.0.1:55001",
+          close: () => Promise.resolve(),
+          endpoint: "/mcp",
+          server: {} as never,
+          transport: "StreamableHTTPServerTransport"
+        });
+      }
+    });
+
+    await gateway.close();
+    expect(startedWith).toMatchObject({
+      port: 0,
+      serviceContext
+    });
   });
 });
 

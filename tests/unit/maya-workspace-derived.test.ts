@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCopilotSuggestions,
+  buildOverviewCopilotPromptSuggestions,
   buildAgentInvestigationTimelineSteps,
   buildAgentChecklistRows,
   buildCaseScopedQueryRecordIds,
@@ -31,6 +32,7 @@ import {
   normalizeMayaVerdict,
   overviewCardVisualKey,
   overviewShortVerdictLabel,
+  resolveCopilotPromptCaseFocus,
   resolveMayaWorklistReason,
   type MayaOverviewSummaryCard
 } from "../../cockpit/components/maya/maya-workspace-derived.ts";
@@ -389,9 +391,53 @@ describe("Maya workspace derived helpers", () => {
 
     expect(resolveMayaWorklistReason(invalid as never)).toBe("The signed proof of delivery shows the full ordered quantity was received.");
     expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]?.targetLineId).toBe("S3-L1");
     expect(suggestions[0]?.question).toContain(invalid.customerLabel);
     expect(suggestions[0]?.question).not.toContain("S3-L1");
     expect(suggestions[0]?.question).not.toContain("POD-77421");
+  });
+
+  it("keeps Overview case prompt chips scoped to their target case instead of the whole workspace", () => {
+    const invalid = workItem({
+      customerLabel: "Crestline Grocery",
+      lineId: "S3-L1",
+      lineIds: ["S3-L1", "S3-L2"],
+      provenance: {
+        deterministicBasis: "work item source",
+        recordIds: ["S3-L1", "S3-L2", "POD-S3-L1", "GLOBAL-WORKSPACE-ID"],
+        sourceKind: "derived_backend",
+        sourceName: "unit test"
+      },
+      verdict: "invalid",
+      workItemLabel: "Crestline shortage deduction"
+    });
+    const valid = workItem({
+      customerLabel: "Greenleaf Naturals",
+      lineId: "S1-L1",
+      lineIds: ["S1-L1"],
+      provenance: {
+        deterministicBasis: "work item source",
+        recordIds: ["S1-L1", "PHOTO-S1-L1"],
+        sourceKind: "derived_backend",
+        sourceName: "unit test"
+      },
+      verdict: "valid",
+      workItemLabel: "Greenleaf carrier damage"
+    });
+
+    const prompts = buildOverviewCopilotPromptSuggestions([valid, invalid] as never, [
+      "S1-L1",
+      "S3-L1",
+      "WORKSPACE-ONLY-ROLLUP"
+    ]);
+    const caseOptions = buildCopilotCaseOptions([valid, invalid] as never);
+    const crestlinePrompt = prompts.find((prompt) => prompt.targetLineId === "S3-L1");
+
+    expect(crestlinePrompt).toBeDefined();
+    expect(crestlinePrompt?.recordIds).toEqual(["S3-L1", "S3-L2"]);
+    expect(crestlinePrompt?.provenance.recordIds).toEqual(["S3-L1", "S3-L2"]);
+    expect(crestlinePrompt?.recordIds).not.toContain("WORKSPACE-ONLY-ROLLUP");
+    expect(resolveCopilotPromptCaseFocus(crestlinePrompt, caseOptions)).toBe("S3-L1");
   });
 
   it("builds Overview copilot case-picker options from every real worklist item", () => {
@@ -1424,6 +1470,70 @@ describe("Maya workspace derived helpers", () => {
     expect(snapshot.status).toBe("blocked");
     expect(snapshot.message).toBe("Forensics query cited records outside the selected evidence packet.");
     expect(snapshot.recordIds).toEqual(["S1-L1", "OUTSIDE-WORKSPACE", "S2-L1", "DOC-S2-L1"]);
+    expect(snapshot).not.toHaveProperty("answer");
+  });
+
+  it("blocks workspace query snapshots that have citations but lack live MCP model-execution proof", () => {
+    const response: QueryEvidenceBackendResponse = {
+      answer: "Invalid deductions currently involve Crestline Grocery, ValuMart Club, and Harbor Foods.",
+      citations: [
+        {
+          deterministicBasis: "Workspace line is part of the settlement run packet.",
+          recordId: "S1-L1",
+          source: "source_backed",
+          summary: "Workspace case line."
+        }
+      ],
+      deterministicBasis: "current settlement run read-model + deterministic forensics decisions",
+      trace: [
+        {
+          agentName: "Recoup Copilot",
+          deterministicBasis: "Workspace query completed.",
+          hook: "agent_end",
+          label: "Workspace answer returned",
+          message: "Workspace query returned a cited answer without live MCP proof.",
+          phase: "decision",
+          receiptDeterministicBasis: "Recoup deterministic forensics hook audit event",
+          recordIds: ["S1-L1"]
+        }
+      ]
+    };
+
+    const snapshot = buildQueryEvidenceSnapshot({
+      evidencePackRecordIds: ["S1-L1"],
+      queryScope: "workspace",
+      recordIds: ["S1-L1"],
+      response,
+      selectedLine: "S1-L1"
+    });
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.message).toBe("Forensics query returned no cited answer.");
+    expect(snapshot).not.toHaveProperty("answer");
+  });
+
+  it("preserves blocked live-agent model execution details for workspace queries", () => {
+    const response: QueryEvidenceBackendResponse = {
+      citations: [],
+      modelExecution: {
+        deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.",
+        mode: "blocked_live_agent_trace",
+        reason: "Live Agents SDK trace did not include a successful workspace MCP query.workspace source read."
+      },
+      trace: []
+    };
+
+    const snapshot = buildQueryEvidenceSnapshot({
+      evidencePackRecordIds: ["S1-L1"],
+      queryScope: "workspace",
+      recordIds: ["S1-L1"],
+      response,
+      selectedLine: "S1-L1"
+    });
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.message).toBe("Live Agents SDK trace did not include a successful workspace MCP query.workspace source read.");
+    expect(snapshot.modelExecution).toEqual(response.modelExecution);
     expect(snapshot).not.toHaveProperty("answer");
   });
 

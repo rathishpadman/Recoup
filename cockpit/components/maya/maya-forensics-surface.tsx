@@ -37,7 +37,7 @@ import { QueryEvidenceDock } from "./query-evidence-dock.tsx";
 import { SourceReadinessStrip } from "./source-readiness-strip.tsx";
 import {
   buildCopilotCaseOptions,
-  buildCopilotSuggestions,
+  buildOverviewCopilotPromptSuggestions,
   buildOverviewVerdictFilterOptions,
   buildOverviewSummaryCards,
   buildSourcePillState,
@@ -1558,26 +1558,6 @@ export function MayaForensicsSurface({
       />
     </MayaWorkspaceShell>
   );
-}
-
-function buildOverviewCopilotPromptSuggestions(
-  worklist: readonly MayaWorklistItem[],
-  fallbackRecordIds: readonly string[]
-): NonNullable<MayaQueryPromptDockContract["promptSuggestions"]> {
-  return buildCopilotSuggestions(worklist).map((suggestion) => {
-    const recordIds = dedupeStrings([...suggestion.recordIds, ...fallbackRecordIds]);
-    return {
-      label: suggestion.label,
-      provenance: {
-        deterministicBasis: `Overview prompt derived from Maya worklist row ${recordIds.join(", ") || suggestion.label}.`,
-        recordIds,
-        sourceKind: "derived_backend",
-        sourceName: "Maya worklist"
-      },
-      question: suggestion.question,
-      recordIds
-    };
-  });
 }
 
 function dedupeStrings(values: readonly string[]): string[] {

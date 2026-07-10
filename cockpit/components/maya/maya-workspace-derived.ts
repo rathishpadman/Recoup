@@ -3,6 +3,7 @@ import type {
   MayaActionInboxItem,
   MayaEvidenceDocument,
   MayaEvidencePack,
+  MayaQueryPromptDockContract,
   MayaSelectedCase,
   QueryEvidenceBackendResponse,
   QueryEvidenceResponse,
@@ -95,6 +96,7 @@ export interface MayaCopilotSuggestion {
   question: string;
   recordIds: string[];
   supportLabel: string;
+  targetLineId: string;
 }
 
 export interface MayaCopilotCaseOption {
@@ -665,8 +667,40 @@ export function buildCopilotSuggestions(worklist: readonly MayaWorklistItem[]): 
     label: item.customerLabel,
     question: `What evidence supports the ${item.verdictLabel} verdict for ${item.customerLabel}?`,
     recordIds: item.lineIds.length > 0 ? [...item.lineIds] : [item.lineId],
-    supportLabel: `${item.amount} - ${resolveMayaWorklistReason(item)}`
+    supportLabel: `${item.amount} - ${resolveMayaWorklistReason(item)}`,
+    targetLineId: item.lineId
   }));
+}
+
+export function buildOverviewCopilotPromptSuggestions(
+  worklist: readonly MayaWorklistItem[],
+  fallbackRecordIds: readonly string[]
+): NonNullable<MayaQueryPromptDockContract["promptSuggestions"]> {
+  void fallbackRecordIds;
+  return buildCopilotSuggestions(worklist).map((suggestion) => ({
+    label: suggestion.label,
+    provenance: {
+      deterministicBasis: `Overview prompt derived from Maya worklist row ${suggestion.recordIds.join(", ") || suggestion.label}.`,
+      recordIds: [...suggestion.recordIds],
+      sourceKind: "derived_backend",
+      sourceName: "Maya worklist"
+    },
+    question: suggestion.question,
+    recordIds: [...suggestion.recordIds],
+    targetLineId: suggestion.targetLineId
+  }));
+}
+
+export function resolveCopilotPromptCaseFocus(
+  prompt: NonNullable<MayaQueryPromptDockContract["promptSuggestions"]>[number] | undefined,
+  caseOptions: readonly MayaCopilotCaseOption[]
+): string | undefined {
+  const targetLineId = prompt?.targetLineId?.trim();
+  if (targetLineId === undefined || targetLineId.length === 0) {
+    return undefined;
+  }
+
+  return caseOptions.some((option) => option.lineId === targetLineId) ? targetLineId : undefined;
 }
 
 export function buildCopilotCaseOptions(worklist: readonly MayaWorklistItem[]): MayaCopilotCaseOption[] {
@@ -832,6 +866,10 @@ export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInpu
     selectedScope.has(citation.recordId.trim())
   );
   const citationsHaveBasis = input.response.citations.every((citation) => citation.deterministicBasis.trim().length > 0);
+  const workspaceHasLiveMcpProof =
+    input.queryScope !== "workspace" ||
+    (input.response.modelExecution?.mode === "live_openai_agents" &&
+      "sourceReadMode" in input.response.modelExecution);
   const blockedRecordIds = dedupeStrings([...citedRecordIds, ...selectedScopeRecordIds]);
   const hasAnswer =
     input.response.answer !== undefined &&
@@ -841,12 +879,21 @@ export function buildQueryEvidenceSnapshot(input: BuildQueryEvidenceSnapshotInpu
     input.response.citations.length > 0 &&
     input.response.trace.length > 0 &&
     citationsWithinSelectedScope &&
-    citationsHaveBasis;
+    citationsHaveBasis &&
+    workspaceHasLiveMcpProof;
   let message = "Forensics query returned no cited answer.";
   if (hasAnswer) {
     message = input.queryScope === "workspace" ? "Cited answer returned from workspace evidence." : "Cited answer returned from selected evidence.";
   } else if (!citationsWithinSelectedScope) {
     message = "Forensics query cited records outside the selected evidence packet.";
+  } else if (
+    input.response.modelExecution !== undefined &&
+    input.response.modelExecution.mode !== "live_openai_agents" &&
+    input.response.modelExecution.mode !== "live_realtime_tool_bridge" &&
+    "reason" in input.response.modelExecution &&
+    input.response.modelExecution.reason.trim().length > 0
+  ) {
+    message = input.response.modelExecution.reason;
   }
   const modelExecutionField =
     input.response.modelExecution === undefined ? {} : { modelExecution: input.response.modelExecution };

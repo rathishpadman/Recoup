@@ -154,6 +154,7 @@ export type ForensicsQueryModelExecution =
       handoffCount: number;
       mode: "live_openai_agents";
       rawModelTextPolicy: "suppressed";
+      sourceReadMode: "live_sdk_mcp";
       tokenUsage?: number;
     }
   | {
@@ -321,6 +322,7 @@ export interface ForensicsCockpitModel {
       provenance: MayaFieldProvenance;
       question: string;
       recordIds: string[];
+      targetLineId?: string;
     }>;
     transcript: {
       english: string;
@@ -355,11 +357,18 @@ export interface ForensicsCockpitModel {
   retrievalStatus: Array<{ source: string; count: number; provenance: MayaFieldProvenance; status?: string }>;
   containmentPanel: {
     actionPostureLabel: string;
+    actionBasisLabel: string;
     behavioralEvidenceIds: string[];
     basisRows: Array<{ label: string; provenance: MayaFieldProvenance; value: string }>;
     componentReadoutLabel: string;
     customerId: string;
     customerLabel: string;
+    evidenceLinks: Array<{
+      label: string;
+      reason: string;
+      recordId: string;
+      tone: "critical" | "evidence" | "safe" | "warning";
+    }>;
     handoff: {
       label: string;
       provenance: MayaFieldProvenance;
@@ -368,6 +377,15 @@ export interface ForensicsCockpitModel {
       target: string;
     };
     intentLabel: string;
+    methodologyReasons: Array<{
+      label: string;
+      provenance: MayaFieldProvenance;
+      reason: string;
+      recordIds: string[];
+      thresholdLabel: string;
+      tone: "critical" | "evidence" | "safe" | "warning";
+      value: string;
+    }>;
     postureLabel: string;
     provenance: MayaFieldProvenance;
     recordIds: string[];
@@ -793,7 +811,7 @@ export interface CreditRiskQueryResponse {
     };
     rawModelTextPolicy?: "suppressed";
     reason?: string;
-    sourceReadMode?: "governed_backend_fallback" | "live_sdk_mcp";
+    sourceReadMode?: "live_sdk_mcp";
     tokenUsage?: number;
     tokenUsageSnapshot?: {
       cachedTokens?: number;

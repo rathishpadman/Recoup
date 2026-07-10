@@ -85,8 +85,8 @@ import { handleRealtimeToolCall, requestRealtimeClientSecret } from "./realtimeS
 import {
   ForensicsQueryLineNotFoundError,
   ForensicsWorkspaceSettlementRunMismatchError,
+  runForensicsWorkspaceQuerySessionWithLiveAgents,
   runForensicsQuerySessionWithLiveAgents,
-  runForensicsWorkspaceQuerySession,
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
 import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
@@ -1972,15 +1972,47 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const runContext = await loadRequiredForensicsRunContext(request, response);
-    if (runContext === undefined) {
-      return;
-    }
     if ("scope" in parsedRequest.data) {
       try {
+        const runContext = await loadRequiredForensicsRunContext(request, response, { bypassCache: true });
+        if (runContext === undefined) {
+          return;
+        }
+        const runControl = await loadRequiredRunControl(request, response);
+        if (runControl === undefined) {
+          return;
+        }
+        const runBudget = createRunBudgetController(runControl.config);
+        runBudget.recordStep({ phase: "query" });
+        const liveAgentTrace =
+          options.forensicsStreamRunner === undefined
+            ? {
+                env: runtimeEnv,
+                maxTurns: runControl.config.phases.query.stepBudget,
+                onRetry() {
+                  runBudget.recordRetry({ phase: "query" });
+                },
+                onTokenUsage(tokens: number) {
+                  runBudget.recordTokenUsage({ phase: "query", tokens });
+                },
+                retryCap: runControl.config.phases.query.retryCap
+              }
+            : {
+                env: runtimeEnv,
+                maxTurns: runControl.config.phases.query.stepBudget,
+                onRetry() {
+                  runBudget.recordRetry({ phase: "query" });
+                },
+                onTokenUsage(tokens: number) {
+                  runBudget.recordTokenUsage({ phase: "query", tokens });
+                },
+                retryCap: runControl.config.phases.query.retryCap,
+                runner: options.forensicsStreamRunner
+              };
         response.json(
-          runForensicsWorkspaceQuerySession({
+          await runForensicsWorkspaceQuerySessionWithLiveAgents({
             governedConfig: runContext.governedConfig,
+            liveAgentTrace,
             question: parsedRequest.data.question,
             ...(runContext.reconciliation === undefined ? {} : { reconciliation: runContext.reconciliation }),
             serviceContext: runContext.serviceContext,
@@ -1999,6 +2031,10 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
+    const runContext = await loadRequiredForensicsRunContext(request, response);
+    if (runContext === undefined) {
+      return;
+    }
     const selectedQueryRequest = forensicsSelectedQueryRequestSchema.parse(parsedRequest.data);
     if (!isSafeMayaQueryMemoryRecordId(selectedQueryRequest.selectedLineId)) {
       response.json(blockedForensicsSelectedScopeQueryResponse());

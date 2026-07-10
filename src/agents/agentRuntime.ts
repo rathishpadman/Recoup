@@ -1,5 +1,5 @@
 import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
-import { Agent, type MCPServer } from "./openAiAgentsSdk.js";
+import { Agent, type MCPServer, type ModelSettings } from "./openAiAgentsSdk.js";
 import { assembleRecoupPrompt } from "./promptAssembly.js";
 import { loadAgentPrompt, type AgentPromptFileName } from "./prompts.js";
 
@@ -14,13 +14,14 @@ const promptFiles = {
 
 export interface AgentMcpServerOptions {
   mcpServers?: MCPServer[];
+  modelSettings?: Partial<ModelSettings>;
 }
 
 export function createRecoveryDrafterAgent(options: AgentMcpServerOptions = {}) {
   return new Agent({
     name: "Recovery Drafter",
     model: runtimeModels.fast,
-    modelSettings: runtimeModelSettings.recoveryDrafter,
+    modelSettings: { ...runtimeModelSettings.recoveryDrafter, ...options.modelSettings },
     instructions: assembleRecoupPrompt({
       agentPrompt: loadAgentPrompt(promptFiles.recoveryDrafter),
       capability: "deduction_forensics"
@@ -30,12 +31,14 @@ export function createRecoveryDrafterAgent(options: AgentMcpServerOptions = {}) 
 }
 
 export function createForensicsInvestigatorAgent(options: AgentMcpServerOptions = {}) {
-  const recoveryAgent = createRecoveryDrafterAgent(options);
+  const recoveryAgent = createRecoveryDrafterAgent({
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
 
   return new Agent({
     name: "Forensics Investigator",
     model: runtimeModels.reasoning,
-    modelSettings: runtimeModelSettings.forensicsInvestigator,
+    modelSettings: { ...runtimeModelSettings.forensicsInvestigator, ...options.modelSettings },
     instructions: assembleRecoupPrompt({
       agentPrompt: loadAgentPrompt(promptFiles.forensicsInvestigator),
       capability: "deduction_forensics"
@@ -49,7 +52,7 @@ export function createActionPacketDrafterAgent(options: AgentMcpServerOptions = 
   return new Agent({
     name: "Action Packet Drafter",
     model: runtimeModels.fast,
-    modelSettings: runtimeModelSettings.actionPacketDrafter,
+    modelSettings: { ...runtimeModelSettings.actionPacketDrafter, ...options.modelSettings },
     instructions: assembleRecoupPrompt({
       agentPrompt: loadAgentPrompt(promptFiles.recoveryDrafter),
       capability: "credit_risk"
@@ -59,12 +62,14 @@ export function createActionPacketDrafterAgent(options: AgentMcpServerOptions = 
 }
 
 export function createCreditSentinelAgent(options: AgentMcpServerOptions = {}) {
-  const actionPacketDrafter = createActionPacketDrafterAgent(options);
+  const actionPacketDrafter = createActionPacketDrafterAgent({
+    ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers })
+  });
 
   return new Agent({
     name: "Credit Sentinel",
     model: runtimeModels.reasoning,
-    modelSettings: runtimeModelSettings.sentinel,
+    modelSettings: { ...runtimeModelSettings.sentinel, ...options.modelSettings },
     instructions: assembleRecoupPrompt({
       agentPrompt: loadAgentPrompt(promptFiles.sentinel),
       capability: "credit_risk"
