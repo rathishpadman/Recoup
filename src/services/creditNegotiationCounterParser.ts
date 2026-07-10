@@ -49,7 +49,7 @@ export function parseCreditNegotiationCounterOffer(
 
   if (
     parsed.data.intent === "out_of_scope" ||
-    parsed.data.citedSpans.some((span) => span.field === "outOfScope" || !input.rawMessage.includes(span.text))
+    parsed.data.citedSpans.some((span) => span.field === "outOfScope" || !messageContainsCitedSpan(input.rawMessage, span.text))
   ) {
     return {
       citedSpans: parsed.data.citedSpans,
@@ -171,6 +171,23 @@ function extractNumericValue(field: Exclude<CounterField, "outOfScope">, text: s
   }
 }
 
+function messageContainsCitedSpan(rawMessage: string, citedSpan: string): boolean {
+  if (rawMessage.includes(citedSpan)) {
+    return true;
+  }
+
+  return normalizeQuotedEmailText(rawMessage).includes(normalizeQuotedEmailText(citedSpan));
+}
+
+function normalizeQuotedEmailText(value: string): string {
+  return value
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^\s*>\s?/u, ""))
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function firstPercent(text: string): number | undefined {
   const match = /\b(\d+(?:\.\d+)?)\s*%/u.exec(text);
   return match === null ? undefined : Number.parseFloat(match[1] as string);
@@ -182,7 +199,7 @@ function firstInteger(text: string): number | undefined {
 }
 
 function firstDecimal(text: string): number | undefined {
-  const match = /\b(\d+(?:\.\d+)?)\b/u.exec(text);
+  const match = /\b(\d+(?:\.\d+)?)(?:\s*x\b|\b)/u.exec(text);
   return match === null ? undefined : Number.parseFloat(match[1] as string);
 }
 
