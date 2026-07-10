@@ -15,8 +15,21 @@ export interface RealtimeBrowserSessionSnapshot {
   deterministicBasis?: string;
   inputTranscript?: string;
   message: string;
+  modelExecution?: RealtimeToolBridgeModelExecution;
   recordIds: string[];
   status: RealtimeBrowserSessionStatus;
+}
+
+export interface RealtimeToolBridgeModelExecution {
+  citationParity?: "same_record_ids";
+  deterministicBasis: "OpenAI Realtime tool bridge + Recoup deterministic query.answer guard";
+  mode: "live_realtime_tool_bridge";
+  model?: string;
+  rawModelTextPolicy: "suppressed";
+  recordCount: number;
+  selectedLineId?: string;
+  toolName: string;
+  toolRouteStatus: "ok";
 }
 
 export interface RealtimeBrowserSession {
@@ -65,6 +78,8 @@ interface SelectedQueryScope {
 const realtimeCallsUrl = "https://api.openai.com/v1/realtime/calls";
 const realtimeToolUrl = "/api/query/realtime-tool";
 const policyRecordIds = ["OPENAI-REALTIME-POLICY"];
+const realtimeToolBridgeDeterministicBasis =
+  "OpenAI Realtime tool bridge + Recoup deterministic query.answer guard" as const;
 
 export async function startRealtimeBrowserSession({
   createPeerConnection = () => new RTCPeerConnection(),
@@ -231,9 +246,11 @@ export async function startRealtimeBrowserSession({
     dataChannel.addEventListener("message", (event) => {
       void handleRealtimeEvent(String(event.data), {
         dataChannel,
+        fallbackQuestion: clientSecretQuestion,
         fetcher,
         getSnapshot: () => snapshot,
         publish,
+        ...(secret.model === undefined ? {} : { realtimeModel: secret.model }),
         selectedQueryScope,
         toolEndpoint
       });
@@ -342,9 +359,11 @@ async function handleRealtimeEvent(
   rawEvent: string,
   context: {
     dataChannel: RTCDataChannel;
+    fallbackQuestion: string;
     fetcher: typeof fetch;
     getSnapshot: () => RealtimeBrowserSessionSnapshot;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
+    realtimeModel?: string;
     selectedQueryScope: SelectedQueryScope | undefined;
     toolEndpoint: string;
   }
@@ -491,23 +510,32 @@ async function handleRealtimeToolCall(
   toolCall: RealtimeFunctionCall,
   {
     dataChannel,
+    fallbackQuestion,
     fetcher,
     getSnapshot,
     publish,
+    realtimeModel,
     selectedQueryScope,
     toolEndpoint
   }: {
     dataChannel: RTCDataChannel;
+    fallbackQuestion: string;
     fetcher: typeof fetch;
     getSnapshot: () => RealtimeBrowserSessionSnapshot;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
+    realtimeModel?: string;
     selectedQueryScope: SelectedQueryScope | undefined;
     toolEndpoint: string;
   }
 ): Promise<void> {
+  const currentBeforeTool = getSnapshot();
   const response = await fetcher(toolEndpoint, {
     body: JSON.stringify({
-      argumentsJson: scopedToolArgumentsJson(toolCall, selectedQueryScope),
+      argumentsJson: scopedToolArgumentsJson(
+        toolCall,
+        selectedQueryScope,
+        readNonEmptyString(currentBeforeTool.inputTranscript) ?? fallbackQuestion
+      ),
       name: toolCall.name
     }),
     headers: { "content-type": "application/json" },
@@ -536,11 +564,14 @@ async function handleRealtimeToolCall(
     return;
   }
 
+  const output = isRealtimeQueryAnswerToolName(toolCall.name)
+    ? sanitizedRealtimeQueryToolOutput(result.output)
+    : result.output;
   dataChannel.send(
     JSON.stringify({
       item: {
         call_id: toolCall.callId,
-        output: JSON.stringify(result.output),
+        output: JSON.stringify(output),
         type: "function_call_output"
       },
       type: "conversation.item.create"
@@ -556,6 +587,12 @@ async function handleRealtimeToolCall(
       deterministicBasis: citedAnswer.deterministicBasis,
       ...(current.inputTranscript === undefined ? {} : { inputTranscript: current.inputTranscript }),
       message: "Cited Realtime answer received.",
+      modelExecution: buildRealtimeToolBridgeModelExecution({
+        citedAnswer,
+        model: realtimeModel,
+        selectedQueryScope,
+        toolName: toolCall.name
+      }),
       recordIds: citedAnswer.recordIds,
       status: "answered"
     });
@@ -602,24 +639,17 @@ function normalizeSelectedQueryScope(input: {
   };
 }
 
-function scopedToolArgumentsJson(toolCall: RealtimeFunctionCall, selectedQueryScope: SelectedQueryScope | undefined): string {
+function scopedToolArgumentsJson(
+  toolCall: RealtimeFunctionCall,
+  selectedQueryScope: SelectedQueryScope | undefined,
+  fallbackQuestion: string
+): string {
   if (!isRealtimeQueryAnswerToolName(toolCall.name) || selectedQueryScope === undefined) {
     return toolCall.argumentsJson;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(toolCall.argumentsJson) as unknown;
-  } catch {
-    return toolCall.argumentsJson;
-  }
-
-  if (!isObject(parsed)) {
-    return toolCall.argumentsJson;
-  }
-
   return JSON.stringify({
-    ...parsed,
+    question: fallbackQuestion,
     recordIds: selectedQueryScope.recordIds,
     selectedLineId: selectedQueryScope.selectedLineId
   });
@@ -709,6 +739,39 @@ function readCitedAnswer(output: unknown):
   return { answer, deterministicBasis, recordIds };
 }
 
+function buildRealtimeToolBridgeModelExecution(input: {
+  citedAnswer: { recordIds: string[] };
+  model: string | undefined;
+  selectedQueryScope: SelectedQueryScope | undefined;
+  toolName: string;
+}): RealtimeToolBridgeModelExecution {
+  return {
+    citationParity: "same_record_ids",
+    deterministicBasis: realtimeToolBridgeDeterministicBasis,
+    mode: "live_realtime_tool_bridge",
+    ...(input.model === undefined ? {} : { model: input.model }),
+    rawModelTextPolicy: "suppressed",
+    recordCount: input.citedAnswer.recordIds.length,
+    ...(input.selectedQueryScope === undefined ? {} : { selectedLineId: input.selectedQueryScope.selectedLineId }),
+    toolName: normalizeRealtimeToolName(input.toolName),
+    toolRouteStatus: "ok"
+  };
+}
+
+function sanitizedRealtimeQueryToolOutput(output: unknown): unknown {
+  if (!isObject(output)) {
+    return output;
+  }
+
+  const safeOutput: Record<string, unknown> = { ...output };
+  delete safeOutput["modelExecution"];
+  return safeOutput;
+}
+
+function normalizeRealtimeToolName(name: string): string {
+  return name.replaceAll("_", ".");
+}
+
 function hasValidCitationParity(output: Record<string, unknown>, recordIds: readonly string[]): boolean {
   const citationParity = output["citationParity"];
   if (!isObject(citationParity)) {
@@ -741,6 +804,10 @@ function readStrictStringArray(value: unknown): string[] | undefined {
   return value.every((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
     ? value
     : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {

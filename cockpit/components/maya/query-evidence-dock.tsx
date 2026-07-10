@@ -1026,6 +1026,22 @@ function ModelExecutionFacts({ response }: { response: QueryEvidenceResponse }) 
     );
   }
 
+  if (execution.mode === "live_realtime_tool_bridge") {
+    return (
+      <dl className="grid gap-1 text-sm">
+        <ModelFact label="Basis" value={response.deterministicBasis} />
+        <ModelFact label="Mode" value={execution.mode} />
+        <ModelFact label="Model" value={execution.model} />
+        <ModelFact label="Tool" value={execution.toolName} />
+        <ModelFact label="Tool route" value={execution.toolRouteStatus} />
+        <ModelFact label="Selected line" value={execution.selectedLineId} />
+        <ModelFact label="Records" value={execution.recordCount.toString()} />
+        <ModelFact label="Citation parity" value={execution.citationParity} />
+        <ModelFact label="Raw model text" value={execution.rawModelTextPolicy} />
+      </dl>
+    );
+  }
+
   if (execution.mode !== "live_openai_agents") {
     return (
       <dl className="grid gap-1 text-sm">
@@ -1115,6 +1131,8 @@ function toVoiceQueryEvidenceSnapshot(input: {
   const { evidencePack, realtimeSnapshot } = input;
   const recordIds = dedupeRecordIds(realtimeSnapshot.recordIds);
   const deterministicBasis = realtimeSnapshot.deterministicBasis;
+  const modelExecutionField =
+    realtimeSnapshot.modelExecution === undefined ? {} : { modelExecution: realtimeSnapshot.modelExecution };
   const citations =
     deterministicBasis === undefined
       ? []
@@ -1141,6 +1159,7 @@ function toVoiceQueryEvidenceSnapshot(input: {
       citations,
       deterministicBasis: realtimeSnapshot.deterministicBasis,
       message: "Cited voice answer returned from selected evidence.",
+      ...modelExecutionField,
       recordIds,
       status: "answered",
       trace: []
@@ -1167,6 +1186,7 @@ function toVoiceQueryEvidenceSnapshot(input: {
       citations,
       ...(realtimeSnapshot.deterministicBasis === undefined ? {} : { deterministicBasis: realtimeSnapshot.deterministicBasis }),
       message: realtimeSnapshot.message,
+      ...modelExecutionField,
       recordIds,
       status: "error",
       trace: []
@@ -1177,6 +1197,7 @@ function toVoiceQueryEvidenceSnapshot(input: {
     citations,
     ...(realtimeSnapshot.deterministicBasis === undefined ? {} : { deterministicBasis: realtimeSnapshot.deterministicBasis }),
     message: realtimeSnapshot.message,
+    ...modelExecutionField,
     recordIds,
     status: "blocked",
     trace: []

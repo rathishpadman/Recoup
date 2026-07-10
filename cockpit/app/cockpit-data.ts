@@ -160,6 +160,17 @@ export type ForensicsQueryModelExecution =
       deterministicBasis: "OpenAI Agents SDK live trace required for Maya query answers.";
       mode: "blocked_live_agent_trace" | "blocked_missing_credentials";
       reason: string;
+    }
+  | {
+      citationParity?: "same_record_ids";
+      deterministicBasis: "OpenAI Realtime tool bridge + Recoup deterministic query.answer guard";
+      mode: "live_realtime_tool_bridge";
+      model?: string;
+      rawModelTextPolicy: "suppressed";
+      recordCount: number;
+      selectedLineId?: string;
+      toolName: string;
+      toolRouteStatus: "ok";
     };
 
 export type ForensicsQueryRequest =

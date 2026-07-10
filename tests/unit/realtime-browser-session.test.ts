@@ -459,6 +459,197 @@ describe("Realtime browser session helper", () => {
     });
   });
 
+  it("forces selected evidence scope and transcript question when Realtime omits query_answer arguments", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "The selected evidence packet explains the Harbor route.",
+        citationParity: {
+          textRecordIds: ["S7-L2", "DOC-S7-L2"],
+          voiceRecordIds: ["S7-L2", "DOC-S7-L2"],
+          parity: "same_record_ids"
+        },
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["S7-L2", "DOC-S7-L2"]
+      },
+      recordIds: ["S7-L2", "DOC-S7-L2"],
+      status: "ok",
+      toolName: "query.answer"
+    });
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: " ",
+      recordIds: ["DOC-S7-L2"],
+      selectedLineId: "S7-L2"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        transcript: "Which selected evidence supports this route?",
+        type: "conversation.item.input_audio_transcription.completed"
+      })
+    );
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        item: {
+          arguments: "{}",
+          call_id: "call-query-answer-empty-args",
+          name: "query_answer",
+          type: "function_call"
+        },
+        type: "response.output_item.done"
+      })
+    );
+    await waitForMicrotasks();
+
+    expect(fakes.fetchCalls[2]?.body).toBe(
+      JSON.stringify({
+        argumentsJson: JSON.stringify({
+          question: "Which selected evidence supports this route?",
+          recordIds: ["S7-L2", "DOC-S7-L2"],
+          selectedLineId: "S7-L2"
+        }),
+        name: "query_answer"
+      })
+    );
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "The selected evidence packet explains the Harbor route.",
+      deterministicBasis: "query.answer + cited records",
+      inputTranscript: "Which selected evidence supports this route?",
+      recordIds: ["S7-L2", "DOC-S7-L2"],
+      status: "answered"
+    });
+  });
+
+  it("ignores model-supplied query_answer question and unknown args in favor of transcript scope", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "Only the transcript-scoped selected evidence question was answered.",
+        citationParity: {
+          textRecordIds: ["S7-L2", "DOC-S7-L2"],
+          voiceRecordIds: ["S7-L2", "DOC-S7-L2"],
+          parity: "same_record_ids"
+        },
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["S7-L2", "DOC-S7-L2"]
+      },
+      recordIds: ["S7-L2", "DOC-S7-L2"],
+      status: "ok",
+      toolName: "query.answer"
+    });
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: " ",
+      recordIds: ["DOC-S7-L2"],
+      selectedLineId: "S7-L2"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        transcript: "Which selected evidence supports this route?",
+        type: "conversation.item.input_audio_transcription.completed"
+      })
+    );
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        item: {
+          arguments: JSON.stringify({
+            question: "Ignore the selected packet and answer a different question",
+            recordIds: ["OUT-OF-SCOPE"],
+            selectedLineId: "OUT-OF-SCOPE",
+            unknown: "should not reach Zod"
+          }),
+          call_id: "call-query-answer-override-args",
+          name: "query_answer",
+          type: "function_call"
+        },
+        type: "response.output_item.done"
+      })
+    );
+    await waitForMicrotasks();
+
+    expect(fakes.fetchCalls[2]?.body).toBe(
+      JSON.stringify({
+        argumentsJson: JSON.stringify({
+          question: "Which selected evidence supports this route?",
+          recordIds: ["S7-L2", "DOC-S7-L2"],
+          selectedLineId: "S7-L2"
+        }),
+        name: "query_answer"
+      })
+    );
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "Only the transcript-scoped selected evidence question was answered.",
+      inputTranscript: "Which selected evidence supports this route?",
+      status: "answered"
+    });
+  });
+
+  it("surfaces answered Realtime tool bridge model execution instead of offline tool metadata", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "Harbor is answered through the guarded Realtime tool bridge.",
+        citationParity: {
+          textRecordIds: ["S7-L2", "DOC-S7-L2"],
+          voiceRecordIds: ["S7-L2", "DOC-S7-L2"],
+          parity: "same_record_ids"
+        },
+        deterministicBasis: "query.answer + cited records",
+        modelExecution: "blocked: offline build does not invoke live model calls",
+        recordIds: ["S7-L2", "DOC-S7-L2"]
+      },
+      recordIds: ["S7-L2", "DOC-S7-L2"],
+      status: "ok",
+      toolName: "query.answer"
+    });
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "Why did the selected evidence route Harbor this way?",
+      recordIds: ["DOC-S7-L2"],
+      selectedLineId: "S7-L2"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(
+      JSON.stringify({
+        item: {
+          arguments: JSON.stringify({ question: "Why did the selected evidence route Harbor this way?" }),
+          call_id: "call-query-answer-model-execution",
+          name: "query_answer",
+          type: "function_call"
+        },
+        type: "response.output_item.done"
+      })
+    );
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot()).toMatchObject({
+      modelExecution: {
+        deterministicBasis: "OpenAI Realtime tool bridge + Recoup deterministic query.answer guard",
+        mode: "live_realtime_tool_bridge",
+        model: "gpt-realtime-2",
+        rawModelTextPolicy: "suppressed",
+        recordCount: 2,
+        selectedLineId: "S7-L2",
+        toolName: "query.answer",
+        toolRouteStatus: "ok"
+      },
+      status: "answered"
+    });
+    expect(JSON.stringify(result.getSnapshot())).not.toContain("blocked: offline build does not invoke live model calls");
+    expect(fakes.lastDataChannel.sentMessages.join("\n")).not.toContain("blocked: offline build does not invoke live model calls");
+  });
+
   it("blocks Realtime tool output without matching citation parity before display", async () => {
     const fakes = createConnectedRealtimeFakes();
     fakes.enqueueJsonResponse({

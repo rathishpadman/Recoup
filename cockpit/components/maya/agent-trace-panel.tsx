@@ -537,6 +537,21 @@ function modelExecutionDetailRows(modelExecution: QueryModelExecution): Array<{ 
       rows.push({ label: "Token usage", value: modelExecution.tokenUsage.toString() });
     }
   }
+  if (modelExecution.mode === "live_realtime_tool_bridge") {
+    rows.push(
+      { label: "Model", value: modelExecution.model ?? "pinned Realtime model" },
+      { label: "Tool", value: modelExecution.toolName },
+      { label: "Tool route", value: modelExecution.toolRouteStatus },
+      { label: "Record count", value: modelExecution.recordCount.toString() },
+      { label: "Raw model policy", value: modelExecution.rawModelTextPolicy }
+    );
+    if (modelExecution.selectedLineId !== undefined) {
+      rows.push({ label: "Selected line", value: modelExecution.selectedLineId });
+    }
+    if (modelExecution.citationParity !== undefined) {
+      rows.push({ label: "Citation parity", value: modelExecution.citationParity });
+    }
+  }
   if ("reason" in modelExecution) {
     rows.push({ label: "Reason", value: modelExecution.reason });
   }
