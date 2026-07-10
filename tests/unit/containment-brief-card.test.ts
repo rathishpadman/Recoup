@@ -58,10 +58,12 @@ const panelFixture: ForensicsCockpitModel["containmentPanel"] = {
 };
 
 describe("ContainmentBriefCard", () => {
-  it("renders the containment panel as a read-only Maya overview brief", () => {
+  it("renders the containment panel as a self-explanatory read-only Maya containment brief", () => {
     const markup = renderToStaticMarkup(createElement(ContainmentBriefCard, { panel: panelFixture }));
 
     expect(markup).toContain("Gaming-gate review candidate");
+    expect(markup).toContain("Read-only behavioral containment candidate");
+    expect(markup).toContain("No hold, freeze, or external action is staged from this view.");
     expect(markup).toContain("Crestline Grocery");
     expect(markup).toContain("gaming");
     expect(markup).toContain("HITL risk review only");

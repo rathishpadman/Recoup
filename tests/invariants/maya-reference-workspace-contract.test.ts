@@ -30,7 +30,7 @@ describe("Maya reference workspace contract", () => {
     const shell = read("cockpit/components/maya/maya-workspace-shell.tsx");
     const surface = read("cockpit/components/maya/maya-forensics-surface.tsx");
 
-    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "approvals";');
+    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "containment";');
     expect(shell).not.toContain('label: "Cases"');
     expect(shell).not.toContain('label: "Evidence"');
     expect(surface).not.toContain('case "cases"');

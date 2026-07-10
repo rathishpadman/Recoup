@@ -594,10 +594,14 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(shell).toContain("onSectionChange?: (section: MayaSurfaceSection) => void");
     expect(shell).toContain("onSectionChange?.(item.section)");
     expect(shell).toContain("disabled={onSectionChange === undefined}");
+    expect(shell).toContain('label: "Containment"');
+    expect(shell).not.toContain('label: "Approvals"');
     expect(shell).not.toMatch(/\b(?:Deductions|Run trace|Analytics|Configuration)\b/u);
     expect(surface).toContain('React.useState<MayaSurfaceSection>("overview")');
     expect(surface).toContain("activeSection={activeSection}");
     expect(surface).toContain("onSectionChange={handleSurfaceSectionChange}");
+    expect(surface).toContain('case "containment"');
+    expect(surface).toContain('data-testid="maya-root-section-containment"');
     expect(surface).toContain("buildOverviewSummaryCards(model.worklist)");
     expect(surface).toContain("summaryCards.map");
     expect(surface).toContain('data-testid="maya-overview-summary-card"');

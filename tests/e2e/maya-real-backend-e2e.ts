@@ -168,6 +168,7 @@ interface ActionInboxModelItem {
 
 interface ForensicsRealBackendModel {
   actionInbox: ActionInboxModelItem[];
+  containmentPanel?: unknown;
   kpiStrip: KpiModelItem[];
   selected: {
     approvalActions: ApprovalActionModel[];
@@ -2627,7 +2628,7 @@ async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: Fo
   const rootSections = [
     { buttonName: /^Overview$/u, label: "Overview", testId: "maya-root-section-overview" },
     { buttonName: /^Worklist$/u, label: "Worklist", testId: "maya-root-section-worklist" },
-    { buttonName: /^Approvals$/u, label: "Approvals", testId: "maya-root-section-approvals" }
+    { buttonName: /^Containment$/u, label: "Containment", testId: "maya-root-section-containment" }
   ] as const;
 
   for (const section of rootSections) {
@@ -2641,10 +2642,10 @@ async function assertRootSidebarSectionNavigation(page: Page, forensicsModel: Fo
     `Maya sidebar rendered ${renderedNavItems.toString()} root nav items for ${rootSections.length.toString()} sections.`
   );
   const expectedWorklistCount = forensicsModel.worklist.length.toString();
-  const expectedActionCount = forensicsModel.actionInbox.length.toString();
+  const expectedContainmentCount = forensicsModel.containmentPanel === undefined ? "0" : "1";
   const sidebarText = normalizeUiText(await page.getByTestId("maya-sidebar").innerText());
   assert(sidebarText.includes(expectedWorklistCount), `Maya sidebar omitted backend worklist count ${expectedWorklistCount}.`);
-  assert(sidebarText.includes(expectedActionCount), `Maya sidebar omitted backend approval count ${expectedActionCount}.`);
+  assert(sidebarText.includes(expectedContainmentCount), `Maya sidebar omitted containment count ${expectedContainmentCount}.`);
 
   await page.getByRole("button", { name: /^Worklist$/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-root-section-worklist"]', "Maya Worklist root section");

@@ -1245,57 +1245,15 @@ export function MayaForensicsSurface({
                 </Card>
               </section>
               </section>
-              <ContainmentBriefCard panel={model.containmentPanel} />
             </section>
           );
         }
       case "worklist":
         return renderWorklistSection();
-      case "approvals":
+      case "containment":
         return (
-          <section className="min-w-0" data-testid="maya-root-section-approvals">
-            <Card className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)} size="sm">
-              <CardHeader>
-                <CardTitle className="text-base">Action inbox</CardTitle>
-                <CardDescription>Approval posture from action queue.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {model.actionInbox.length === 0 ? (
-                  <MayaEmptyState
-                    description="The current action queue has no pending human actions."
-                    kind="approval"
-                    title="No pending HITL actions"
-                  />
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Case</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {model.actionInbox.map((item) => {
-                        const actionWorkItem = model.worklist.find((workItem) => workItem.lineIds.includes(item.lineId));
-                        const caseLabel =
-                          actionWorkItem === undefined ? "Selected case" : overviewCaseBadgeLabel(model.worklist, actionWorkItem);
-
-                        return (
-                          <TableRow key={item.actionId}>
-                            <TableCell>{caseLabel}</TableCell>
-                            <TableCell>{item.actionLabel}</TableCell>
-                            <TableCell>{item.statusLabel ?? "Unavailable"}</TableCell>
-                            <TableCell className="tabular-nums">{item.amount}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+          <section className="min-w-0" data-testid="maya-root-section-containment">
+            <ContainmentBriefCard panel={model.containmentPanel} />
           </section>
         );
     }
@@ -1474,6 +1432,7 @@ export function MayaForensicsSurface({
     return (
       <MayaWorkspaceShell
         activeSection={activeSection}
+        containmentCount={1}
         heading={caseWorklistItem.workItemLabel}
         onSectionChange={handleSurfaceSectionChange}
         onRefreshSources={onRefreshSources}
@@ -1539,6 +1498,7 @@ export function MayaForensicsSurface({
     return (
       <MayaWorkspaceShell
         activeSection="worklist"
+        containmentCount={1}
         heading="Deduction Cases"
         headerAction={<RecoupAgentLauncher disabled={agentLaunchItem === undefined} onClick={handleLaunchRecoupAgent} />}
         onSectionChange={handleSurfaceSectionChange}
@@ -1570,6 +1530,7 @@ export function MayaForensicsSurface({
   return (
     <MayaWorkspaceShell
       activeSection={activeSection}
+      containmentCount={1}
       onSectionChange={handleSurfaceSectionChange}
       onRefreshSources={onRefreshSources}
       pendingActionCount={model.actionInbox.length}

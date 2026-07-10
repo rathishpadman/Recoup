@@ -25,7 +25,7 @@ export interface MayaForensicsBusinessFreshness {
   updatedAtIso?: string;
 }
 
-export type MayaSurfaceSection = "overview" | "worklist" | "approvals";
+export type MayaSurfaceSection = "overview" | "worklist" | "containment";
 
 export interface ApprovalGateResponse {
   actionId: string;

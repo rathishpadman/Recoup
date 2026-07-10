@@ -219,19 +219,19 @@ describe("Maya shadcn cockpit boundary", () => {
     const surface = readFileSync("cockpit/components/maya/maya-forensics-surface.tsx", "utf8");
     const types = readFileSync("cockpit/components/maya/types.ts", "utf8");
 
-    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "approvals";');
+    expect(types).toContain('export type MayaSurfaceSection = "overview" | "worklist" | "containment";');
     expect(surface).toContain('React.useState<MayaSurfaceSection>("overview")');
     expect(surface).toContain("activeSection={activeSection}");
     expect(surface).toContain("onSectionChange={handleSurfaceSectionChange}");
     expect(surface).toContain("renderMayaRootSection");
     expect(surface).toContain('case "overview"');
     expect(surface).toContain('case "worklist"');
-    expect(surface).toContain('case "approvals"');
+    expect(surface).toContain('case "containment"');
     expect(surface).not.toContain('case "cases"');
     expect(surface).not.toContain('case "evidence"');
     expect(surface).toContain('data-testid="maya-root-section-overview"');
     expect(surface).toContain('data-testid="maya-root-section-worklist"');
-    expect(surface).toContain('data-testid="maya-root-section-approvals"');
+    expect(surface).toContain('data-testid="maya-root-section-containment"');
     expect(surface).not.toContain('data-testid="maya-root-section-cases"');
     expect(surface).not.toContain('data-testid="maya-root-section-evidence"');
     expect(surface).toMatch(/case "worklist":\s*return renderWorklistSection\(\);/u);
@@ -242,7 +242,7 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(shell).toContain("onSectionChange?: (section: MayaSurfaceSection) => void");
     expect(shell).toContain('section: "overview"');
     expect(shell).toContain('section: "worklist"');
-    expect(shell).toContain('section: "approvals"');
+    expect(shell).toContain('section: "containment"');
     expect(shell).not.toContain('section: "cases"');
     expect(shell).not.toContain('section: "evidence"');
     expect(shell).toContain("onSectionChange?.(item.section)");
@@ -258,7 +258,7 @@ describe("Maya shadcn cockpit boundary", () => {
     for (const sectionHook of [
       "maya-root-section-overview",
       "maya-root-section-worklist",
-      "maya-root-section-approvals"
+      "maya-root-section-containment"
     ]) {
       expect(e2e).toContain(sectionHook);
     }

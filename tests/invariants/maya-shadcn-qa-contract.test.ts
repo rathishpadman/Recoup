@@ -2639,7 +2639,7 @@ describe("Maya shadcn human QA contract", () => {
     const rootSectionHooks = [
       "maya-root-section-overview",
       "maya-root-section-worklist",
-      "maya-root-section-approvals"
+      "maya-root-section-containment"
     ] as const;
 
     const contract = {
@@ -2658,8 +2658,8 @@ describe("Maya shadcn human QA contract", () => {
               pattern: /\bforensicsModel\.worklist\.length\b[\s\S]{0,900}\bassert\s*\(/u
             },
             {
-              label: "approvals badge asserted against backend action inbox",
-              pattern: /\bforensicsModel\.actionInbox\.length\b[\s\S]{0,900}\bassert\s*\(/u
+              label: "containment badge asserted against backend containment panel",
+              pattern: /\bforensicsModel\.containmentPanel\b[\s\S]{0,900}\bassert\s*\(/u
             }
           ],
           requiredHooks: ["maya-sidebar-nav-item", ...rootSectionHooks]
@@ -2676,7 +2676,7 @@ describe("Maya shadcn human QA contract", () => {
   it("keeps the Maya shadcn sidebar aligned to the production section set", () => {
     const shell = stripComments(readMayaComponent("maya-workspace-shell.tsx"));
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
-    const expectedLabels = ["Overview", "Worklist", "Approvals"];
+    const expectedLabels = ["Overview", "Worklist", "Containment"];
     const legacyLabels = ["Deductions", "Run trace", "Analytics", "Configuration"];
     const navItemsBlock = shell.slice(shell.indexOf("const navItems = ["), shell.indexOf("] as const;") + "] as const;".length);
 

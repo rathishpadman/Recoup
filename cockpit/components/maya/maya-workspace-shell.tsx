@@ -4,9 +4,9 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   BellIcon,
   ClipboardListIcon,
-  InboxIcon,
   LayoutDashboardIcon,
-  RefreshCwIcon
+  RefreshCwIcon,
+  ShieldAlertIcon
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,6 +37,7 @@ import type { MayaSurfaceSection } from "./types.ts";
 interface MayaWorkspaceShellProps {
   activeSection: MayaSurfaceSection;
   children: ReactNode;
+  containmentCount: number;
   heading?: string;
   headerAction?: ReactNode;
   onSectionChange?: (section: MayaSurfaceSection) => void;
@@ -53,7 +54,7 @@ interface MayaWorkspaceShellProps {
 const navItems = [
   { icon: LayoutDashboardIcon, label: "Overview", section: "overview" },
   { count: "worklist" as const, icon: ClipboardListIcon, label: "Worklist", section: "worklist" },
-  { count: "approvals" as const, icon: InboxIcon, label: "Approvals", section: "approvals" }
+  { count: "containment" as const, icon: ShieldAlertIcon, label: "Containment", section: "containment" }
 ] as const;
 
 function RecoupBrandMark() {
@@ -81,6 +82,7 @@ function RecoupBrandMark() {
 export function MayaWorkspaceShell({
   activeSection,
   children,
+  containmentCount,
   heading,
   headerAction,
   onSectionChange,
@@ -150,7 +152,7 @@ export function MayaWorkspaceShell({
                     "count" in item
                       ? item.count === "worklist"
                         ? worklistCount
-                        : pendingActionCount
+                        : containmentCount
                       : undefined;
 
                   return (

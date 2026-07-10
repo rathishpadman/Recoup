@@ -232,6 +232,8 @@ async function main(): Promise<void> {
     await loginAsDemoUser(page, baseUrl, "Maya");
     await checkedGoto(page, `${baseUrl}/forensics/shadcn`, "maya overview");
     await page.locator('[data-testid="maya-root-section-overview"]').waitFor({ state: "visible", timeout: 45_000 });
+    await page.getByRole("button", { name: /^Containment$/u }).click();
+    await page.locator('[data-testid="maya-root-section-containment"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.locator('[data-testid="maya-containment-brief"]').waitFor({ state: "visible", timeout: 45_000 });
     await page.screenshot({ caret: "initial", fullPage: true, path: join(screenshotDir, "task-1-4-2-maya-containment-1280.png") });
 

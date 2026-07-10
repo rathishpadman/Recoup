@@ -618,7 +618,7 @@ async function assertRoleRouting(browser: Browser): Promise<void> {
     mayaNavLabels.push((await mayaNavItem.innerText()).replace(/\s+/gu, " ").trim());
   }
   assert(
-    JSON.stringify(mayaNavLabels) === JSON.stringify(["Overview", "Worklist 8", "Approvals 20"]),
+    JSON.stringify(mayaNavLabels) === JSON.stringify(["Overview", "Worklist 8", "Containment 1"]),
     `Maya shadcn sidebar must match the production sidebar, received ${JSON.stringify(mayaNavLabels)}`
   );
   for (const legacyLabel of ["Configuration", "Run trace", "Analytics", "Deductions"]) {
@@ -3238,7 +3238,8 @@ async function assertBeat2SidebarFidelity(page: Page, label: string): Promise<vo
   assert(sidebar.collapseVisible, `${label} sidebar must expose a working collapse affordance`);
   assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Overview")), `${label} sidebar must expose Overview`);
   assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Worklist")), `${label} sidebar must expose Worklist`);
-  assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Approvals")), `${label} sidebar must expose Approvals`);
+  assert(sidebar.navLabels.some((navLabel) => navLabel.includes("Containment")), `${label} sidebar must expose Containment`);
+  assert(!sidebar.navLabels.some((navLabel) => navLabel.includes("Approvals")), `${label} sidebar must replace Approvals with Containment`);
   assert(sidebar.navCount >= 3, `${label} sidebar must keep the actual Maya section map`);
   assert(sidebar.navMaxHeight <= 38, `${label} sidebar nav rhythm must stay dense`);
   assert(sidebar.badgeCount >= 2, `${label} sidebar must render backend-backed count badges`);

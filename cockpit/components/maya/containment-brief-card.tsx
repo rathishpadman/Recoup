@@ -30,7 +30,9 @@ export function ContainmentBriefCard({ panel }: ContainmentBriefCardProps) {
             </div>
             <div className="grid min-w-0 gap-1">
               <CardTitle className="text-lg font-semibold text-foreground">{panel.statusLabel}</CardTitle>
-              <CardDescription className="text-xs leading-5">{panel.handoff.label}</CardDescription>
+              <CardDescription className="text-xs leading-5">
+                Read-only behavioral containment candidate. No hold, freeze, or external action is staged from this view.
+              </CardDescription>
             </div>
           </div>
           <Badge className="max-w-full justify-start rounded-full" variant="review">
@@ -67,6 +69,7 @@ export function ContainmentBriefCard({ panel }: ContainmentBriefCardProps) {
           ))}
         </div>
         <div className="grid min-w-0 gap-2 rounded-md border border-dashed border-border/70 bg-background/70 p-3">
+          <p className="text-sm font-semibold text-foreground">Why Maya sees this</p>
           <p className="text-sm text-foreground">{panel.componentReadoutLabel}</p>
           <p className="text-sm text-muted-foreground">{panel.actionPostureLabel}</p>
         </div>
