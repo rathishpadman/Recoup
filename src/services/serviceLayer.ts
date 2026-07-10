@@ -35,6 +35,8 @@ import {
   buildCreditNegotiationApprovalAction,
   buildCreditRiskApprovalAction,
   buildCreditRiskReviewModel,
+  type CreditNegotiationOrderModel,
+  type CreditNegotiationSelectedDealCandidate,
   type CreditRiskRows
 } from "./creditRiskModel.js";
 import {
@@ -664,16 +666,23 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
     const account = model.accounts.find((entry) => entry.negotiationOrders.some((order) => order.orderId === orderId));
     const order = account?.negotiationOrders.find((entry) => entry.orderId === orderId);
     if (account !== undefined && order !== undefined) {
+      if (context.dealOptimizerRows === undefined && requiresCurrentRoundCounterOffer(order, round)) {
+        throw new Error(`Credit negotiation approval requires a priced counter-offer for current round ${order.currentRound.actionId}.`);
+      }
       const selectedCandidate =
         context.dealOptimizerRows === undefined
           ? undefined
-          : buildDealOptimizerModel({
-              creditRiskRows: rows,
-              orderId,
-              policyRows: context.dealOptimizerRows.policyRows,
-              seed: 42,
-              simRows: context.dealOptimizerRows.simRows
-            }).rankedCandidates[0];
+          : selectNegotiationApprovalCandidate(
+              order,
+              round,
+              buildDealOptimizerModel({
+                creditRiskRows: rows,
+                orderId,
+                policyRows: context.dealOptimizerRows.policyRows,
+                seed: 42,
+                simRows: scopeDealOptimizerRowsForApproval(order, round, context.dealOptimizerRows.simRows)
+              }).rankedCandidates
+            );
       return buildCreditNegotiationApprovalAction(account, order, round, selectedCandidate);
     }
 
@@ -718,6 +727,45 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
   }
 
   throw new Error("Action not found.");
+}
+
+function selectNegotiationApprovalCandidate(
+  order: CreditNegotiationOrderModel,
+  round: number,
+  rankedCandidates: readonly CreditNegotiationSelectedDealCandidate[]
+): CreditNegotiationSelectedDealCandidate | undefined {
+  if (requiresCurrentRoundCounterOffer(order, round)) {
+    const counterCandidate = rankedCandidates.find((candidate) => candidate.candidateId.startsWith("counter-offer:"));
+    if (counterCandidate === undefined) {
+      throw new Error(`Credit negotiation approval requires a priced counter-offer for current round ${order.currentRound.actionId}.`);
+    }
+    return counterCandidate;
+  }
+
+  return rankedCandidates[0];
+}
+
+function scopeDealOptimizerRowsForApproval(
+  order: CreditNegotiationOrderModel,
+  round: number,
+  simRows: DealOptimizerRows
+): DealOptimizerRows {
+  if (!requiresCurrentRoundCounterOffer(order, round)) {
+    return simRows;
+  }
+
+  return {
+    ...simRows,
+    counterOffers: (simRows.counterOffers ?? []).filter(
+      (counterOffer) => counterOffer.orderId === order.orderId && counterOffer.roundId === order.currentRound.actionId
+    )
+  };
+}
+
+function requiresCurrentRoundCounterOffer(order: CreditNegotiationOrderModel, round: number): order is CreditNegotiationOrderModel & {
+  currentRound: NonNullable<CreditNegotiationOrderModel["currentRound"]>;
+} {
+  return order.currentRound?.status === "countered" && round === order.nextRound;
 }
 
 function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: ServiceInvocationContext): unknown {

@@ -142,4 +142,237 @@ describe("credit-v2 approval resolver", () => {
     expect(action.approvedDraft.body).toContain("60% deposit");
     expect(action.approvedDraft.body).toContain("$75,077.00");
   });
+
+  it("grounds a countered David negotiation round in the priced customer counter candidate", () => {
+    const rows = loadCreditRiskFixtureRows();
+    rows.negotiationOrders = [
+      {
+        accountId: "ACC-HAR",
+        orderAmount: "640010.00",
+        orderId: "ORD-HARBOR-6534",
+        sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+      }
+    ];
+    rows.negotiationRounds = [
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        round: 1,
+        roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        status: "countered"
+      }
+    ];
+
+    const prepared = prepareApprovalDecision(
+      {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        decision: "approve"
+      },
+      {
+        creditRiskRows: rows,
+        dealOptimizerRows: {
+          policyRows: creditNegotiationPolicyCandidateRows,
+          simRows: {
+            ...harborDealOptimizerRows,
+            counterOffers: [
+              {
+                accountId: "ACC-HAR",
+                counterOfferId: "counter-harbor-r1-customer-terms",
+                extractedTerms: {
+                  depositPct: "40",
+                  releasePct: "75",
+                  trancheCount: 2
+                },
+                orderId: "ORD-HARBOR-6534",
+                roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+                source: "email",
+                sourceRecordIds: ["credit_counter_offers:counter-harbor-r1-customer-terms"],
+                status: "grammar_valid"
+              }
+            ]
+          }
+        },
+        governedConfig: day1GovernedConfigSeed.values,
+        verifiedHumanPrincipal: "human:david-credit-lead"
+      }
+    );
+
+    const action = prepared.action as CreditNegotiationApprovalAction;
+    expect(action.deterministicBasis).toMatchObject({
+      selectedCandidateId: "counter-offer:counter-harbor-r1-customer-terms",
+      selectedCandidateObjectiveValueLabel: "$62,680.44"
+    });
+    expect(action.recordIds).toEqual(
+      expect.arrayContaining([
+        "credit_counter_offers:counter-harbor-r1-customer-terms",
+        "credit_deal_candidate_grid:max-release-85"
+      ])
+    );
+    expect(action.approvedDraft.body).toContain("counter-offer:counter-harbor-r1-customer-terms");
+    expect(action.approvedDraft.body).toContain("75% release");
+    expect(action.approvedDraft.body).toContain("40% deposit");
+    expect(action.approvedDraft.body).toContain("2 tranches");
+    expect(action.approvedDraft.body).toContain("$62,680.44");
+    expect(action.approvedDraft.body).not.toContain("Terms: 85% release; 60% deposit; 3 tranches");
+  });
+
+  it("fails closed when a countered David negotiation round has no priced customer counter candidate", () => {
+    const rows = loadCreditRiskFixtureRows();
+    rows.negotiationOrders = [
+      {
+        accountId: "ACC-HAR",
+        orderAmount: "640010.00",
+        orderId: "ORD-HARBOR-6534",
+        sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+      }
+    ];
+    rows.negotiationRounds = [
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        round: 1,
+        roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        status: "countered"
+      }
+    ];
+
+    expect(() =>
+      prepareApprovalDecision(
+        {
+          actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+          decision: "approve"
+        },
+        {
+          creditRiskRows: rows,
+          dealOptimizerRows: {
+            policyRows: creditNegotiationPolicyCandidateRows,
+            simRows: harborDealOptimizerRows
+          },
+          governedConfig: day1GovernedConfigSeed.values,
+          verifiedHumanPrincipal: "human:david-credit-lead"
+        }
+      )
+    ).toThrow("Credit negotiation approval requires a priced counter-offer for current round credit-v2:negotiation:ORD-HARBOR-6534:r1.");
+  });
+
+  it("fails closed when countered David negotiation approval lacks optimizer rows", () => {
+    const rows = loadCreditRiskFixtureRows();
+    rows.negotiationOrders = [
+      {
+        accountId: "ACC-HAR",
+        orderAmount: "640010.00",
+        orderId: "ORD-HARBOR-6534",
+        sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+      }
+    ];
+    rows.negotiationRounds = [
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        round: 1,
+        roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        status: "countered"
+      }
+    ];
+
+    expect(() =>
+      prepareApprovalDecision(
+        {
+          actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+          decision: "approve"
+        },
+        {
+          creditRiskRows: rows,
+          governedConfig: day1GovernedConfigSeed.values,
+          verifiedHumanPrincipal: "human:david-credit-lead"
+        }
+      )
+    ).toThrow("Credit negotiation approval requires a priced counter-offer for current round credit-v2:negotiation:ORD-HARBOR-6534:r1.");
+  });
+
+  it("ignores stale counter-offers from earlier David negotiation rounds", () => {
+    const rows = loadCreditRiskFixtureRows();
+    rows.negotiationOrders = [
+      {
+        accountId: "ACC-HAR",
+        orderAmount: "640010.00",
+        orderId: "ORD-HARBOR-6534",
+        sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+      }
+    ];
+    rows.negotiationRounds = [
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        round: 1,
+        roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        status: "sent"
+      },
+      {
+        accountId: "ACC-HAR",
+        orderId: "ORD-HARBOR-6534",
+        round: 2,
+        roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        status: "countered"
+      }
+    ];
+
+    const prepared = prepareApprovalDecision(
+      {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r3",
+        decision: "approve"
+      },
+      {
+        creditRiskRows: rows,
+        dealOptimizerRows: {
+          policyRows: creditNegotiationPolicyCandidateRows,
+          simRows: {
+            ...harborDealOptimizerRows,
+            counterOffers: [
+              {
+                accountId: "ACC-HAR",
+                counterOfferId: "counter-harbor-stale-r1",
+                extractedTerms: {
+                  depositPct: "60",
+                  releasePct: "85",
+                  trancheCount: 3
+                },
+                orderId: "ORD-HARBOR-6534",
+                roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+                source: "email",
+                sourceRecordIds: ["credit_counter_offers:counter-harbor-stale-r1"],
+                status: "grammar_valid"
+              },
+              {
+                accountId: "ACC-HAR",
+                counterOfferId: "counter-harbor-current-r2",
+                extractedTerms: {
+                  depositPct: "40",
+                  releasePct: "75",
+                  trancheCount: 2
+                },
+                orderId: "ORD-HARBOR-6534",
+                roundId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+                source: "email",
+                sourceRecordIds: ["credit_counter_offers:counter-harbor-current-r2"],
+                status: "grammar_valid"
+              }
+            ]
+          }
+        },
+        governedConfig: day1GovernedConfigSeed.values,
+        verifiedHumanPrincipal: "human:david-credit-lead"
+      }
+    );
+
+    const action = prepared.action as CreditNegotiationApprovalAction;
+    expect(action.deterministicBasis).toMatchObject({
+      selectedCandidateId: "counter-offer:counter-harbor-current-r2",
+      selectedCandidateObjectiveValueLabel: "$62,680.44"
+    });
+    expect(action.recordIds).toContain("credit_counter_offers:counter-harbor-current-r2");
+    expect(action.recordIds).not.toContain("credit_counter_offers:counter-harbor-stale-r1");
+    expect(action.approvedDraft.body).toContain("counter-offer:counter-harbor-current-r2");
+    expect(action.approvedDraft.body).not.toContain("counter-offer:counter-harbor-stale-r1");
+  });
 });
