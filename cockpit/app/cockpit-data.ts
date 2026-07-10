@@ -708,6 +708,22 @@ export interface CreditRiskAccountModel {
   gamingFlag: boolean;
   leadLabel: string;
   meshPositions: CreditRiskMeshPositionModel[];
+  negotiationOrders: Array<{
+    currentRound?: {
+      actionId: string;
+      round: number;
+      status: "accepted" | "countered" | "drafted" | "rejected" | "sent" | "withdrawn";
+    };
+    latestSentRound?: {
+      actionId: string;
+      round: number;
+      status: "sent";
+    };
+    nextRound: number;
+    orderId: string;
+    sourceModeLabel: "governed Supabase negotiation source";
+    sourceRecordIds: string[];
+  }>;
   openDisputeAmount: number;
   openDisputeAmountLabel: string;
   openDisputeCount: number;
@@ -773,6 +789,27 @@ export interface CreditRiskQueryResponse {
       totalTokens: number;
     };
   };
+  negotiationDraft?: {
+    deterministicBasis: "credit_negotiation.draft_structures + deterministic deal optimizer";
+    model: DealOptimizerModel;
+    toolName: "credit_negotiation.draft_structures";
+  };
+  policyRationale?: {
+    citations: Array<{
+      content: string;
+      deterministicBasis: "credit_negotiation_policy exact rows + OpenAI vector policy rationale search";
+      recordId: string;
+      source: "vector-policy-rationale";
+    }>;
+    deterministicBasis: "credit_negotiation_policy exact rows + OpenAI vector policy rationale search";
+    executablePolicySource: "credit_negotiation_policy";
+    message: "Policy rationale available." | "Policy rationale conflict" | "Policy rationale unavailable.";
+    policyHash: string;
+    policyKey: string;
+    policyValueText: string;
+    policyVersion: 1;
+    status: "available" | "human_review_required" | "unavailable";
+  };
   trace: Array<{
     agentName: string;
     hook: string;
@@ -782,6 +819,38 @@ export interface CreditRiskQueryResponse {
     recordIds: string[];
     toolName?: string;
   }>;
+}
+
+export interface DealOptimizerCandidateModel {
+  calculationHash: string;
+  candidateId: string;
+  objectiveValue: string;
+  objectiveValueLabel: string;
+  rank: number;
+  scenarioCount: number;
+  sourceRecordIds: string[];
+  terms: {
+    collateralRatioLabel: string;
+    depositPctLabel: string;
+    financingSpreadLabel: string;
+    releasePctLabel: string;
+    trancheCountLabel: string;
+  };
+}
+
+export interface DealOptimizerModel {
+  optimizerRunId: string;
+  orderId: string;
+  policyHash: string;
+  rankedCandidates: DealOptimizerCandidateModel[];
+  rejectedCandidates: Array<{
+    candidateId: string;
+    reason: string;
+    sourceRecordIds: string[];
+  }>;
+  seed: 42;
+  sourceHash: string;
+  sourceRecordIds: string[];
 }
 
 export interface CreditRiskReviewModel {

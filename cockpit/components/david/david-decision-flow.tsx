@@ -30,14 +30,15 @@ export function DavidDecisionFlow({ account }: Readonly<DavidDecisionFlowProps>)
     <section
       aria-label="Decision flow"
       className="grid gap-3 rounded-lg border bg-background/95 px-4 py-4 shadow-[var(--shadow-xs)]"
+      data-layout="responsive-workflow"
       data-testid="david-decision-flow"
     >
       <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">Decision flow</h2>
-      <div className="min-w-0 overflow-x-auto pb-1">
-        <ol className="grid min-w-[760px] grid-cols-5 gap-0 md:min-w-0">
+      <div className="min-w-0 pb-1">
+        <ol className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:gap-0">
           {steps.map((step, index) => (
             <li
-              className="relative grid min-w-0 justify-items-center gap-2 px-2 text-center"
+              className="relative grid min-w-0 justify-items-center gap-2 rounded-md border bg-background/75 px-2 py-3 text-center lg:border-0 lg:bg-transparent lg:py-0"
               data-state={step.state}
               data-testid="david-decision-flow-step"
               key={step.key}
@@ -46,13 +47,13 @@ export function DavidDecisionFlow({ account }: Readonly<DavidDecisionFlowProps>)
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "absolute left-[calc(50%+2.25rem)] right-[calc(-50%+2.25rem)] top-8 h-0.5 rounded-full",
+                    "absolute left-[calc(50%+2.25rem)] right-[calc(-50%+2.25rem)] top-8 hidden h-0.5 rounded-full lg:block",
                     decisionFlowConnectorClass(step.state, steps[index + 1]?.state)
                   )}
                   data-testid="david-decision-flow-connector"
                 />
               ) : null}
-              <span className={cn("relative z-10 flex size-16 shrink-0 items-center justify-center rounded-full border-2", decisionFlowCircleClass(step))}>
+              <span className={cn("relative z-10 flex size-12 shrink-0 items-center justify-center rounded-full border-2 sm:size-14 lg:size-16", decisionFlowCircleClass(step))}>
                 <DavidDecisionFlowIcon stepKey={step.key} />
                 {step.state === "done" && step.key !== "verdict" ? (
                   <CheckCircle2Icon
@@ -61,12 +62,12 @@ export function DavidDecisionFlow({ account }: Readonly<DavidDecisionFlowProps>)
                   />
                 ) : null}
               </span>
-              <span className="max-w-full truncate text-base font-semibold leading-5" title={step.label}>
+              <span className="max-w-full text-sm font-semibold leading-5 lg:text-base" title={step.label}>
                 {step.label}
               </span>
               <span
                 className={cn(
-                  "w-full max-w-full truncate text-sm leading-5 text-muted-foreground",
+                  "w-full max-w-full text-xs leading-5 text-muted-foreground lg:text-sm",
                   step.key === "verdict" && "font-semibold uppercase",
                   step.key === "verdict" && davidTextClassByTone[account.verdictTone]
                 )}

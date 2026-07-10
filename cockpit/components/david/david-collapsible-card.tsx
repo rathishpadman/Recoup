@@ -10,6 +10,7 @@ interface DavidCollapsibleCardProps {
   badges?: React.ReactNode;
   children: React.ReactNode;
   className?: string | undefined;
+  dataWorkflowState?: string | undefined;
   defaultOpen?: boolean;
   description?: React.ReactNode;
   testId: string;
@@ -20,6 +21,7 @@ export function DavidCollapsibleCard({
   badges,
   children,
   className,
+  dataWorkflowState,
   defaultOpen = false,
   description,
   testId,
@@ -29,7 +31,12 @@ export function DavidCollapsibleCard({
 
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
-      <Card className={cn("rounded-lg shadow-[var(--shadow-xs)]", className)} data-open={open} data-testid={testId}>
+      <Card
+        className={cn("rounded-lg shadow-[var(--shadow-xs)]", className)}
+        data-open={open}
+        data-testid={testId}
+        data-workflow-state={dataWorkflowState}
+      >
         <CardHeader className="gap-0 p-0">
           <CollapsibleTrigger asChild>
             <button

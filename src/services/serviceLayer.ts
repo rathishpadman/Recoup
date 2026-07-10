@@ -32,10 +32,17 @@ import type { DeductionLine, SyntheticDatasetCore } from "../types/entities.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
 import { assessHarborSentinel } from "../agents/sentinel.js";
 import {
+  buildCreditNegotiationApprovalAction,
   buildCreditRiskApprovalAction,
   buildCreditRiskReviewModel,
   type CreditRiskRows
 } from "./creditRiskModel.js";
+import {
+  parseCreditNegotiationDraftStructures,
+  priceAgentDraftedDealStructures
+} from "./creditNegotiationDrafts.js";
+import type { CreditNegotiationPolicyRow } from "./creditNegotiationPolicy.js";
+import { buildDealOptimizerModel, type DealOptimizerRows } from "./dealOptimizer.js";
 import {
   emailSendCapabilitiesForPrincipal,
   emailStatusSecret,
@@ -75,6 +82,10 @@ export interface ServiceInvocationContext {
   creditRiskAnswerScope?: {
     accountId: string;
     recordIds: string[];
+  };
+  dealOptimizerRows?: {
+    policyRows: readonly CreditNegotiationPolicyRow[];
+    simRows: DealOptimizerRows;
   };
   queryAnswerScope?: {
     recordIds: string[];
@@ -198,6 +209,40 @@ const creditRiskAnswerToolSchema = z
       });
     }
   });
+const creditNegotiationDraftStructureToolSchema = z
+  .object({
+    candidateId: z.string().min(1),
+    collateralRatio: z.string().regex(/^\d+(\.\d+)?$/u),
+    depositPct: z.string().regex(/^\d+(\.\d+)?$/u),
+    financingSpreadBps: z.string().regex(/^\d+(\.\d+)?$/u),
+    releasePct: z.string().regex(/^\d+(\.\d+)?$/u),
+    trancheCount: z.number().int().min(1)
+  })
+  .strict();
+const creditNegotiationDraftStructuresToolSchema = z
+  .object({
+    accountId: z.string().min(1),
+    orderId: z.string().min(1),
+    recordIds: z.array(z.string().min(1)).min(1),
+    structures: z.array(creditNegotiationDraftStructureToolSchema).min(1)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.recordIds.includes(value.accountId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "credit_negotiation.draft_structures requires selected account scope including accountId in recordIds.",
+        path: ["recordIds"]
+      });
+    }
+    if (!value.recordIds.includes(value.orderId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "credit_negotiation.draft_structures requires selected order scope including orderId in recordIds.",
+        path: ["recordIds"]
+      });
+    }
+  });
 const emailRecipientGroupSchema = z.enum(["billing", "recovery"]);
 const emailSendApprovedToolSchema = z
   .object({
@@ -256,6 +301,7 @@ export const serviceToolMetadata = {
   "audit.read": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "core.evaluateRule": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
   "core.riskMeshClosedLoop": { riskClass: "compute_only", sideEffectClass: "none", visibility: "internal" },
+  "credit_negotiation.draft_structures": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "credit_risk.answer": { riskClass: "read_only", sideEffectClass: "none", visibility: "mcp" },
   "decisions.deductionVerdict": { riskClass: "decision", sideEffectClass: "write_local", visibility: "internal" },
   "email.sendApproved": { riskClass: "communication", sideEffectClass: "external_correspondence", visibility: "mcp" },
@@ -411,6 +457,10 @@ export const serviceTools = {
   "credit_risk.answer": {
     schema: creditRiskAnswerToolSchema,
     handler: (input, context) => answerSourceBackedCreditRiskQuery(input, context)
+  },
+  "credit_negotiation.draft_structures": {
+    schema: creditNegotiationDraftStructuresToolSchema,
+    handler: (input, context) => priceSourceBackedCreditNegotiationDrafts(input, context)
   },
   "retrieval.docs": {
     schema: DeductionLineSchema,
@@ -596,6 +646,40 @@ function isServiceToolName(name: string): name is ServiceToolName {
 }
 
 function findPendingAction(actionId: string, context: ServiceInvocationContext): ProposedExternalAction {
+  if (actionId.startsWith("credit-v2:negotiation:")) {
+    const match = /^credit-v2:negotiation:([^:]+):r([1-9]\d*)$/u.exec(actionId);
+    if (match === null) {
+      throw new Error("Action not found.");
+    }
+
+    const orderId = match[1];
+    const roundValue = match[2];
+    if (orderId === undefined || roundValue === undefined) {
+      throw new Error("Action not found.");
+    }
+
+    const round = Number.parseInt(roundValue, 10);
+    const rows = readCreditRiskRows(context);
+    const model = buildCreditRiskReviewModel(rows);
+    const account = model.accounts.find((entry) => entry.negotiationOrders.some((order) => order.orderId === orderId));
+    const order = account?.negotiationOrders.find((entry) => entry.orderId === orderId);
+    if (account !== undefined && order !== undefined) {
+      const selectedCandidate =
+        context.dealOptimizerRows === undefined
+          ? undefined
+          : buildDealOptimizerModel({
+              creditRiskRows: rows,
+              orderId,
+              policyRows: context.dealOptimizerRows.policyRows,
+              seed: 42,
+              simRows: context.dealOptimizerRows.simRows
+            }).rankedCandidates[0];
+      return buildCreditNegotiationApprovalAction(account, order, round, selectedCandidate);
+    }
+
+    throw new Error("Action not found.");
+  }
+
   if (actionId.startsWith("credit-v2:")) {
     const rows = readCreditRiskRows(context);
     const account = buildCreditRiskReviewModel(rows).accounts.find((entry) => entry.packet.actionId === actionId);
@@ -736,6 +820,64 @@ function answerSourceBackedCreditRiskQuery(input: unknown, context: ServiceInvoc
   };
 }
 
+function priceSourceBackedCreditNegotiationDrafts(input: unknown, context: ServiceInvocationContext): unknown {
+  const parsed = creditNegotiationDraftStructuresToolSchema.parse(input);
+  assertCreditNegotiationDraftsWithinSelectedScope(parsed, context.creditRiskAnswerScope);
+  const creditRiskRows = readCreditRiskRows(context);
+  const dealRows = readDealOptimizerRows(context);
+  const order = dealRows.simRows.orders.find((candidate) => candidate.orderId === parsed.orderId);
+  if (order === undefined) {
+    throw new Error("credit_negotiation.draft_structures order was not found in governed negotiation source rows.");
+  }
+  if (order.accountId !== parsed.accountId) {
+    throw new Error("credit_negotiation.draft_structures order is outside the selected David account scope.");
+  }
+
+  const scopedAccountRecordIds =
+    context.creditRiskAnswerScope?.accountId === parsed.accountId ? context.creditRiskAnswerScope.recordIds : [];
+  const allowedRecordIds = new Set([parsed.accountId, parsed.orderId, ...order.sourceRecordIds, ...scopedAccountRecordIds]);
+  if (parsed.recordIds.some((recordId) => !allowedRecordIds.has(recordId))) {
+    throw new Error("credit_negotiation.draft_structures input is outside the selected order evidence scope.");
+  }
+
+  const drafts = parseCreditNegotiationDraftStructures({ structures: parsed.structures });
+  const model = priceAgentDraftedDealStructures({
+    creditRiskRows,
+    drafts,
+    orderId: parsed.orderId,
+    policyRows: dealRows.policyRows,
+    seed: 42,
+    simRows: dealRows.simRows
+  });
+  const selectedRecordIds = dedupeStringValues([
+    parsed.accountId,
+    parsed.orderId,
+    ...parsed.recordIds,
+    ...order.sourceRecordIds,
+    ...model.sourceRecordIds
+  ]);
+
+  return {
+    model,
+    sourceReadStatus: "source_backed_selected_scope",
+    sourceReads: {
+      canonicalModel: "CreditNegotiationDraftDealModel",
+      primarySourceLabel: "Supabase credit negotiation simulated feeds",
+      primarySourceSystem: "supabase",
+      selectedEvidence: [
+        {
+          documentId: parsed.orderId,
+          recordIds: selectedRecordIds
+        }
+      ],
+      selectedRecordIds,
+      sourceFreshness: "snapshot",
+      transportLabel: "Governed credit negotiation simulated feeds",
+      transportLayer: "supabase_credit_negotiation"
+    }
+  };
+}
+
 function assertQueryAnswerWithinSelectedScope(
   input: { recordIds: readonly string[]; selectedLineId: string },
   scope: ServiceInvocationContext["queryAnswerScope"]
@@ -773,6 +915,18 @@ function assertCreditRiskAnswerWithinSelectedScope(
 
   if (input.accountId !== scope.accountId || !selectedAccountScope) {
     throw new Error("credit_risk.answer input is outside the selected account evidence scope.");
+  }
+}
+
+function assertCreditNegotiationDraftsWithinSelectedScope(
+  input: { accountId: string; orderId: string; recordIds: readonly string[] },
+  scope: ServiceInvocationContext["creditRiskAnswerScope"]
+): void {
+  if (scope === undefined || scope.accountId !== input.accountId) {
+    throw new Error("credit_negotiation.draft_structures input is outside the selected account evidence scope.");
+  }
+  if (!input.recordIds.includes(input.accountId) || !input.recordIds.includes(input.orderId)) {
+    throw new Error("credit_negotiation.draft_structures input is outside the selected order evidence scope.");
   }
 }
 
@@ -970,6 +1124,14 @@ function readCreditRiskRows(context: ServiceInvocationContext): CreditRiskRows {
   }
 
   return context.creditRiskRows;
+}
+
+function readDealOptimizerRows(context: ServiceInvocationContext): NonNullable<ServiceInvocationContext["dealOptimizerRows"]> {
+  if (context.dealOptimizerRows === undefined) {
+    throw new Error("Credit negotiation source snapshot required.");
+  }
+
+  return context.dealOptimizerRows;
 }
 
 function readSourcePort(context: ServiceInvocationContext): SourcePort {

@@ -622,6 +622,9 @@ function mergeLiveForensicsAgentRuns(
     events: [...first.events, ...second.events],
     hookReceipts: [...first.hookReceipts, ...second.hookReceipts],
     status: second.status === "completed" ? second.status : first.status,
+    ...((first.toolOutputs ?? second.toolOutputs) === undefined
+      ? {}
+      : { toolOutputs: [...(first.toolOutputs ?? []), ...(second.toolOutputs ?? [])] }),
     tokenUsage: first.tokenUsage + second.tokenUsage,
     ...mergeLiveQueryTokenUsageSnapshot(first.tokenUsageSnapshot, second.tokenUsageSnapshot)
   };

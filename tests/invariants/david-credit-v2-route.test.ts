@@ -82,6 +82,7 @@ describe("David credit v2 route scaffold", () => {
     const shell = readFileSync("cockpit/components/david/david-workspace-shell.tsx", "utf8");
     const copilot = readFileSync("cockpit/components/david/david-copilot-dock.tsx", "utf8");
     const dossier = readFileSync("cockpit/components/david/david-account-dossier.tsx", "utf8");
+    const negotiationWorkbench = readFileSync("cockpit/components/david/david-negotiation-workbench.tsx", "utf8");
     const watchlist = readFileSync("cockpit/components/david/david-behavioural-watchlist.tsx", "utf8");
 
     expect(surface).not.toContain("DavidWalkthroughStrip");
@@ -92,18 +93,25 @@ describe("David credit v2 route scaffold", () => {
     expect(copilot).toContain("modelExecution");
     expect(copilot).not.toContain("disabledInputPlaceholder");
     expect(dossier).toContain("DavidDecisionFlow");
+    expect(negotiationWorkbench).toContain("account.negotiationOrders");
+    expect(negotiationWorkbench).not.toContain("round: 1");
+    expect(negotiationWorkbench).not.toContain("ORD-HARBOR-6534");
+    expect(negotiationWorkbench).not.toContain("ACC-HAR");
     expect(watchlist).not.toContain('new Set(["S3", "S6"])');
   });
 
-  it("defaults David investigation drawers closed until the reviewer opens them", () => {
+  it("defaults David investigation drawers to the approved review posture", () => {
     const assessment = readFileSync("cockpit/components/david/david-assessment-timeline.tsx", "utf8");
     const signals = readFileSync("cockpit/components/david/david-signals-in.tsx", "utf8");
     const verdict = readFileSync("cockpit/components/david/david-verdict-banner.tsx", "utf8");
     const packet = readFileSync("cockpit/components/david/david-action-packet.tsx", "utf8");
 
-    for (const source of [assessment, signals, verdict, packet]) {
+    for (const source of [assessment, verdict, packet]) {
       expect(source).toContain("DavidCollapsibleCard");
       expect(source).toContain("defaultOpen={false}");
     }
+    expect(signals).toContain("DavidCollapsibleCard");
+    expect(signals).toContain("defaultOpen");
+    expect(signals).not.toContain("defaultOpen={false}");
   });
 });

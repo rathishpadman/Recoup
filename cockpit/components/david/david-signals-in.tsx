@@ -11,7 +11,7 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
   return (
     <DavidCollapsibleCard
       badges={<Badge variant="outline">{`${account.signals.length.toString()} signals`}</Badge>}
-      defaultOpen={false}
+      defaultOpen
       description={
         account.gamingFlag
           ? "Closed-loop signals include the behavioural handoff [D] and cited deduction scenarios."

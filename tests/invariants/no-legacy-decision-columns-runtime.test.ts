@@ -27,10 +27,12 @@ describe("legacy deduction decision columns are not runtime decision inputs", ()
 
     const sourceUnderTest =
       file === "src/adapters/supabaseSyntheticSource.ts"
-        ? source.replace(
-            /function mapCreditRiskDeductionRow[\s\S]*?function mapCreditRiskContractTpmRow/u,
-            "function mapCreditRiskContractTpmRow"
-          )
+        ? source
+            .replace(/function mapCreditOrderRow[\s\S]*?function mapCreditRiskAccountRow/u, "function mapCreditRiskAccountRow")
+            .replace(
+              /function mapCreditRiskDeductionRow[\s\S]*?function mapCreditRiskEvidenceDocumentRow/u,
+              "function mapCreditRiskEvidenceDocumentRow"
+            )
         : source;
 
     expect(sourceUnderTest).not.toMatch(/recoup_deduction_lines\.(verdict|routing|rule_id|rule_input_json|scenario_id)/u);

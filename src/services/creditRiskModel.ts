@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import { money, type Money } from "../types/money.js";
 
@@ -21,6 +22,8 @@ export interface CreditRiskRows {
   riskMeshPositions: RiskMeshPositionRow[];
   policy: CreditPolicy;
   approvalReceipts?: CreditRiskApprovalReceipt[] | undefined;
+  negotiationOrders?: CreditNegotiationOrderSource[] | undefined;
+  negotiationRounds?: CreditNegotiationRoundSource[] | undefined;
 }
 
 export interface AccountRow {
@@ -141,6 +144,37 @@ export interface CreditRiskApprovalReceipt {
   auditEntryHash: string;
 }
 
+export interface CreditNegotiationOrderSource {
+  accountId: string;
+  orderId: string;
+  sourceRecordIds: readonly string[];
+}
+
+export type CreditNegotiationRoundStatus = "accepted" | "countered" | "drafted" | "rejected" | "sent" | "withdrawn";
+
+export interface CreditNegotiationRoundSource {
+  accountId: string;
+  orderId: string;
+  round: number;
+  roundId: string;
+  status: CreditNegotiationRoundStatus;
+}
+
+export interface CreditNegotiationOrderModel {
+  currentRound?: CreditNegotiationRoundModel | undefined;
+  latestSentRound?: CreditNegotiationRoundModel | undefined;
+  nextRound: number;
+  orderId: string;
+  sourceModeLabel: "governed Supabase negotiation source";
+  sourceRecordIds: string[];
+}
+
+export interface CreditNegotiationRoundModel {
+  actionId: string;
+  round: number;
+  status: CreditNegotiationRoundStatus;
+}
+
 export interface CreditPacketRow {
   amountValue: number;
   amountLabel: string;
@@ -173,6 +207,36 @@ export interface CreditRiskApprovalAction {
   proposedBy: "agent:credit-risk-review";
   recordIds: string[];
   requiresHumanApproval: true;
+}
+
+export interface CreditNegotiationApprovalAction {
+  actionId: string;
+  approvedDraft: {
+    body: string;
+    bodyHash: string;
+    subject: string;
+  };
+  basis: string;
+  deterministicBasis: Record<string, string | number | boolean>;
+  detail: string;
+  dispatchedExternally: false;
+  proposedBy: "agent:credit-negotiation";
+  recordIds: string[];
+  requiresHumanApproval: true;
+}
+
+export interface CreditNegotiationSelectedDealCandidate {
+  candidateId: string;
+  objectiveValue: string;
+  objectiveValueLabel: string;
+  sourceRecordIds: string[];
+  terms: {
+    collateralRatioLabel: string;
+    depositPctLabel: string;
+    financingSpreadLabel: string;
+    releasePctLabel: string;
+    trancheCountLabel: string;
+  };
 }
 
 export interface CreditSignalModel {
@@ -283,6 +347,7 @@ export interface CreditRiskAccountModel {
   gamingFlag: boolean;
   leadLabel: string;
   meshPositions: CreditMeshPositionModel[];
+  negotiationOrders: CreditNegotiationOrderModel[];
   openDisputeAmount: number;
   openDisputeAmountLabel: string;
   openDisputeCount: number;
@@ -523,6 +588,92 @@ export function buildCreditRiskApprovalAction(account: CreditRiskAccountModel): 
   };
 }
 
+export function buildCreditNegotiationApprovalAction(
+  account: CreditRiskAccountModel,
+  order: CreditNegotiationOrderModel,
+  round: number,
+  selectedCandidate?: CreditNegotiationSelectedDealCandidate
+): CreditNegotiationApprovalAction {
+  const approvedDraft = buildCreditNegotiationApprovedDraft(account, order, round, selectedCandidate);
+  return {
+    actionId: `credit-v2:negotiation:${order.orderId}:r${round.toString()}`,
+    approvedDraft,
+    basis: [
+      `${account.customer} negotiation round ${round.toString()} is draft-only.`,
+      `Order ${order.orderId} is sourced from ${order.sourceModeLabel}; account verdict is ${account.verdict} and route is ${account.routeLabel}.`,
+      ...(selectedCandidate === undefined
+        ? []
+        : [
+            `Selected deterministic deal candidate ${selectedCandidate.candidateId} is engine-priced at ${selectedCandidate.objectiveValueLabel}.`
+          ])
+    ].join(" "),
+    deterministicBasis: {
+      accountId: account.accountId,
+      approvedBodyHash: approvedDraft.bodyHash,
+      approvedSubject: approvedDraft.subject,
+      customer: account.customer,
+      orderId: order.orderId,
+      round,
+      routeLabel: account.routeLabel,
+      ...(selectedCandidate === undefined
+        ? {}
+        : {
+            selectedCandidateId: selectedCandidate.candidateId,
+            selectedCandidateObjectiveValue: selectedCandidate.objectiveValue,
+            selectedCandidateObjectiveValueLabel: selectedCandidate.objectiveValueLabel
+          }),
+      sourceModeLabel: order.sourceModeLabel,
+      verdict: account.verdict
+    },
+    detail: `Draft customer negotiation email for ${account.customer} order ${order.orderId} round ${round.toString()}.`,
+    dispatchedExternally: false,
+    proposedBy: "agent:credit-negotiation",
+    recordIds: dedupe([
+      account.accountId,
+      order.orderId,
+      ...order.sourceRecordIds,
+      ...account.packet.recordIds,
+      ...(selectedCandidate?.sourceRecordIds ?? [])
+    ]),
+    requiresHumanApproval: true
+  };
+}
+
+function buildCreditNegotiationApprovedDraft(
+  account: CreditRiskAccountModel,
+  order: CreditNegotiationOrderModel,
+  round: number,
+  selectedCandidate?: CreditNegotiationSelectedDealCandidate
+): CreditNegotiationApprovalAction["approvedDraft"] {
+  const subject = `[Recoup Deal ${order.orderId} - Round ${round.toString()}] ${account.customer} release proposal`;
+  const body = [
+    `${account.customer},`,
+    "",
+    `Recoup proposes a governed, draft-only fulfilment and terms path for order ${order.orderId}, round ${round.toString()}.`,
+    `Deterministic basis: account verdict ${account.verdict}; route ${account.routeLabel}; source ${order.sourceModeLabel}.`,
+    ...(selectedCandidate === undefined
+      ? []
+      : [
+          "",
+          `Selected deterministic candidate: ${selectedCandidate.candidateId}.`,
+          `Engine-priced objective: ${selectedCandidate.objectiveValueLabel}.`,
+          `Terms: ${selectedCandidate.terms.releasePctLabel}; ${selectedCandidate.terms.depositPctLabel}; ${selectedCandidate.terms.trancheCountLabel}; ${selectedCandidate.terms.collateralRatioLabel}; ${selectedCandidate.terms.financingSpreadLabel}.`
+        ]),
+    "",
+    "This proposal is sent only after David's human approval and does not write back to ERP."
+  ].join("\n");
+
+  return {
+    body,
+    bodyHash: sha256Hex(body),
+    subject
+  };
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function buildAccountModel(
   account: AccountRow,
   rows: CreditRiskRows,
@@ -584,6 +735,11 @@ function buildAccountModel(
   const verdictTone = toneByVerdict[verdict];
   const signals = buildSignals(deductions, deductionLines, contractTpm);
   const evidenceDocumentModels = buildEvidenceDocuments(evidenceDocuments);
+  const negotiationOrders = buildNegotiationOrders(
+    account.accountId,
+    rows.negotiationOrders ?? [],
+    rows.negotiationRounds ?? []
+  );
   const meshPositions = seededMeshRows
     .slice()
     .sort((left, right) => positionOrder(left.position) - positionOrder(right.position))
@@ -599,6 +755,7 @@ function buildAccountModel(
     }));
   const accountRecordIds = dedupe([
     account.accountId,
+    ...negotiationOrders.flatMap((order) => [order.orderId, ...order.sourceRecordIds]),
     ...evidenceDocumentModels.flatMap((document) => [document.documentId, ...document.recordIds]),
     ...signals.flatMap((signal) => signal.recordIds),
     ...meshPositions.flatMap((position) => position.recordIds)
@@ -714,6 +871,7 @@ function buildAccountModel(
     gamingFlag: account.gamingFlag,
     leadLabel: `${account.customer} is ${verdict} risk`,
     meshPositions,
+    negotiationOrders,
     openDisputeAmount: openDisputeAmount.toNumber(),
     openDisputeAmountLabel: formatMoney(openDisputeAmount),
     openDisputeCount,
@@ -743,6 +901,47 @@ function buildAccountModel(
     verdict,
     verdictBasis,
     verdictTone
+  };
+}
+
+function buildNegotiationOrders(
+  accountId: string,
+  orders: readonly CreditNegotiationOrderSource[],
+  rounds: readonly CreditNegotiationRoundSource[]
+): CreditNegotiationOrderModel[] {
+  return orders
+    .filter((order) => order.accountId === accountId)
+    .map((order) => buildNegotiationOrderModel(order, rounds))
+    .sort((left, right) => left.orderId.localeCompare(right.orderId));
+}
+
+function buildNegotiationOrderModel(
+  order: CreditNegotiationOrderSource,
+  rounds: readonly CreditNegotiationRoundSource[]
+): CreditNegotiationOrderModel {
+  const orderRounds = rounds
+    .filter((round) => round.accountId === order.accountId && round.orderId === order.orderId)
+    .slice()
+    .sort((left, right) => left.round - right.round || left.roundId.localeCompare(right.roundId));
+  const currentRound = orderRounds.at(-1);
+  const sentRounds = orderRounds.filter((round) => round.status === "sent");
+  const latestSentRound = sentRounds.at(-1);
+
+  return {
+    ...(currentRound === undefined ? {} : { currentRound: buildNegotiationRoundModel(currentRound) }),
+    ...(latestSentRound === undefined ? {} : { latestSentRound: buildNegotiationRoundModel(latestSentRound) }),
+    nextRound: (currentRound?.round ?? 0) + 1,
+    orderId: order.orderId,
+    sourceModeLabel: "governed Supabase negotiation source" as const,
+    sourceRecordIds: [...order.sourceRecordIds]
+  };
+}
+
+function buildNegotiationRoundModel(round: CreditNegotiationRoundSource): CreditNegotiationRoundModel {
+  return {
+    actionId: round.roundId,
+    round: round.round,
+    status: round.status
   };
 }
 

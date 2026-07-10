@@ -20,7 +20,8 @@ export const mayaAgentMcpAllowedToolNames = [
 ] as const;
 export const davidCreditAgentMcpAllowedToolNames = [
   "audit.read",
-  "credit_risk.answer"
+  "credit_risk.answer",
+  "credit_negotiation.draft_structures"
 ] as const;
 
 export interface MayaMcpGateway {

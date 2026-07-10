@@ -74,6 +74,7 @@ export interface StreamLiveForensicsTraceOptions {
   maxTurns?: number;
   mcpServiceContext?: ServiceInvocationContext;
   onAgentHookReceipt?: (receipt: AgentHookAuditReceipt) => void;
+  onSdkToolOutput?: (output: LiveForensicsSdkToolOutput) => void;
   onRetry?: () => void;
   onTokenUsage?: (tokens: number) => void;
   onTokenUsageSnapshot?: (snapshot: OpenAiTokenUsageSnapshot) => void;
@@ -88,8 +89,15 @@ export interface LiveForensicsAgentRunResult {
   events: ForensicsTraceEvent[];
   hookReceipts: AgentHookAuditReceipt[];
   status: LiveForensicsAgentRunStatus;
+  toolOutputs?: LiveForensicsSdkToolOutput[];
   tokenUsage: number;
   tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
+}
+
+export interface LiveForensicsSdkToolOutput {
+  agentName: string;
+  payload: unknown;
+  toolName: string;
 }
 
 export interface OpenAiTokenUsageSnapshot {
@@ -139,6 +147,7 @@ export async function collectLiveForensicsAgentRun(
 ): Promise<LiveForensicsAgentRunResult> {
   const events: ForensicsTraceEvent[] = [];
   const hookReceipts: AgentHookAuditReceipt[] = [];
+  const toolOutputs: LiveForensicsSdkToolOutput[] = [];
   let status: LiveForensicsAgentRunStatus = "failed";
   let tokenUsage = 0;
   let completedAttemptTokenUsageSnapshot: OpenAiTokenUsageSnapshot | undefined;
@@ -192,6 +201,10 @@ export async function collectLiveForensicsAgentRun(
     onAgentHookReceipt(receipt) {
       hookReceipts.push(receipt);
     },
+    onSdkToolOutput(output) {
+      toolOutputs.push(output);
+      options.onSdkToolOutput?.(output);
+    },
     runner
   })) {
     events.push(event);
@@ -224,6 +237,7 @@ export async function collectLiveForensicsAgentRun(
     events,
     hookReceipts,
     status,
+    ...(toolOutputs.length === 0 ? {} : { toolOutputs }),
     tokenUsage,
     ...(aggregateTokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: aggregateTokenUsageSnapshot })
   };
@@ -347,6 +361,10 @@ export async function* streamLiveForensicsTraceEvents(
         if (sdkToolReceipt !== undefined) {
           agentHookReceipts.push(sdkToolReceipt);
           options.onAgentHookReceipt?.(sdkToolReceipt);
+        }
+        const sdkToolOutput = sdkToolOutputFromRunItemEvent(event, options.allowedToolNames ?? mayaAgentMcpAllowedToolNames);
+        if (sdkToolOutput !== undefined) {
+          options.onSdkToolOutput?.(sdkToolOutput);
         }
         const traceEvent = mapRunStreamEvent(event);
         if (traceEvent !== undefined) {
@@ -592,6 +610,31 @@ function sdkToolReceiptFromRunItemEvent(
   });
 }
 
+function sdkToolOutputFromRunItemEvent(
+  event: unknown,
+  allowedToolNames: readonly string[]
+): LiveForensicsSdkToolOutput | undefined {
+  if (!isRecord(event) || event.type !== "run_item_stream_event" || event.name !== "tool_output") {
+    return undefined;
+  }
+
+  const toolName = normalizeSdkToolName(readRunItemToolName(event.item));
+  if (toolName === undefined || !allowedToolNames.includes(toolName)) {
+    return undefined;
+  }
+
+  const payload = readRunItemStructuredPayload(event.item, ["output", "result", "content"]);
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  return {
+    agentName: readRunItemAgentName(event.item) ?? "Forensics Investigator",
+    payload,
+    toolName
+  };
+}
+
 function selectedEvidenceToolInputProof(payload: unknown): SdkToolInputProof | undefined {
   const payloadRecord = toRecord(payload);
   if (payloadRecord === undefined) {
@@ -651,6 +694,9 @@ function normalizeSdkToolName(toolName: string | undefined): string | undefined 
   }
   if (toolName === "credit_risk_answer") {
     return "credit_risk.answer";
+  }
+  if (toolName === "credit_negotiation_draft_structures") {
+    return "credit_negotiation.draft_structures";
   }
 
   return toolName.replaceAll("_", ".");

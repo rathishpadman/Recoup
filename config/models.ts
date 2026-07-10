@@ -1,5 +1,5 @@
 import type { ModelSettings } from "../src/agents/openAiAgentsSdk.js";
-import { openAiPromptCacheProviderData } from "./openaiPromptCache.js";
+import { openAiPromptCacheProviderData } from "./openaiPromptCache.ts";
 
 export const runtimeModels = {
   reasoning: "gpt-5.4",

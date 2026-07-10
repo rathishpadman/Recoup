@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
@@ -59,7 +59,9 @@ import { createLegacySupabaseSettlementRunReaderFromEnv } from "../adapters/lega
 import type { SourcePort } from "../adapters/source.js";
 import {
   createSupabaseSettlementRunReaderFromEnv,
+  loadDealOptimizerSourceRows,
   loadCreditRiskRows,
+  MissingCreditNegotiationSourceError,
   MissingCreditRiskSourceError,
   createSupabaseRiskObservationSnapshotReaderFromEnv,
   createSupabaseSapEvidenceReaderFromEnv,
@@ -71,6 +73,7 @@ import {
   createOpenAiVectorStoreEvidenceReader,
   type OpenAiVectorStoreFetch
 } from "../adapters/openAiVectorStore.js";
+import { createOpenAiCreditNegotiationPolicyRationaleReader } from "../adapters/openAiPolicyVectorStore.js";
 import { SyntheticSource } from "../adapters/synthetic.js";
 import { buildRunBudgetMiddlewareStatus } from "../middleware/budgets.js";
 import { createRunBudgetController, type RunControlConfig, type RunControlStatus } from "./conductor.js";
@@ -87,10 +90,12 @@ import {
   type ForensicsQuerySessionResponse
 } from "./forensicsQuerySession.js";
 import { buildOpenAiUsageReceiptPayload } from "./openAiUsageReceipt.js";
+import { buildDealOptimizerModel, type DealOptimizerModel } from "./dealOptimizer.js";
 import {
   buildForensicsReadModelFreshnessRecordIds,
   isForensicsReadModelFresh
 } from "./evidenceFreshness.js";
+import { buildCreditSimulationModel, CreditSimulationMissingSourceError } from "./creditSimulationModel.js";
 import {
   assertR1SourceReadInput,
   buildOpenAiVectorStoreEvidenceSource,
@@ -119,6 +124,7 @@ import {
 } from "./cockpitModel.js";
 import {
   buildCreditRiskReviewModel,
+  type CreditNegotiationApprovalAction,
   type CreditRiskApprovalReceipt
 } from "./creditRiskModel.js";
 import { runCreditRiskQuerySessionWithLiveAgents } from "./creditRiskQuerySession.js";
@@ -236,6 +242,21 @@ const creditRiskQueryRequestSchema = z
     recordIds: z.array(z.string().trim().min(1)).min(1, "Credit risk query selected recordIds are required.")
   })
   .strict();
+const partialHoldSimulationCriterionSchema = z.enum([
+  "orderValueVsExposure",
+  "customerStrategicValue",
+  "dsoPaymentDrift",
+  "orderMargin",
+  "revenueForecast",
+  "paymentPattern"
+]);
+const creditSimulationRequestSchema = z
+  .object({
+    accountId: z.string().trim().min(1, "Credit simulation accountId is required."),
+    scoreOverrides: z.record(partialHoldSimulationCriterionSchema, z.number().finite()).optional(),
+    weightOverrides: z.record(partialHoldSimulationCriterionSchema, z.number().finite()).optional()
+  })
+  .strict();
 const realtimeToolCallRequestSchema = z.object({
   argumentsJson: z.string().max(4000),
   name: z.string().min(1)
@@ -285,6 +306,7 @@ type CockpitRateLimitedRoute =
   | "POST /admin/demo-reset"
   | "POST /approval"
   | "POST /credit/query"
+  | "POST /credit/v2/simulate"
   | "POST /forensics/refresh"
   | "POST /forensics/query"
   | "POST /run";
@@ -296,6 +318,7 @@ const cockpitApiRoutes = [
   "GET /login",
   "GET /credit",
   "GET /credit/v2",
+  "GET /credit/v2/orders/:orderId/deals",
   "GET /cfo",
   "GET /trace",
   "GET /memory",
@@ -308,6 +331,7 @@ const cockpitApiRoutes = [
   "POST /admin/demo-reset",
   "POST /approval",
   "POST /credit/query",
+  "POST /credit/v2/simulate",
   "POST /forensics/refresh",
   "POST /forensics/query",
   "POST /query/realtime-client-secret",
@@ -639,18 +663,110 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (approvalRecordsSnapshot === undefined) {
       return;
     }
+    const dealOptimizerRows = await loadOptionalDealOptimizerRows();
 
     try {
       response.json(
         buildCreditRiskReviewModel({
           ...rows,
-          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+          ...(dealOptimizerRows === undefined
+            ? {}
+            : {
+                negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
+                  accountId: order.accountId,
+                  orderId: order.orderId,
+                  sourceRecordIds: [...order.sourceRecordIds]
+                }))
+              })
         })
       );
     } catch {
       sendFailClosedJson(request, response, 503, {
         error: "Credit approval receipt state is unavailable from governed backend sources.",
         missingSource: "approval_records"
+      });
+    }
+  });
+
+  app.post("/credit/v2/simulate", rateLimitAuditEndpoint("POST /credit/v2/simulate"), async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      })
+    ) {
+      return;
+    }
+
+    const parsedRequest = creditSimulationRequestSchema.safeParse(request.body);
+    if (!parsedRequest.success) {
+      response.status(400).json({ error: "Invalid credit simulation request.", issues: parsedRequest.error.issues });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    try {
+      response.setHeader("cache-control", "no-store");
+      response.json(buildCreditSimulationModel(parsedRequest.data, rows));
+    } catch (error) {
+      if (error instanceof CreditSimulationMissingSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: "David credit simulation is unavailable from governed backend sources.",
+          missingSource: error.missingSource
+        });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.get("/credit/v2/orders/:orderId/deals", async (request, response) => {
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      })
+    ) {
+      return;
+    }
+
+    const orderId = request.params.orderId;
+    if (orderId.trim().length === 0) {
+      response.status(400).json({ error: "Credit deal optimizer orderId is required." });
+      return;
+    }
+
+    const rows = await loadRequiredCreditRiskRows(request, response);
+    if (rows === undefined) {
+      return;
+    }
+
+    const dealRows = await loadRequiredDealOptimizerRows(request, response);
+    if (dealRows === undefined) {
+      return;
+    }
+
+    try {
+      const model = buildDealOptimizerModel({
+        creditRiskRows: rows,
+        orderId,
+        policyRows: dealRows.policyRows,
+        seed: 42,
+        simRows: dealRows.simRows
+      });
+      await persistCreditDealScenarios(model);
+      response.setHeader("cache-control", "no-store");
+      response.json(model);
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "David deal optimizer is unavailable from governed backend sources.",
+        missingSource: "credit-deal-optimizer"
       });
     }
   });
@@ -680,6 +796,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (approvalRecordsSnapshot === undefined) {
       return;
     }
+    const dealOptimizerRows = await loadOptionalDealOptimizerRows();
 
     const runControl = await loadRequiredRunControl(request, response);
     if (runControl === undefined) {
@@ -696,6 +813,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       const runner =
         options.creditRiskStreamRunner ??
         ((liveRequest) => runOpenAICreditRiskAgentStream(liveRequest, undefined, { env: runtimeEnv }));
+      const policyRationaleReader = createOptionalCreditNegotiationPolicyRationaleReader(runtimeEnv, options.openAiVectorStoreFetcher);
       const queryResponse = await runCreditRiskQuerySessionWithLiveAgents({
         accountId: parsedRequest.data.accountId,
         liveAgentTrace: {
@@ -711,6 +829,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           runner
         },
         model,
+        ...(dealOptimizerRows === undefined ? {} : { dealOptimizerRows }),
+        ...(policyRationaleReader === undefined ? {} : { policyRationaleReader }),
         question: parsedRequest.data.question,
         recordIds: parsedRequest.data.recordIds,
         rows
@@ -1095,8 +1215,95 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         });
         return undefined;
       }
+      if (error instanceof MissingCreditNegotiationSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: `Supabase credit negotiation ${error.sourceTableName} rows are unavailable or failed validation.`,
+          missingSource: error.missingSource
+        });
+        return undefined;
+      }
 
       throw error;
+    }
+  }
+
+  async function loadRequiredDealOptimizerRows(request: Request, response: Response) {
+    try {
+      return await loadDealOptimizerSourceRows(runtimeEnv, options.memoryFetcher);
+    } catch (error) {
+      if (error instanceof MissingCreditNegotiationSourceError) {
+        sendFailClosedJson(request, response, 503, {
+          error: "David deal optimizer is unavailable from governed backend sources.",
+          missingSource: error.missingSource
+        });
+        return undefined;
+      }
+
+      throw error;
+    }
+  }
+
+  async function loadOptionalDealOptimizerRows() {
+    try {
+      return await loadDealOptimizerSourceRows(runtimeEnv, options.memoryFetcher);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function persistCreditDealScenarios(model: DealOptimizerModel): Promise<void> {
+    const baseUrl = runtimeEnv.SUPABASE_URL?.replace(/\/+$/u, "");
+    const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY;
+    if (baseUrl === undefined || serviceRoleKey === undefined) {
+      throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for credit deal scenario persistence.");
+    }
+
+    const rows = model.rankedCandidates.map((candidate) => ({
+      candidate_json: {
+        calculationHash: candidate.calculationHash,
+        candidateId: candidate.candidateId,
+        objectiveValue: candidate.objectiveValue,
+        objectiveValueLabel: candidate.objectiveValueLabel,
+        rank: candidate.rank,
+        scenarioCount: candidate.scenarioCount,
+        terms: candidate.terms
+      },
+      candidate_id: candidate.candidateId,
+      objective_value: candidate.objectiveValue,
+      optimizer_run_id: model.optimizerRunId,
+      order_id: model.orderId,
+      payload_json: {
+        calculationHash: candidate.calculationHash,
+        candidateId: candidate.candidateId,
+        objectiveValue: candidate.objectiveValue,
+        objectiveValueLabel: candidate.objectiveValueLabel,
+        rank: candidate.rank,
+        scenarioCount: candidate.scenarioCount,
+        terms: candidate.terms
+      },
+      policy_hash: model.policyHash,
+      ranked_position: candidate.rank,
+      scenario_id: `${model.optimizerRunId}:rank-${candidate.rank.toString()}:${candidate.candidateId}`,
+      seed: model.seed,
+      source_hash: model.sourceHash,
+      source_record_ids: candidate.sourceRecordIds
+    }));
+    if (rows.length === 0) {
+      return;
+    }
+
+    const response = await (options.memoryFetcher ?? fetch)(`${baseUrl}/rest/v1/credit_deal_scenarios?on_conflict=scenario_id`, {
+      body: JSON.stringify(rows),
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/json",
+        prefer: "resolution=merge-duplicates,return=representation"
+      },
+      method: "POST"
+    });
+    if (!response.ok) {
+      throw new Error(`Credit deal scenario persistence failed with HTTP ${response.status.toString()}.`);
     }
   }
 
@@ -1481,6 +1688,20 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     });
   }
 
+  function createOptionalCreditNegotiationPolicyRationaleReader(env: RuntimeEnv, fetcher: OpenAiVectorStoreFetch | undefined) {
+    const apiKey = env.OPENAI_API_KEY?.trim();
+    const vectorStoreId = env.OPENAI_CREDIT_NEGOTIATION_POLICY_VECTOR_STORE_ID?.trim();
+    if (apiKey === undefined || apiKey.length === 0 || vectorStoreId === undefined || vectorStoreId.length === 0) {
+      return undefined;
+    }
+
+    return createOpenAiCreditNegotiationPolicyRationaleReader({
+      apiKey,
+      ...(fetcher === undefined ? {} : { fetcher }),
+      vectorStoreId
+    });
+  }
+
   function validateCacheableForensicsRunContext(
     governedConfig: GovernedConfigValues,
     runContext: ForensicsRunContext
@@ -1615,10 +1836,29 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         ...(parsed.data.approverId === undefined ? {} : { approverId: parsed.data.approverId }),
         ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason })
       };
-      const creditRiskRows =
-        parsed.data.actionId.startsWith("credit-v2:") ? await loadRequiredCreditRiskRows(request, response) : undefined;
-      if (parsed.data.actionId.startsWith("credit-v2:") && creditRiskRows === undefined) {
+      const isCreditV2Action = parsed.data.actionId.startsWith("credit-v2:");
+      const isCreditNegotiationAction = parsed.data.actionId.startsWith("credit-v2:negotiation:");
+      let creditRiskRows = isCreditV2Action ? await loadRequiredCreditRiskRows(request, response) : undefined;
+      if (isCreditV2Action && creditRiskRows === undefined) {
         return;
+      }
+      let dealOptimizerRows: Awaited<ReturnType<typeof loadRequiredDealOptimizerRows>> = undefined;
+      if (isCreditNegotiationAction) {
+        dealOptimizerRows = await loadRequiredDealOptimizerRows(request, response);
+        if (dealOptimizerRows === undefined) {
+          return;
+        }
+        creditRiskRows =
+          creditRiskRows === undefined
+            ? undefined
+            : {
+                ...creditRiskRows,
+                negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
+                  accountId: order.accountId,
+                  orderId: order.orderId,
+                  sourceRecordIds: [...order.sourceRecordIds]
+                }))
+              };
       }
       const supabaseAuditChain =
         runtimeEnv.RECOUP_MEMORY_BACKEND === "supabase"
@@ -1627,13 +1867,21 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       if (supabaseAuditChain !== undefined) {
         const prepared = prepareApprovalDecision(approvalInput, {
           ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
+          ...(dealOptimizerRows === undefined ? {} : { dealOptimizerRows }),
           ...serviceContext,
           governedConfig,
           ...(reconciliation === undefined ? {} : { reconciliation }),
           source,
           verifiedHumanPrincipal: human.principal
         });
-        response.json(await commitSupabaseApprovalDecision(runtimeEnv, options.memoryFetcher, prepared));
+        const negotiationRecipientProof = parsed.data.actionId.startsWith("credit-v2:negotiation:")
+          ? readCreditNegotiationRecipientProof(runtimeEnv)
+          : undefined;
+        response.json(
+          await commitSupabaseApprovalDecision(runtimeEnv, options.memoryFetcher, prepared, {
+            ...(negotiationRecipientProof === undefined ? {} : { negotiationRecipientProof })
+          })
+        );
         return;
       }
 
@@ -2329,6 +2577,14 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
 }
 
 function looksLikeCreditRiskApprovalRecord(record: MemoryRecord, actionId: string | undefined): boolean {
+  if (
+    actionId?.startsWith("credit-v2:negotiation:") === true ||
+    record.id.startsWith("approval:credit-v2:negotiation:") ||
+    record.scope.startsWith("approval:credit-v2:negotiation:")
+  ) {
+    return false;
+  }
+
   return (
     actionId?.startsWith("credit-v2:") === true ||
     record.id.startsWith("approval:credit-v2:") ||
@@ -3051,8 +3307,20 @@ function buildAdminDemoResetAuditRecord(input: {
 async function commitSupabaseApprovalDecision(
   env: RuntimeEnv,
   memoryFetcher: SupabaseMemoryFetch | undefined,
-  prepared: PreparedApprovalDecision
+  prepared: PreparedApprovalDecision,
+  options: {
+    negotiationRecipientProof?: { configKey: "HARBOR_AP_CONTACT_EMAIL"; recipientHash: string } | undefined;
+  } = {}
 ): Promise<ApprovalDecisionResponse> {
+  if (isCreditNegotiationApprovalAction(prepared.action)) {
+    await persistCreditNegotiationApprovedDraft(
+      env,
+      memoryFetcher,
+      prepared.action,
+      options.negotiationRecipientProof
+    );
+  }
+
   const supabaseAuditChain = createSupabaseAuditChainRepositoryFromEnv(env, memoryFetcher);
   if (supabaseAuditChain === undefined) {
     throw new Error(durableAuditTrailUnavailableMessage);
@@ -3074,7 +3342,7 @@ async function commitSupabaseApprovalDecision(
       await supabaseAuditChain.commitApprovalDecision({
         auditEntry,
         expectedPreviousHash: previousHash,
-        memoryRecord: buildApprovalMemoryRecord(approval, prepared.action.recordIds),
+        memoryRecord: buildApprovalMemoryRecord(approval, prepared.action, options.negotiationRecipientProof),
         memoryTableName: env.RECOUP_SUPABASE_MEMORY_TABLE ?? "recoup_memory_records"
       });
 
@@ -3110,7 +3378,12 @@ function riskObservationSourcesFromGovernedConfig(
   };
 }
 
-function buildApprovalMemoryRecord(approval: ApprovalDecisionResponse, actionRecordIds: readonly string[]): MemoryRecord {
+function buildApprovalMemoryRecord(
+  approval: ApprovalDecisionResponse,
+  action: PreparedApprovalDecision["action"],
+  negotiationRecipientProof: { configKey: "HARBOR_AP_CONTACT_EMAIL"; recipientHash: string } | undefined
+): MemoryRecord {
+  const negotiationDraftPayload = negotiationApprovalPayload(action, negotiationRecipientProof);
   return {
     category: "approval_records",
     createdAt: new Date().toISOString(),
@@ -3119,14 +3392,141 @@ function buildApprovalMemoryRecord(approval: ApprovalDecisionResponse, actionRec
       actionId: approval.actionId,
       approverId: approval.approverId,
       auditEntryHash: approval.auditEntryHash,
+      ...negotiationDraftPayload,
       decision: approval.decision,
       ...(approval.reason === undefined ? {} : { reason: approval.reason }),
       status: approval.status
     },
-    recordIds: uniqueRecordIds([approval.actionId, ...actionRecordIds]),
+    recordIds: uniqueRecordIds([approval.actionId, ...action.recordIds]),
     scope: approvalMemoryScope(approval.actionId),
     trustLevel: "trusted"
   };
+}
+
+function negotiationApprovalPayload(
+  action: PreparedApprovalDecision["action"],
+  negotiationRecipientProof: { configKey: "HARBOR_AP_CONTACT_EMAIL"; recipientHash: string } | undefined
+):
+  | {
+      approvedBodyHash: string;
+      approvedDraftRecordId: string;
+      approvedRecipientConfigKey: "HARBOR_AP_CONTACT_EMAIL";
+      approvedSubjectHash: string;
+      approvedToHash: string;
+    }
+  | Record<string, never> {
+  if (!isCreditNegotiationApprovalAction(action)) {
+    return {};
+  }
+  if (negotiationRecipientProof === undefined) {
+    throw new Error("Credit negotiation approval recipient is unavailable.");
+  }
+
+  return {
+    approvedBodyHash: action.approvedDraft.bodyHash,
+    approvedDraftRecordId: creditNegotiationApprovedDraftRecordId(action.actionId),
+    approvedRecipientConfigKey: negotiationRecipientProof.configKey,
+    approvedSubjectHash: sha256Hex(action.approvedDraft.subject),
+    approvedToHash: negotiationRecipientProof.recipientHash
+  };
+}
+
+async function persistCreditNegotiationApprovedDraft(
+  env: RuntimeEnv,
+  fetcher: SupabaseMemoryFetch | undefined,
+  action: CreditNegotiationApprovalAction,
+  negotiationRecipientProof: { configKey: "HARBOR_AP_CONTACT_EMAIL"; recipientHash: string } | undefined
+): Promise<void> {
+  if (negotiationRecipientProof === undefined) {
+    throw new Error("Credit negotiation approval recipient is unavailable.");
+  }
+  const baseUrl = readConfiguredRuntimeValue(env.SUPABASE_URL)?.replace(/\/+$/u, "");
+  const serviceRoleKey = readConfiguredRuntimeValue(env.SUPABASE_SERVICE_ROLE_KEY);
+  if (baseUrl === undefined || serviceRoleKey === undefined) {
+    throw new Error("Credit negotiation approved draft store is unavailable.");
+  }
+
+  const coordinates = creditNegotiationActionCoordinates(action);
+  const approvedSubjectHash = sha256Hex(action.approvedDraft.subject);
+  const response = await (fetcher ?? fetch)(`${baseUrl}/rest/v1/credit_negotiation_rounds?on_conflict=round_id`, {
+    body: JSON.stringify({
+      account_id: coordinates.accountId,
+      approved_action_id: action.actionId,
+      order_id: coordinates.orderId,
+      our_proposal_json: {
+        approvedBody: action.approvedDraft.body,
+        approvedBodyHash: action.approvedDraft.bodyHash,
+        approvedSubject: action.approvedDraft.subject,
+        approvedSubjectHash,
+        approvedToHash: negotiationRecipientProof.recipientHash
+      },
+      round_id: action.actionId,
+      round_no: coordinates.round,
+      status: "drafted"
+    }),
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json",
+      prefer: "resolution=merge-duplicates,return=representation"
+    },
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error("Credit negotiation approved draft store write failed.");
+  }
+}
+
+function creditNegotiationActionCoordinates(action: CreditNegotiationApprovalAction): {
+  accountId: string;
+  orderId: string;
+  round: number;
+} {
+  const match = /^credit-v2:negotiation:([^:]+):r([1-9]\d*)$/u.exec(action.actionId);
+  const accountId = readStringFromDeterministicBasis(action.deterministicBasis.accountId);
+  if (match === null || accountId === undefined) {
+    throw new Error("Credit negotiation approval action is malformed.");
+  }
+  const [, orderId, roundText] = match;
+  if (orderId === undefined || roundText === undefined) {
+    throw new Error("Credit negotiation approval action is malformed.");
+  }
+
+  return {
+    accountId,
+    orderId,
+    round: Number.parseInt(roundText, 10)
+  };
+}
+
+function creditNegotiationApprovedDraftRecordId(actionId: string): string {
+  return `credit_negotiation_rounds:${actionId}`;
+}
+
+function readStringFromDeterministicBasis(value: string | number | boolean | undefined): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function readCreditNegotiationRecipientProof(
+  env: RuntimeEnv
+): { configKey: "HARBOR_AP_CONTACT_EMAIL"; recipientHash: string } | undefined {
+  const approvedTo = readConfiguredRuntimeValue(env.HARBOR_AP_CONTACT_EMAIL);
+  return approvedTo === undefined
+    ? undefined
+    : {
+        configKey: "HARBOR_AP_CONTACT_EMAIL",
+        recipientHash: createHash("sha256").update(approvedTo).digest("hex")
+      };
+}
+
+function isCreditNegotiationApprovalAction(
+  action: PreparedApprovalDecision["action"]
+): action is CreditNegotiationApprovalAction {
+  return action.proposedBy === "agent:credit-negotiation";
 }
 
 function uniqueRecordIds(recordIds: readonly string[]): string[] {
