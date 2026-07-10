@@ -103,6 +103,12 @@ The same checker also probes the configured public endpoint with redirects disab
 
 Preview deployments may be protected by Vercel SSO even when the code is deployed. Do not register Resend against a protected preview URL unless deployment protection is explicitly disabled or a provider-supported bypass is configured and verified without exposing secrets. The stable production alias remains the expected live webhook endpoint after owner-approved production movement.
 
+If owner chooses preview-based live webhook testing before production, use one of these no-secret patterns:
+
+- Preferred: create a Vercel Protection Bypass for Automation secret for the project and configure the Resend webhook URL with a query parameter named `x-vercel-protection-bypass`. Do not paste the secret into chat, commits, screenshots, logs, or runbook examples.
+- Alternative: add a deployment protection exception for the exact preview domain if the plan/project supports it and owner explicitly approves making that preview URL public.
+- Do not rely on a protected preview URL that redirects to Vercel SSO; Resend will not complete the interactive authentication flow.
+
 After registering, store the webhook signing secret as `RESEND_INBOUND_SIGNING_SECRET` in the same environment that receives the webhook.
 
 ## 5. Contact seed
