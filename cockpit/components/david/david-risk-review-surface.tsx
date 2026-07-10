@@ -126,7 +126,6 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       readySections={["risk-review", "action-packets", "watchlist"]}
       runSummary={runSummary}
       searchValue={search}
-      sources={model.sources}
     >
       {activeSection === "risk-review" ? (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" data-testid="david-risk-review-surface">

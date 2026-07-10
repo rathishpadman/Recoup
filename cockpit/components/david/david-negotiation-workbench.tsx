@@ -460,6 +460,14 @@ export function canSendNegotiationEmailForAction(
   return locallyApprovedActionId === actionId || readHydratedNegotiationApprovalActionId(order) === actionId;
 }
 
+export function negotiationHydratedSendMessage(order: NegotiationOrder, actionId: string): string | undefined {
+  const sentRounds = [order.currentRound, order.latestSentRound].filter(
+    (round): round is NonNullable<typeof round> => round?.status === "sent"
+  );
+
+  return sentRounds.some((round) => round.actionId === actionId) ? "Approved email send recorded." : undefined;
+}
+
 function DealOptimizerView({
   account,
   approvalDialogOpen,
@@ -486,6 +494,7 @@ function DealOptimizerView({
   const topCandidate = model.rankedCandidates[0];
   const approvalPacket = buildNegotiationApprovalPacket(account, order, topCandidate);
   const approvalRecorded = canSendNegotiationEmailForAction(order, approvalPacket.actionId, approvalRecordedActionId);
+  const displayedSendMessage = sendMessage ?? negotiationHydratedSendMessage(order, approvalPacket.actionId);
   return (
     <div className="grid gap-4">
       {topCandidate === undefined ? (
@@ -549,9 +558,9 @@ function DealOptimizerView({
             Send approved email
           </Button>
         </div>
-        {sendMessage === undefined ? null : (
+        {displayedSendMessage === undefined ? null : (
           <Alert data-testid="david-negotiation-send-status">
-            <AlertTitle>{sendMessage}</AlertTitle>
+            <AlertTitle>{displayedSendMessage}</AlertTitle>
             <AlertDescription>Order {order.orderId} remains governed by the durable send ledger.</AlertDescription>
           </Alert>
         )}

@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import {
+  CheckCircle2Icon,
   ClipboardListIcon,
   LayoutDashboardIcon,
   SearchIcon,
@@ -31,7 +32,6 @@ import { cn } from "@/lib/utils";
 import { LogoutButton } from "../../app/logout-button.tsx";
 import type { CreditRiskReviewModel } from "../../app/cockpit-data.ts";
 import { davidAccent } from "./david-accent.ts";
-import { DavidSourcesDrawer } from "./david-sources-drawer.tsx";
 
 export type DavidSurfaceSection = "action-packets" | "risk-review" | "watchlist";
 
@@ -45,7 +45,6 @@ interface DavidWorkspaceShellProps {
   readySections?: readonly DavidSurfaceSection[];
   runSummary: string;
   searchValue: string;
-  sources: CreditRiskReviewModel["sources"];
 }
 
 const navItems: ReadonlyArray<{
@@ -84,8 +83,7 @@ export function DavidWorkspaceShell({
   onSectionChange,
   readySections = ["risk-review"],
   runSummary,
-  searchValue,
-  sources
+  searchValue
 }: Readonly<DavidWorkspaceShellProps>) {
   const readySectionSet = new Set(readySections);
 
@@ -208,10 +206,10 @@ export function DavidWorkspaceShell({
                       />
                     </InputGroup>
                   </div>
-                  <Badge className="h-9 px-3 text-xs" variant="outline">
-                    {sources.topbarLabel}
+                  <Badge className="h-9 gap-1.5 px-3 text-xs" variant="secondary">
+                    <CheckCircle2Icon aria-hidden="true" className="size-3.5" data-icon="inline-start" />
+                    Review data ready
                   </Badge>
-                  <DavidSourcesDrawer sources={sources} />
                   <LogoutButton className="inline-flex" size="sm" variant="outline">
                     Sign out
                   </LogoutButton>

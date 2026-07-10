@@ -89,6 +89,9 @@ describe("David credit v2 route scaffold", () => {
     expect(surface).not.toContain("walkthroughStrip=");
     expect(surface).not.toContain("{selectedAccount === undefined ? null : accountQueue}");
     expect(shell).not.toContain("walkthroughStrip");
+    expect(shell).not.toContain("DavidSourcesDrawer");
+    expect(shell).not.toContain("sources.topbarLabel");
+    expect(shell).not.toContain(">Sources<");
     expect(copilot).toContain('fetch("/api/credit/query"');
     expect(copilot).toContain("modelExecution");
     expect(copilot).not.toContain("disabledInputPlaceholder");

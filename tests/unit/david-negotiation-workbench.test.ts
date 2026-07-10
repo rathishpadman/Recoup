@@ -7,6 +7,7 @@ import {
   buildNegotiationApprovalPacket,
   davidNegotiationWorkbenchSheetClassName,
   defaultManualCounterRound,
+  negotiationHydratedSendMessage,
   negotiationOrderReceivedLabel,
   negotiationRoundSummary
 } from "../../cockpit/components/david/david-negotiation-workbench.tsx";
@@ -147,6 +148,32 @@ describe("David negotiation workbench", () => {
     expect(
       canSendNegotiationEmailForAction(order, "credit-v2:negotiation:ORD-HARBOR-6534:r2", "credit-v2:negotiation:ORD-HARBOR-6534:r3")
     ).toBe(true);
+  });
+
+  it("keeps the send success visible when the sent round hydrates from the backend after refresh", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        round: 2,
+        status: "sent"
+      },
+      latestSentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        round: 2,
+        status: "sent"
+      },
+      nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(negotiationHydratedSendMessage(order, "credit-v2:negotiation:ORD-HARBOR-6534:r2")).toBe(
+      "Approved email send recorded."
+    );
+    expect(negotiationHydratedSendMessage(order, "credit-v2:negotiation:ORD-HARBOR-6534:r3")).toBeUndefined();
   });
 
   it("does not enable send from a stale local approval recorded for another negotiation action", () => {
