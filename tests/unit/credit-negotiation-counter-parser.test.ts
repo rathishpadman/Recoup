@@ -32,6 +32,36 @@ describe("David negotiation counter-offer parser", () => {
     });
   });
 
+  it("accepts Gmail quoted line wrapping when model-cited spans preserve the same words", () => {
+    const result = parseCreditNegotiationCounterOffer({
+      modelExtraction: {
+        citedSpans: [
+          { field: "releasePct", text: "75% release" },
+          { field: "depositPct", text: "40% deposit" },
+          { field: "trancheCount", text: "3 payment tranches" },
+          { field: "collateralRatio", text: "1.10x collateral coverage" },
+          { field: "financingSpreadBps", text: "150 bps financing spread" }
+        ],
+        intent: "counter_offer"
+      },
+      rawMessage:
+        "> Harbor Foods can accept 75% release with a 40% deposit, 3 payment\n" +
+        "> tranches, 1.10x collateral coverage, and a 150 bps financing spread.\n"
+    });
+
+    expect(result).toMatchObject({
+      extractedTerms: {
+        collateralRatio: 1.1,
+        depositPct: 40,
+        financingSpreadBps: 150,
+        releasePct: 75,
+        trancheCount: 3
+      },
+      intent: "counter_offer",
+      status: "grammar_valid"
+    });
+  });
+
   it("routes to human review when a cited field has no verbatim extractable number", () => {
     const result = parseCreditNegotiationCounterOffer({
       modelExtraction: {
