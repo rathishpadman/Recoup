@@ -29,6 +29,7 @@ Current known blockers as of the latest local run:
 - Owner approved `north-bay.dev` root catch-all safety in chat on 2026-07-10; target local/Vercel env still needs `RECOUP_CREDIT_NEGOTIATION_ROOT_CATCHALL_APPROVED=approved` encoded before live-email testing.
 - Resend has an `email.received` webhook, but it is not registered to the Recoup David inbound route.
 - The public Recoup inbound route currently returns `404` at `https://recoup-self-eta.vercel.app/api/credit/negotiation/inbound`; expose/deploy that route before registering live Resend traffic.
+- Preview deploy check on 2026-07-10 exposed the branch at `https://recoup-5bsx7e9k9-hackathonopenai.vercel.app` and `/credit` returned HTTP 200, but the inbound route was protected by Vercel deployment protection (`GET` redirected to SSO, unsigned `POST` returned protected-deployment `401`). This confirms the branch builds and the route is no longer source-missing in preview, but it is still not webhook-ready because Resend must reach the route directly without Vercel SSO/protection.
 
 ## 2. Owner gates before live traffic
 
@@ -99,6 +100,8 @@ The readiness checker only passes when the webhook event includes `email.receive
 ```
 
 The same checker also probes the configured public endpoint with redirects disabled. A deployed POST-only route may return `405` to this probe and still pass, but `404` or Vercel/SSO redirect is a blocker because Resend must reach the endpoint directly.
+
+Preview deployments may be protected by Vercel SSO even when the code is deployed. Do not register Resend against a protected preview URL unless deployment protection is explicitly disabled or a provider-supported bypass is configured and verified without exposing secrets. The stable production alias remains the expected live webhook endpoint after owner-approved production movement.
 
 After registering, store the webhook signing secret as `RESEND_INBOUND_SIGNING_SECRET` in the same environment that receives the webhook.
 
