@@ -720,6 +720,8 @@ export interface CreditRiskAccountModel {
       status: "sent";
     };
     nextRound: number;
+    orderAmount: number;
+    orderAmountLabel: string;
     orderId: string;
     sourceModeLabel: "governed Supabase negotiation source";
     sourceRecordIds: string[];

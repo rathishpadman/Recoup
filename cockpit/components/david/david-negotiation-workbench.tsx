@@ -33,6 +33,8 @@ interface NegotiationApprovalPacket {
   round: number;
 }
 
+export const davidNegotiationWorkbenchSheetClassName = "overflow-y-auto px-4 pb-4 sm:max-w-3xl";
+
 export function DavidNegotiationWorkbench({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
   const router = useRouter();
   const order = account.negotiationOrders[0];
@@ -244,13 +246,13 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
           Simulate alternatives
         </Button>
       </SheetTrigger>
-      <SheetContent className="sm:max-w-3xl" data-testid="david-negotiation-workbench">
-        <SheetHeader className="gap-2">
+      <SheetContent className={davidNegotiationWorkbenchSheetClassName} data-testid="david-negotiation-workbench">
+        <SheetHeader className="gap-2 px-0">
           <SheetTitle>Fulfilment & Terms Negotiation</SheetTitle>
           <SheetDescription>Read-only expected-value ranking for {account.customer}. Approvals and sends stay gated.</SheetDescription>
         </SheetHeader>
 
-        <div className="mt-6 grid gap-4">
+        <div className="mt-2 grid gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">Order {orderId}</Badge>
@@ -275,6 +277,11 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
               )}
               Reset communication
             </Button>
+          </div>
+
+          <div className="grid gap-1 rounded-lg border bg-muted/20 px-3 py-2" data-testid="david-negotiation-order-received">
+            <span className="text-xs font-medium text-muted-foreground">Order received</span>
+            <span className="text-lg font-semibold">{activeOrder.orderAmountLabel}</span>
           </div>
 
           {resetMessage === undefined ? null : (
@@ -431,6 +438,10 @@ export function negotiationRoundSummary(order: NegotiationOrder): string {
       : `Latest sent round ${order.latestSentRound.round.toString()}`;
 
   return `${latestSent} / Next outbound round ${order.nextRound.toString()}`;
+}
+
+export function negotiationOrderReceivedLabel(order: NegotiationOrder): string {
+  return `Order received ${order.orderAmountLabel}`;
 }
 
 function currentNegotiationRoundLabel(order: NegotiationOrder): string | undefined {

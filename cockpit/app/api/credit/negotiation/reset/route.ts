@@ -54,7 +54,7 @@ export async function handleCreditNegotiationResetPostForTest(
     );
   }
   if (!isLocalQaResetEnabled(runtimeEnv)) {
-    return Response.json({ error: "Credit negotiation reset is available only for explicitly enabled local QA." }, { status: 403 });
+    return Response.json({ error: "Credit negotiation reset is available only when the explicit reset gate is enabled." }, { status: 403 });
   }
 
   const parsed = negotiationResetSchema.safeParse(parseJson(bodyText));
@@ -254,7 +254,7 @@ function isConfiguredValue(value: string | undefined): value is string {
 }
 
 function isLocalQaResetEnabled(env: RuntimeEmailEnv): boolean {
-  return env.NODE_ENV !== "production" && env.RECOUP_CREDIT_NEGOTIATION_RESET_ENABLED === "enabled";
+  return env.RECOUP_CREDIT_NEGOTIATION_RESET_ENABLED === "enabled";
 }
 
 function isDavidHumanPrincipal(principal: string): boolean {

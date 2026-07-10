@@ -57,6 +57,7 @@ describe("David negotiation full local loop", () => {
     creditRiskRows.negotiationOrders = [
       {
         accountId: "ACC-HAR",
+        orderAmount: "640010.00",
         orderId: "ORD-HARBOR-6534",
         sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
       }

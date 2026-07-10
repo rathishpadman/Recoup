@@ -123,6 +123,12 @@ interface NormalizedCreditRiskQueryRequest {
   account: CreditRiskAccountModel;
   effectiveRecordIds: string[];
   negotiationOrders: Array<{
+    currentRound?: {
+      round: number;
+      status: string;
+    };
+    nextRound: number;
+    orderAmountLabel: string;
     orderId: string;
     sourceRecordIds: string[];
   }>;
@@ -321,11 +327,12 @@ function normalizeCreditRiskQueryRequest(
     return undefined;
   }
 
-  const allowedRecordIds = new Set([
+  const creditEvidenceRecordIds = [
     account.accountId,
-    ...account.recordIds,
+    ...account.signals.flatMap((signal) => signal.recordIds),
     ...account.evidenceDocuments.flatMap((document) => [document.documentId, ...document.recordIds])
-  ]);
+  ];
+  const allowedRecordIds = new Set(creditEvidenceRecordIds);
   const submittedInScopeRecordIds = input.recordIds.filter((recordId) => allowedRecordIds.has(recordId));
   const effectiveRecordIds = dedupe([
     account.accountId,
@@ -336,13 +343,20 @@ function normalizeCreditRiskQueryRequest(
     return undefined;
   }
 
-  const negotiationOrders =
-    input.dealOptimizerRows?.simRows.orders
-      .filter((order) => order.accountId === account.accountId)
-      .map((order) => ({
-        orderId: order.orderId,
-        sourceRecordIds: [...order.sourceRecordIds]
-      })) ?? [];
+  const negotiationOrders = account.negotiationOrders.map((order) => ({
+    ...(order.currentRound === undefined
+      ? {}
+      : {
+          currentRound: {
+            round: order.currentRound.round,
+            status: order.currentRound.status
+          }
+        }),
+    nextRound: order.nextRound,
+    orderAmountLabel: order.orderAmountLabel,
+    orderId: order.orderId,
+    sourceRecordIds: [...order.sourceRecordIds]
+  }));
 
   return { account, effectiveRecordIds, negotiationOrders, question };
 }
@@ -358,9 +372,11 @@ function buildDeterministicCreditRiskQueryResponse(
 
   return {
     answer: [
-      `${request.account.accountId} is ${request.account.verdict} risk from the governed credit risk read model.`,
-      `The cited basis is ${citedRecords.join(", ")}.`,
-      `The action packet remains draft-only under ${request.account.packet.actionId} until human approval.`
+      `${request.account.customer} is ${request.account.verdict} risk.`,
+      request.account.verdictBasis,
+      `${request.account.packet.routeLabel}: ${request.account.packet.detail}`,
+      ...negotiationStatusAnswerLines(request),
+      `The packet is draft-only and needs David approval before any external action.`
     ].join(" "),
     citations: citedRecords.map((recordId) => ({
       deterministicBasis: creditRiskQueryDeterministicBasis,
@@ -564,6 +580,17 @@ function buildCreditNegotiationDraftResult(
   };
 }
 
+function negotiationStatusAnswerLines(request: NormalizedCreditRiskQueryRequest): string[] {
+  return request.negotiationOrders.map((order) => {
+    const orderPrefix = `Negotiation order ${order.orderId}: Order received ${order.orderAmountLabel}.`;
+    if (order.currentRound === undefined) {
+      return `${orderPrefix} No outbound round has been sent yet; next outbound round ${order.nextRound.toString()}.`;
+    }
+
+    return `${orderPrefix} Round ${order.currentRound.round.toString()} ${order.currentRound.status}; next outbound round ${order.nextRound.toString()}.`;
+  });
+}
+
 function shouldRetryMissingCreditRiskMcpRead(retryCap: number | undefined): boolean {
   return retryCap !== undefined && Number.isInteger(retryCap) && retryCap > 0;
 }
@@ -728,6 +755,14 @@ function buildLiveCreditRiskQueryInput(
       ? []
       : [
           `Negotiation draft tool is available for order IDs: ${request.negotiationOrders.map((order) => `${order.orderId} (${order.sourceRecordIds.join(", ")})`).join("; ")}.`,
+          ...request.negotiationOrders.map((order) =>
+            [
+              `Negotiation state for ${order.orderId}: order received ${order.orderAmountLabel};`,
+              order.currentRound === undefined
+                ? `no current outbound round; next outbound round ${order.nextRound.toString()}.`
+                : `current round ${order.currentRound.round.toString()} is ${order.currentRound.status}; next outbound round ${order.nextRound.toString()}.`
+            ].join(" ")
+          ),
           ...request.negotiationOrders.map(
             (order) =>
               `When calling credit_negotiation_draft_structures for ${order.orderId}, recordIds must include ${request.account.accountId}, ${order.orderId}, and ${order.sourceRecordIds.join(", ")}.`

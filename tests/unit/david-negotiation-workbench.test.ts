@@ -5,7 +5,9 @@ import {
   canSendNegotiationEmailForAction,
   DavidNegotiationWorkbench,
   buildNegotiationApprovalPacket,
+  davidNegotiationWorkbenchSheetClassName,
   defaultManualCounterRound,
+  negotiationOrderReceivedLabel,
   negotiationRoundSummary
 } from "../../cockpit/components/david/david-negotiation-workbench.tsx";
 import { buildDavidApprovalGateCopy, buildDavidApprovalGateTitle } from "../../cockpit/components/david/david-approval-gate-dialog.tsx";
@@ -31,6 +33,8 @@ describe("David negotiation workbench", () => {
         status: "sent"
       },
       nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
       orderId: "ORD-HARBOR-6534",
       sourceModeLabel: "governed Supabase negotiation source",
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
@@ -47,6 +51,8 @@ describe("David negotiation workbench", () => {
 
     expect(defaultManualCounterRound(order)).toBe("2");
     expect(negotiationRoundSummary(order)).toBe("Latest sent round 2 / Next outbound round 3");
+    expect(davidNegotiationWorkbenchSheetClassName).toContain("overflow-y-auto");
+    expect(negotiationOrderReceivedLabel(order)).toBe("Order received $640,010.00");
     expect(html).toContain("Simulate alternatives");
   });
 
@@ -58,6 +64,8 @@ describe("David negotiation workbench", () => {
         status: "countered"
       },
       nextRound: 2,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
       orderId: "ORD-HARBOR-6534",
       sourceModeLabel: "governed Supabase negotiation source",
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
@@ -69,6 +77,8 @@ describe("David negotiation workbench", () => {
   it("builds the governed approval packet for the next negotiation round from the top deterministic candidate", () => {
     const order = {
       nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
       orderId: "ORD-HARBOR-6534",
       sourceModeLabel: "governed Supabase negotiation source",
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
@@ -121,6 +131,8 @@ describe("David negotiation workbench", () => {
         status: "drafted"
       },
       nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
       orderId: "ORD-HARBOR-6534",
       sourceModeLabel: "governed Supabase negotiation source",
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
@@ -140,6 +152,8 @@ describe("David negotiation workbench", () => {
   it("does not enable send from a stale local approval recorded for another negotiation action", () => {
     const order = {
       nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
       orderId: "ORD-HARBOR-6534",
       sourceModeLabel: "governed Supabase negotiation source",
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]

@@ -675,6 +675,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
             : {
                 negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
                   accountId: order.accountId,
+                  orderAmount: order.orderAmount,
                   orderId: order.orderId,
                   sourceRecordIds: [...order.sourceRecordIds]
                 }))
@@ -808,7 +809,17 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     try {
       const model = buildCreditRiskReviewModel({
         ...rows,
-        approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records)
+        approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+        ...(dealOptimizerRows === undefined
+          ? {}
+          : {
+              negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
+                accountId: order.accountId,
+                orderAmount: order.orderAmount,
+                orderId: order.orderId,
+                sourceRecordIds: [...order.sourceRecordIds]
+              }))
+            })
       });
       const runner =
         options.creditRiskStreamRunner ??
@@ -1855,6 +1866,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
                 ...creditRiskRows,
                 negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
                   accountId: order.accountId,
+                  orderAmount: order.orderAmount,
                   orderId: order.orderId,
                   sourceRecordIds: [...order.sourceRecordIds]
                 }))

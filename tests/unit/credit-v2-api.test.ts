@@ -135,7 +135,7 @@ describe("GET /credit/v2", () => {
       const body = (await response.json()) as {
         accounts: Array<{
           accountId: string;
-          negotiationOrders?: Array<{ orderId: string; sourceRecordIds: string[] }>;
+          negotiationOrders?: Array<{ orderAmount: number; orderAmountLabel: string; orderId: string; sourceRecordIds: string[] }>;
           packet: { actionId: string; approvalStatus: string; auditEntryHash?: string };
         }>;
       };
@@ -153,6 +153,8 @@ describe("GET /credit/v2", () => {
       expect(body.accounts.find((account) => account.accountId === "ACC-HAR")?.negotiationOrders).toEqual([
         {
           nextRound: 1,
+          orderAmount: 640010,
+          orderAmountLabel: "$640,010.00",
           orderId: "ORD-HARBOR-6534",
           sourceModeLabel: "governed Supabase negotiation source",
           sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
@@ -780,8 +782,10 @@ describe("POST /credit/query", () => {
       };
 
       expect(liveRunner).toHaveBeenCalledTimes(1);
-      expect(body.answer).toContain("ACC-CRE");
-      expect(body.answer).not.toMatch(/\$\s*\d/u);
+      expect(body.answer).toContain("Crestline Grocery is HIGH risk.");
+      expect(body.answer).toContain("Contain exposure");
+      expect(body.answer).not.toContain("The cited basis is");
+      expect(body.answer).not.toContain("TPM CR-Q3-ENDCAP-118");
       expect(body.deterministicBasis).toContain("OpenAI Agents SDK live trace");
       expect(body.citations.map((citation) => citation.recordId)).toEqual(
         expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
@@ -943,6 +947,120 @@ describe("POST /credit/query", () => {
       });
       expect(JSON.stringify(body.negotiationDraft)).not.toContain("raw");
       expect(body.trace.some((event) => event.toolName === "credit_negotiation.draft_structures")).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("answers Harbor email counter questions with the governed negotiation round state", async () => {
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      expect(request.input).toContain(
+        "Negotiation state for ORD-HARBOR-6534: order received $640,010.00; current round 1 is countered; next outbound round 2."
+      );
+      expect(request.input).toContain("recordIds must include ACC-HAR, ORD-HARBOR-6534, and credit_orders:ORD-HARBOR-6534");
+      expect(request.mcpServiceContext?.creditRiskAnswerScope?.recordIds).not.toContain("ORD-HARBOR-6534");
+      expect(request.mcpServiceContext?.creditRiskAnswerScope?.recordIds).not.toContain("credit_orders:ORD-HARBOR-6534");
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_start",
+          recordIds
+        })
+      );
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName: "Credit Sentinel",
+          hook: "agent_handoff",
+          nextAgentName: "Action Packet Drafter",
+          recordIds
+        })
+      );
+
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", {
+          arguments: {
+            accountId: "ACC-HAR",
+            question: "What happened to Harbor email status?",
+            recordIds
+          }
+        });
+        yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", {
+          output: {
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "CreditRiskEvidenceDocument",
+              primarySourceLabel: "Supabase credit evidence documents",
+              primarySourceSystem: "supabase",
+              selectedEvidence: [
+                {
+                  documentId: "EVD-CREDIT-ACC-HAR-TERMS",
+                  recordIds: ["ACC-HAR", "S1", "S2", "credit_contract_tpm"]
+                }
+              ],
+              selectedRecordIds: recordIds,
+              sourceFreshness: "snapshot",
+              transportLabel: "Governed credit risk read-model",
+              transportLayer: "supabase_credit_risk"
+            }
+          }
+        });
+        yield {
+          data: {
+            response: {
+              usage: {
+                input_tokens: 900,
+                output_tokens: 100,
+                total_tokens: 1000
+              }
+            },
+            type: "response.completed"
+          },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(
+      creditRiskFetcher([], {
+        negotiationRoundRows: [
+          {
+            account_id: "ACC-HAR",
+            order_id: "ORD-HARBOR-6534",
+            round_id: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+            round_no: 1,
+            status: "countered"
+          }
+        ]
+      }),
+      {
+        creditRiskStreamRunner: liveRunner,
+        env: { OPENAI_API_KEY: "sk-test-credit-query" }
+      }
+    );
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({
+          accountId: "ACC-HAR",
+          question: "What happened to Harbor email status?",
+          recordIds: ["ACC-HAR", "S1", "S2", "EVD-CREDIT-ACC-HAR-TERMS"]
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string; tokenUsage?: number } };
+
+      expect(body.modelExecution).toMatchObject({
+        mode: "live_openai_agents",
+        tokenUsage: 1000
+      });
+      expect(body.answer).toContain("Harbor Foods is ELEVATED risk.");
+      expect(body.answer).toContain("Negotiation order ORD-HARBOR-6534: Order received $640,010.00.");
+      expect(body.answer).toContain("Round 1 countered; next outbound round 2.");
+      expect(body.answer).not.toContain("The cited basis is");
     } finally {
       await close(server);
     }
@@ -1300,7 +1418,8 @@ describe("POST /credit/query", () => {
 
       expect(liveRunner).toHaveBeenCalledTimes(2);
       expect(liveRunner.mock.calls[1]?.[0].input).toContain("Validation retry");
-      expect(body.answer).toContain("ACC-CRE");
+      expect(body.answer).toContain("Crestline Grocery is HIGH risk.");
+      expect(body.answer).not.toContain("The cited basis is");
       expect(body.citations.map((citation) => citation.recordId)).toEqual(
         expect.arrayContaining(["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"])
       );
@@ -1381,7 +1500,8 @@ describe("POST /credit/query", () => {
       const body = (await response.json()) as { answer?: string; modelExecution?: { mode: string } };
 
       expect(response.status).toBe(200);
-      expect(body.answer).toContain("ACC-CRE");
+      expect(body.answer).toContain("Crestline Grocery is HIGH risk.");
+      expect(body.answer).not.toContain("The cited basis is");
       expect(body.modelExecution?.mode).toBe("live_openai_agents");
     } finally {
       await close(server);

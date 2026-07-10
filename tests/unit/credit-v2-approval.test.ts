@@ -52,6 +52,7 @@ describe("credit-v2 approval resolver", () => {
     rows.negotiationOrders = [
       {
         accountId: "ACC-HAR",
+        orderAmount: "640010.00",
         orderId: "ORD-HARBOR-6534",
         sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
       }
@@ -101,6 +102,7 @@ describe("credit-v2 approval resolver", () => {
     rows.negotiationOrders = [
       {
         accountId: "ACC-HAR",
+        orderAmount: "640010.00",
         orderId: "ORD-HARBOR-6534",
         sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
       }

@@ -129,7 +129,49 @@ describe("David negotiation communication reset route", () => {
 
     expect(response.status).toBe(403);
     expect(fetchImpl).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toEqual({ error: "Credit negotiation reset is available only for explicitly enabled local QA." });
+    await expect(response.json()).resolves.toEqual({
+      error: "Credit negotiation reset is available only when the explicit reset gate is enabled."
+    });
+  });
+
+  it("allows production resets only when the explicit reset gate and David auth are both present", async () => {
+    const { handleCreditNegotiationResetPostForTest } = await loadResetRoute();
+    const calls: Array<{ method: string | undefined; url: string }> = [];
+    const fetchImpl = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const urlString = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push({ method: init?.method, url: urlString });
+
+      if (urlString.includes("/rest/v1/recoup_memory_records") && init?.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (urlString.includes("/rest/v1/recoup_memory_records") && init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify([{ id: "audit:credit-negotiation-reset:ORD-HARBOR-6534" }]), { status: 201 }));
+      }
+      if (init?.method === "DELETE") {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+
+      throw new Error(`Unexpected fetch URL: ${urlString}`);
+    });
+
+    const response = await handleCreditNegotiationResetPostForTest(
+      request({ orderId: "ORD-HARBOR-6534", reason: "Fresh production smoke reset" }),
+      {
+        env: {
+          ...env,
+          NODE_ENV: "production",
+          RECOUP_CREDIT_NEGOTIATION_RESET_ENABLED: "enabled"
+        },
+        fetchImpl
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      orderId: "ORD-HARBOR-6534",
+      status: "reset_recorded"
+    });
+    expect(calls.some((call) => call.method === "DELETE" && call.url.includes("/rest/v1/credit_counter_offers"))).toBe(true);
   });
 
   it("rejects non-David principals before deleting communication artifacts", async () => {

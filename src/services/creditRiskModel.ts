@@ -146,6 +146,7 @@ export interface CreditRiskApprovalReceipt {
 
 export interface CreditNegotiationOrderSource {
   accountId: string;
+  orderAmount: string;
   orderId: string;
   sourceRecordIds: readonly string[];
 }
@@ -164,6 +165,8 @@ export interface CreditNegotiationOrderModel {
   currentRound?: CreditNegotiationRoundModel | undefined;
   latestSentRound?: CreditNegotiationRoundModel | undefined;
   nextRound: number;
+  orderAmount: number;
+  orderAmountLabel: string;
   orderId: string;
   sourceModeLabel: "governed Supabase negotiation source";
   sourceRecordIds: string[];
@@ -931,6 +934,8 @@ function buildNegotiationOrderModel(
     ...(currentRound === undefined ? {} : { currentRound: buildNegotiationRoundModel(currentRound) }),
     ...(latestSentRound === undefined ? {} : { latestSentRound: buildNegotiationRoundModel(latestSentRound) }),
     nextRound: (currentRound?.round ?? 0) + 1,
+    orderAmount: toAmount(decimal(order.orderAmount)),
+    orderAmountLabel: formatMoneyWithCents(decimal(order.orderAmount)),
     orderId: order.orderId,
     sourceModeLabel: "governed Supabase negotiation source" as const,
     sourceRecordIds: [...order.sourceRecordIds]
@@ -1467,6 +1472,10 @@ function decimal(value: number | string | Decimal): Decimal {
 
 function formatMoney(value: Decimal): string {
   return `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(decimal(value).toNumber())}`;
+}
+
+function formatMoneyWithCents(value: Decimal): string {
+  return `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(decimal(value).toNumber())}`;
 }
 
 function formatCompactMoney(value: Decimal): string {
