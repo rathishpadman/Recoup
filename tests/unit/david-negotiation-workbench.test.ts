@@ -170,10 +170,25 @@ describe("David negotiation workbench", () => {
       sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
     } as CreditRiskAccountModel["negotiationOrders"][number];
 
-    expect(negotiationHydratedSendMessage(order, "credit-v2:negotiation:ORD-HARBOR-6534:r2")).toBe(
-      "Approved email send recorded."
-    );
-    expect(negotiationHydratedSendMessage(order, "credit-v2:negotiation:ORD-HARBOR-6534:r3")).toBeUndefined();
+    expect(negotiationHydratedSendMessage(order)).toBe("Approved email send recorded.");
+  });
+
+  it("keeps the send success visible after refresh advances the next outbound action", () => {
+    const order = {
+      latestSentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      nextRound: 2,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(negotiationHydratedSendMessage(order)).toBe("Approved email send recorded.");
   });
 
   it("does not enable send from a stale local approval recorded for another negotiation action", () => {

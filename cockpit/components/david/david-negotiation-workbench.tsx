@@ -460,12 +460,12 @@ export function canSendNegotiationEmailForAction(
   return locallyApprovedActionId === actionId || readHydratedNegotiationApprovalActionId(order) === actionId;
 }
 
-export function negotiationHydratedSendMessage(order: NegotiationOrder, actionId: string): string | undefined {
+export function negotiationHydratedSendMessage(order: NegotiationOrder): string | undefined {
   const sentRounds = [order.currentRound, order.latestSentRound].filter(
     (round): round is NonNullable<typeof round> => round?.status === "sent"
   );
 
-  return sentRounds.some((round) => round.actionId === actionId) ? "Approved email send recorded." : undefined;
+  return sentRounds.length > 0 ? "Approved email send recorded." : undefined;
 }
 
 function DealOptimizerView({
@@ -494,7 +494,7 @@ function DealOptimizerView({
   const topCandidate = model.rankedCandidates[0];
   const approvalPacket = buildNegotiationApprovalPacket(account, order, topCandidate);
   const approvalRecorded = canSendNegotiationEmailForAction(order, approvalPacket.actionId, approvalRecordedActionId);
-  const displayedSendMessage = sendMessage ?? negotiationHydratedSendMessage(order, approvalPacket.actionId);
+  const displayedSendMessage = sendMessage ?? negotiationHydratedSendMessage(order);
   return (
     <div className="grid gap-4">
       {topCandidate === undefined ? (
