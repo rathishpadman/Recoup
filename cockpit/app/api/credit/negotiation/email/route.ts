@@ -206,6 +206,7 @@ export async function handleCreditNegotiationEmailPostForTest(
       draft: {
         accountId: parsed.data.accountId,
         actionId: parsed.data.actionId,
+        approvalAuditEntryHash: approvalReceipt.auditEntryHash,
         approvedBodyHash: approvedDraft.approvedBodyHash,
         body: approvedDraft.approvedBody,
         from: addressConfig.from,

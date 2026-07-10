@@ -12,7 +12,7 @@ const config = {
 const draftBody = "Harbor Foods\nOrder ORD-HARBOR-6534\nRelease 55% after deposit confirmation.";
 const approvedBodyHash = createHash("sha256").update(draftBody).digest("hex");
 
-const draft = {
+const draft: emailGateway.CreditNegotiationEmailDraft = {
   accountId: "ACC-HAR",
   actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
   approvedBodyHash,
@@ -180,6 +180,53 @@ describe("David negotiation email gateway", () => {
       sentBodyHash: draft.approvedBodyHash,
       status: "sent"
     });
+  });
+
+  it("uses a new provider idempotency key after a fresh reset creates a new approval receipt", async () => {
+    const sendNegotiationEmail = (emailGateway as unknown as {
+      sendNegotiationEmail?: (input: {
+        config: typeof config;
+        draft: typeof draft;
+        fetchImpl: typeof fetchImpl;
+        principal: string;
+        sendLedger: ReturnType<typeof buildSendLedger>;
+      }) => Promise<unknown>;
+    }).sendNegotiationEmail;
+    expect(sendNegotiationEmail).toBeTypeOf("function");
+
+    const providerIds = ["email_neg_before_reset", "email_neg_after_reset"];
+    const fetchImpl = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      void input;
+      void init;
+      const id = providerIds.shift() ?? "email_neg_extra";
+      return Promise.resolve(new Response(JSON.stringify({ id, last_event: "sent" }), { status: 200 }));
+    });
+    const firstLedger = buildSendLedger();
+    const secondLedger = buildSendLedger();
+
+    await sendNegotiationEmail?.({
+      config,
+      draft: { ...draft, approvalAuditEntryHash: "a".repeat(64) },
+      fetchImpl,
+      principal: "human:david-credit-lead",
+      sendLedger: firstLedger
+    });
+    await sendNegotiationEmail?.({
+      config,
+      draft: { ...draft, approvalAuditEntryHash: "b".repeat(64) },
+      fetchImpl,
+      principal: "human:david-credit-lead",
+      sendLedger: secondLedger
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const firstHeaders = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined;
+    const secondHeaders = fetchImpl.mock.calls[1]?.[1]?.headers as Record<string, string> | undefined;
+    expect(firstHeaders?.["idempotency-key"]).toMatch(/^recoup-credit-negotiation\/[a-f0-9]{64}$/u);
+    expect(secondHeaders?.["idempotency-key"]).toMatch(/^recoup-credit-negotiation\/[a-f0-9]{64}$/u);
+    expect(secondHeaders?.["idempotency-key"]).not.toBe(firstHeaders?.["idempotency-key"]);
+    expect(firstLedger.rows[0]).toMatchObject({ providerEmailId: "email_neg_before_reset", status: "sent" });
+    expect(secondLedger.rows[0]).toMatchObject({ providerEmailId: "email_neg_after_reset", status: "sent" });
   });
 
   it("fails before provider delivery when no durable negotiation send ledger is configured", async () => {

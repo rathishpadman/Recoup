@@ -35,6 +35,7 @@ interface ResendNegotiationEmailProviderBody extends ResendEmailProviderBody {
 export interface CreditNegotiationEmailDraft {
   accountId: string;
   actionId: string;
+  approvalAuditEntryHash?: string | undefined;
   approvedBodyHash: string;
   body: string;
   from: string;
@@ -579,9 +580,14 @@ function creditNegotiationEmailSendKey(
   draft: CreditNegotiationEmailDraft,
   providerBody: ResendNegotiationEmailProviderBody
 ): string {
-  return [draft.actionId, draft.accountId, draft.orderId, draft.round.toString(), sha256Hex(JSON.stringify(providerBody))].join(
-    "\u0000"
-  );
+  return [
+    draft.actionId,
+    draft.accountId,
+    draft.orderId,
+    draft.round.toString(),
+    draft.approvalAuditEntryHash ?? "approval-unscoped",
+    sha256Hex(JSON.stringify(providerBody))
+  ].join("\u0000");
 }
 
 function resendIdempotencyKey(sendKey: string): string {
