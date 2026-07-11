@@ -17,4 +17,12 @@ describe("post-prod public smoke script", () => {
     expect(source).toContain("Public /credit warmed load");
     expect(source).toContain("troubleshoot David /credit slow loading");
   });
+
+  it("requires David production reads to come from the governed Supabase cache", () => {
+    const source = readFileSync("scripts/runPostProdPublicSmoke.ts", "utf8");
+
+    expect(source).toContain('timedPageRequest(page, "/api/credit")');
+    expect(source).toContain('creditCacheProbe.cache === "hit"');
+    expect(source).toContain("David /api/credit did not return a governed Supabase cache hit");
+  });
 });

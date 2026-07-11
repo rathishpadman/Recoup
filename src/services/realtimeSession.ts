@@ -142,7 +142,7 @@ export function buildRealtimeToolManifest(): RealtimeToolManifestItem[] {
       type: "function"
     },
     {
-      description: "Answer a Recoup query through the offline deterministic query guard.",
+      description: "Answer a Recoup query through the source-backed deterministic query guard.",
       name: "query_answer",
       parameters: {
         additionalProperties: false,

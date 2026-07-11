@@ -84,6 +84,22 @@ async function main(): Promise<void> {
       await simulateButton.click();
       const workbench = page.getByTestId("david-negotiation-workbench");
       await workbench.waitFor({ state: "visible", timeout: 45_000 });
+      const checkReplies = workbench.getByRole("button", { name: "Check replies" });
+      const refreshCommunication = workbench.getByRole("button", { name: "Refresh communication" });
+      await waitForEnabled(checkReplies, 10_000, "David check replies button");
+      await refreshCommunication.waitFor({ state: "visible", timeout: 10_000 });
+      await checkReplies.click();
+      await workbench.getByTestId("david-negotiation-communication-status").waitFor({ state: "visible", timeout: 10_000 });
+      const communicationFlow = workbench.getByTestId("david-negotiation-communication-flow");
+      await communicationFlow.waitFor({ state: "visible", timeout: 10_000 });
+      await expectTextInLocator(communicationFlow, "Order received", "Negotiation transaction order step");
+      await expectTextInLocator(communicationFlow, "Outbound sent", "Negotiation transaction outbound step");
+      await expectTextInLocator(communicationFlow, "Customer reply", "Negotiation transaction reply step");
+      await expectTextInLocator(communicationFlow, "Governed draft", "Negotiation transaction draft step");
+      assert(
+        (await communicationFlow.locator('[aria-current="step"]').count()) === 1,
+        "Negotiation transaction flow must expose exactly one current step."
+      );
       await expectTextInLocator(workbench, `Order ${order.orderId}`, "Harbor workbench order");
       await expectTextInLocator(workbench, "max-release-85", "Harbor top deal candidate");
       await expectTextInLocator(workbench, "Synthetic 3PL", "Harbor synthetic provenance badge");

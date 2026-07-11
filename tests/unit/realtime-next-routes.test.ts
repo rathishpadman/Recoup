@@ -472,22 +472,25 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("fails closed quickly when the warm-backend health probe hangs", async () => {
+  it("fails closed quickly when a governed warm-backend refresh hangs", async () => {
     vi.useFakeTimers();
     stubRouteEnv({
       ...mayaEnvPatch,
+      RECOUP_WARM_BACKEND_SECRET: "test-warm-backend-secret",
       RECOUP_WARM_BACKEND_TIMEOUT_MS: "25"
     });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      expect(input).toBe("http://recoup-api.test/healthz");
-      expect(init).toMatchObject({ cache: "no-store", method: "GET" });
+      expect(["http://recoup-api.test/forensics/refresh", "http://recoup-api.test/credit/v2/refresh"]).toContain(input);
+      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
 
       return new Promise<Response>(() => {});
     });
     vi.stubGlobal("fetch", fetchMock);
 
     let settled = false;
-    const responsePromise = getWarmBackend().then((response) => {
+    const responsePromise = getWarmBackend(new Request("http://localhost/api/cron/warm-backend", {
+      headers: { authorization: "Bearer test-warm-backend-secret" }
+    })).then((response) => {
       settled = true;
 
       return response;
@@ -503,7 +506,7 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(504);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.ok).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {

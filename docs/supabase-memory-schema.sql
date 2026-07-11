@@ -175,14 +175,32 @@ CREATE TABLE IF NOT EXISTS recoup_source_health_snapshots (
 
 CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models (
   model_key text PRIMARY KEY,
-  surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness')),
-  persona text NOT NULL CHECK (persona IN ('maya')),
+  surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness', 'credit-risk-review')),
+  persona text NOT NULL CHECK (persona IN ('maya', 'david')),
   payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object'),
   source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0),
   payload_hash text NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$'),
   source_refreshed_at timestamptz NOT NULL,
   generated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE OR REPLACE FUNCTION recoup_keep_newest_cockpit_read_model()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.source_refreshed_at < OLD.source_refreshed_at THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS recoup_cockpit_read_models_monotonic_refresh ON recoup_cockpit_read_models;
+CREATE TRIGGER recoup_cockpit_read_models_monotonic_refresh
+  BEFORE UPDATE ON recoup_cockpit_read_models
+  FOR EACH ROW
+  EXECUTE FUNCTION recoup_keep_newest_cockpit_read_model();
 
 CREATE TABLE IF NOT EXISTS recoup_agent_usage_runs (
   usage_run_id text PRIMARY KEY,

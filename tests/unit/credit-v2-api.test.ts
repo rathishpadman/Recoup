@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it, vi } from "vitest";
+import { buildCockpitHumanProxyHeaders } from "../../config/cockpitHumanPrincipals.js";
 import type { LiveForensicsStreamRunner } from "../../src/agents/liveForensicsStream.js";
 import { createAgentHookAuditReceipt } from "../../src/services/conductor.js";
 import { createCockpitApi } from "../../src/services/cockpitApi.js";
@@ -36,6 +37,100 @@ const governedConfigEnv = {
 } as const;
 
 describe("GET /credit/v2", () => {
+  it("loads independent credit, approval, and negotiation sources concurrently", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    let creditReadsInFlight = 0;
+    let approvalStartedDuringCreditReads = false;
+    let negotiationStartedDuringCreditReads = false;
+    const memoryFetcher: SupabaseMemoryFetch = async (url, init) => {
+      const tableName = new URL(url).pathname.split("/").at(-1);
+      if (tableName?.startsWith("credit_") === true && tableName !== "credit_deal_scenarios") {
+        creditReadsInFlight += 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        try {
+          return await baseFetcher(url, init);
+        } finally {
+          creditReadsInFlight -= 1;
+        }
+      }
+      if (tableName === "recoup_memory_records") {
+        approvalStartedDuringCreditReads = creditReadsInFlight > 0;
+      }
+      if (tableName === "sim_3pl_inventory" || tableName === "sim_cost_of_capital" || tableName === "sim_pos_sellthrough") {
+        negotiationStartedDuringCreditReads = creditReadsInFlight > 0;
+      }
+
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, { headers: cockpitAuthHeaders });
+
+      expect(response.status).toBe(200);
+      expect(approvalStartedDuringCreditReads).toBe(true);
+      expect(negotiationStartedDuringCreditReads).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("returns one fail-closed response when concurrent David sources fail", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const tableName = new URL(url).pathname.split("/").at(-1);
+      if (tableName === "credit_accounts" || tableName === "recoup_memory_records") {
+        return Promise.resolve(jsonResponse({ error: `fixture failure for ${tableName}` }, 500));
+      }
+
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, { headers: cockpitAuthHeaders });
+      const body = (await response.json()) as { error?: string; missingSource?: string };
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(response.status).toBe(503);
+      expect(body.error).toBeTypeOf("string");
+      expect(body.missingSource).toBeTypeOf("string");
+      expect(consoleError.mock.calls.flat().join(" ")).not.toContain("ERR_HTTP_HEADERS_SENT");
+    } finally {
+      consoleError.mockRestore();
+      await close(server);
+    }
+  });
+
+  it("returns governed JSON 503 when only a credit source request fails", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      const tableName = new URL(url).pathname.split("/").at(-1);
+      if (tableName === "credit_accounts") {
+        return Promise.resolve(jsonResponse({ error: "credit source unavailable" }, 500));
+      }
+
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, { headers: cockpitAuthHeaders });
+      const contentType = response.headers.get("content-type") ?? "";
+      const body = (await response.json()) as { error?: string; missingSource?: string };
+
+      expect(response.status).toBe(503);
+      expect(contentType).toContain("application/json");
+      expect(body).toMatchObject({
+        error: "Supabase credit risk rows are unavailable from governed backend sources.",
+        missingSource: "credit-risk-source"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
   it("returns the deterministic credit risk review surface from seeded Supabase rows", async () => {
     const calls: string[] = [];
     const { baseUrl, server } = await listen(creditRiskFetcher(calls));
@@ -76,6 +171,189 @@ describe("GET /credit/v2", () => {
           expect.stringContaining("/rest/v1/credit_policy")
         ])
       );
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("keeps the public David GET read-only and leaves publication to the protected refresh", async () => {
+    const calls: string[] = [];
+    const baseFetcher = creditRiskFetcher(calls);
+    let publishedRow: Record<string, unknown> | undefined;
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_cockpit_read_models") && init.method === "POST") {
+        publishedRow = (JSON.parse(init.body as string) as Array<Record<string, unknown>>)[0];
+        return Promise.resolve(jsonResponse([publishedRow]));
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2`, { headers: cockpitAuthHeaders });
+
+      expect(response.status).toBe(200);
+      expect(publishedRow).toBeUndefined();
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("refreshes the David read model through the protected cron-compatible endpoint", async () => {
+    const calls: string[] = [];
+    const baseFetcher = creditRiskFetcher(calls);
+    let publishCount = 0;
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_cockpit_read_models") && init.method === "POST") {
+        publishCount += 1;
+        return Promise.resolve(jsonResponse(JSON.parse(init.body as string)));
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { surface?: string };
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-recoup-read-model-cache")).toBe("refresh");
+      expect(body.surface).toBe("credit-risk-review");
+      expect(publishCount).toBe(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("retains the previous cache by failing refresh closed when negotiation sources are unavailable", async () => {
+    const calls: string[] = [];
+    let publishCount = 0;
+    const baseFetcher = creditRiskFetcher(calls, { failedTables: { credit_deal_candidate_grid: 503 } });
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_cockpit_read_models") && init.method === "POST") {
+        publishCount += 1;
+        return Promise.resolve(jsonResponse(JSON.parse(init.body as string)));
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { missingSource?: string };
+
+      expect(response.status).toBe(503);
+      expect(body.missingSource).toBe("credit-negotiation-source");
+      expect(publishCount).toBe(0);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serializes overlapping David cache rebuilds on the single Render instance", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    let snapshotsInFlight = 0;
+    let maxSnapshotsInFlight = 0;
+    const memoryFetcher: SupabaseMemoryFetch = async (url, init) => {
+      const tableName = new URL(url).pathname.split("/").at(-1);
+      if (tableName === "credit_snapshot") {
+        snapshotsInFlight += 1;
+        maxSnapshotsInFlight = Math.max(maxSnapshotsInFlight, snapshotsInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        try {
+          return await baseFetcher(url, init);
+        } finally {
+          snapshotsInFlight -= 1;
+        }
+      }
+      if (tableName === "recoup_cockpit_read_models" && init.method === "POST") {
+        return jsonResponse(JSON.parse(init.body as string));
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher);
+
+    try {
+      const responses = await Promise.all([
+        fetch(`${baseUrl}/credit/v2/refresh`, { headers: cockpitAuthHeaders, method: "POST" }),
+        fetch(`${baseUrl}/credit/v2/refresh`, { headers: cockpitAuthHeaders, method: "POST" })
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([200, 200]);
+      expect(maxSnapshotsInFlight).toBe(1);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("releases the serialized refresh queue when a source read exceeds its bounded lease", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (new URL(url).pathname.endsWith("/credit_snapshot")) {
+        return new Promise<Response>(() => {});
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher, {
+      env: { RECOUP_CREDIT_READ_MODEL_REFRESH_TIMEOUT_MS: "25" }
+    });
+    const startedAt = Date.now();
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/refresh`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const body = (await response.json()) as { missingSource?: string };
+
+      expect(response.status).toBe(504);
+      expect(body.missingSource).toBe("credit-read-model-refresh-timeout");
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("accepts a signed David proxy refresh without changing the configured direct principal", async () => {
+    const demoSecret = "test-david-demo-proxy-secret";
+    const baseFetcher = creditRiskFetcher([]);
+    const memoryFetcher: SupabaseMemoryFetch = (url, init) => {
+      if (url.includes("/rest/v1/recoup_cockpit_read_models") && init.method === "POST") {
+        return Promise.resolve(jsonResponse(JSON.parse(init.body as string)));
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(memoryFetcher, {
+      env: { RECOUP_DEMO_SESSION_SECRET: demoSecret }
+    });
+    const body = "";
+    const principal = "human:david-lead";
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/v2/refresh`, {
+        body,
+        headers: {
+          ...buildCockpitHumanProxyHeaders({
+            principal,
+            purpose: "read",
+            request: { body, method: "POST", path: "/credit/v2/refresh" },
+            role: "david",
+            secret: demoSecret
+          }),
+          "x-recoup-human-principal": principal,
+          "x-recoup-human-token": cockpitAuthEnv.RECOUP_COCKPIT_AUTH_TOKEN
+        },
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-recoup-read-model-cache")).toBe("refresh");
     } finally {
       await close(server);
     }

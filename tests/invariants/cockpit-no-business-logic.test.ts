@@ -651,7 +651,7 @@ describe("S5 cockpit business-logic boundary", () => {
     const data = readFileSync("cockpit/app/cockpit-data.ts", "utf8");
     const model = readFileSync("src/services/creditRiskModel.ts", "utf8");
 
-    expect(page).toContain("fetchCreditRiskReviewModel");
+    expect(page).toContain("fetchCreditRiskReviewModelCacheFirst");
     expect(page).toContain("DavidRiskReviewSurface");
     expect(page).toContain('requireRouteAccess("/credit")');
     expect(data).toContain("CreditRiskReviewModel");

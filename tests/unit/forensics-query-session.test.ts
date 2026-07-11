@@ -798,7 +798,14 @@ describe("forensics query session", () => {
   });
 
   it("uses trusted backend read-model IDs for deterministic selected-evidence fallback", async () => {
-    const trustedEvidencePackRecordIds = ["RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"];
+    const trustedEvidencePackRecordIds = [
+      "RECON-S6-L1",
+      "EVD-POD-S6-L1",
+      "POD-S6-L1",
+      "EVD-REMIT-S6-L1",
+      "EVD-CONTRACT-S6-L1",
+      "PRICE-CLAUSE-1"
+    ];
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       if (request.agentHookAudit === undefined) {
         throw new Error("Expected live query agent hook audit.");
@@ -1029,7 +1036,16 @@ describe("forensics query session", () => {
         })
       );
 
-      const selectedRecordIds = ["S6-L1", "INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"];
+      const selectedRecordIds = [
+        "S6-L1",
+        "INV-S6-1",
+        "RECON-S6-L1",
+        "EVD-POD-S6-L1",
+        "POD-S6-L1",
+        "EVD-REMIT-S6-L1",
+        "EVD-CONTRACT-S6-L1",
+        "PRICE-CLAUSE-1"
+      ];
       const toolOutput = invokeServiceTool(
         "query.answer",
         {
@@ -1072,7 +1088,15 @@ describe("forensics query session", () => {
           runner: liveRunner
         },
         reconciliation: buildCanonicalS6NonSapReconciliation(),
-        recordIds: ["INV-S6-1", "RECON-S6-L1", "EVD-POD-S6-L1", "POD-S6-L1", "EVD-REMIT-S6-L1"],
+        recordIds: [
+          "INV-S6-1",
+          "RECON-S6-L1",
+          "EVD-POD-S6-L1",
+          "POD-S6-L1",
+          "EVD-REMIT-S6-L1",
+          "EVD-CONTRACT-S6-L1",
+          "PRICE-CLAUSE-1"
+        ],
         serviceContext: {
           ...fixtureForensicsServiceContext,
           governedConfig,
@@ -1310,6 +1334,17 @@ function buildCanonicalS6NonSapReconciliation(): NonNullable<Parameters<typeof r
           retrievedAt: "2026-07-01T00:00:00.000Z",
           sourceRecordId: "REMIT-S6-L1",
           sourceSystem: "remittance"
+        },
+        {
+          contentHash: "f".repeat(64),
+          customerId: "CUST-S6",
+          documentType: "contract_pricing",
+          evidenceId: "EVD-CONTRACT-S6-L1",
+          payload: { lineId: "S6-L1" },
+          provenance: "source_generated",
+          retrievedAt: "2026-07-01T00:00:00.000Z",
+          sourceRecordId: "PRICE-CLAUSE-1",
+          sourceSystem: "contract_repo"
         }
       ],
       links: []
@@ -1323,11 +1358,11 @@ function buildCanonicalS6NonSapReconciliation(): NonNullable<Parameters<typeof r
           claimedAmount: "10.00",
           lineId: "S6-L1",
           period: "2026-07",
-          recordIds: ["S6-L1", "EVD-POD-S6-L1", "EVD-REMIT-S6-L1"],
+          recordIds: ["S6-L1", "EVD-POD-S6-L1", "EVD-REMIT-S6-L1", "EVD-CONTRACT-S6-L1", "PRICE-CLAUSE-1"],
           ruleId: "pricing-below-contract"
         },
         deterministicBasis: {},
-        evidenceIds: ["EVD-POD-S6-L1", "EVD-REMIT-S6-L1"],
+        evidenceIds: ["EVD-POD-S6-L1", "EVD-REMIT-S6-L1", "EVD-CONTRACT-S6-L1"],
         lineId: "S6-L1",
         receiptId: "RECON-S6-L1",
         ruleId: "pricing-below-contract"

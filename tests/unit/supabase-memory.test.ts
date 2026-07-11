@@ -206,14 +206,17 @@ describe("supabase memory repository", () => {
 
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS recoup_cockpit_read_models");
     expect(sql).toContain("model_key text PRIMARY KEY");
-    expect(sql).toContain("surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness'))");
-    expect(sql).toContain("persona text NOT NULL CHECK (persona IN ('maya'))");
+    expect(sql).toContain("surface text NOT NULL CHECK (surface IN ('forensics-analyst', 'connector-readiness', 'credit-risk-review'))");
+    expect(sql).toContain("persona text NOT NULL CHECK (persona IN ('maya', 'david'))");
     expect(sql).toContain("payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')");
     expect(sql).toContain(
       "source_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(source_record_ids_json) = 'array' AND jsonb_array_length(source_record_ids_json) > 0)"
     );
     expect(sql).toContain("payload_hash text NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$')");
     expect(sql).toContain("source_refreshed_at timestamptz NOT NULL");
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION recoup_keep_newest_cockpit_read_model()");
+    expect(sql).toContain("NEW.source_refreshed_at < OLD.source_refreshed_at");
+    expect(sql).toContain("CREATE TRIGGER recoup_cockpit_read_models_monotonic_refresh");
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_surface_persona");
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_cockpit_read_models_record_ids");
     expect(sql).toContain("REVOKE ALL ON TABLE recoup_cockpit_read_models FROM anon, authenticated, service_role");
@@ -354,6 +357,50 @@ describe("supabase memory repository", () => {
         fetcher
       )
     ).toBeDefined();
+  });
+
+  it("round-trips the backend-built David credit review read model", async () => {
+    const storedRows: unknown[] = [];
+    const fetcher: SupabaseMemoryFetch = (_url, init) => {
+      if (init.method === "POST") {
+        const rows = JSON.parse(init.body as string) as unknown[];
+        storedRows.splice(0, storedRows.length, ...rows);
+      }
+      return Promise.resolve(Response.json(storedRows));
+    };
+    const repository = createSupabaseReadModelRepository({
+      fetcher,
+      serviceRoleKey: "supabase-secret-key",
+      url: "https://recoup.supabase.co"
+    });
+    const payload = {
+      accounts: [{ accountId: "ACC-HAR", verdict: "ELEVATED" }],
+      surface: "credit-risk-review"
+    };
+
+    await repository.upsert({
+      modelKey: "david:credit-risk-review:v1",
+      payload,
+      payloadHash: sha256CanonicalJson(payload),
+      persona: "david",
+      sourceRecordIds: ["ACC-HAR", "credit_accounts:ACC-HAR"],
+      sourceRefreshedAt: "2026-07-11T00:00:00.000Z",
+      surface: "credit-risk-review"
+    });
+
+    await expect(repository.load("david:credit-risk-review:v1")).resolves.toMatchObject({
+      modelKey: "david:credit-risk-review:v1",
+      payload,
+      persona: "david",
+      surface: "credit-risk-review"
+    });
+  });
+
+  it("allows the governed read-model table to store Maya and David surfaces", () => {
+    const sql = buildSupabaseMemorySchemaSql("recoup_memory_records");
+
+    expect(sql).toContain("surface IN ('forensics-analyst', 'connector-readiness', 'credit-risk-review')");
+    expect(sql).toContain("persona IN ('maya', 'david')");
   });
 
   it("documents Supabase Tools_data tables required by connector readiness and Sentinel risk observations", () => {

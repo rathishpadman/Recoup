@@ -284,8 +284,10 @@ const unsafeMayaQueryMemoryRecordIdPattern =
 const liveForensicsQueryRequiredBasis = "OpenAI Agents SDK live trace required for Maya query answers." as const;
 // Runtime freshness only; this is not a business threshold or policy constant.
 const defaultForensicsSourceContextCacheTtlMs = 30_000;
+const defaultCreditReadModelRefreshTimeoutMs = 40_000;
 const mayaForensicsReadModelKey = "maya:forensics:v1";
 const mayaConnectorsReadModelKey = "maya:connectors:v1";
+export const davidCreditRiskReadModelKey = "david:credit-risk-review:v1";
 const readModelCacheHeader = "x-recoup-read-model-cache";
 const readModelReceiptHashHeader = "x-recoup-read-model-receipt-hash";
 const readModelSourceHashHeader = "x-recoup-read-model-source-hash";
@@ -306,6 +308,7 @@ type CockpitRateLimitedRoute =
   | "POST /admin/demo-reset"
   | "POST /approval"
   | "POST /credit/query"
+  | "POST /credit/v2/refresh"
   | "POST /credit/v2/simulate"
   | "POST /forensics/refresh"
   | "POST /forensics/query"
@@ -331,6 +334,7 @@ const cockpitApiRoutes = [
   "POST /admin/demo-reset",
   "POST /approval",
   "POST /credit/query",
+  "POST /credit/v2/refresh",
   "POST /credit/v2/simulate",
   "POST /forensics/refresh",
   "POST /forensics/query",
@@ -649,44 +653,78 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
   });
 
   app.get("/credit/v2", async (request, response) => {
-    const governedConfig = await loadRequiredGovernedConfig(request, response);
-    if (governedConfig === undefined) {
+    const model = await loadRequiredCreditRiskReviewModel(request, response);
+    if (model === undefined) {
       return;
     }
 
-    const rows = await loadRequiredCreditRiskRows(request, response);
-    if (rows === undefined) {
+    response.json(model);
+  });
+
+  let davidCreditReadModelRefreshTail: Promise<void> = Promise.resolve();
+  app.post("/credit/v2/refresh", rateLimitAuditEndpoint("POST /credit/v2/refresh"), async (request, response) => {
+    response.setHeader("cache-control", "no-store");
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      })
+    ) {
       return;
     }
 
-    const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
-    if (approvalRecordsSnapshot === undefined) {
-      return;
-    }
-    const dealOptimizerRows = await loadOptionalDealOptimizerRows();
+    const previousRefresh = davidCreditReadModelRefreshTail;
+    let releaseRefresh: (() => void) | undefined;
+    davidCreditReadModelRefreshTail = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    await previousRefresh.catch(() => undefined);
 
+    const refreshStartedAtIso = new Date().toISOString();
+    const refreshLeaseController = new AbortController();
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      response.json(
-        buildCreditRiskReviewModel({
-          ...rows,
-          approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
-          ...(dealOptimizerRows === undefined
-            ? {}
-            : {
-                negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
-                  accountId: order.accountId,
-                  orderAmount: order.orderAmount,
-                  orderId: order.orderId,
-                  sourceRecordIds: [...order.sourceRecordIds]
-                }))
-              })
-        })
-      );
-    } catch {
-      sendFailClosedJson(request, response, 503, {
-        error: "Credit approval receipt state is unavailable from governed backend sources.",
-        missingSource: "approval_records"
+      const refreshOperation = (async () => {
+        const model = await loadRequiredCreditRiskReviewModel(request, response, { dealOptimizerRequired: true });
+        if (model === undefined || refreshLeaseController.signal.aborted) {
+          return;
+        }
+        const published = await publishReadModel(davidCreditRiskReadModelKey, "credit-risk-review", model, {
+          persona: "david",
+          sourceRefreshedAt: refreshStartedAtIso
+        });
+        if (isAbortSignalAborted(refreshLeaseController.signal)) {
+          return;
+        }
+        if (!published) {
+          sendFailClosedJson(request, response, 503, {
+            error: "David credit read-model cache is unavailable from governed backend sources.",
+            missingSource: "recoup-cockpit-read-models"
+          });
+          return;
+        }
+
+        response.setHeader(readModelCacheHeader, "refresh");
+        response.json(model);
+      })();
+      const timeoutMs = resolveCreditReadModelRefreshTimeoutMs(runtimeEnv.RECOUP_CREDIT_READ_MODEL_REFRESH_TIMEOUT_MS);
+      const refreshTimeout = new Promise<void>((resolve) => {
+        refreshTimer = setTimeout(() => {
+          refreshLeaseController.abort();
+          sendFailClosedJson(request, response, 504, {
+            error: "David credit read-model refresh exceeded its governed lease.",
+            missingSource: "credit-read-model-refresh-timeout"
+          });
+          resolve();
+        }, timeoutMs);
       });
+
+      await Promise.race([refreshOperation, refreshTimeout]);
+    } finally {
+      if (refreshTimer !== undefined) {
+        clearTimeout(refreshTimer);
+      }
+      releaseRefresh?.();
     }
   });
 
@@ -1215,6 +1253,50 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   }
 
+  async function loadRequiredCreditRiskReviewModel(
+    request: Request,
+    response: Response,
+    modelOptions: { dealOptimizerRequired?: boolean } = {}
+  ) {
+    const [governedConfig, rows, approvalRecordsSnapshot, dealOptimizerRows] = await Promise.all([
+      loadRequiredGovernedConfig(request, response),
+      loadRequiredCreditRiskRows(request, response),
+      loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher),
+      modelOptions.dealOptimizerRequired ? loadRequiredDealOptimizerRows(request, response) : loadOptionalDealOptimizerRows()
+    ]);
+    if (
+      governedConfig === undefined ||
+      rows === undefined ||
+      approvalRecordsSnapshot === undefined ||
+      (modelOptions.dealOptimizerRequired && dealOptimizerRows === undefined)
+    ) {
+      return undefined;
+    }
+
+    try {
+      return buildCreditRiskReviewModel({
+        ...rows,
+        approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+        ...(dealOptimizerRows === undefined
+          ? {}
+          : {
+              negotiationOrders: dealOptimizerRows.simRows.orders.map((order) => ({
+                accountId: order.accountId,
+                orderAmount: order.orderAmount,
+                orderId: order.orderId,
+                sourceRecordIds: [...order.sourceRecordIds]
+              }))
+            })
+      });
+    } catch {
+      sendFailClosedJson(request, response, 503, {
+        error: "Credit approval receipt state is unavailable from governed backend sources.",
+        missingSource: "approval_records"
+      });
+      return undefined;
+    }
+  }
+
   async function loadRequiredCreditRiskRows(request: Request, response: Response) {
     try {
       return await loadCreditRiskRows(runtimeEnv, options.memoryFetcher);
@@ -1234,7 +1316,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         return undefined;
       }
 
-      throw error;
+      sendFailClosedJson(request, response, 503, {
+        error: "Supabase credit risk rows are unavailable from governed backend sources.",
+        missingSource: "credit-risk-source"
+      });
+      return undefined;
     }
   }
 
@@ -1250,7 +1336,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         return undefined;
       }
 
-      throw error;
+      sendFailClosedJson(request, response, 503, {
+        error: "David deal optimizer is unavailable from governed backend sources.",
+        missingSource: "credit-negotiation-source"
+      });
+      return undefined;
     }
   }
 
@@ -1398,12 +1488,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
 
   async function publishReadModel(
     modelKey: string,
-    surface: "connector-readiness" | "forensics-analyst",
+    surface: "connector-readiness" | "credit-risk-review" | "forensics-analyst",
     model: unknown,
-    options: { sourceRecordIds?: readonly string[] } = {}
-  ): Promise<void> {
+    options: { persona?: "david" | "maya"; sourceRecordIds?: readonly string[]; sourceRefreshedAt?: string } = {}
+  ): Promise<boolean> {
     if (readModelRepository === undefined || !isReadModelPayloadForSurface(model, surface)) {
-      return;
+      return false;
     }
 
     try {
@@ -1411,13 +1501,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         modelKey,
         payload: model,
         payloadHash: sha256CanonicalJson(model),
-        persona: "maya",
-        sourceRecordIds: [...(options.sourceRecordIds ?? collectReadModelSourceRecordIds(model))],
-        sourceRefreshedAt: new Date().toISOString(),
+        persona: options.persona ?? "maya",
+        sourceRecordIds: [...(options.sourceRecordIds ?? collectReadModelSourceRecordIds(model, surface))],
+        sourceRefreshedAt: options.sourceRefreshedAt ?? new Date().toISOString(),
         surface
       });
+      return true;
     } catch {
-      return;
+      return false;
     }
   }
 
@@ -2251,6 +2342,10 @@ function sendFailClosedJson(
   status: number,
   body: { error: string; missingSource: string } & Record<string, unknown>
 ): void {
+  if (response.headersSent) {
+    return;
+  }
+
   response.status(status).json({
     ...body,
     correlationId: readRequestCorrelationId(request) ?? String(response.getHeader(recoupCorrelationIdHeader) ?? "")
@@ -2864,7 +2959,7 @@ function readRecoupDataMode(env: RuntimeEnv): RecoupDataMode {
 
 function isReadModelPayloadForSurface(
   value: unknown,
-  surface: "connector-readiness" | "forensics-analyst"
+  surface: "connector-readiness" | "credit-risk-review" | "forensics-analyst"
 ): value is Record<string, unknown> {
   if (!isRecord(value) || value.surface !== surface) {
     return false;
@@ -2874,11 +2969,18 @@ function isReadModelPayloadForSurface(
     return typeof value.settlementRunId === "string" && value.settlementRunId.trim().length > 0;
   }
 
+  if (surface === "credit-risk-review") {
+    return Array.isArray(value.accounts) && value.accounts.length > 0;
+  }
+
   return true;
 }
 
-function collectReadModelSourceRecordIds(model: Record<string, unknown>): string[] {
-  const recordIds = new Set<string>(forensicsSourceContextTableIdentity);
+function collectReadModelSourceRecordIds(
+  model: Record<string, unknown>,
+  surface: "connector-readiness" | "credit-risk-review" | "forensics-analyst"
+): string[] {
+  const recordIds = new Set<string>(surface === "credit-risk-review" ? [] : forensicsSourceContextTableIdentity);
   collectRecordIdsFromUnknown(model, recordIds, false);
 
   return [...recordIds].sort();
@@ -3103,6 +3205,19 @@ function verifyHumanCockpitAuth(
   }
 
   return { error: "Verified human cockpit auth required.", success: false };
+}
+
+function resolveCreditReadModelRefreshTimeoutMs(value: string | undefined): number {
+  if (value === undefined) {
+    return defaultCreditReadModelRefreshTimeoutMs;
+  }
+  const parsed = Number.parseInt(value, 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultCreditReadModelRefreshTimeoutMs;
+}
+
+function isAbortSignalAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
 }
 
 function verifyDirectHumanCockpitPrincipal(request: express.Request, env: RuntimeEnv): string | undefined {

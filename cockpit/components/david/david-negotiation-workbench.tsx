@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation.js";
-import { AlertCircleIcon, CheckCircle2Icon, Loader2Icon, RotateCcwIcon, SendIcon, SparklesIcon } from "lucide-react";
+import { AlertCircleIcon, BellRingIcon, CheckCircle2Icon, Loader2Icon, RefreshCwIcon, RotateCcwIcon, SendIcon, SparklesIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import type { CreditRiskAccountModel, DealOptimizerCandidateModel, DealOptimizerModel } from "../../app/cockpit-data.ts";
 import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
+import { refreshDavidCreditReadModel } from "./refresh-credit-read-model.ts";
 
 type NegotiationOrder = CreditRiskAccountModel["negotiationOrders"][number];
+type NegotiationCommunicationStatus = { hasInboundReply?: boolean; round: number; status: string };
+type NegotiationFlowState = "complete" | "current" | "waiting";
+
+export interface NegotiationCommunicationFlowStep {
+  detail: string;
+  state: NegotiationFlowState;
+  title: "Order received" | "Outbound sent" | "Customer reply" | "Governed draft";
+}
+export const communicationPollIntervalMs = 30_000;
 
 interface NegotiationApprovalPacket {
   actionId: string;
@@ -54,6 +64,10 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
   const [approvalRecordedActionId, setApprovalRecordedActionId] = React.useState<string | undefined>(() => hydratedApprovalActionId);
   const [sendingEmail, setSendingEmail] = React.useState(false);
   const [sendMessage, setSendMessage] = React.useState<string | undefined>();
+  const [checkingCommunication, setCheckingCommunication] = React.useState(false);
+  const [communicationMessage, setCommunicationMessage] = React.useState<string | undefined>();
+  const [lastCommunicationCheckIso, setLastCommunicationCheckIso] = React.useState<string | undefined>();
+  const [latestCommunicationStatus, setLatestCommunicationStatus] = React.useState<NegotiationCommunicationStatus | undefined>();
 
   React.useEffect(() => {
     setModel(undefined);
@@ -69,7 +83,58 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
     setApprovalRecordedActionId(hydratedApprovalActionId);
     setSendingEmail(false);
     setSendMessage(undefined);
+    setCheckingCommunication(false);
+    setCommunicationMessage(undefined);
+    setLastCommunicationCheckIso(undefined);
+    setLatestCommunicationStatus(undefined);
   }, [hydratedApprovalActionId, order, orderId]);
+
+  const checkCommunication = React.useCallback(async (manual: boolean): Promise<void> => {
+    if (orderId === undefined || order === undefined) {
+      return;
+    }
+    setCheckingCommunication(true);
+    try {
+      const response = await fetch(`/api/credit/negotiation/status?orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as {
+        checkedAtIso?: string;
+        latestRound?: NegotiationCommunicationStatus;
+      };
+      if (!response.ok) {
+        if (manual) {
+          setCommunicationMessage("Communication status is unavailable.");
+        }
+        return;
+      }
+      setLastCommunicationCheckIso(body.checkedAtIso ?? new Date().toISOString());
+      setLatestCommunicationStatus(body.latestRound);
+      if (body.latestRound !== undefined && hasNegotiationCommunicationChanged(order, body.latestRound)) {
+        setCommunicationMessage(`New customer reply detected for round ${body.latestRound.round.toString()}. Refresh communication to load it.`);
+      } else if (manual) {
+        setCommunicationMessage("No new customer reply was found.");
+      }
+    } catch {
+      if (manual) {
+        setCommunicationMessage("Communication status is unavailable.");
+      }
+    } finally {
+      setCheckingCommunication(false);
+    }
+  }, [order, orderId]);
+
+  React.useEffect(() => {
+    if (!open || orderId === undefined) {
+      return;
+    }
+    void checkCommunication(false);
+    const intervalId = window.setInterval(() => {
+      void checkCommunication(false);
+    }, communicationPollIntervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [checkCommunication, open, orderId]);
 
   React.useEffect(() => {
     if (!open || orderId === undefined || model !== undefined) {
@@ -127,6 +192,21 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
     );
   }
   const activeOrder = order;
+  const communicationFlow = buildNegotiationCommunicationFlow(activeOrder, latestCommunicationStatus);
+
+  async function refreshCommunication(): Promise<void> {
+    setCheckingCommunication(true);
+    try {
+      if (!(await refreshDavidCreditReadModel())) {
+        setCommunicationMessage("The customer reply is stored, but the updated credit view is not available yet.");
+        return;
+      }
+      setCommunicationMessage("Communication refreshed.");
+      router.refresh();
+    } finally {
+      setCheckingCommunication(false);
+    }
+  }
 
   async function resetCommunication(): Promise<void> {
     if (orderId === undefined) {
@@ -150,6 +230,10 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
       }
 
       setResetMessage("Communication reset recorded.");
+      if (!(await refreshDavidCreditReadModel())) {
+        setResetMessage("Communication reset recorded, but the updated credit view is not available yet.");
+        return;
+      }
       router.refresh();
     } catch {
       setResetMessage("Communication reset service unavailable.");
@@ -195,6 +279,10 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
       setManualCounterMessage(status === "countered" ? "Manual counter recorded." : "Manual counter needs human review.");
       if (status === "countered") {
         setManualCounterText("");
+        if (!(await refreshDavidCreditReadModel())) {
+          setManualCounterMessage("Manual counter recorded, but the updated credit view is not available yet.");
+          return;
+        }
         router.refresh();
       }
     } catch {
@@ -230,6 +318,10 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
 
       const status = readStatus(body);
       setSendMessage(status === "already_sent" ? "Approved email was already sent." : "Approved email send recorded.");
+      if (!(await refreshDavidCreditReadModel())) {
+        setSendMessage("Approved email send recorded, but the updated credit view is not available yet.");
+        return;
+      }
       router.refresh();
     } catch {
       setSendMessage("Negotiation email send service unavailable.");
@@ -253,6 +345,66 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
         </SheetHeader>
 
         <div className="mt-2 grid gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+            <div className="grid gap-1 text-sm">
+              <span className="font-medium">Customer communication</span>
+              <span className="text-muted-foreground">
+                {lastCommunicationCheckIso === undefined
+                  ? "Checking for replies..."
+                  : `Last checked ${new Date(lastCommunicationCheckIso).toLocaleTimeString()}`}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={checkingCommunication} onClick={() => { void checkCommunication(true); }} size="sm" type="button" variant="outline">
+                {checkingCommunication ? <Loader2Icon aria-hidden="true" className="animate-spin" /> : <BellRingIcon aria-hidden="true" />}
+                Check replies
+              </Button>
+              <Button disabled={checkingCommunication} onClick={() => { void refreshCommunication(); }} size="sm" type="button">
+                <RefreshCwIcon aria-hidden="true" />
+                Refresh communication
+              </Button>
+            </div>
+          </div>
+          {communicationMessage === undefined ? null : (
+            <Alert data-testid="david-negotiation-communication-status">
+              <BellRingIcon aria-hidden="true" data-icon="inline-start" />
+              <AlertTitle>Communication status</AlertTitle>
+              <AlertDescription>{communicationMessage}</AlertDescription>
+            </Alert>
+          )}
+          <ol
+            aria-label="Negotiation transaction progress"
+            className="grid gap-2 border-b pb-4 sm:grid-cols-4 sm:gap-0"
+            data-testid="david-negotiation-communication-flow"
+          >
+            {communicationFlow.map((step, index) => {
+              const Icon = negotiationFlowIcon(step.title);
+              return (
+                <li
+                  aria-current={step.state === "current" ? "step" : undefined}
+                  className="relative flex min-w-0 items-start gap-2 sm:block sm:pr-3"
+                  data-state={step.state}
+                  key={step.title}
+                >
+                  {index === 0 ? null : (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute right-full top-3 hidden h-px w-[calc(100%-2rem)] sm:block ${step.state === "waiting" ? "bg-border" : "bg-emerald-600"}`}
+                    />
+                  )}
+                  <span
+                    className={`relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border ${negotiationFlowMarkerClassName(step.state)}`}
+                  >
+                    <Icon aria-hidden="true" className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 sm:mt-2 sm:block">
+                    <span className="block text-xs font-medium">{step.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground" title={step.detail}>{step.detail}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">Order {orderId}</Badge>
@@ -277,11 +429,6 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
               )}
               Reset communication
             </Button>
-          </div>
-
-          <div className="grid gap-1 rounded-lg border bg-muted/20 px-3 py-2" data-testid="david-negotiation-order-received">
-            <span className="text-xs font-medium text-muted-foreground">Order received</span>
-            <span className="text-lg font-semibold">{activeOrder.orderAmountLabel}</span>
           </div>
 
           {resetMessage === undefined ? null : (
@@ -311,9 +458,10 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
               <span className="text-xs text-muted-foreground">Source: manual operator paste</span>
               <div className="flex items-center gap-2">
                 <Label className="text-xs text-muted-foreground" htmlFor="david-manual-counter-round">
-                  Round
+                  Reply to round
                 </Label>
                 <Input
+                  aria-label={manualCounterRoundLabel(activeOrder)}
                   className="h-8 w-20"
                   data-testid="david-negotiation-manual-counter-round"
                   id="david-manual-counter-round"
@@ -428,7 +576,65 @@ export function buildNegotiationApprovalPacket(
 }
 
 export function defaultManualCounterRound(order: NegotiationOrder): string {
-  return (order.latestSentRound?.round ?? 1).toString();
+  return (order.latestSentRound?.round ?? (order.currentRound?.status === "countered" ? order.currentRound.round : 1)).toString();
+}
+
+export function hasNegotiationCommunicationChanged(
+  order: NegotiationOrder,
+  latestRound: NegotiationCommunicationStatus
+): boolean {
+  const isInboundReply = latestRound.hasInboundReply === true || latestRound.status === "countered" || latestRound.status === "human_review";
+  if (!isInboundReply) {
+    return false;
+  }
+
+  return order.currentRound === undefined || latestRound.round !== order.currentRound.round || latestRound.status !== order.currentRound.status;
+}
+
+export function buildNegotiationCommunicationFlow(
+  order: NegotiationOrder,
+  latestRound?: NegotiationCommunicationStatus
+): NegotiationCommunicationFlowStep[] {
+  const effectiveRound = latestRound?.round ?? order.currentRound?.round ?? order.latestSentRound?.round;
+  const effectiveStatus = latestRound?.status ?? order.currentRound?.status ?? order.latestSentRound?.status;
+  const sentRound = order.latestSentRound?.round ?? (
+    effectiveStatus !== undefined && effectiveStatus !== "drafted" ? effectiveRound : undefined
+  );
+  const replyReceived = latestRound?.hasInboundReply === true || effectiveStatus === "countered" || effectiveStatus === "human_review";
+
+  return [
+    {
+      detail: order.orderAmountLabel,
+      state: "complete",
+      title: "Order received"
+    },
+    {
+      detail: sentRound === undefined ? `Round ${order.nextRound.toString()} not sent` : `Round ${sentRound.toString()} sent`,
+      state: sentRound === undefined ? "current" : "complete",
+      title: "Outbound sent"
+    },
+    {
+      detail: replyReceived && effectiveRound !== undefined ? `Round ${effectiveRound.toString()} received` : "Awaiting customer",
+      state: replyReceived ? "complete" : sentRound === undefined ? "waiting" : "current",
+      title: "Customer reply"
+    },
+    {
+      detail: replyReceived
+        ? `Round ${order.nextRound.toString()} ready to evaluate`
+        : `Round ${order.nextRound.toString()} after reply`,
+      state: replyReceived ? "current" : "waiting",
+      title: "Governed draft"
+    }
+  ];
+}
+
+export function manualCounterRoundLabel(order: NegotiationOrder): string {
+  return `Reply to outbound round ${defaultManualCounterRound(order)}`;
+}
+
+export function negotiationDraftRoundLabel(order: NegotiationOrder): string {
+  const draftedRound = readDraftedNegotiationRound(order);
+  return `Next outbound round ${(draftedRound?.round ?? order.nextRound).toString()}`;
 }
 
 export function negotiationRoundSummary(order: NegotiationOrder): string {
@@ -442,6 +648,29 @@ export function negotiationRoundSummary(order: NegotiationOrder): string {
 
 export function negotiationOrderReceivedLabel(order: NegotiationOrder): string {
   return `Order received ${order.orderAmountLabel}`;
+}
+
+function negotiationFlowIcon(title: NegotiationCommunicationFlowStep["title"]): typeof CheckCircle2Icon {
+  if (title === "Outbound sent") {
+    return SendIcon;
+  }
+  if (title === "Customer reply") {
+    return BellRingIcon;
+  }
+  if (title === "Governed draft") {
+    return SparklesIcon;
+  }
+  return CheckCircle2Icon;
+}
+
+function negotiationFlowMarkerClassName(state: NegotiationFlowState): string {
+  if (state === "complete") {
+    return "border-emerald-600 bg-emerald-50 text-emerald-700";
+  }
+  if (state === "current") {
+    return "border-primary bg-primary text-primary-foreground";
+  }
+  return "border-border bg-background text-muted-foreground";
 }
 
 function currentNegotiationRoundLabel(order: NegotiationOrder): string | undefined {
@@ -536,6 +765,7 @@ function DealOptimizerView({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <span className="text-sm font-medium">Draft and send governed counter</span>
+            <span className="text-xs font-medium text-foreground">{negotiationDraftRoundLabel(order)}</span>
             <span className="text-xs text-muted-foreground">
               {approvalPacket.actionId} / {approvalPacket.recordIds.length.toString()} cited records
             </span>

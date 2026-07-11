@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { GovernedConfigValues } from "../../config/governed.js";
 import { loadLocalRuntimeEnvFiles } from "../../config/localRuntimeEnv.js";
+import { runtimeModels } from "../../config/models.js";
 import type { RuntimeEnv } from "../../config/env.js";
 import type { DecisionConfidenceThreshold } from "../../config/releaseOwnerInputs.js";
 import { draftOutreach } from "../tools/actions/draftOutreach.js";
@@ -9,7 +10,7 @@ import { proposeHold } from "../tools/actions/proposeHold.js";
 import { proposeTerms } from "../tools/actions/proposeTerms.js";
 import { routeBilling } from "../tools/actions/routeBilling.js";
 import { mergeEvidenceDocuments, type EvidenceDocument } from "../tools/retrieval/docs.js";
-import { answerOfflineQuery } from "../agents/query.js";
+import { buildDeterministicForensicsQueryAnswer } from "../agents/query.js";
 import { assessHarborContainment } from "../agents/containment.js";
 import {
   assertApprovalReasonSafe,
@@ -18,7 +19,11 @@ import {
   type ProposedExternalAction
 } from "./approvals.js";
 import { createAuditEntry, type AuditEntry, type AuditEntryBuildOptions } from "../audit/trail.js";
-import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
+import {
+  buildForensicsRuleInput,
+  runForensicsInvestigation,
+  type ForensicsReconciliationOptions
+} from "../agents/forensics.js";
 import { evaluateToolPermission, type ToolPermissionMetadata } from "./permissionEngine.js";
 import { buildForensicsWorkspaceQueryResponse } from "./forensicsWorkspaceQuery.js";
 import { settlementRunIdForSource } from "./settlementRunIdentity.js";
@@ -784,42 +789,122 @@ function requiresCurrentRoundCounterOffer(order: CreditNegotiationOrderModel, ro
 function answerSourceBackedSelectedEvidenceQuery(input: unknown, context: ServiceInvocationContext): unknown {
   const parsed = queryAnswerToolSchema.parse(input);
   assertQueryAnswerWithinSelectedScope(parsed, context.queryAnswerScope);
-  const governedConfig = readGovernedConfig(context);
+  readGovernedConfig(context);
   const source = readSourcePort(context);
-  const answer = answerOfflineQuery({
-    ...parsed,
-    governedConfig,
-    source
-  });
   const settlementRun = source.loadSettlementRun();
   const selectedLine = settlementRun.deductionLines.find((line) => line.lineId === parsed.selectedLineId);
   if (selectedLine === undefined) {
     throw new Error("query.answer selectedLineId was not found in the canonical source snapshot.");
   }
+  const selectedWorkItemGroupId = queryAnswerWorkItemGroupIdFromLineId(selectedLine.lineId);
+  const selectedScenarioLines = settlementRun.deductionLines.filter(
+    (candidateLine) => queryAnswerWorkItemGroupIdFromLineId(candidateLine.lineId) === selectedWorkItemGroupId
+  );
 
   const selectedEvidence = retrieveQueryAnswerSelectedEvidence(context, selectedLine, parsed.recordIds);
-  const selectedSourceEvidence =
-    selectedEvidence.length === 0
-      ? retrieveQueryAnswerSelectedSourceEvidence(context, selectedLine, parsed.recordIds)
-      : selectedEvidence;
-  const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine, {
+  const selectedSourceEvidence = dedupeEvidenceDocuments([
+    ...selectedEvidence,
+    ...retrieveQueryAnswerSelectedSourceEvidence(context, selectedLine, parsed.recordIds)
+  ]);
+  const sapEvidence = retrieveQueryAnswerSapEvidenceOrThrow(context, selectedLine, parsed.recordIds, {
     allowUnavailableWhenSelectedEvidencePresent: selectedSourceEvidence.length > 0
+  });
+  const finding = evaluateCoreRule(buildForensicsRuleInput(selectedLine, context.reconciliation));
+  const selectedDecision = buildDeductionDecision({
+    evidenceDocuments: mergeEvidenceDocuments(selectedLine, selectedSourceEvidence, sapEvidence),
+    finding,
+    lineId: selectedLine.lineId,
+    modelId: runtimeModels.reasoning,
+    producedBy: "agent:forensics-investigator",
+    ruleId: finding.ruleId,
+    ...(context.decisionConfidenceThreshold === undefined
+      ? {}
+      : { decisionConfidenceThreshold: { threshold: context.decisionConfidenceThreshold.threshold } })
+  });
+  const selectedScenarioEvidence = dedupeEvidenceDocuments(
+    selectedScenarioLines.flatMap((line) => [
+      ...retrieveQueryAnswerSelectedEvidence(context, line, parsed.recordIds),
+      ...retrieveQueryAnswerSelectedSourceEvidence(context, line, parsed.recordIds),
+      ...retrieveQueryAnswerSapEvidenceOrThrow(context, line, parsed.recordIds, {
+        allowUnavailableWhenSelectedEvidencePresent: true
+      })
+    ])
+  );
+  assertQueryAnswerRecordIdsAreSupported(parsed.recordIds, {
+    findingRecordIds: finding.recordIds,
+    selectedDecision,
+    selectedEvidenceDocuments: selectedScenarioEvidence,
+    selectedLines: selectedScenarioLines
   });
 
   return {
-    ...answer,
+    answer: buildDeterministicForensicsQueryAnswer({
+      basis: selectedDecision.basis,
+      citationRecordIds: parsed.recordIds,
+      question: parsed.question,
+      routing: selectedDecision.routing,
+      selectedLineId: selectedDecision.lineId,
+      verdict: selectedDecision.verdict
+    }),
+    citationParity: {
+      parity: "same_record_ids",
+      textRecordIds: [...parsed.recordIds],
+      voiceRecordIds: [...parsed.recordIds]
+    },
+    deterministicBasis:
+      "query.answer selectedLineId + selected evidence recordIds + deterministic forensics decision; live Realtime narration stays scoped to the selected cockpit evidence packet.",
+    recordIds: [...parsed.recordIds],
     sourceReadStatus: "source_backed_selected_scope",
+    status: "source_backed_selected_scope",
     sourceReads: {
       canonicalModel: "EvidenceDocument",
       ...(sapEvidence.length === 0
         ? (selectedSourceEvidence.length === 0 ? {} : queryAnswerCanonicalSourceLineage)
         : queryAnswerSapSourceLineage),
       sapEvidence: sapEvidence.map(canonicalEvidenceSummary),
-      selectedEvidence: selectedSourceEvidence,
+      selectedEvidence: selectedScenarioEvidence,
       selectedLineId: selectedLine.lineId,
       selectedRecordIds: [...parsed.recordIds]
     }
   };
+}
+
+function assertQueryAnswerRecordIdsAreSupported(
+  requestedRecordIds: readonly string[],
+  input: {
+    findingRecordIds: readonly string[];
+    selectedDecision: {
+      decisionId: string;
+      evidenceDocumentIds: readonly string[];
+      lineId: string;
+      recordIds: readonly string[];
+    };
+    selectedEvidenceDocuments: readonly EvidenceDocument[];
+    selectedLines: readonly DeductionLine[];
+  }
+): void {
+  const evidenceDocuments = dedupeEvidenceDocuments(input.selectedEvidenceDocuments);
+  const supportedRecordIds = new Set(dedupeStringValues([
+    ...input.selectedLines.flatMap((line) => [line.lineId, ...line.recordIds]),
+    ...input.findingRecordIds,
+    input.selectedDecision.lineId,
+    input.selectedDecision.decisionId,
+    ...input.selectedDecision.recordIds,
+    ...input.selectedDecision.evidenceDocumentIds,
+    ...evidenceDocuments.flatMap((document) => [
+      document.documentId,
+      ...document.recordIds,
+      ...(document.freshnessRecordIds ?? [])
+    ])
+  ]));
+
+  if (requestedRecordIds.some((recordId) => !supportedRecordIds.has(recordId))) {
+    throw new Error("query.answer recordIds are not fully supported by the selected evidence scope.");
+  }
+}
+
+function queryAnswerWorkItemGroupIdFromLineId(lineId: string): string {
+  return lineId.match(/^(S[1-8])-/u)?.[1] ?? lineId;
 }
 
 function answerSourceBackedWorkspaceQuery(input: unknown, context: ServiceInvocationContext): unknown {
@@ -1034,7 +1119,7 @@ function retrieveQueryAnswerSelectedEvidence(
   context: ServiceInvocationContext,
   line: DeductionLine,
   selectedRecordIds: readonly string[]
-): Array<{ documentId: string; documentType: string; recordIds: string[]; source: string; summary: string }> {
+): EvidenceDocument[] {
   const reconciliation = context.reconciliation;
   if (reconciliation?.evidenceDataset === undefined || reconciliation.receipts === undefined) {
     return [];
@@ -1069,7 +1154,7 @@ function retrieveQueryAnswerSelectedEvidence(
       const linkedRecordIds = linkedRecordIdsByEvidenceId.get(document.evidenceId);
       return {
         documentId: document.evidenceId,
-        documentType: document.documentType,
+        documentType: queryAnswerEvidenceDocumentType(document.documentType),
         recordIds: dedupeStringValues([
           line.lineId,
           receipt.receiptId,
@@ -1081,6 +1166,50 @@ function retrieveQueryAnswerSelectedEvidence(
         summary: `${document.documentType} evidence from ${document.sourceSystem}.`
       };
     });
+}
+
+function queryAnswerEvidenceDocumentType(
+  documentType:
+    | "bureau_alert"
+    | "carrier_damage_report"
+    | "carrier_photo"
+    | "contract_pricing"
+    | "contract_sla"
+    | "customer_po"
+    | "edi_812"
+    | "payment_history"
+    | "pod"
+    | "remittance_advice"
+    | "sap_credit_memo"
+    | "sap_invoice"
+    | "tpm_accrual"
+    | "tpm_promo"
+): EvidenceDocument["documentType"] {
+  switch (documentType) {
+    case "pod":
+      return "POD";
+    case "sap_invoice":
+    case "customer_po":
+      return "invoice";
+    case "sap_credit_memo":
+      return "credit-memo";
+    case "contract_pricing":
+    case "contract_sla":
+      return "contract";
+    case "tpm_accrual":
+    case "tpm_promo":
+      return "trade-promo";
+    case "carrier_damage_report":
+    case "carrier_photo":
+      return "carrier-report";
+    case "remittance_advice":
+    case "payment_history":
+      return "remittance-advice";
+    case "edi_812":
+      return "edi-remittance";
+    case "bureau_alert":
+      return "bureau-signal";
+  }
 }
 
 async function sendApprovedEmail(
@@ -1302,6 +1431,7 @@ function retrieveQueryAnswerSelectedSourceEvidence(
 function retrieveQueryAnswerSapEvidenceOrThrow(
   context: ServiceInvocationContext,
   line: DeductionLine,
+  selectedRecordIds: readonly string[],
   options: { allowUnavailableWhenSelectedEvidencePresent?: boolean } = {}
 ): EvidenceDocument[] {
   if (context.sapEvidenceSource === undefined) {
@@ -1312,7 +1442,12 @@ function retrieveQueryAnswerSapEvidenceOrThrow(
     return [];
   }
 
-  const evidence = [...context.sapEvidenceSource.readEvidence(line)];
+  const selectedIds = new Set(dedupeStringValues([line.lineId, ...selectedRecordIds]));
+  const evidence = [...context.sapEvidenceSource.readEvidence(line)].filter(
+    (document) =>
+      selectedIds.has(document.documentId) ||
+      document.recordIds.some((recordId) => recordId !== line.lineId && selectedIds.has(recordId))
+  );
   if (
     context.requireSupabaseSapEvidence === true &&
     evidence.length === 0 &&

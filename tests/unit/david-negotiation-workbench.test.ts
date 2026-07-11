@@ -5,9 +5,13 @@ import {
   canSendNegotiationEmailForAction,
   DavidNegotiationWorkbench,
   buildNegotiationApprovalPacket,
+  buildNegotiationCommunicationFlow,
   davidNegotiationWorkbenchSheetClassName,
   defaultManualCounterRound,
+  hasNegotiationCommunicationChanged,
+  manualCounterRoundLabel,
   negotiationHydratedSendMessage,
+  negotiationDraftRoundLabel,
   negotiationOrderReceivedLabel,
   negotiationRoundSummary,
   selectNegotiationDraftCandidate
@@ -52,6 +56,8 @@ describe("David negotiation workbench", () => {
     );
 
     expect(defaultManualCounterRound(order)).toBe("2");
+    expect(manualCounterRoundLabel(order)).toBe("Reply to outbound round 2");
+    expect(negotiationDraftRoundLabel(order)).toBe("Next outbound round 3");
     expect(negotiationRoundSummary(order)).toBe("Latest sent round 2 / Next outbound round 3");
     expect(davidNegotiationWorkbenchSheetClassName).toContain("overflow-y-auto");
     expect(negotiationOrderReceivedLabel(order)).toBe("Order received $640,010.00");
@@ -74,6 +80,98 @@ describe("David negotiation workbench", () => {
     } as CreditRiskAccountModel["negotiationOrders"][number];
 
     expect(negotiationRoundSummary(order)).toBe("Round 1 countered / Next outbound round 2");
+    expect(manualCounterRoundLabel(order)).toBe("Reply to outbound round 1");
+    expect(negotiationDraftRoundLabel(order)).toBe("Next outbound round 2");
+  });
+
+  it("defaults manual counter capture to the current countered round when it is newer than round one", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r2",
+        round: 2,
+        status: "countered"
+      },
+      nextRound: 3,
+      orderAmount: 640010,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534",
+      sourceModeLabel: "governed Supabase negotiation source",
+      sourceRecordIds: ["credit_orders:ORD-HARBOR-6534"]
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(defaultManualCounterRound(order)).toBe("2");
+    expect(manualCounterRoundLabel(order)).toBe("Reply to outbound round 2");
+  });
+
+  it("detects a newly countered customer reply from the lightweight communication status", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      nextRound: 2,
+      orderId: "ORD-HARBOR-6534"
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(hasNegotiationCommunicationChanged(order, { round: 1, status: "countered" })).toBe(true);
+    expect(hasNegotiationCommunicationChanged(order, { round: 1, status: "sent" })).toBe(false);
+    expect(hasNegotiationCommunicationChanged(order, { round: 2, status: "sent" })).toBe(false);
+    expect(hasNegotiationCommunicationChanged(order, { hasInboundReply: true, round: 2, status: "human_review" })).toBe(true);
+  });
+
+  it("shows a sent round as complete while the customer reply and next draft wait", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      latestSentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      nextRound: 2,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534"
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(buildNegotiationCommunicationFlow(order)).toEqual([
+      expect.objectContaining({ detail: "$640,010.00", state: "complete", title: "Order received" }),
+      expect.objectContaining({ detail: "Round 1 sent", state: "complete", title: "Outbound sent" }),
+      expect.objectContaining({ detail: "Awaiting customer", state: "current", title: "Customer reply" }),
+      expect.objectContaining({ detail: "Round 2 after reply", state: "waiting", title: "Governed draft" })
+    ]);
+  });
+
+  it("advances the communication flow when the lightweight status detects a reply", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      latestSentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      nextRound: 2,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534"
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+
+    expect(buildNegotiationCommunicationFlow(order, {
+      hasInboundReply: true,
+      round: 1,
+      status: "countered"
+    })).toEqual([
+      expect.objectContaining({ state: "complete", title: "Order received" }),
+      expect.objectContaining({ detail: "Round 1 sent", state: "complete", title: "Outbound sent" }),
+      expect.objectContaining({ detail: "Round 1 received", state: "complete", title: "Customer reply" }),
+      expect.objectContaining({ detail: "Round 2 ready to evaluate", state: "current", title: "Governed draft" })
+    ]);
   });
 
   it("builds the governed approval packet for the next negotiation round from the top deterministic candidate", () => {

@@ -15,6 +15,30 @@ const selectedQueryScope = {
   recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1", "SAP-INV-S3-1", "DOC-S3-L1"],
   selectedLineId: "S3-L1"
 };
+const selectedQueryEvidenceSource = {
+  readEvidence(connectorName: string, line: { lineId: string }) {
+    if (connectorName !== "docs-repo") {
+      return [];
+    }
+
+    return [
+      {
+        documentId: "POD-SIGNED-1",
+        documentType: "POD" as const,
+        recordIds: [line.lineId, "POD-SIGNED-1"],
+        source: "docs" as const,
+        summary: "Supabase proof of delivery for the selected line."
+      },
+      {
+        documentId: "DOC-S3-L1",
+        documentType: "contract" as const,
+        recordIds: [line.lineId, "INV-S3-1", "SAP-INV-S3-1"],
+        source: "docs" as const,
+        summary: "Supabase contract and invoice evidence for the selected line."
+      }
+    ];
+  }
+};
 
 describe("Realtime session policy", () => {
   it("fails closed without an OpenAI API key", async () => {
@@ -146,6 +170,8 @@ describe("Realtime session policy", () => {
     expect(manifest.map((tool) => tool.name)).toEqual(["audit_read", "query_answer"]);
     expect(manifest.every((tool) => /^[a-zA-Z0-9_-]+$/u.test(tool.name))).toBe(true);
     expect(queryAnswerTool?.parameters.required).toEqual(["question", "selectedLineId", "recordIds"]);
+    expect(queryAnswerTool?.description).toContain("source-backed deterministic query guard");
+    expect(queryAnswerTool?.description).not.toContain("offline");
     expect(serialized).not.toMatch(/draft|approve|rebill|hold|terms|routeBilling|erp|write/iu);
   });
 
@@ -166,7 +192,11 @@ describe("Realtime session policy", () => {
     const result = handleRealtimeToolCall({
       argumentsJson: JSON.stringify({ question: "Which selected evidence supports this deduction?", ...selectedQueryScope }),
       name: "query_answer"
-    }, (name, input) => invokeServiceTool(name, input, { governedConfig, source }));
+    }, (name, input) => invokeServiceTool(name, input, {
+      governedConfig,
+      source,
+      syntheticEvidenceSource: selectedQueryEvidenceSource
+    }));
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") {
@@ -190,6 +220,29 @@ describe("Realtime session policy", () => {
       parity: "same_record_ids"
     });
     expect(output.recordIds).toEqual(selectedQueryScope.recordIds);
+  });
+
+  it("blocks Realtime query.answer when one selected citation is stale and unsupported", () => {
+    const staleScope = {
+      recordIds: [...selectedQueryScope.recordIds, "STALE-UNSUPPORTED-ID"],
+      selectedLineId: selectedQueryScope.selectedLineId
+    };
+    const result = handleRealtimeToolCall({
+      argumentsJson: JSON.stringify({ question: "Which selected evidence supports this deduction?", ...staleScope }),
+      name: "query_answer"
+    }, (name, input) => invokeServiceTool(name, input, {
+      governedConfig,
+      queryAnswerScope: staleScope,
+      source,
+      syntheticEvidenceSource: selectedQueryEvidenceSource
+    }));
+
+    expect(result).toMatchObject({
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool",
+      toolName: "query.answer"
+    });
+    expect(result.deterministicBasis).toContain("not fully supported");
   });
 
   it("blocks query.answer calls that omit selected evidence scope", () => {

@@ -384,22 +384,22 @@ describe("retrieval tools", () => {
   it("allows query.answer to use selected non-SAP source evidence when SAP rows are unavailable", () => {
     const source = new SyntheticSource({ seed: 42 });
     const queryInput = {
-      question: "Which selected TPM document supports the partial verdict?",
-      recordIds: ["S6-L1", "TPM-SELECTED-1"],
+      question: "Which selected contract document supports recovery?",
+      recordIds: ["S6-L1", "DOC-SELECTED-1"],
       selectedLineId: "S6-L1"
     };
     const syntheticEvidenceSource: ServiceSyntheticEvidenceSource = {
       readEvidence(connectorName, line) {
-        if (connectorName !== "tpm") {
+        if (connectorName !== "docs-repo") {
           return [];
         }
         return [
           {
-            documentId: "TPM-S6-L1",
-            documentType: "trade-promo",
-            recordIds: [line.lineId, "TPM-SELECTED-1"],
-            source: "tpm",
-            summary: "Supabase TPM source evidence for the selected line."
+            documentId: "DOC-S6-L1",
+            documentType: "contract",
+            recordIds: [line.lineId, "DOC-SELECTED-1"],
+            source: "docs",
+            summary: "Supabase contract source evidence for the selected line."
           }
         ];
       }
@@ -429,9 +429,9 @@ describe("retrieval tools", () => {
       sapEvidence: [],
       selectedEvidence: [
         {
-          documentId: "TPM-S6-L1",
-          recordIds: ["S6-L1", "TPM-SELECTED-1"],
-          source: "tpm"
+          documentId: "DOC-S6-L1",
+          recordIds: ["S6-L1", "DOC-SELECTED-1"],
+          source: "docs"
         }
       ],
       sourceFreshness: "snapshot",
@@ -451,7 +451,7 @@ describe("retrieval tools", () => {
         return [
           {
             documentId: "SAP-INV-S6-L1",
-            documentType: "invoice",
+            documentType: "contract",
             recordIds: [line.lineId, "INV-S6-1", "SAP-INV-S6-1"],
             source: "sap",
             summary: "Supabase SAP source row for S6 invoice."
@@ -493,7 +493,73 @@ describe("retrieval tools", () => {
     });
   });
 
-  it("omits SAP snapshot lineage when optional query.answer SAP evidence is unavailable", () => {
+  it("returns a cited source-backed selected answer instead of the legacy offline demo fallback", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    };
+    const result = invokeServiceTool("query.answer", queryInput, {
+      governedConfig: day1GovernedConfigSeed.values,
+      source,
+      syntheticEvidenceSource: buildSelectedContractEvidenceSource()
+    }) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      citationParity: {
+        parity: "same_record_ids",
+        textRecordIds: queryInput.recordIds,
+        voiceRecordIds: queryInput.recordIds
+      },
+      recordIds: queryInput.recordIds,
+      sourceReadStatus: "source_backed_selected_scope",
+      status: "source_backed_selected_scope"
+    });
+    expect(result.answer).toEqual(expect.stringContaining("Line S6-L1"));
+    expect(JSON.stringify(result)).not.toContain("offline demo");
+    expect(result).not.toHaveProperty("modelExecution");
+  });
+
+  it("does not let out-of-scope SAP evidence determine a selected-evidence answer", () => {
+    const source = new SyntheticSource({ seed: 42 });
+
+    expect(() => invokeServiceTool("query.answer", {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "INV-S6-1"],
+      selectedLineId: "S6-L1"
+    }, {
+      governedConfig: day1GovernedConfigSeed.values,
+      requireSupabaseSapEvidence: true,
+      sapEvidenceSource: {
+        readEvidence(line) {
+          return [{
+            documentId: "UNCITED-CONTRACT-S6-L1",
+            documentType: "contract",
+            recordIds: [line.lineId, "PRICE-CLAUSE-1"],
+            source: "sap",
+            summary: "Contract evidence outside the selected citation packet."
+          }];
+        }
+      },
+      source
+    })).toThrow("Supabase SAP evidence rows required for query.answer.");
+  });
+
+  it("keeps the governed-config gate on selected-evidence query answers", () => {
+    const source = new SyntheticSource({ seed: 42 });
+
+    expect(() => invokeServiceTool("query.answer", {
+      question: "Why is this recoverable?",
+      recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
+      selectedLineId: "S6-L1"
+    }, {
+      source,
+      syntheticEvidenceSource: buildSelectedContractEvidenceSource()
+    })).toThrow("Governed runtime config snapshot required.");
+  });
+
+  it("uses canonical snapshot lineage when selected non-SAP evidence supports query.answer", () => {
     const source = new SyntheticSource({ seed: 42 });
     const queryInput = {
       question: "Why is this recoverable?",
@@ -503,7 +569,8 @@ describe("retrieval tools", () => {
 
     const result = invokeServiceTool("query.answer", queryInput, {
       governedConfig: day1GovernedConfigSeed.values,
-      source
+      source,
+      syntheticEvidenceSource: buildSelectedContractEvidenceSource()
     }) as {
       sourceReads?: Record<string, unknown>;
     };
@@ -516,9 +583,11 @@ describe("retrieval tools", () => {
     });
     expect(result.sourceReads).not.toHaveProperty("primarySourceLabel");
     expect(result.sourceReads).not.toHaveProperty("primarySourceSystem");
-    expect(result.sourceReads).not.toHaveProperty("sourceFreshness");
-    expect(result.sourceReads).not.toHaveProperty("transportLabel");
-    expect(result.sourceReads).not.toHaveProperty("transportLayer");
+    expect(result.sourceReads).toMatchObject({
+      sourceFreshness: "snapshot",
+      transportLabel: "Governed canonical snapshot",
+      transportLayer: "supabase_canonical_snapshot"
+    });
   });
 
   it("allows query.answer to read a selected subset inside the Maya query scope", () => {
@@ -533,10 +602,10 @@ describe("retrieval tools", () => {
         return [
           {
             documentId: "SAP-INV-S6-1",
-            documentType: "invoice",
+            documentType: "contract",
             recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
             source: "sap",
-            summary: "Supabase SAP source row for INV-S6-1."
+            summary: "Supabase SAP-linked contract terms associated with INV-S6-1."
           }
         ];
       }
@@ -556,6 +625,41 @@ describe("retrieval tools", () => {
     };
 
     expect(result.sourceReads?.selectedRecordIds).toEqual(queryInput.recordIds);
+  });
+
+  it("fails closed when the selected Maya scope contains an unsupported stale record ID", () => {
+    const source = new SyntheticSource({ seed: 42 });
+    const queryInput = {
+      question: "Which selected document supports recovery?",
+      recordIds: ["S6-L1", "INV-S6-1", "STALE-UNSUPPORTED-ID"],
+      selectedLineId: "S6-L1"
+    };
+    const sapEvidenceSource: ServiceSapEvidenceSource = {
+      readEvidence() {
+        return [
+          {
+            documentId: "SAP-INV-S6-1",
+            documentType: "contract",
+            recordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1"],
+            source: "sap",
+            summary: "Supabase SAP-linked contract terms associated with INV-S6-1."
+          }
+        ];
+      }
+    };
+
+    expect(() =>
+      invokeServiceTool("query.answer", queryInput, {
+        governedConfig: day1GovernedConfigSeed.values,
+        queryAnswerScope: {
+          recordIds: queryInput.recordIds,
+          selectedLineId: queryInput.selectedLineId
+        },
+        requireSupabaseSapEvidence: true,
+        sapEvidenceSource,
+        source
+      })
+    ).toThrow("query.answer recordIds are not fully supported by the selected evidence scope.");
   });
 
   it("blocks query.answer before source reads when input is outside the selected Maya scope", () => {
@@ -657,6 +761,26 @@ describe("retrieval tools", () => {
     ).toEqual(["PRICE-CLAUSE-1", "VECTOR-CONTRACT-S6-L1"]);
   });
 });
+
+function buildSelectedContractEvidenceSource(): ServiceSyntheticEvidenceSource {
+  return {
+    readEvidence(connectorName, line) {
+      if (connectorName !== "docs-repo") {
+        return [];
+      }
+
+      return [
+        {
+          documentId: "DOC-S6-L1",
+          documentType: "contract",
+          recordIds: [line.lineId, "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
+          source: "docs",
+          summary: "Supabase document repository contract support for the selected line."
+        }
+      ];
+    }
+  };
+}
 
 function buildLine(): DeductionLine {
   return {

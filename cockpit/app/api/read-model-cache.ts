@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { after } from "next/server.js";
+import { z } from "zod";
 
 type RuntimeEnv = Partial<Record<string, string | undefined>>;
-type ReadModelSurface = "connector-readiness" | "forensics-analyst";
+type ReadModelSurface = "connector-readiness" | "credit-risk-review" | "forensics-analyst";
 type ReadModelPayloadSurface = ReadModelSurface | "forensics-work-item-detail";
 type ReadModelCacheStatus = "hit" | "miss" | "refresh" | "stale";
 type ForensicsReadModelEventListener = (event: ForensicsReadModelEvent) => void;
@@ -37,6 +38,10 @@ interface SupabaseReadModelRow {
 
 export const mayaForensicsReadModelKey = "maya:forensics:v1";
 export const mayaConnectorsReadModelKey = "maya:connectors:v1";
+export const davidCreditRiskReadModelKey = "david:credit-risk-review:v1";
+// Operational freshness allowance for a read model refreshed by a 10-minute scheduled job.
+export const davidCreditRiskReadModelMaxAgeMs = 15 * 60 * 1_000;
+const readModelFutureSkewMs = 30_000;
 export const readModelCacheHeader = "x-recoup-read-model-cache";
 export const readModelSourceRefreshedAtHeader = "x-recoup-read-model-source-refreshed-at";
 export const readModelSourceHashHeader = "x-recoup-read-model-source-hash";
@@ -44,6 +49,187 @@ export const readModelReceiptHashHeader = "x-recoup-read-model-receipt-hash";
 const sourceHealthSnapshotTableName = "recoup_source_health_snapshots";
 const forensicsReadModelEventSubscribers = new Set<ForensicsReadModelEventListener>();
 let lastForwardedForensicsBusinessHashes: ForensicsReadModelBusinessHashes | undefined;
+const nonEmptyStringSchema = z.string().min(1);
+const finiteNumberSchema = z.number().finite();
+const recordIdsSchema = z.array(nonEmptyStringSchema).min(1);
+const creditRiskToneSchema = z.enum(["clear", "watch", "elevated", "high"]);
+const creditRiskVerdictSchema = z.enum(["HIGH", "ELEVATED", "WATCH", "CLEAR"]);
+const creditRiskPacketRowSchema = z.object({
+  amountLabel: nonEmptyStringSchema,
+  amountValue: finiteNumberSchema,
+  detail: nonEmptyStringSchema,
+  kind: z.enum(["hold", "limit", "monitor", "reduce", "release"]),
+  label: nonEmptyStringSchema
+}).passthrough();
+const creditRiskAssessmentStepSchema = z.object({
+  agentName: nonEmptyStringSchema,
+  didLine: nonEmptyStringSchema,
+  foundLine: nonEmptyStringSchema,
+  isFinal: z.boolean(),
+  key: nonEmptyStringSchema,
+  phase: z.literal("overnight"),
+  recordIds: recordIdsSchema,
+  sourceLabel: nonEmptyStringSchema,
+  toolLabel: nonEmptyStringSchema.optional(),
+  verdict: creditRiskVerdictSchema.optional(),
+  verdictLabel: nonEmptyStringSchema.optional()
+}).passthrough();
+const creditRiskEvidenceDocumentSchema = z.object({
+  contentHash: nonEmptyStringSchema,
+  deterministicBasis: nonEmptyStringSchema,
+  documentId: nonEmptyStringSchema,
+  recordIds: recordIdsSchema,
+  sourceModeLabel: nonEmptyStringSchema,
+  synthetic: z.boolean(),
+  title: nonEmptyStringSchema
+}).passthrough();
+const creditRiskFactSchema = z.object({
+  key: z.enum(["days-beyond-terms", "dso", "open-disputes", "payment-trend"]),
+  label: nonEmptyStringSchema,
+  tone: creditRiskToneSchema,
+  valueLabel: nonEmptyStringSchema
+}).passthrough();
+const creditRiskMeshPositionSchema = z.object({
+  contractGap: z.boolean(),
+  contractGapReason: nonEmptyStringSchema.optional(),
+  deterministicBasis: nonEmptyStringSchema.nullable(),
+  driverSignals: z.string(),
+  interpretation: nonEmptyStringSchema,
+  keyMetric: nonEmptyStringSchema,
+  position: z.enum(["Credit", "Fulfilment", "Billing", "Collections"]),
+  recordIds: recordIdsSchema,
+  status: z.enum(["OK", "WATCH", "ELEVATED", "HIGH"]),
+  statusRank: z.number().int().nonnegative(),
+  statusTone: creditRiskToneSchema
+}).passthrough();
+const creditNegotiationRoundSchema = z.object({
+  actionId: nonEmptyStringSchema,
+  round: z.number().int().positive(),
+  status: z.enum(["accepted", "countered", "drafted", "rejected", "sent", "withdrawn"])
+}).passthrough();
+const creditNegotiationOrderSchema = z.object({
+  currentRound: creditNegotiationRoundSchema.optional(),
+  latestSentRound: creditNegotiationRoundSchema.extend({ status: z.literal("sent") }).optional(),
+  nextRound: z.number().int().positive(),
+  orderAmount: finiteNumberSchema,
+  orderAmountLabel: nonEmptyStringSchema,
+  orderId: nonEmptyStringSchema,
+  sourceModeLabel: z.literal("governed Supabase negotiation source"),
+  sourceRecordIds: recordIdsSchema
+}).passthrough();
+const creditRiskSignalSchema = z.object({
+  basis: nonEmptyStringSchema,
+  feedsMesh: nonEmptyStringSchema,
+  gamingFlag: z.boolean(),
+  meshPosition: nonEmptyStringSchema,
+  note: nonEmptyStringSchema,
+  recordIds: recordIdsSchema,
+  routeLabel: nonEmptyStringSchema,
+  scenarioId: nonEmptyStringSchema,
+  tone: creditRiskToneSchema,
+  verdict: z.enum(["VALID", "INVALID", "PARTIAL"])
+}).passthrough();
+const creditSourceConnectorSchema = z.object({
+  checkedAtLabel: nonEmptyStringSchema,
+  connectorKey: z.enum(["bureau-payment-history", "contract-tpm", "sap-odata", "supabase-tools"]),
+  label: nonEmptyStringSchema,
+  proofItems: z.array(nonEmptyStringSchema).min(1),
+  recordIds: recordIdsSchema,
+  sourceModeLabel: nonEmptyStringSchema,
+  statusLabel: nonEmptyStringSchema,
+  synthetic: z.boolean()
+}).passthrough();
+const creditRiskPacketSchema = z.object({
+  actionId: nonEmptyStringSchema,
+  approvalStatus: z.enum(["awaiting", "committed"]),
+  basis: nonEmptyStringSchema,
+  detail: nonEmptyStringSchema,
+  deterministicBasis: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  dispatchedExternally: z.boolean(),
+  recordIds: recordIdsSchema,
+  requiresHumanApproval: z.boolean(),
+  routeLabel: nonEmptyStringSchema,
+  rows: z.array(creditRiskPacketRowSchema),
+  title: nonEmptyStringSchema
+}).passthrough();
+const creditRiskAccountSchema = z.object({
+  accountId: nonEmptyStringSchema,
+  actionPacket: z.array(creditRiskPacketRowSchema),
+  assessmentSteps: z.array(creditRiskAssessmentStepSchema).min(1),
+  channel: nonEmptyStringSchema,
+  copilotConductorLine: nonEmptyStringSchema,
+  creditLimitAmount: finiteNumberSchema,
+  creditLimitLabel: nonEmptyStringSchema,
+  customer: nonEmptyStringSchema,
+  daysBeyondTerms: finiteNumberSchema,
+  daysBeyondTermsLabel: nonEmptyStringSchema,
+  dsoDays: finiteNumberSchema,
+  dsoLabel: nonEmptyStringSchema,
+  evidenceDocuments: z.array(creditRiskEvidenceDocumentSchema),
+  exposureAmount: finiteNumberSchema,
+  exposureLabel: nonEmptyStringSchema,
+  facts: z.array(creditRiskFactSchema).min(1),
+  gamingFlag: z.boolean(),
+  leadLabel: nonEmptyStringSchema,
+  meshPositions: z.array(creditRiskMeshPositionSchema).min(1),
+  negotiationOrders: z.array(creditNegotiationOrderSchema),
+  openDisputeAmount: finiteNumberSchema,
+  openDisputeAmountLabel: nonEmptyStringSchema,
+  openDisputeCount: z.number().int().nonnegative(),
+  packet: creditRiskPacketSchema,
+  paymentTrend: nonEmptyStringSchema,
+  paymentTrendLabel: nonEmptyStringSchema,
+  paymentTrendTone: creditRiskToneSchema,
+  priorAvgDaysToPay: finiteNumberSchema,
+  priorAvgDaysToPayLabel: nonEmptyStringSchema,
+  recentAvgDaysToPay: finiteNumberSchema,
+  recentAvgDaysToPayLabel: nonEmptyStringSchema,
+  recordIds: recordIdsSchema,
+  relationshipOwner: nonEmptyStringSchema,
+  routeLabel: nonEmptyStringSchema,
+  routeLine: nonEmptyStringSchema,
+  segment: nonEmptyStringSchema,
+  signals: z.array(creditRiskSignalSchema),
+  termsDays: finiteNumberSchema,
+  termsLabel: nonEmptyStringSchema,
+  totalSalesAmount: finiteNumberSchema,
+  totalSalesLabel: nonEmptyStringSchema,
+  unsupportedAmount: finiteNumberSchema,
+  unsupportedAmountLabel: nonEmptyStringSchema,
+  utilisationLabel: nonEmptyStringSchema,
+  utilisationPercent: finiteNumberSchema,
+  utilisationRatio: finiteNumberSchema,
+  verdict: creditRiskVerdictSchema,
+  verdictBasis: nonEmptyStringSchema,
+  verdictTone: creditRiskToneSchema
+}).passthrough();
+export const creditRiskReviewPayloadSchema = z.object({
+  accounts: z.array(creditRiskAccountSchema).min(1),
+  asOfDate: nonEmptyStringSchema,
+  asOfLabel: nonEmptyStringSchema,
+  copilot: z.object({
+    conductorLabel: nonEmptyStringSchema,
+    note: nonEmptyStringSchema,
+    readinessLabel: nonEmptyStringSchema,
+    suggestions: z.array(z.object({ question: nonEmptyStringSchema, suggestionId: nonEmptyStringSchema }).passthrough()).min(1),
+    title: nonEmptyStringSchema
+  }).passthrough(),
+  navCounts: z.object({
+    actionPackets: z.number().int().nonnegative(),
+    riskReview: z.number().int().nonnegative(),
+    watchlist: z.number().int().nonnegative()
+  }),
+  portfolio: z.object({ totalExposureAmount: finiteNumberSchema, totalExposureLabel: nonEmptyStringSchema }).passthrough(),
+  queueStats: z.array(z.object({ key: nonEmptyStringSchema, label: nonEmptyStringSchema, tone: nonEmptyStringSchema, valueLabel: nonEmptyStringSchema }).passthrough()).min(1),
+  sourceLabel: nonEmptyStringSchema,
+  sources: z.object({
+    auditTrailLabel: nonEmptyStringSchema,
+    connectors: z.array(creditSourceConnectorSchema).min(1),
+    externalActionsLabel: nonEmptyStringSchema,
+    topbarLabel: nonEmptyStringSchema
+  }).passthrough(),
+  surface: z.literal("credit-risk-review")
+}).passthrough();
 
 export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
   return `maya:forensics:work-item:${lineId}:v2`;
@@ -53,7 +239,7 @@ export async function readCachedReadModelPayload(
   runtimeEnv: RuntimeEnv,
   modelKey: string,
   surface: ReadModelSurface,
-  options: { payloadSurface?: ReadModelPayloadSurface } = {}
+  options: { maxAgeMs?: number; payloadSurface?: ReadModelPayloadSurface; persona?: "david" | "maya" } = {}
 ): Promise<{ payload: Record<string, unknown>; sourceRecordIds: string[]; sourceRefreshedAt: string } | undefined> {
   if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
     return undefined;
@@ -91,15 +277,18 @@ export async function readCachedReadModelPayload(
     const row = rows[0];
     const payload = parsePayloadRecord(row.payload_json);
     const payloadSurface = options.payloadSurface ?? surface;
+    const persona = options.persona ?? "maya";
     const sourceRecordIds = parseJsonCell(row.source_record_ids_json);
     if (
       row.model_key !== modelKey ||
-      row.persona !== "maya" ||
+      row.persona !== persona ||
       row.surface !== surface ||
       typeof row.payload_hash !== "string" ||
       !/^[a-f0-9]{64}$/u.test(row.payload_hash) ||
+      (surface === "credit-risk-review" && row.payload_hash !== sha256CanonicalJson(payload)) ||
       !isNonEmptyStringArray(sourceRecordIds) ||
       typeof row.source_refreshed_at !== "string" ||
+      !isReadModelFresh(row.source_refreshed_at, options.maxAgeMs) ||
       !isReadModelPayloadForSurface(payload, payloadSurface)
     ) {
       return undefined;
@@ -189,6 +378,7 @@ export async function publishCachedReadModelPayload(
     modelKey: string;
     payload: Record<string, unknown>;
     payloadSurface: ReadModelPayloadSurface;
+    persona?: "david" | "maya";
     previousSourceRecordIds?: readonly string[];
     rowSurface: ReadModelSurface;
     sourceRecordIds: string[];
@@ -223,7 +413,7 @@ export async function publishCachedReadModelPayload(
           model_key: input.modelKey,
           payload_hash: sha256CanonicalJson(input.payload),
           payload_json: input.payload,
-          persona: "maya",
+          persona: input.persona ?? "maya",
           source_record_ids_json: input.sourceRecordIds,
           source_refreshed_at: input.sourceRefreshedAt ?? now,
           surface: input.rowSurface
@@ -365,7 +555,10 @@ function forwardOptionalHeader(response: Response, name: string): Record<string,
 export function refreshReadModelAfterResponse(
   runtimeEnv: RuntimeEnv,
   authHeaders: HeadersInit,
-  target: { method: "GET" | "POST"; path: "/connectors" | "/forensics/refresh" | `/forensics/work-items/${string}` }
+  target: {
+    method: "GET" | "POST";
+    path: "/connectors" | "/credit/v2/refresh" | "/forensics/refresh" | `/forensics/work-items/${string}`;
+  }
 ): void {
   if (isReadModelCacheDisabled(runtimeEnv) || runtimeEnv.RECOUP_READ_MODEL_BACKGROUND_REFRESH === "disabled") {
     return;
@@ -391,7 +584,25 @@ function isReadModelPayloadForSurface(
   value: unknown,
   surface: ReadModelPayloadSurface
 ): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && "surface" in value && value.surface === surface;
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("surface" in value) || value.surface !== surface) {
+    return false;
+  }
+
+  return surface !== "credit-risk-review" || isCreditRiskReviewPayload(value);
+}
+
+function isCreditRiskReviewPayload(value: Record<string, unknown>): boolean {
+  return creditRiskReviewPayloadSchema.safeParse(value).success;
+}
+
+function isReadModelFresh(sourceRefreshedAt: string, maxAgeMs: number | undefined): boolean {
+  if (maxAgeMs === undefined) {
+    return true;
+  }
+  const refreshedAtMs = Date.parse(sourceRefreshedAt);
+  const nowMs = Date.now();
+
+  return Number.isFinite(refreshedAtMs) && refreshedAtMs <= nowMs + readModelFutureSkewMs && nowMs - refreshedAtMs <= maxAgeMs;
 }
 
 function isReadModelRow(value: unknown): value is SupabaseReadModelRow {

@@ -34,7 +34,7 @@ describe("David credit v2 route scaffold", () => {
     const legacyRedirect = readFileSync(legacyRedirectPath, "utf8");
 
     expect(page).toContain('requireRouteAccess("/credit")');
-    expect(page).toContain("fetchCreditRiskReviewModel");
+    expect(page).toContain("fetchCreditRiskReviewModelCacheFirst");
     expect(page).toContain("DavidRiskReviewSurface");
     for (const forbidden of [
       "ApprovalControls",

@@ -321,6 +321,12 @@ async function smokeDavid(browser: Browser): Promise<CheckResult> {
   const page = await newInstrumentedPage(browser, { height: 1000, width: 1440 });
   try {
     await loginAsDemoUser(page, "david");
+    const creditCacheProbe = await timedPageRequest(page, "/api/credit");
+    assert(creditCacheProbe.status === 200, `David /api/credit returned HTTP ${creditCacheProbe.status.toString()}.`);
+    assert(
+      creditCacheProbe.cache === "hit",
+      `David /api/credit did not return a governed Supabase cache hit; cache=${String(creditCacheProbe.cache)}.`
+    );
     const warmLoad = await measureCreditWarmLoad(page);
     for (const account of selectedAccounts) {
       await selectDavidAccount(page, account);
@@ -333,6 +339,7 @@ async function smokeDavid(browser: Browser): Promise<CheckResult> {
 
     return {
       details: {
+        creditCacheProbe,
         warmLoad,
         accounts: selectedAccounts.map((account) => ({
           accountId: account.accountId,

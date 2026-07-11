@@ -27,6 +27,7 @@ import { DavidApprovalGateDialog } from "./david-approval-gate-dialog.tsx";
 import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
 import { DavidNegotiationWorkbench } from "./david-negotiation-workbench.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
+import { refreshDavidCreditReadModel } from "./refresh-credit-read-model.ts";
 import {
   davidBadgeVariantByTone,
   davidBorderClassByTone,
@@ -240,7 +241,13 @@ export function DavidActionPacket({ account }: Readonly<{ account: CreditRiskAcc
           setApprovalDialogOpen(false);
           setReceiptRefreshError(undefined);
           setReceiptRefreshPending(true);
-          router.refresh();
+          void refreshDavidCreditReadModel().then((refreshed) => {
+            if (!refreshed) {
+              setReceiptRefreshError("Approval was recorded, but the governed credit read model could not be refreshed yet.");
+              setReceiptRefreshPending(false);
+            }
+            router.refresh();
+          });
         }}
         onOpenChange={setApprovalDialogOpen}
         open={approvalDialogOpen}

@@ -243,7 +243,7 @@ function buildForensicsDecision(
   reconciliation: ForensicsReconciliationOptions | undefined,
   decisionConfidenceThreshold: DecisionConfidenceThreshold | undefined
 ): DeductionDecision {
-  const ruleInput = buildCurrentRuleInput(line, reconciliation);
+  const ruleInput = buildForensicsRuleInput(line, reconciliation);
   const ruleId = ruleInput.ruleId;
   const finding = invokeTracedTool(trace, "core.evaluateRule", ruleInput) as RuleFinding;
   trace.push({
@@ -481,7 +481,7 @@ function invokeTracedTool(
   return invokeServiceTool(toolName, input, context);
 }
 
-function buildCurrentRuleInput(
+export function buildForensicsRuleInput(
   line: DeductionLine,
   reconciliation: ForensicsReconciliationOptions | undefined
 ): RuleInput {
