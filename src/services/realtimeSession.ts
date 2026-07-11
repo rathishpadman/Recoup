@@ -11,7 +11,7 @@ const RealtimeClientSecretResponseSchema = z
   .passthrough();
 
 export interface RealtimeAuditPolicy {
-  allowedTools: ["audit.read", "query.answer"];
+  allowedTools: Array<"audit.read" | "query.answer">;
   externalActions: "none";
   forbiddenPersistence: ["raw_audio", "uncited_transcript", "uncited_model_output"];
   queryScope: string;
@@ -50,6 +50,7 @@ export interface RealtimeClientSecretRequest {
   recordIds?: string[];
   safetyIdentifier?: string;
   selectedLineId?: string;
+  transcriptionOnly?: boolean;
 }
 
 type RealtimeAllowedToolName = RealtimeAuditPolicy["allowedTools"][number];
@@ -95,30 +96,39 @@ export type RealtimeToolCallResult =
     };
 
 const defaultRealtimeSafetyIdentifier = "human:cockpit-query";
+const realtimeTranscriptionPolicyRecordId = "OPENAI-REALTIME-TRANSCRIPTION";
 const realtimeSessionInstructions =
   "You are Recoup's audit-scoped Realtime query assistant. Answer only from deterministic Recoup services, cite deterministic Recoup recordIds, and include the deterministic basis. Allowed Realtime tools: audit_read and query_answer. These map to governed Recoup services audit.read and query.answer. External actions are forbidden. Do not compute or alter dollar amounts. Do not persist raw audio, uncited transcripts, or uncited model output.";
+const realtimeTranscriptionInstructions =
+  "Transcribe the user's microphone audio only. Do not answer the question, call tools, or generate assistant audio. Recoup will send the completed transcript to its separately governed workspace query service. Do not persist raw audio or uncited transcript.";
 
 export function buildRealtimeSessionPolicy(
   env: RuntimeEnv = process.env,
-  queryScope?: RealtimeQueryScope
+  queryScope?: RealtimeQueryScope,
+  transcriptionOnly = false
 ): RealtimeSessionPolicy {
-  const scopedRecordIds = queryScope?.recordIds ?? ["OPENAI-REALTIME-POLICY"];
+  const scopedRecordIds = transcriptionOnly
+    ? [realtimeTranscriptionPolicyRecordId]
+    : (queryScope?.recordIds ?? ["OPENAI-REALTIME-POLICY"]);
   const queryScopeLabel =
-    queryScope === undefined
+    transcriptionOnly
+      ? "Microphone transcription only; the completed transcript is evaluated by the separately governed workspace query service."
+      : queryScope === undefined
       ? "Cited Recoup audit, memory, trace, connector-readiness, and cockpit read models only."
       : `Selected cockpit evidence packet for ${queryScope.selectedLineId}; query.answer must use exactly the selected recordIds.`;
 
   return {
     auditPolicy: {
-      allowedTools: ["audit.read", "query.answer"],
+      allowedTools: transcriptionOnly ? [] : ["audit.read", "query.answer"],
       externalActions: "none",
       forbiddenPersistence: ["raw_audio", "uncited_transcript", "uncited_model_output"],
       queryScope: queryScopeLabel,
       recordIds: [...scopedRecordIds],
       retention: "Audit hashes and cited record ids only; no raw audio or uncited transcript is persisted by Recoup."
     },
-    deterministicBasis:
-      "runtime credential gate + pinned realtime model + no-external-action query policy; answers must cite deterministic Recoup records.",
+    deterministicBasis: transcriptionOnly
+      ? "runtime credential gate + pinned transcription model + server VAD with automatic responses disabled; no tools or external actions."
+      : "runtime credential gate + pinned realtime model + no-external-action query policy; answers must cite deterministic Recoup records.",
     endpoint: realtimeClientSecretUrl,
     model: runtimeModels.realtime,
     status: hasOpenAiApiKey(env) ? "ready_for_client_secret_request" : "blocked_missing_credentials",
@@ -209,13 +219,14 @@ export async function requestRealtimeClientSecret({
   fetcher = fetch,
   recordIds,
   safetyIdentifier = defaultRealtimeSafetyIdentifier,
-  selectedLineId
+  selectedLineId,
+  transcriptionOnly = false
 }: RealtimeClientSecretRequest): Promise<RealtimeClientSecretResult> {
   const queryScope = resolveRealtimeQueryScope({
     ...(recordIds === undefined ? {} : { recordIds }),
     ...(selectedLineId === undefined ? {} : { selectedLineId })
   });
-  const policy = buildRealtimeSessionPolicy(env, queryScope);
+  const policy = buildRealtimeSessionPolicy(env, queryScope, transcriptionOnly);
   const apiKey = env.OPENAI_API_KEY?.trim();
 
   if (policy.status === "blocked_missing_credentials" || apiKey === undefined || apiKey.length === 0) {
@@ -225,21 +236,38 @@ export async function requestRealtimeClientSecret({
     };
   }
 
-  const response = await fetcher(realtimeClientSecretUrl, {
-    body: JSON.stringify({
-      session: {
+  const session = transcriptionOnly
+    ? {
         audio: {
           input: {
-            transcription: {
-              model: runtimeModels.transcription
+            transcription: { model: runtimeModels.transcription },
+            turn_detection: {
+              create_response: false,
+              interrupt_response: false,
+              type: "server_vad"
             }
+          }
+        },
+        instructions: realtimeTranscriptionInstructions,
+        model: runtimeModels.realtime,
+        tools: [],
+        type: "realtime"
+      }
+    : {
+        audio: {
+          input: {
+            transcription: { model: runtimeModels.transcription }
           }
         },
         instructions: buildRealtimeSessionInstructions(queryScope),
         model: runtimeModels.realtime,
         tools: buildRealtimeToolManifest(),
         type: "realtime"
-      }
+      };
+
+  const response = await fetcher(realtimeClientSecretUrl, {
+    body: JSON.stringify({
+      session
     }),
     headers: {
       Authorization: `Bearer ${apiKey}`,

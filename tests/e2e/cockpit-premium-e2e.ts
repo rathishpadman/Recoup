@@ -669,6 +669,9 @@ async function captureMayaBeat2LandingScreenshot(browser: Browser): Promise<void
     { height: 900, label: "-1280", width: 1280 }
   ]) {
     const context = await newRoleContext(browser, "maya", target.width, target.height);
+    if (target.label === "") {
+      await installBeat8RealtimeFakes(context);
+    }
     const page = await context.newPage();
     const workItemDetailRequests: string[] = [];
 
@@ -826,9 +829,15 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
     firstItem(model.worklist, "Overview copilot case picker options");
   const caseScopedAnswer = `E2E Overview case-scoped cited answer for ${casePickerTarget.lineId}.`;
   const workspaceAnswer = "E2E Overview workspace cited answer from the backend query route.";
+  const workspaceVoiceAnswer = "E2E Overview workspace cited voice answer from the backend query route.";
+  const workspaceVoiceQuestion = "Which customers have invalid deductions?";
   let workspaceQueryBody: Record<string, unknown> | undefined;
+  let workspaceVoiceQueryBody: Record<string, unknown> | undefined;
+  let workspaceVoiceSecretBody: Record<string, unknown> | undefined;
   let caseQueryBody: Record<string, unknown> | undefined;
   let markWorkspaceQueryStarted: (() => void) | undefined;
+  let markWorkspaceVoiceQueryStarted: (() => void) | undefined;
+  let markWorkspaceVoiceSecretStarted: (() => void) | undefined;
   let markCaseQueryStarted: (() => void) | undefined;
   const workspaceQueryStarted = new Promise<void>((resolve) => {
     markWorkspaceQueryStarted = resolve;
@@ -836,16 +845,52 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
   const caseQueryStarted = new Promise<void>((resolve) => {
     markCaseQueryStarted = resolve;
   });
+  const workspaceVoiceQueryStarted = new Promise<void>((resolve) => {
+    markWorkspaceVoiceQueryStarted = resolve;
+  });
+  const workspaceVoiceSecretStarted = new Promise<void>((resolve) => {
+    markWorkspaceVoiceSecretStarted = resolve;
+  });
+  await page.route("**/api/query/realtime-client-secret", async (route) => {
+    workspaceVoiceSecretBody = parseOptionalJsonRecord(route.request().postData());
+    markWorkspaceVoiceSecretStarted?.();
+    await route.fulfill({
+      body: JSON.stringify({
+        auditPolicy: {
+          allowedTools: [],
+          externalActions: "none",
+          recordIds: ["OPENAI-REALTIME-TRANSCRIPTION"],
+          retention: "No raw audio or uncited transcript is persisted by Recoup."
+        },
+        clientSecret: { value: "ek_e2e_workspace_transcription" },
+        deterministicBasis: "E2E transcription-only Realtime session.",
+        model: "gpt-realtime-2",
+        status: "issued",
+        transport: "webrtc"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+  await page.route("https://api.openai.com/v1/realtime/calls", async (route) => {
+    await route.fulfill({ body: "v=0\r\ns=e2e-workspace-voice", contentType: "application/sdp", status: 201 });
+  });
   await page.route("**/api/forensics/query", async (route) => {
     const requestBody = parseOptionalJsonRecord(route.request().postData());
     if (requestBody?.["scope"] === "workspace") {
-      workspaceQueryBody = requestBody;
-      markWorkspaceQueryStarted?.();
+      const isVoiceQuery = requestBody["question"] === workspaceVoiceQuestion;
+      if (isVoiceQuery) {
+        workspaceVoiceQueryBody = requestBody;
+        markWorkspaceVoiceQueryStarted?.();
+      } else {
+        workspaceQueryBody = requestBody;
+        markWorkspaceQueryStarted?.();
+      }
       await route.fulfill({
         body: JSON.stringify(
           buildE2EForensicsQueryResponse(
             model,
-            workspaceAnswer,
+            isVoiceQuery ? workspaceVoiceAnswer : workspaceAnswer,
             "E2E deterministic basis from the Overview workspace backend query response."
           )
         ),
@@ -974,8 +1019,49 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
       const assistantText = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]')?.innerText ?? "";
       return assistantText.includes(answer);
     }, workspaceAnswer);
+    await page.getByRole("button", { name: /^Ask by voice$/u }).click();
+    await Promise.race([
+      workspaceVoiceSecretStarted,
+      delay(5_000).then(() => {
+        throw new Error("Overview workspace voice did not request a transcription-only Realtime session.");
+      })
+    ]);
+    assert(workspaceVoiceSecretBody?.["mode"] === "transcription_only", "Overview workspace voice must request transcription-only mode.");
+    await page.waitForFunction(() => {
+      const runtime = (window as unknown as {
+        __recoupE2ERealtime?: { peerConnections?: Array<{ dataChannel?: EventTarget }> };
+      }).__recoupE2ERealtime;
+      return (runtime?.peerConnections?.length ?? 0) > 0;
+    });
+    await page.evaluate((transcript) => {
+      const runtime = (window as unknown as {
+        __recoupE2ERealtime?: { peerConnections?: Array<{ dataChannel?: EventTarget }> };
+      }).__recoupE2ERealtime;
+      const dataChannel = runtime?.peerConnections?.at(-1)?.dataChannel;
+      dataChannel?.dispatchEvent(new MessageEvent("message", {
+        data: JSON.stringify({ transcript, type: "conversation.item.input_audio_transcription.completed" })
+      }));
+    }, workspaceVoiceQuestion);
+    await Promise.race([
+      workspaceVoiceQueryStarted,
+      delay(5_000).then(() => {
+        throw new Error("Overview workspace voice transcript did not reach the backend workspace query route.");
+      })
+    ]);
+    assert(workspaceVoiceQueryBody?.["question"] === workspaceVoiceQuestion, "Overview workspace voice must submit the microphone transcript.");
+    assert(workspaceVoiceQueryBody["scope"] === "workspace", "Overview workspace voice must preserve workspace scope.");
+    assert(
+      workspaceVoiceQueryBody["settlementRunId"] === model.settlementRunId,
+      "Overview workspace voice must submit the backend settlementRunId."
+    );
+    await page.waitForFunction((answer) => {
+      const assistantText = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]')?.innerText ?? "";
+      return assistantText.includes(answer);
+    }, workspaceVoiceAnswer);
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
   } finally {
+    await page.unroute("https://api.openai.com/v1/realtime/calls").catch(() => undefined);
+    await page.unroute("**/api/query/realtime-client-secret").catch(() => undefined);
     await page.unroute("**/api/forensics/query").catch(() => undefined);
   }
 }

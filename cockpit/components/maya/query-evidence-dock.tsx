@@ -44,6 +44,7 @@ import type {
 const QUERY_QUESTION_CHARACTER_LIMIT = 500;
 const WORKSPACE_CASE_PICKER_VALUE = "__workspace__";
 const MICROPHONE_FIRST_QUESTION_PROMPT = "Voice question from microphone for the selected evidence packet.";
+const WORKSPACE_MICROPHONE_FIRST_QUESTION_PROMPT = "Voice question from microphone for the workspace.";
 const COPILOT_SOFT_PANEL_CLASS =
   "border-[color:var(--maya-accent-surface-strong)] bg-[color:var(--maya-accent-surface-muted)]";
 const COPILOT_SOFT_BUTTON_CLASS =
@@ -419,41 +420,78 @@ export function QueryEvidenceDock({
           return;
         }
 
-        setVoiceSessionStatus("processing");
-        setVoiceStatusMessage("Checking workspace evidence.");
-        const response = await fetch("/api/forensics/query", {
-          body: JSON.stringify({
-            question: voiceQuestion,
-            scope: "workspace",
-            settlementRunId: workspaceSettlementRunId
-          }),
-          cache: "no-store",
-          headers: { "content-type": "application/json" },
-          method: "POST",
+        const realtimeSession = await startRealtimeBrowserSession({
+          mode: "transcription_only",
+          onInputTranscriptCompleted: async (transcript) => {
+            const normalizedTranscript = transcript.trim();
+            if (!isCurrentSession(activeStartToken) || normalizedTranscript.length === 0) {
+              return;
+            }
+
+            setSubmittedQuestion(normalizedTranscript);
+            setVoiceSessionStatus("processing");
+            setVoiceStatusMessage("Checking workspace evidence.");
+            const response = await fetch("/api/forensics/query", {
+              body: JSON.stringify({
+                question: normalizedTranscript,
+                scope: "workspace",
+                settlementRunId: workspaceSettlementRunId
+              }),
+              cache: "no-store",
+              headers: { "content-type": "application/json" },
+              method: "POST",
+              signal: abortController.signal
+            });
+
+            if (!isCurrentSession(activeStartToken)) {
+              return;
+            }
+
+            const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
+            if (!response.ok) {
+              const message = "error" in body && typeof body.error === "string" ? body.error : "Workspace voice query failed.";
+              throw new Error(message);
+            }
+
+            const nextSnapshot = buildQueryEvidenceSnapshot({
+              evidencePackRecordIds: activeEvidencePack.recordIds,
+              queryScope: activeQueryScope,
+              recordIds: activeRecordIds,
+              response: body as QueryEvidenceBackendResponse,
+              selectedLine: activeSelectedLine
+            });
+            setVoiceSessionStatus(responseStatusToVoiceSessionStatus(nextSnapshot.status));
+            setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
+            setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
+            publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
+          },
+          onSnapshot: (voiceSnapshot) => {
+            if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
+              return;
+            }
+
+            setVoiceSessionStatus(toVoiceSessionStatus(voiceSnapshot.status));
+            setVoiceInputTranscript(voiceSnapshot.inputTranscript ?? "");
+            setVoiceStatusMessage(voiceSnapshot.message);
+            if ((voiceSnapshot.inputTranscript?.trim().length ?? 0) > 0) {
+              setSubmittedQuestion(voiceSnapshot.inputTranscript ?? "");
+            }
+            publishForToken(activeStartToken, activeEvidenceIdentity, {
+              citations: [],
+              message: voiceSnapshot.message,
+              recordIds: activeRecordIds,
+              status: voiceSnapshot.status === "error" ? "error" : "connecting",
+              trace: []
+            });
+          },
+          question: WORKSPACE_MICROPHONE_FIRST_QUESTION_PROMPT,
           signal: abortController.signal
         });
-
         if (!isCurrentSession(activeStartToken)) {
+          realtimeSession.close();
           return;
         }
-
-        const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
-        if (!response.ok) {
-          const message = "error" in body && typeof body.error === "string" ? body.error : "Workspace voice query failed.";
-          throw new Error(message);
-        }
-
-        const nextSnapshot = buildQueryEvidenceSnapshot({
-          evidencePackRecordIds: activeEvidencePack.recordIds,
-          queryScope: activeQueryScope,
-          recordIds: activeRecordIds,
-          response: body as QueryEvidenceBackendResponse,
-          selectedLine: activeSelectedLine
-        });
-        setVoiceSessionStatus(responseStatusToVoiceSessionStatus(nextSnapshot.status));
-        setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
-        setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
-        publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
+        realtimeSessionRef.current = realtimeSession;
         return;
       }
 

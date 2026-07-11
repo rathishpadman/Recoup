@@ -64,6 +64,43 @@ describe("Realtime Next proxy routes", () => {
     expect(mayaForensicsWorkItemReadModelKey("S6-L1")).toBe("maya:forensics:work-item:S6-L1:v2");
   });
 
+  it("serves a Maya top-level cache hit without starting another Render refresh", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
+    const cachedModel = {
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = fetchInputUrl(input);
+      if (!url.includes("recoup_cockpit_read_models")) {
+        throw new Error(`Cache hit unexpectedly called ${url}.`);
+      }
+      return Promise.resolve(Response.json([{
+        generated_at: cachedAt,
+        model_key: mayaForensicsReadModelKey,
+        payload_hash: "a".repeat(64),
+        payload_json: cachedModel,
+        persona: "maya",
+        source_record_ids_json: ["S6-L1", "evidence:docs:S6-L1:cached"],
+        source_refreshed_at: cachedAt,
+        surface: "forensics-analyst"
+      }]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensics(new Request("http://localhost/api/forensics", {
+      headers: { cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}` },
+      method: "GET"
+    }));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+    await expect(response.json()).resolves.toEqual(cachedModel);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("exposes a Forensics SSE route for business read-model invalidation", async () => {
     const response = getForensicsEvents(new Request("http://localhost/api/forensics/events"));
     const reader = response.body?.getReader();

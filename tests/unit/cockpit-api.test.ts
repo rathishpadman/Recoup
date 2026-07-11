@@ -6762,6 +6762,44 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("issues a tool-free transcription session for Maya workspace voice without selected evidence fields", async () => {
+    const upstreamBodies: string[] = [];
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, OPENAI_API_KEY: "sk-test-secret" },
+      realtimeFetcher: (_url, init) => {
+        upstreamBodies.push(stringifyRequestBody(init?.body) ?? "");
+        return Promise.resolve(new Response(JSON.stringify({ value: "ek_test_secret" }), { status: 200 }));
+      }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/query/realtime-client-secret`, {
+        body: JSON.stringify({
+          mode: "transcription_only",
+          question: "Voice question from microphone for the workspace."
+        }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const result = (await response.json()) as {
+        auditPolicy: { allowedTools: string[]; recordIds: string[] };
+        status: string;
+      };
+      const upstreamBody = JSON.parse(upstreamBodies[0] ?? "{}") as {
+        session?: { audio?: { input?: { turn_detection?: { create_response?: boolean } } }; tools?: unknown[] };
+      };
+
+      expect(response.status).toBe(200);
+      expect(result.status).toBe("issued");
+      expect(result.auditPolicy.allowedTools).toEqual([]);
+      expect(result.auditPolicy.recordIds).toEqual(["OPENAI-REALTIME-TRANSCRIPTION"]);
+      expect(upstreamBody.session?.tools).toEqual([]);
+      expect(upstreamBody.session?.audio?.input?.turn_detection?.create_response).toBe(false);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("handles only read-only Realtime tool calls through verified human auth", async () => {
     const { baseUrl, server } = await listen({ env: cockpitApprovalEnv });
 

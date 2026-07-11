@@ -111,6 +111,44 @@ describe("Realtime session policy", () => {
     });
   });
 
+  it("issues a transcription-only Realtime session that cannot generate an automatic model response", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const result = await requestRealtimeClientSecret({
+      env: { OPENAI_API_KEY: "sk-live-secret" },
+      fetcher: (url, init) => {
+        calls.push({ url: stringifyRequestUrl(url), init: init ?? {} });
+        return Promise.resolve(Response.json({ value: "ek_test_client_secret" }));
+      },
+      question: "Voice question from microphone for the workspace.",
+      safetyIdentifier: "human:maya-lead",
+      transcriptionOnly: true
+    });
+
+    expect(result.status).toBe("issued");
+    const upstreamBody = JSON.parse(stringifyRequestBody(calls[0]?.init.body) ?? "{}") as {
+      session: {
+        audio?: {
+          input?: {
+            transcription?: { model?: string };
+            turn_detection?: { create_response?: boolean; interrupt_response?: boolean; type?: string };
+          };
+        };
+        instructions?: string;
+        tools?: unknown[];
+      };
+    };
+    expect(upstreamBody.session.audio?.input?.transcription).toEqual({ model: "gpt-4o-mini-transcribe" });
+    expect(upstreamBody.session.audio?.input?.turn_detection).toEqual({
+      create_response: false,
+      interrupt_response: false,
+      type: "server_vad"
+    });
+    expect(upstreamBody.session.instructions).toContain("Transcribe the user's microphone audio only");
+    expect(upstreamBody.session.tools).toEqual([]);
+    expect(result.auditPolicy.allowedTools).toEqual([]);
+    expect(result.auditPolicy.recordIds).toEqual(["OPENAI-REALTIME-TRANSCRIPTION"]);
+  });
+
   it("does not validate unrelated connector credentials before issuing a guarded client secret", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const result = await requestRealtimeClientSecret({
@@ -351,4 +389,16 @@ function stringifyRequestUrl(url: RequestInfo | URL): string {
   }
 
   return url.url;
+}
+
+function stringifyRequestBody(body: BodyInit | null | undefined): string | undefined {
+  if (typeof body === "string") {
+    return body;
+  }
+
+  if (body instanceof URLSearchParams) {
+    return body.toString();
+  }
+
+  return undefined;
 }

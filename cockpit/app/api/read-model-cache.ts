@@ -39,8 +39,9 @@ interface SupabaseReadModelRow {
 export const mayaForensicsReadModelKey = "maya:forensics:v1";
 export const mayaConnectorsReadModelKey = "maya:connectors:v1";
 export const davidCreditRiskReadModelKey = "david:credit-risk-review:v1";
-// Operational freshness allowance for a read model refreshed by a 10-minute scheduled job.
-export const davidCreditRiskReadModelMaxAgeMs = 15 * 60 * 1_000;
+// Operational freshness allowance for read models refreshed by the 10-minute scheduled job.
+export const scheduledReadModelMaxAgeMs = 15 * 60 * 1_000;
+export const davidCreditRiskReadModelMaxAgeMs = scheduledReadModelMaxAgeMs;
 const readModelFutureSkewMs = 30_000;
 export const readModelCacheHeader = "x-recoup-read-model-cache";
 export const readModelSourceRefreshedAtHeader = "x-recoup-read-model-source-refreshed-at";

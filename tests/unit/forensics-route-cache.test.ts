@@ -6,7 +6,8 @@ import {
   readModelCacheHeader,
   readModelReceiptHashHeader,
   readModelSourceHashHeader,
-  readModelSourceRefreshedAtHeader
+  readModelSourceRefreshedAtHeader,
+  scheduledReadModelMaxAgeMs
 } from "../../cockpit/app/api/read-model-cache.js";
 import {
   createSignedDemoSessionValue,
@@ -40,8 +41,9 @@ describe("Forensics route read-model cache", () => {
     vi.unstubAllEnvs();
   });
 
-  it("serves the cached Maya forensics model before triggering a non-blocking refresh", async () => {
+  it("serves the cached Maya forensics model without contending with the scheduled refresh", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
     const cachedModel = {
       selected: { lineId: "S6-L1" },
       surface: "forensics-analyst",
@@ -58,25 +60,20 @@ describe("Forensics route read-model cache", () => {
         return Promise.resolve(
           Response.json([
             {
-              generated_at: "2026-07-01T01:12:16.319Z",
+              generated_at: cachedAt,
               model_key: mayaForensicsReadModelKey,
               payload_hash: "a".repeat(64),
               payload_json: cachedModel,
               persona: "maya",
               source_record_ids_json: cachedSourceRecordIds,
-              source_refreshed_at: "2026-07-01T01:12:16.319Z",
+              source_refreshed_at: cachedAt,
               surface: "forensics-analyst"
             }
           ])
         );
       }
 
-      expect(url).toBe("http://recoup-api.test/forensics/refresh");
-      expect(sawCacheLookup).toBe(true);
-      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
-      expect(headerValue(init?.headers, "x-recoup-human-principal")).toBe(mayaEnvPatch.RECOUP_COCKPIT_HUMAN_PRINCIPAL);
-      expect(headerValue(init?.headers, "x-recoup-human-token")).toBe(mayaEnvPatch.RECOUP_COCKPIT_AUTH_TOKEN);
-      return new Promise<Response>(() => {});
+      throw new Error(`Unexpected cache-hit fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -92,11 +89,59 @@ describe("Forensics route read-model cache", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get(readModelCacheHeader)).toBe("hit");
-    expect(response.headers.get(readModelSourceRefreshedAtHeader)).toBe("2026-07-01T01:12:16.319Z");
+    expect(response.headers.get(readModelSourceRefreshedAtHeader)).toBe(cachedAt);
     expect(response.headers.get(readModelReceiptHashHeader)).toBe(cachedBusinessHashes.receiptHash);
     expect(response.headers.get(readModelSourceHashHeader)).toBe(cachedBusinessHashes.sourceHash);
     expect(body).toEqual(cachedModel);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sawCacheLookup).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("bypasses an expired Maya cache row and self-heals through the live backend", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleAt = new Date(Date.now() - scheduledReadModelMaxAgeMs - 1).toISOString();
+    const cachedModel = { selected: { lineId: "STALE-LINE" }, surface: "forensics-analyst", worklist: [] };
+    const backendModel = {
+      selected: { lineId: "S6-L1" },
+      surface: "forensics-analyst",
+      worklist: [{ lineId: "S6-L1" }]
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models")) {
+        return Promise.resolve(Response.json([{
+          generated_at: staleAt,
+          model_key: mayaForensicsReadModelKey,
+          payload_hash: "a".repeat(64),
+          payload_json: cachedModel,
+          persona: "maya",
+          source_record_ids_json: ["STALE-LINE"],
+          source_refreshed_at: staleAt,
+          surface: "forensics-analyst"
+        }]));
+      }
+      if (url === "http://recoup-api.test/forensics") {
+        return Promise.resolve(Response.json(backendModel));
+      }
+      if (url === "http://recoup-api.test/forensics/refresh") {
+        return new Promise<Response>(() => {});
+      }
+
+      throw new Error(`Unexpected stale-cache fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensics(
+      new Request("http://localhost/api/forensics", {
+        headers: { cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}` },
+        method: "GET"
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get(readModelCacheHeader)).toBe("miss");
+    expect(await response.json()).toEqual(backendModel);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("proxies the backend on a cache miss and kicks a background refresh", async () => {
@@ -257,18 +302,4 @@ function fetchInputUrl(input: RequestInfo | URL | undefined): string {
   }
 
   return input?.url ?? "";
-}
-
-function headerValue(headers: HeadersInit | undefined, name: string): string | undefined {
-  if (headers === undefined) {
-    return undefined;
-  }
-  if (headers instanceof Headers) {
-    return headers.get(name) ?? undefined;
-  }
-  if (Array.isArray(headers)) {
-    return headers.find(([candidate]) => candidate.toLowerCase() === name.toLowerCase())?.[1];
-  }
-
-  return headers[name];
 }

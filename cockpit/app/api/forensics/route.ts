@@ -6,7 +6,8 @@ import {
   proxyJsonResponse,
   readCachedReadModelPayload,
   readModelJsonResponse,
-  refreshReadModelAfterResponse
+  refreshReadModelAfterResponse,
+  scheduledReadModelMaxAgeMs
 } from "../read-model-cache.ts";
 
 export async function GET(request: Request): Promise<Response> {
@@ -19,9 +20,10 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Verified human cockpit auth required." }, { headers: noStoreHeaders(), status: 401 });
   }
 
-  const cached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsReadModelKey, "forensics-analyst");
+  const cached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsReadModelKey, "forensics-analyst", {
+    maxAgeMs: scheduledReadModelMaxAgeMs
+  });
   if (cached !== undefined) {
-    refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "POST", path: "/forensics/refresh" });
     return readModelJsonResponse(cached.payload, "hit", {
       businessHashes: buildForensicsReadModelBusinessHashes(cached.sourceRecordIds),
       sourceRefreshedAt: cached.sourceRefreshedAt

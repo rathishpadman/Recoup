@@ -41,6 +41,8 @@ export interface StartRealtimeBrowserSessionInput {
   createPeerConnection?: () => RTCPeerConnection;
   fetcher?: typeof fetch;
   mediaDevices?: Pick<MediaDevices, "getUserMedia">;
+  mode?: "query_tool" | "transcription_only";
+  onInputTranscriptCompleted?: (transcript: string) => Promise<void> | void;
   onSnapshot?: (snapshot: RealtimeBrowserSessionSnapshot) => void;
   question: string;
   recordIds: readonly string[];
@@ -85,6 +87,8 @@ export async function startRealtimeBrowserSession({
   createPeerConnection = () => new RTCPeerConnection(),
   fetcher = fetch,
   mediaDevices = navigator.mediaDevices,
+  mode = "query_tool",
+  onInputTranscriptCompleted,
   onSnapshot,
   question,
   recordIds,
@@ -112,7 +116,10 @@ export async function startRealtimeBrowserSession({
     dataChannel?: RTCDataChannel;
     peerConnection?: RTCPeerConnection;
   } = {};
+  const handledToolCallIds = new Set<string>();
+  const pendingToolCallIds = new Set<string>();
   let externallyCancelled = signal?.aborted ?? false;
+  let transcriptionCompleted = false;
 
   function publish(next: RealtimeBrowserSessionSnapshot): void {
     if (externallyCancelled) {
@@ -128,11 +135,33 @@ export async function startRealtimeBrowserSession({
     signal?.removeEventListener("abort", cancelFromExternalSignal);
     cleanupState.dataChannel?.close();
     cleanupState.peerConnection?.close();
+    stopLocalInputTracks();
+    if (remoteAudio !== null) {
+      remoteAudio.srcObject = null;
+    }
+  }
+
+  function stopLocalInputTracks(): void {
     for (const track of localTracks) {
       track.stop();
     }
-    if (remoteAudio !== null) {
-      remoteAudio.srcObject = null;
+  }
+
+  async function completeTranscription(transcript: string): Promise<void> {
+    if (mode !== "transcription_only" || transcriptionCompleted || transcript.length === 0) {
+      return;
+    }
+
+    transcriptionCompleted = true;
+    cleanupResources();
+    try {
+      await onInputTranscriptCompleted?.(transcript);
+    } catch {
+      publish({
+        ...snapshot,
+        message: "Workspace voice query failed after transcription.",
+        status: "error"
+      });
     }
   }
 
@@ -177,8 +206,9 @@ export async function startRealtimeBrowserSession({
   try {
     secretResponse = await fetcher("/api/query/realtime-client-secret", {
       body: JSON.stringify({
+        ...(mode === "transcription_only" ? { mode } : {}),
         question: clientSecretQuestion,
-        ...(selectedQueryScope === undefined
+        ...(mode === "transcription_only" || selectedQueryScope === undefined
           ? {}
           : { recordIds: [...selectedQueryScope.recordIds], selectedLineId: selectedQueryScope.selectedLineId })
       }),
@@ -245,15 +275,29 @@ export async function startRealtimeBrowserSession({
     cleanupState.dataChannel = dataChannel;
     dataChannel.addEventListener("message", (event) => {
       void handleRealtimeEvent(String(event.data), {
-        dataChannel,
-        fallbackQuestion: clientSecretQuestion,
-        fetcher,
-        getSnapshot: () => snapshot,
-        publish,
-        ...(secret.model === undefined ? {} : { realtimeModel: secret.model }),
-        selectedQueryScope,
-        toolEndpoint
-      });
+          cleanupResources,
+          dataChannel,
+          fallbackQuestion: clientSecretQuestion,
+          fetcher,
+          getSnapshot: () => snapshot,
+          handledToolCallIds,
+          mode,
+          onInputTranscriptCompleted: completeTranscription,
+          pendingToolCallIds,
+          publish,
+          ...(secret.model === undefined ? {} : { realtimeModel: secret.model }),
+          selectedQueryScope,
+          stopLocalInputTracks,
+          toolEndpoint
+        })
+        .catch(() => {
+          cleanupResources();
+          publish({
+            ...snapshot,
+            message: "Realtime cited query failed closed.",
+            status: "error"
+          });
+        });
     });
 
     const offer = await peerConnection.createOffer();
@@ -312,7 +356,7 @@ export async function startRealtimeBrowserSession({
         return;
       }
 
-      if (hasTypedQuestion) {
+      if (mode === "query_tool" && hasTypedQuestion) {
         dataChannel.send(
           JSON.stringify({
             item: {
@@ -359,12 +403,18 @@ async function handleRealtimeEvent(
   rawEvent: string,
   context: {
     dataChannel: RTCDataChannel;
+    cleanupResources: () => void;
     fallbackQuestion: string;
     fetcher: typeof fetch;
     getSnapshot: () => RealtimeBrowserSessionSnapshot;
+    handledToolCallIds: Set<string>;
+    mode: "query_tool" | "transcription_only";
+    onInputTranscriptCompleted: (transcript: string) => Promise<void>;
+    pendingToolCallIds: Set<string>;
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
     realtimeModel?: string;
     selectedQueryScope: SelectedQueryScope | undefined;
+    stopLocalInputTracks: () => void;
     toolEndpoint: string;
   }
 ): Promise<void> {
@@ -381,11 +431,22 @@ async function handleRealtimeEvent(
 
   const toolCall = readRealtimeFunctionCall(parsed);
   if (toolCall !== undefined) {
-    await handleRealtimeToolCall(toolCall, context);
+    if (context.mode === "query_tool" && !context.handledToolCallIds.has(toolCall.callId)) {
+      context.handledToolCallIds.add(toolCall.callId);
+      context.pendingToolCallIds.add(toolCall.callId);
+      try {
+        await handleRealtimeToolCall(toolCall, context);
+      } finally {
+        context.pendingToolCallIds.delete(toolCall.callId);
+      }
+    }
     return;
   }
 
   const eventType = typeof parsed["type"] === "string" ? parsed["type"] : "";
+  if (context.getSnapshot().status === "answered" && isMicrophoneInputEvent(eventType)) {
+    return;
+  }
   if (eventType === "input_audio_buffer.speech_started") {
     const current = context.getSnapshot();
     context.publish({
@@ -434,6 +495,9 @@ async function handleRealtimeEvent(
       message: "Processing...",
       status: "processing"
     });
+    if (context.mode === "transcription_only") {
+      await context.onInputTranscriptCompleted(transcript);
+    }
     return;
   }
 
@@ -487,15 +551,28 @@ async function handleRealtimeEvent(
       return;
     }
 
+    context.cleanupResources();
     publishBlockedCitationParity(context.publish, policyRecordIds);
     return;
   }
 
   if (parsed["type"] === "response.done") {
+    if (context.mode === "transcription_only") {
+      return;
+    }
     const current = context.getSnapshot();
     if (current.status === "answered") {
       return;
     }
+    if (context.pendingToolCallIds.size > 0) {
+      context.publish({
+        ...current,
+        message: "Waiting for cited query result...",
+        status: "processing"
+      });
+      return;
+    }
+    context.cleanupResources();
     context.publish({
       ...(current.deterministicBasis === undefined ? {} : { deterministicBasis: current.deterministicBasis }),
       ...(current.inputTranscript === undefined ? {} : { inputTranscript: current.inputTranscript }),
@@ -509,6 +586,7 @@ async function handleRealtimeEvent(
 async function handleRealtimeToolCall(
   toolCall: RealtimeFunctionCall,
   {
+    cleanupResources,
     dataChannel,
     fallbackQuestion,
     fetcher,
@@ -516,8 +594,10 @@ async function handleRealtimeToolCall(
     publish,
     realtimeModel,
     selectedQueryScope,
+    stopLocalInputTracks,
     toolEndpoint
   }: {
+    cleanupResources: () => void;
     dataChannel: RTCDataChannel;
     fallbackQuestion: string;
     fetcher: typeof fetch;
@@ -525,6 +605,7 @@ async function handleRealtimeToolCall(
     publish: (snapshot: RealtimeBrowserSessionSnapshot) => void;
     realtimeModel?: string;
     selectedQueryScope: SelectedQueryScope | undefined;
+    stopLocalInputTracks: () => void;
     toolEndpoint: string;
   }
 ): Promise<void> {
@@ -544,6 +625,7 @@ async function handleRealtimeToolCall(
   const result = (await response.json()) as RealtimeToolRouteResult;
 
   if (!response.ok || result.status !== "ok") {
+    cleanupResources();
     publish({
       deterministicBasis: result.deterministicBasis ?? "Realtime tool bridge blocked the requested tool call.",
       message: "Blocked Realtime tool call.",
@@ -555,6 +637,7 @@ async function handleRealtimeToolCall(
 
   const citedAnswer = readCitedAnswer(result.output);
   if (isRealtimeQueryAnswerToolName(toolCall.name) && citedAnswer === undefined) {
+    cleanupResources();
     publish({
       deterministicBasis: result.deterministicBasis,
       message: "Blocked cited Realtime answer without matching voice/text citation parity.",
@@ -567,18 +650,6 @@ async function handleRealtimeToolCall(
   const output = isRealtimeQueryAnswerToolName(toolCall.name)
     ? sanitizedRealtimeQueryToolOutput(result.output)
     : result.output;
-  dataChannel.send(
-    JSON.stringify({
-      item: {
-        call_id: toolCall.callId,
-        output: JSON.stringify(output),
-        type: "function_call_output"
-      },
-      type: "conversation.item.create"
-    })
-  );
-  dataChannel.send(JSON.stringify({ type: "response.create" }));
-
   if (citedAnswer !== undefined) {
     const current = getSnapshot();
     publish({
@@ -596,6 +667,27 @@ async function handleRealtimeToolCall(
       recordIds: citedAnswer.recordIds,
       status: "answered"
     });
+    stopLocalInputTracks();
+  }
+
+  try {
+    dataChannel.send(
+      JSON.stringify({
+        item: {
+          call_id: toolCall.callId,
+          output: JSON.stringify(output),
+          type: "function_call_output"
+        },
+        type: "conversation.item.create"
+      })
+    );
+    dataChannel.send(JSON.stringify({ type: "response.create" }));
+  } catch {
+    cleanupResources();
+    return;
+  }
+
+  if (citedAnswer !== undefined) {
     return;
   }
 
@@ -608,6 +700,15 @@ function readRealtimeTranscriptDelta(event: Record<string, unknown>): string {
   }
 
   return "";
+}
+
+function isMicrophoneInputEvent(eventType: string): boolean {
+  return (
+    eventType === "input_audio_buffer.speech_started" ||
+    eventType === "input_audio_buffer.speech_stopped" ||
+    eventType.startsWith("conversation.item.input_audio_transcription.") ||
+    eventType.startsWith("input_audio_transcription.")
+  );
 }
 
 function readRealtimeTranscriptText(event: Record<string, unknown>): string {

@@ -203,9 +203,9 @@ const demoLifecycleResetRequestSchema = z
     }
   });
 
-const realtimeClientSecretRequestSchema = z
+const realtimeSelectedClientSecretRequestSchema = z
   .object({
-    question: z.string().trim().min(1, "Realtime query question is required."),
+    question: z.string().trim().min(1, "Realtime query question is required.").max(500, "Realtime query question is too long."),
     recordIds: z.array(z.string().trim().min(1)).min(1, "Realtime query selected recordIds are required."),
     selectedLineId: z.string().trim().min(1, "Realtime query selectedLineId is required.")
   })
@@ -219,6 +219,12 @@ const realtimeClientSecretRequestSchema = z
       });
     }
   });
+const realtimeTranscriptionClientSecretRequestSchema = z
+  .object({
+    mode: z.literal("transcription_only"),
+    question: z.string().trim().min(1, "Realtime transcription prompt is required.").max(500, "Realtime transcription prompt is too long.")
+  })
+  .strict();
 const forensicsSelectedQueryRequestSchema = z
   .object({
     question: z.string().trim().min(1, "Forensics query question is required.").max(500, "Forensics query question is too long."),
@@ -2263,18 +2269,35 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const parsedRequest = realtimeClientSecretRequestSchema.safeParse(request.body);
+    const realtimeRequestSchema =
+      isRecord(request.body) && request.body["mode"] === "transcription_only"
+        ? realtimeTranscriptionClientSecretRequestSchema
+        : realtimeSelectedClientSecretRequestSchema;
+    const parsedRequest = realtimeRequestSchema.safeParse(request.body);
     if (!parsedRequest.success) {
       response.status(400).json({ error: parsedRequest.error.issues[0]?.message ?? "Realtime query question is required." });
       return;
     }
 
     try {
+      if ("mode" in parsedRequest.data) {
+        const result = await requestRealtimeClientSecret({
+          env: runtimeEnv,
+          ...(options.realtimeFetcher === undefined ? {} : { fetcher: options.realtimeFetcher }),
+          question: parsedRequest.data.question,
+          safetyIdentifier: human.principal,
+          transcriptionOnly: true
+        });
+        response.status(result.status === "blocked_missing_credentials" ? 503 : 200).json(result);
+        return;
+      }
+
       const runContext = await loadRequiredForensicsRunContext(request, response);
       if (runContext === undefined) {
         return;
       }
-      const selectedScope = buildMayaSelectedQueryScope(runContext, parsedRequest.data);
+      const selectedRequest = realtimeSelectedClientSecretRequestSchema.parse(parsedRequest.data);
+      const selectedScope = buildMayaSelectedQueryScope(runContext, selectedRequest);
       if (selectedScope.status === "blocked") {
         response.status(400).json({ error: "Realtime query selected evidence scope is not current." });
         return;

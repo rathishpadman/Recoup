@@ -44,6 +44,46 @@ describe("Realtime browser session helper", () => {
     expect(fakes.lastDataChannel.sentMessages).toEqual([]);
   });
 
+  it("uses microphone transcription for workspace voice without invoking the selected-evidence tool bridge", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const completedTranscripts: string[] = [];
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      mode: "transcription_only",
+      onInputTranscriptCompleted: (transcript) => {
+        completedTranscripts.push(transcript);
+      },
+      question: "Voice question from microphone for the workspace."
+    });
+
+    expect(fakes.fetchCalls[0]?.body).toBe(JSON.stringify({
+      mode: "transcription_only",
+      question: "Voice question from microphone for the workspace."
+    }));
+    fakes.lastDataChannel.dispatchOpen();
+    expect(fakes.lastDataChannel.sentMessages).toEqual([]);
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({
+      transcript: "Which customers have invalid deductions?",
+      type: "conversation.item.input_audio_transcription.completed"
+    }));
+    await waitForMicrotasks();
+
+    expect(completedTranscripts).toEqual(["Which customers have invalid deductions?"]);
+    expect(fakes.fetchCalls.map((call) => call.url)).toEqual([
+      "/api/query/realtime-client-secret",
+      "https://api.openai.com/v1/realtime/calls"
+    ]);
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("response.create"))).toBe(false);
+    expect(fakes.mediaStream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(result.getSnapshot()).toMatchObject({
+      inputTranscript: "Which customers have invalid deductions?",
+      status: "processing"
+    });
+  });
+
   it("requests the local cockpit proxy before opening microphone or peer connection", async () => {
     const fakes = createRealtimeFakes();
     fakes.enqueueJsonResponse({
@@ -457,6 +497,145 @@ describe("Realtime browser session helper", () => {
       recordIds: ["CUST-HARBOR"],
       status: "answered"
     });
+  });
+
+  it("waits for an in-flight cited tool result when response.done arrives and deduplicates repeated call events", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const toolResponse = deferred<Response>();
+    fakes.enqueueResponse(toolResponse.promise);
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "What evidence supports this verdict?",
+      recordIds: ["DOC-S1-L1"],
+      selectedLineId: "S1-L1"
+    });
+    const functionCall = {
+      item: {
+        arguments: "{}",
+        call_id: "call-race-query-answer",
+        name: "query_answer",
+        type: "function_call"
+      },
+      type: "response.output_item.done"
+    };
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify(functionCall));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify(functionCall));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ type: "response.done" }));
+    await waitForMicrotasks();
+
+    expect(fakes.fetchCalls.filter((call) => call.url === "/api/query/realtime-tool")).toHaveLength(1);
+    expect(result.getSnapshot()).toMatchObject({
+      status: "processing"
+    });
+
+    fakes.lastDataChannel.close();
+    toolResponse.resolve(Response.json({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "The selected evidence supports the cited verdict.",
+        citationParity: {
+          parity: "same_record_ids",
+          textRecordIds: ["S1-L1", "DOC-S1-L1"],
+          voiceRecordIds: ["S1-L1", "DOC-S1-L1"]
+        },
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["S1-L1", "DOC-S1-L1"]
+      },
+      recordIds: ["S1-L1", "DOC-S1-L1"],
+      status: "ok",
+      toolName: "query.answer"
+    }));
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "The selected evidence supports the cited verdict.",
+      status: "answered"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ type: "input_audio_buffer.speech_started" }));
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "The selected evidence supports the cited verdict.",
+      status: "answered"
+    });
+  });
+
+  it.each([
+    {
+      label: "network rejection",
+      makeResponse: () => Promise.reject(new Error("tool route unavailable"))
+    },
+    {
+      label: "malformed JSON",
+      makeResponse: () => new Response("not-json", { status: 200 })
+    }
+  ])("fails closed when the Realtime tool route returns $label", async ({ makeResponse }) => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueResponse(makeResponse());
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "What evidence supports this verdict?",
+      recordIds: ["DOC-S1-L1"],
+      selectedLineId: "S1-L1"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({
+      item: {
+        arguments: "{}",
+        call_id: "call-tool-route-failure",
+        name: "query_answer",
+        type: "function_call"
+      },
+      type: "response.output_item.done"
+    }));
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({ type: "response.done" }));
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot()).toMatchObject({
+      message: "Realtime cited query failed closed.",
+      status: "error"
+    });
+    expect(fakes.mediaStream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(fakes.peerConnections.every((peer) => peer.closed)).toBe(true);
+  });
+
+  it("blocks a non-success Realtime tool response without leaving the session processing", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueResponse(Response.json({
+      deterministicBasis: "Realtime tool route rejected the request.",
+      recordIds: ["OPENAI-REALTIME-POLICY"],
+      status: "blocked_tool"
+    }, { status: 503 }));
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "What evidence supports this verdict?",
+      recordIds: ["DOC-S1-L1"],
+      selectedLineId: "S1-L1"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({
+      item: {
+        arguments: "{}",
+        call_id: "call-tool-route-503",
+        name: "query_answer",
+        type: "function_call"
+      },
+      type: "response.output_item.done"
+    }));
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot()).toMatchObject({
+      message: "Blocked Realtime tool call.",
+      status: "blocked"
+    });
+    expect(fakes.mediaStream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(fakes.peerConnections.every((peer) => peer.closed)).toBe(true);
   });
 
   it("forces selected evidence scope and transcript question when Realtime omits query_answer arguments", async () => {
@@ -918,6 +1097,9 @@ class FakeDataChannel {
   }
 
   send(message: string): void {
+    if (this.closed) {
+      throw new Error("RTCDataChannel is closed.");
+    }
     this.sentMessages.push(message);
   }
 }
