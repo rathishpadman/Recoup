@@ -681,7 +681,9 @@ async function handleRealtimeToolCall(
         type: "conversation.item.create"
       })
     );
-    dataChannel.send(JSON.stringify({ type: "response.create" }));
+    if (citedAnswer === undefined) {
+      dataChannel.send(JSON.stringify({ type: "response.create" }));
+    }
   } catch {
     cleanupResources();
     return;

@@ -261,6 +261,7 @@ export async function requestRealtimeClientSecret({
         },
         instructions: buildRealtimeSessionInstructions(queryScope),
         model: runtimeModels.realtime,
+        tool_choice: { name: "query_answer", type: "function" },
         tools: buildRealtimeToolManifest(),
         type: "realtime"
       };

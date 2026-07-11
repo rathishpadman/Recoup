@@ -491,6 +491,7 @@ describe("Realtime browser session helper", () => {
       })
     );
     expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("function_call_output"))).toBe(true);
+    expect(fakes.lastDataChannel.sentMessages.some((message) => message.includes("response.create"))).toBe(false);
     expect(result.getSnapshot()).toMatchObject({
       answer: "Harbor is blocked from cited deterministic state.",
       deterministicBasis: "query.answer + cited records",

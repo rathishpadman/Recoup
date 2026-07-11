@@ -92,6 +92,7 @@ describe("Realtime session policy", () => {
         input_audio_transcription?: unknown;
         instructions?: string;
         model: string;
+        tool_choice?: { name?: string; type?: string };
         tools?: Array<{ name: string }>;
         type: string;
       };
@@ -105,6 +106,7 @@ describe("Realtime session policy", () => {
     expect(upstreamBody.session.input_audio_transcription).toBeUndefined();
     expect(upstreamBody.session.audio?.input?.transcription).toEqual({ model: "gpt-4o-mini-transcribe" });
     expect(upstreamBody.session.tools?.map((tool) => tool.name)).toEqual(["audit_read", "query_answer"]);
+    expect(upstreamBody.session.tool_choice).toEqual({ name: "query_answer", type: "function" });
     expect(calls[0]?.init.headers).toMatchObject({
       Authorization: "Bearer sk-live-secret",
       "OpenAI-Safety-Identifier": "human-cfo"
