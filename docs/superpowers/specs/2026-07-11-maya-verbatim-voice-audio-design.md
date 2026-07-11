@@ -7,7 +7,7 @@ Use browser speech synthesis for Maya's greeting and cited-answer playback. The 
 ## Scope
 
 - Applies to Maya overview and selected-evidence Voice queries.
-- After microphone permission succeeds, speak the time-appropriate greeting: "Good morning, Maya. How can I help you?", "Good afternoon, Maya. How can I help you?", or "Good evening, Maya. How can I help you?"
+- On Voice click, speak the time-appropriate greeting before microphone capture starts: "Good morning, Maya. How can I help you?", "Good afternoon, Maya. How can I help you?", or "Good evening, Maya. How can I help you?" Waiting for the greeting prevents Maya's own audio from being transcribed as the user's question.
 - Continue using OpenAI Realtime only for microphone transcription.
 - Continue using `/api/forensics/query` for the cited, scoped, live-agent answer.
 - After an answered response passes existing citation and scope checks, speak that exact visible answer text.
@@ -20,6 +20,7 @@ Use browser speech synthesis for Maya's greeting and cited-answer playback. The 
 - Unsupported speech synthesis or playback failure must not fail or retry the query.
 - Error, blocked, and uncited responses must not be spoken.
 - Starting a new greeting or answer cancels any prior utterance.
+- Greeting playback resolves on completion or audio error; unsupported speech proceeds directly to microphone capture.
 
 ## Implementation boundary
 
