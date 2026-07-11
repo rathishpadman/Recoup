@@ -70,7 +70,7 @@ describe("Warm backend cron route", () => {
   it("keeps the ten-minute GitHub Action authenticated and gated on a completed cache refresh", () => {
     const workflow = readFileSync(".github/workflows/warm-recoup-backend.yml", "utf8");
 
-    expect(workflow).toContain('cron: "*/10 * * * *"');
+    expect(workflow).toContain('cron: "3,13,23,33,43,53 * * * *"');
     expect(workflow).toContain("/api/cron/warm-backend");
     expect(workflow).toContain("secrets.RECOUP_WARM_BACKEND_SECRET");
     expect(workflow).toContain('Authorization: Bearer ${RECOUP_WARM_BACKEND_SECRET}');
