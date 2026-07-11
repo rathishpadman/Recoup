@@ -370,8 +370,6 @@ export function QueryEvidenceDock({
     if (isRunning) {
       return;
     }
-    const voiceQuestion = trimmedQuestion.length === 0 ? MICROPHONE_FIRST_QUESTION_PROMPT : trimmedQuestion;
-
     const previousAbortController = abortControllerRef.current;
     abortControllerRef.current = null;
     previousAbortController?.abort();
@@ -403,99 +401,75 @@ export function QueryEvidenceDock({
     });
 
     try {
-      if (activeQueryScope === "workspace") {
-        const workspaceSettlementRunId = settlementRunId?.trim();
-        if (workspaceSettlementRunId === undefined || workspaceSettlementRunId.length === 0) {
-          const message = "Maya needs the current settlement run before workspace voice questions. Refresh Maya and try again.";
-          setVoiceSessionStatus("error");
-          setVoiceStatusMessage(message);
-          setError(message);
-          publishForToken(activeStartToken, activeEvidenceIdentity, {
-            citations: [],
-            message,
-            recordIds: activeRecordIds,
-            status: "error",
-            trace: []
-          });
-          return;
-        }
-
-        const realtimeSession = await startRealtimeBrowserSession({
-          mode: "transcription_only",
-          onInputTranscriptCompleted: async (transcript) => {
-            const normalizedTranscript = transcript.trim();
-            if (!isCurrentSession(activeStartToken) || normalizedTranscript.length === 0) {
-              return;
-            }
-
-            setSubmittedQuestion(normalizedTranscript);
-            setVoiceSessionStatus("processing");
-            setVoiceStatusMessage("Checking workspace evidence.");
-            const response = await fetch("/api/forensics/query", {
-              body: JSON.stringify({
-                question: normalizedTranscript,
-                scope: "workspace",
-                settlementRunId: workspaceSettlementRunId
-              }),
-              cache: "no-store",
-              headers: { "content-type": "application/json" },
-              method: "POST",
-              signal: abortController.signal
-            });
-
-            if (!isCurrentSession(activeStartToken)) {
-              return;
-            }
-
-            const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
-            if (!response.ok) {
-              const message = "error" in body && typeof body.error === "string" ? body.error : "Workspace voice query failed.";
-              throw new Error(message);
-            }
-
-            const nextSnapshot = buildQueryEvidenceSnapshot({
-              evidencePackRecordIds: activeEvidencePack.recordIds,
-              queryScope: activeQueryScope,
-              recordIds: activeRecordIds,
-              response: body as QueryEvidenceBackendResponse,
-              selectedLine: activeSelectedLine
-            });
-            setVoiceSessionStatus(responseStatusToVoiceSessionStatus(nextSnapshot.status));
-            setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
-            setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
-            publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
-          },
-          onSnapshot: (voiceSnapshot) => {
-            if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
-              return;
-            }
-
-            setVoiceSessionStatus(toVoiceSessionStatus(voiceSnapshot.status));
-            setVoiceInputTranscript(voiceSnapshot.inputTranscript ?? "");
-            setVoiceStatusMessage(voiceSnapshot.message);
-            if ((voiceSnapshot.inputTranscript?.trim().length ?? 0) > 0) {
-              setSubmittedQuestion(voiceSnapshot.inputTranscript ?? "");
-            }
-            publishForToken(activeStartToken, activeEvidenceIdentity, {
-              citations: [],
-              message: voiceSnapshot.message,
-              recordIds: activeRecordIds,
-              status: voiceSnapshot.status === "error" ? "error" : "connecting",
-              trace: []
-            });
-          },
-          question: WORKSPACE_MICROPHONE_FIRST_QUESTION_PROMPT,
-          signal: abortController.signal
+      const workspaceSettlementRunId = activeQueryScope === "workspace" ? settlementRunId?.trim() : undefined;
+      if (activeQueryScope === "workspace" && (workspaceSettlementRunId === undefined || workspaceSettlementRunId.length === 0)) {
+        const message = "Maya needs the current settlement run before workspace voice questions. Refresh Maya and try again.";
+        setVoiceSessionStatus("error");
+        setVoiceStatusMessage(message);
+        setError(message);
+        publishForToken(activeStartToken, activeEvidenceIdentity, {
+          citations: [],
+          message,
+          recordIds: activeRecordIds,
+          status: "error",
+          trace: []
         });
-        if (!isCurrentSession(activeStartToken)) {
-          realtimeSession.close();
-          return;
-        }
-        realtimeSessionRef.current = realtimeSession;
         return;
       }
 
       const realtimeSession = await startRealtimeBrowserSession({
+        mode: "transcription_only",
+        onInputTranscriptCompleted: async (transcript) => {
+          const normalizedTranscript = transcript.trim();
+          if (!isCurrentSession(activeStartToken) || normalizedTranscript.length === 0) {
+            return;
+          }
+
+          setSubmittedQuestion(normalizedTranscript);
+          setVoiceSessionStatus("processing");
+          setVoiceStatusMessage(activeQueryScope === "workspace" ? "Checking workspace evidence." : "Checking selected evidence.");
+          const response = await fetch("/api/forensics/query", {
+            body: JSON.stringify(
+              activeQueryScope === "workspace"
+                ? {
+                    question: normalizedTranscript,
+                    scope: "workspace",
+                    settlementRunId: workspaceSettlementRunId
+                  }
+                : {
+                    question: normalizedTranscript,
+                    recordIds: activeRecordIds,
+                    selectedLineId: activeSelectedLine
+                  }
+            ),
+            cache: "no-store",
+            headers: { "content-type": "application/json" },
+            method: "POST",
+            signal: abortController.signal
+          });
+
+          if (!isCurrentSession(activeStartToken)) {
+            return;
+          }
+
+          const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
+          if (!response.ok) {
+            const message = "error" in body && typeof body.error === "string" ? body.error : "Voice query failed.";
+            throw new Error(message);
+          }
+
+          const nextSnapshot = buildQueryEvidenceSnapshot({
+            evidencePackRecordIds: activeEvidencePack.recordIds,
+            queryScope: activeQueryScope,
+            recordIds: activeRecordIds,
+            response: body as QueryEvidenceBackendResponse,
+            selectedLine: activeSelectedLine
+          });
+          setVoiceSessionStatus(responseStatusToVoiceSessionStatus(nextSnapshot.status));
+          setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
+          setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
+          publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
+        },
         onSnapshot: (voiceSnapshot) => {
           if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
             return;
@@ -503,26 +477,20 @@ export function QueryEvidenceDock({
 
           setVoiceSessionStatus(toVoiceSessionStatus(voiceSnapshot.status));
           setVoiceInputTranscript(voiceSnapshot.inputTranscript ?? "");
-          setVoiceAssistantTranscript(voiceSnapshot.assistantTranscript ?? "");
           setVoiceStatusMessage(voiceSnapshot.message);
           if ((voiceSnapshot.inputTranscript?.trim().length ?? 0) > 0) {
             setSubmittedQuestion(voiceSnapshot.inputTranscript ?? "");
           }
-          const nextSnapshot = toVoiceQueryEvidenceSnapshot({
-            evidencePack: activeEvidencePack,
-            realtimeSnapshot: voiceSnapshot
+          setError(voiceSnapshot.status === "error" ? "Voice permission or session setup failed. Text query is still available." : undefined);
+          publishForToken(activeStartToken, activeEvidenceIdentity, {
+            citations: [],
+            message: voiceSnapshot.message,
+            recordIds: activeRecordIds,
+            status: voiceSnapshot.status === "error" ? "error" : "connecting",
+            trace: []
           });
-          if (nextSnapshot.status === "error") {
-            setError("Voice permission or session setup failed. Text query is still available.");
-          } else {
-            setError(undefined);
-          }
-          publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
         },
-        question: voiceQuestion,
-        recordIds: activeRecordIds,
-        remoteAudio: remoteAudioRef.current,
-        selectedLineId: activeSelectedLine,
+        question: activeQueryScope === "workspace" ? WORKSPACE_MICROPHONE_FIRST_QUESTION_PROMPT : MICROPHONE_FIRST_QUESTION_PROMPT,
         signal: abortController.signal
       });
       if (!isCurrentSession(activeStartToken)) {
@@ -1245,86 +1213,6 @@ function QueryEvidenceMetadataRow({ label, value }: { label: string; value: stri
   );
 }
 
-function toVoiceQueryEvidenceSnapshot(input: {
-  evidencePack: MayaEvidencePack;
-  realtimeSnapshot: RealtimeBrowserSessionSnapshot;
-}): QueryEvidenceResponse {
-  const { evidencePack, realtimeSnapshot } = input;
-  const recordIds = dedupeRecordIds(realtimeSnapshot.recordIds);
-  const deterministicBasis = realtimeSnapshot.deterministicBasis;
-  const modelExecutionField =
-    realtimeSnapshot.modelExecution === undefined ? {} : { modelExecution: realtimeSnapshot.modelExecution };
-  const citations =
-    deterministicBasis === undefined
-      ? []
-      : recordIds.map((recordId) => {
-          const document = evidenceDocumentForRecordId(recordId, evidencePack.documents);
-          return {
-            deterministicBasis,
-            ...(document?.documentId === undefined ? {} : { documentId: document.documentId }),
-            recordId,
-            ...(document?.sourceLabel === undefined ? {} : { source: document.sourceLabel }),
-            ...(document?.summary === undefined ? {} : { summary: document.summary })
-          };
-        });
-
-  if (
-    realtimeSnapshot.status === "answered" &&
-    realtimeSnapshot.answer !== undefined &&
-    realtimeSnapshot.answer.trim().length > 0 &&
-    realtimeSnapshot.deterministicBasis !== undefined &&
-    recordIds.length > 0
-  ) {
-    return {
-      answer: realtimeSnapshot.answer,
-      citations,
-      deterministicBasis: realtimeSnapshot.deterministicBasis,
-      message: "Cited voice answer returned from selected evidence.",
-      ...modelExecutionField,
-      recordIds,
-      status: "answered",
-      trace: []
-    };
-  }
-
-  if (
-    realtimeSnapshot.status === "connecting" ||
-    realtimeSnapshot.status === "connected" ||
-    realtimeSnapshot.status === "hearing" ||
-    realtimeSnapshot.status === "processing"
-  ) {
-    return {
-      citations: [],
-      message: realtimeSnapshot.message,
-      recordIds,
-      status: "connecting",
-      trace: []
-    };
-  }
-
-  if (realtimeSnapshot.status === "error") {
-    return {
-      citations,
-      ...(realtimeSnapshot.deterministicBasis === undefined ? {} : { deterministicBasis: realtimeSnapshot.deterministicBasis }),
-      message: realtimeSnapshot.message,
-      ...modelExecutionField,
-      recordIds,
-      status: "error",
-      trace: []
-    };
-  }
-
-  return {
-    citations,
-    ...(realtimeSnapshot.deterministicBasis === undefined ? {} : { deterministicBasis: realtimeSnapshot.deterministicBasis }),
-    message: realtimeSnapshot.message,
-    ...modelExecutionField,
-    recordIds,
-    status: "blocked",
-    trace: []
-  };
-}
-
 function buildSelectedEvidenceIdentity(
   selectedLine: string,
   recordIds: readonly string[],
@@ -1540,16 +1428,6 @@ function evidenceDocumentForCitation(
       document.documentId === citation.recordId ||
       document.citationId === citation.documentId ||
       document.citationId === citation.recordId
-  );
-}
-
-function evidenceDocumentForRecordId(recordId: string, documents: readonly EvidenceDocument[]): EvidenceDocument | undefined {
-  return documents.find(
-    (document) =>
-      document.documentId === recordId ||
-      document.citationId === recordId ||
-      document.evidenceId === recordId ||
-      document.sourceRecordId === recordId
   );
 }
 

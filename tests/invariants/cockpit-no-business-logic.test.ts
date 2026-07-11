@@ -151,6 +151,10 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(queryDock).toContain('aria-label="Ask by voice"');
     expect(queryDock).toContain("recordIds: activeRecordIds");
     expect(queryDock).toContain("selectedLineId: activeSelectedLine");
+    expect(queryDock).toMatch(
+      /mode:\s*"transcription_only"[\s\S]{0,2600}recordIds:\s*activeRecordIds[\s\S]{0,400}selectedLineId:\s*activeSelectedLine/u
+    );
+    expect(queryDock).not.toContain("remoteAudio: remoteAudioRef.current");
     expect(queryDock).toContain("realtimeSessionRef");
     expect(queryDock).not.toContain("new RTCPeerConnection");
     expect(queryDock).not.toContain("getUserMedia");

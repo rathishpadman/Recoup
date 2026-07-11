@@ -84,6 +84,29 @@ describe("Realtime browser session helper", () => {
     });
   });
 
+  it("reports a scope-neutral error when the governed query fails after transcription", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      mode: "transcription_only",
+      onInputTranscriptCompleted: () => Promise.reject(new Error("governed query failed")),
+      question: "Voice question from microphone for the selected evidence packet."
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({
+      transcript: "What supports this selected verdict?",
+      type: "conversation.item.input_audio_transcription.completed"
+    }));
+    await waitForMicrotasks();
+
+    expect(result.getSnapshot()).toMatchObject({
+      message: "Voice query failed after transcription.",
+      status: "error"
+    });
+  });
+
   it("requests the local cockpit proxy before opening microphone or peer connection", async () => {
     const fakes = createRealtimeFakes();
     fakes.enqueueJsonResponse({

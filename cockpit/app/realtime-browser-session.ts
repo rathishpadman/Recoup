@@ -159,7 +159,7 @@ export async function startRealtimeBrowserSession({
     } catch {
       publish({
         ...snapshot,
-        message: "Workspace voice query failed after transcription.",
+        message: "Voice query failed after transcription.",
         status: "error"
       });
     }
