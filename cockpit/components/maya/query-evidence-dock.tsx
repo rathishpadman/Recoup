@@ -12,6 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { cancelBrowserSpeech, mayaGreetingForHour, speakExactBrowserText } from "../../app/browser-speech.ts";
 import {
   startRealtimeBrowserSession,
   type RealtimeBrowserSession,
@@ -104,7 +105,6 @@ export function QueryEvidenceDock({
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const realtimeAbortControllerRef = React.useRef<AbortController | null>(null);
   const realtimeSessionRef = React.useRef<RealtimeBrowserSession | null>(null);
-  const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const pendingPromptQuestionRef = React.useRef<string | undefined>(undefined);
   const sessionTokenRef = React.useRef(0);
   const onResponseRef = React.useRef(onResponse);
@@ -182,6 +182,7 @@ export function QueryEvidenceDock({
 
   const closeActiveSession = React.useCallback((options: { resetComposer?: boolean; resetParentTrace?: boolean } = {}) => {
     sessionTokenRef.current += 1;
+    cancelBrowserSpeech();
     const abortController = abortControllerRef.current;
     abortControllerRef.current = null;
     abortController?.abort();
@@ -265,6 +266,7 @@ export function QueryEvidenceDock({
       return;
     }
 
+    cancelBrowserSpeech();
     const previousAbortController = abortControllerRef.current;
     abortControllerRef.current = null;
     const previousRealtimeAbortController = realtimeAbortControllerRef.current;
@@ -417,6 +419,11 @@ export function QueryEvidenceDock({
         return;
       }
 
+      await speakExactBrowserText(mayaGreetingForHour(new Date().getHours()));
+      if (!isCurrentSession(activeStartToken)) {
+        return;
+      }
+
       const realtimeSession = await startRealtimeBrowserSession({
         mode: "transcription_only",
         onInputTranscriptCompleted: async (transcript) => {
@@ -453,6 +460,9 @@ export function QueryEvidenceDock({
           }
 
           const body = (await response.json()) as QueryEvidenceBackendResponse | { error?: string };
+          if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
+            return;
+          }
           if (!response.ok) {
             const message = "error" in body && typeof body.error === "string" ? body.error : "Voice query failed.";
             throw new Error(message);
@@ -469,6 +479,20 @@ export function QueryEvidenceDock({
           setVoiceStatusMessage(nextSnapshot.status === "answered" ? "Cited voice query answer received." : nextSnapshot.message);
           setError(nextSnapshot.status === "error" ? nextSnapshot.message : undefined);
           publishForToken(activeStartToken, activeEvidenceIdentity, nextSnapshot);
+          if (
+            nextSnapshot.status === "answered" &&
+            nextSnapshot.answer !== undefined &&
+            nextSnapshot.deterministicBasis !== undefined &&
+            nextSnapshot.recordIds.length > 0
+          ) {
+            const visibleAnswer = displayAnswerWithoutInlineRecordIds(nextSnapshot.answer, [
+              ...nextSnapshot.recordIds,
+              ...nextSnapshot.citations.map((citation) => citation.recordId)
+            ]);
+            if (visibleAnswer.length > 0) {
+              void speakExactBrowserText(visibleAnswer);
+            }
+          }
         },
         onSnapshot: (voiceSnapshot) => {
           if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity) {
@@ -821,7 +845,6 @@ export function QueryEvidenceDock({
               </AccordionContent>
             </AccordionItem>
           </Accordion>
-          <audio ref={remoteAudioRef} aria-hidden="true" />
         </div>
         <SheetFooter className="border-t border-primary/10 sm:flex-row sm:items-center sm:justify-between">
           {shouldShowStopQuery ? (

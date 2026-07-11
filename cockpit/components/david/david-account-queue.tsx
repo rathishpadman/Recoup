@@ -22,7 +22,6 @@ interface DavidAccountQueueProps {
   onSelectAccount: (accountId: string) => void;
   queueStats: CreditRiskReviewModel["queueStats"];
   selectedAccountId: string | null;
-  sourceLabel: string;
 }
 
 const filterOptions: ReadonlyArray<{ label: string; value: "ALL" | CreditRiskVerdict }> = [
@@ -56,18 +55,16 @@ export function DavidAccountQueue({
   onFilterChange,
   onSelectAccount,
   queueStats,
-  selectedAccountId,
-  sourceLabel
+  selectedAccountId
 }: Readonly<DavidAccountQueueProps>) {
   return (
     <section className="grid gap-4" data-testid="david-risk-review-queue">
       <header className="grid gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="grid gap-1">
             <h1 className="text-2xl font-semibold leading-tight">{`Good morning, ${greetingName}.`}</h1>
             <p className="text-sm text-muted-foreground">{`${accounts.length.toString()} governed reviews are ready from the weekly credit risk run.`}</p>
           </div>
-          <Badge variant="outline">{sourceLabel}</Badge>
         </div>
       </header>
 

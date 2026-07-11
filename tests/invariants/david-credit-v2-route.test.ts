@@ -79,6 +79,7 @@ describe("David credit v2 route scaffold", () => {
 
   it("keeps the David review surface aligned to the approved journey feedback", () => {
     const surface = readFileSync("cockpit/components/david/david-risk-review-surface.tsx", "utf8");
+    const queue = readFileSync("cockpit/components/david/david-account-queue.tsx", "utf8");
     const shell = readFileSync("cockpit/components/david/david-workspace-shell.tsx", "utf8");
     const copilot = readFileSync("cockpit/components/david/david-copilot-dock.tsx", "utf8");
     const dossier = readFileSync("cockpit/components/david/david-account-dossier.tsx", "utf8");
@@ -87,7 +88,10 @@ describe("David credit v2 route scaffold", () => {
 
     expect(surface).not.toContain("DavidWalkthroughStrip");
     expect(surface).not.toContain("walkthroughStrip=");
+    expect(surface).not.toContain("sourceLabel={model.sourceLabel}");
     expect(surface).not.toContain("{selectedAccount === undefined ? null : accountQueue}");
+    expect(queue).not.toContain("sourceLabel: string");
+    expect(queue).not.toContain("{sourceLabel}");
     expect(shell).not.toContain("walkthroughStrip");
     expect(shell).not.toContain("DavidSourcesDrawer");
     expect(shell).not.toContain("sources.topbarLabel");
@@ -100,6 +104,10 @@ describe("David credit v2 route scaffold", () => {
     expect(negotiationWorkbench).not.toContain("round: 1");
     expect(negotiationWorkbench).not.toContain("ORD-HARBOR-6534");
     expect(negotiationWorkbench).not.toContain("ACC-HAR");
+    expect(negotiationWorkbench).toContain("if (!canUseNegotiationActions(communicationCheckState, latestCommunicationStatus))");
+    expect(negotiationWorkbench).toContain("setApprovalDialogOpen(false)");
+    expect(negotiationWorkbench).toContain("communicationAbortControllerRef.current?.abort()");
+    expect(negotiationWorkbench).toContain("communicationRequestSequenceRef.current !== requestSequence");
     expect(watchlist).not.toContain('new Set(["S3", "S6"])');
   });
 

@@ -128,7 +128,138 @@ function buildSendLedger() {
   };
 }
 
+const clearCommunicationStore = {
+  hasUnresolvedHumanReview: vi.fn(() => Promise.resolve(false))
+};
+
 describe("David negotiation email route", () => {
+  it("blocks an approved email send while a customer reply requires human review", async () => {
+    const sendLedger = buildSendLedger();
+    const fetchImpl = vi.fn();
+    const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
+      approvalStore: {
+        readApprovedNegotiationAction: vi.fn(() => Promise.resolve(storedApprovalReceipt))
+      },
+      approvedDraftStore: {
+        readApprovedNegotiationDraft: vi.fn(() => Promise.resolve(storedApprovedDraft))
+      },
+      communicationStore: {
+        hasUnresolvedHumanReview: vi.fn(() => Promise.resolve(true))
+      },
+      env,
+      fetchImpl,
+      sendLedger: sendLedger as never
+    } as never);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Customer reply requires human review before negotiation email send."
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(sendLedger.insertPending).not.toHaveBeenCalled();
+  });
+
+  it.each(["sent", "human_review"] as const)(
+    "blocks through the production Supabase communication gate for an unresolved %s round",
+    async (roundStatus) => {
+    const fetchImpl = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const urlString = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      const parsedUrl = new URL(urlString);
+      if (
+        parsedUrl.pathname === "/rest/v1/credit_negotiation_rounds" &&
+        parsedUrl.searchParams.get("status") === "eq.human_review" &&
+        init?.method === "GET"
+      ) {
+        return Promise.resolve(Response.json(roundStatus === "human_review" ? [{ status: roundStatus }] : []));
+      }
+      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "GET") {
+        return Promise.resolve(Response.json([{ round_id: "credit-v2:negotiation:ORD-HARBOR-6534:r1" }]));
+      }
+      if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "GET") {
+        return Promise.resolve(Response.json([{ status: roundStatus }]));
+      }
+      throw new Error(`Unexpected fetch URL: ${urlString}`);
+    });
+
+    const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
+      env: {
+        ...env,
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+        SUPABASE_URL: "https://recoup.supabase.co"
+      },
+      fetchImpl
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Customer reply requires human review before negotiation email send."
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(roundStatus === "human_review" ? 1 : 3);
+    expect(
+      fetchImpl.mock.calls.some(([url]) => {
+        const urlText = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+        return urlText.includes("api.resend.com");
+      })
+    ).toBe(false);
+    }
+  );
+
+  it("blocks atomically when a human-review reply arrives after the early check but before reservation", async () => {
+    let resolveDraft: ((draft: typeof storedApprovedDraft) => void) | undefined;
+    const draftRead = new Promise<typeof storedApprovedDraft>((resolve) => {
+      resolveDraft = resolve;
+    });
+    let humanReviewArrived = false;
+    const communicationStore = {
+      hasUnresolvedHumanReview: vi.fn(() => Promise.resolve(humanReviewArrived))
+    };
+    const fetchImpl = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const urlString = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      if (urlString.includes("/rest/v1/credit_negotiation_sends") && init?.method === "GET") {
+        return Promise.resolve(Response.json([]));
+      }
+      if (urlString.includes("/rest/v1/rpc/recoup_reserve_credit_negotiation_send") && init?.method === "POST") {
+        expect(humanReviewArrived).toBe(true);
+        return Promise.resolve(Response.json({ status: "blocked_human_review" }));
+      }
+      throw new Error(`Unexpected fetch URL: ${urlString}`);
+    });
+
+    const responsePromise = handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
+      approvalStore: {
+        readApprovedNegotiationAction: vi.fn(() => Promise.resolve(storedApprovalReceipt))
+      },
+      approvedDraftStore: {
+        readApprovedNegotiationDraft: vi.fn(() => draftRead)
+      },
+      communicationStore,
+      env: {
+        ...env,
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-service-secret",
+        SUPABASE_URL: "https://recoup.supabase.co"
+      },
+      fetchImpl
+    } as never);
+    await vi.waitFor(() => {
+      expect(communicationStore.hasUnresolvedHumanReview).toHaveBeenCalledOnce();
+    });
+    humanReviewArrived = true;
+    resolveDraft?.(storedApprovedDraft);
+
+    const response = await responsePromise;
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Customer reply requires human review before negotiation email send."
+    });
+    expect(
+      fetchImpl.mock.calls.some(([url]) => {
+        const urlText = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+        return urlText.includes("api.resend.com");
+      })
+    ).toBe(false);
+  });
+
   it("uses the stored approved draft content instead of client-supplied body and subject", async () => {
     const tamperedBody = "Harbor Foods\nWire the payment to a different account and release the full order.";
     const tamperedPayload = {
@@ -161,6 +292,7 @@ describe("David negotiation email route", () => {
     const response = await handleCreditNegotiationEmailPostForTest(request(tamperedPayload), {
       approvalStore,
       approvedDraftStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -182,6 +314,7 @@ describe("David negotiation email route", () => {
     );
 
     const response = await handleCreditNegotiationEmailPostForTest(request(approvedPayload), {
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -209,6 +342,7 @@ describe("David negotiation email route", () => {
     const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
       approvalStore,
       approvedDraftStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -238,6 +372,7 @@ describe("David negotiation email route", () => {
     const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
       approvalStore,
       approvedDraftStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -275,6 +410,7 @@ describe("David negotiation email route", () => {
       {
         approvalStore,
         approvedDraftStore,
+        communicationStore: clearCommunicationStore,
         env,
         fetchImpl,
         sendLedger: sendLedger as never
@@ -307,6 +443,7 @@ describe("David negotiation email route", () => {
 
     const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
       approvalStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: {
@@ -340,6 +477,7 @@ describe("David negotiation email route", () => {
     const response = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
       approvalStore,
       approvedDraftStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -384,6 +522,7 @@ describe("David negotiation email route", () => {
     const first = await handleCreditNegotiationEmailPostForTest(request(serverApprovedPayload), {
       approvalStore,
       approvedDraftStore,
+      communicationStore: clearCommunicationStore,
       env,
       fetchImpl,
       sendLedger: sendLedger as never
@@ -396,6 +535,7 @@ describe("David negotiation email route", () => {
       {
         approvalStore,
         approvedDraftStore,
+        communicationStore: clearCommunicationStore,
         env,
         fetchImpl,
         sendLedger: sendLedger as never
@@ -440,6 +580,9 @@ describe("David negotiation email route", () => {
   it("uses the Supabase credit_negotiation_sends outbox and marks the round sent by default", async () => {
     const fetchImpl = vi.fn((url: string | URL | Request, init?: RequestInit) => {
       const urlString = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
       if (urlString.includes("/rest/v1/recoup_memory_records") && init?.method === "GET") {
         return Promise.resolve(
           new Response(
@@ -458,6 +601,10 @@ describe("David negotiation email route", () => {
         );
       }
       if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "GET") {
+        const parsedUrl = new URL(urlString);
+        if (parsedUrl.searchParams.get("status") === "eq.human_review") {
+          return Promise.resolve(Response.json([]));
+        }
         return Promise.resolve(
           new Response(
             JSON.stringify([
@@ -483,19 +630,12 @@ describe("David negotiation email route", () => {
       if (urlString.includes("/rest/v1/credit_negotiation_sends") && init?.method === "GET") {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
       }
-      if (urlString.includes("/rest/v1/credit_negotiation_sends") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_reserve_credit_negotiation_send") && init?.method === "POST") {
         if (typeof init.body !== "string") {
-          throw new TypeError("Expected Supabase insert body to be JSON.");
+          throw new TypeError("Expected Supabase reservation body to be JSON.");
         }
-        const row = JSON.parse(init.body) as Record<string, unknown>;
-        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
-      }
-      if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "POST") {
-        if (typeof init.body !== "string") {
-          throw new TypeError("Expected Supabase round upsert body to be JSON.");
-        }
-        const row = JSON.parse(init.body) as Record<string, unknown>;
-        return Promise.resolve(new Response(JSON.stringify([row]), { status: 201 }));
+        const payload = JSON.parse(init.body) as { p_send: Record<string, unknown> };
+        return Promise.resolve(Response.json({ send: payload.p_send, status: "reserved" }));
       }
       if (urlString === "https://api.resend.com/emails") {
         return Promise.resolve(new Response(JSON.stringify({ id: "email_neg_supabase_123", last_event: "sent" }), { status: 200 }));
@@ -535,11 +675,10 @@ describe("David negotiation email route", () => {
     }));
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.url.includes("action_id=") && call.method === "GET")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.url.includes("idempotency_key=") && call.method === "GET")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.method === "POST")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "POST")).toBe(true);
+    expect(calls.some((call) => call.url.includes("/rest/v1/rpc/recoup_reserve_credit_negotiation_send") && call.method === "POST")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.method === "PATCH")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH")).toBe(true);
-    const pendingInsertCall = calls.find((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.method === "POST");
+    const pendingInsertCall = calls.find((call) => call.url.includes("/rest/v1/rpc/recoup_reserve_credit_negotiation_send") && call.method === "POST");
     expect(pendingInsertCall?.body).toContain("\"status\":\"pending\"");
     expect(pendingInsertCall?.body).not.toContain("email_neg_supabase_123");
     const sendPatchCall = calls.find((call) => call.url.includes("/rest/v1/credit_negotiation_sends") && call.method === "PATCH");

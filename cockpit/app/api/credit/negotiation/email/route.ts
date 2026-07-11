@@ -19,6 +19,7 @@ import { buildVerifiedHumanAuthHeaders } from "../../../human-auth.ts";
 interface CreditNegotiationEmailRouteTestOptions {
   approvedDraftStore?: CreditNegotiationApprovedDraftStore | undefined;
   approvalStore?: CreditNegotiationApprovalStore | undefined;
+  communicationStore?: CreditNegotiationCommunicationStore | undefined;
   env?: RuntimeEmailEnv;
   fetchImpl?: EmailFetch;
   sendLedger?: CreditNegotiationEmailSendLedger | undefined;
@@ -69,6 +70,21 @@ interface CreditNegotiationApprovedDraftStore {
     receipt: CreditNegotiationApprovedActionReceipt
   ): Promise<CreditNegotiationApprovedDraft | undefined>;
 }
+
+interface CreditNegotiationCommunicationStore {
+  hasUnresolvedHumanReview(lookup: { orderId: string }): Promise<boolean>;
+}
+
+const humanReviewCounterGateRowSchema = z.object({
+  round_id: z.string().min(1)
+}).strict();
+const communicationRoundGateRowSchema = z.object({
+  status: z.enum(["drafted", "sent", "countered", "human_review", "accepted", "rejected", "withdrawn", "closed"])
+}).strict();
+const negotiationSendReservationResultSchema = z.object({
+  send: z.unknown().optional(),
+  status: z.enum(["blocked_human_review", "existing", "reserved"])
+}).strict();
 
 const negotiationEmailSendSchema = z
   .object({
@@ -147,6 +163,15 @@ export async function handleCreditNegotiationEmailPostForTest(
   }
 
   try {
+    const communicationStore =
+      options.communicationStore ?? buildSupabaseNegotiationCommunicationStore(runtimeEnv, options.fetchImpl ?? fetch);
+    if (communicationStore === undefined) {
+      return Response.json({ error: "Credit negotiation communication gate is not configured." }, { status: 503 });
+    }
+    if (await communicationStore.hasUnresolvedHumanReview({ orderId: parsed.data.orderId })) {
+      return Response.json({ error: "Customer reply requires human review before negotiation email send." }, { status: 409 });
+    }
+
     const sendLedger = options.sendLedger ?? buildSupabaseNegotiationSendLedger(runtimeEnv, options.fetchImpl ?? fetch);
     if (sendLedger === undefined) {
       return Response.json({ error: "Credit negotiation send ledger is not configured." }, { status: 503 });
@@ -225,6 +250,81 @@ export async function handleCreditNegotiationEmailPostForTest(
   } catch (error) {
     return Response.json({ error: emailErrorMessage(error, "Credit negotiation email send failed.") }, { status: emailErrorStatus(error) });
   }
+}
+
+function buildSupabaseNegotiationCommunicationStore(
+  env: RuntimeEmailEnv,
+  fetchImpl: EmailFetch
+): CreditNegotiationCommunicationStore | undefined {
+  if (!isConfiguredValue(env.SUPABASE_URL) || !isConfiguredValue(env.SUPABASE_SERVICE_ROLE_KEY)) {
+    return undefined;
+  }
+
+  const baseUrl = env.SUPABASE_URL.replace(/\/+$/u, "");
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  const headers = {
+    apikey: serviceRoleKey,
+    authorization: `Bearer ${serviceRoleKey}`
+  };
+  return {
+    async hasUnresolvedHumanReview({ orderId }) {
+      const unresolvedRoundUrl = new URL(`${baseUrl}/rest/v1/credit_negotiation_rounds`);
+      unresolvedRoundUrl.searchParams.set("select", "status");
+      unresolvedRoundUrl.searchParams.set("order_id", `eq.${orderId}`);
+      unresolvedRoundUrl.searchParams.set("status", "eq.human_review");
+      unresolvedRoundUrl.searchParams.set("limit", "1");
+      const unresolvedRoundResponse = await fetchImpl(unresolvedRoundUrl.toString(), { headers, method: "GET" });
+      if (!unresolvedRoundResponse.ok) {
+        throw new EmailGatewayError("Credit negotiation communication round read failed.", unresolvedRoundResponse.status);
+      }
+      const unresolvedRoundRows = z.array(communicationRoundGateRowSchema).max(1).safeParse(await unresolvedRoundResponse.json());
+      if (!unresolvedRoundRows.success) {
+        throw new EmailGatewayError("Credit negotiation communication round validation failed.", 503);
+      }
+      if (unresolvedRoundRows.data[0]?.status === "human_review") {
+        return true;
+      }
+
+      const counterUrl = new URL(`${baseUrl}/rest/v1/credit_counter_offers`);
+      counterUrl.searchParams.set("select", "round_id");
+      counterUrl.searchParams.set("order_id", `eq.${orderId}`);
+      counterUrl.searchParams.set("source", "eq.email");
+      counterUrl.searchParams.set("status", "eq.human_review");
+      counterUrl.searchParams.set("order", "created_at.desc");
+      counterUrl.searchParams.set("limit", "1");
+      const counterResponse = await fetchImpl(counterUrl.toString(), { headers, method: "GET" });
+      if (!counterResponse.ok) {
+        throw new EmailGatewayError("Credit negotiation communication gate read failed.", counterResponse.status);
+      }
+      const counterRows = z.array(humanReviewCounterGateRowSchema).max(1).safeParse(await counterResponse.json());
+      if (!counterRows.success) {
+        throw new EmailGatewayError("Credit negotiation communication gate validation failed.", 503);
+      }
+      const counter = counterRows.data[0];
+      if (counter === undefined) {
+        return false;
+      }
+
+      const roundUrl = new URL(`${baseUrl}/rest/v1/credit_negotiation_rounds`);
+      roundUrl.searchParams.set("select", "status");
+      roundUrl.searchParams.set("round_id", `eq.${counter.round_id}`);
+      roundUrl.searchParams.set("order_id", `eq.${orderId}`);
+      roundUrl.searchParams.set("limit", "1");
+      const roundResponse = await fetchImpl(roundUrl.toString(), { headers, method: "GET" });
+      if (!roundResponse.ok) {
+        throw new EmailGatewayError("Credit negotiation communication round read failed.", roundResponse.status);
+      }
+      const roundRows = z.array(communicationRoundGateRowSchema).max(1).safeParse(await roundResponse.json());
+      if (!roundRows.success || roundRows.data[0] === undefined) {
+        throw new EmailGatewayError("Credit negotiation communication round validation failed.", 503);
+      }
+      return isUnresolvedHumanReviewRoundStatus(roundRows.data[0].status);
+    }
+  };
+}
+
+function isUnresolvedHumanReviewRoundStatus(status: string): boolean {
+  return status === "drafted" || status === "sent" || status === "human_review";
 }
 
 function buildSupabaseNegotiationApprovalStore(
@@ -508,28 +608,33 @@ function buildSupabaseNegotiationSendLedger(
   const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
   return {
     async insertPending(row) {
-      await upsertNegotiationRound(fetchImpl, {
-        baseUrl,
-        row,
-        serviceRoleKey,
-        status: "drafted"
-      });
-      const response = await fetchImpl(`${baseUrl}/rest/v1/credit_negotiation_sends`, {
-        body: JSON.stringify(toSupabaseSendRow(row)),
+      const response = await fetchImpl(`${baseUrl}/rest/v1/rpc/recoup_reserve_credit_negotiation_send`, {
+        body: JSON.stringify({ p_send: toSupabaseSendRow(row) }),
         headers: {
           apikey: serviceRoleKey,
           authorization: `Bearer ${serviceRoleKey}`,
-          "content-type": "application/json",
-          prefer: "return=representation"
+          "content-type": "application/json"
         },
         method: "POST"
       });
       if (!response.ok) {
         throw new EmailGatewayError("Credit negotiation send ledger reservation failed.", response.status);
       }
-
-      const rows = await readJsonArray(response);
-      return pendingLedgerEntryFromSupabaseRow(rows[0]) ?? row;
+      const reservation = negotiationSendReservationResultSchema.safeParse(await response.json());
+      if (!reservation.success) {
+        throw new EmailGatewayError("Credit negotiation send ledger reservation failed validation.", 503);
+      }
+      if (reservation.data.status === "blocked_human_review") {
+        throw new EmailGatewayError("Customer reply requires human review before negotiation email send.", 409);
+      }
+      if (reservation.data.status === "existing") {
+        throw new EmailGatewayError("Credit negotiation send is already reserved.", 409);
+      }
+      const persisted = pendingLedgerEntryFromSupabaseRow(reservation.data.send);
+      if (persisted === undefined) {
+        throw new EmailGatewayError("Credit negotiation send ledger reservation returned no pending row.", 503);
+      }
+      return persisted;
     },
     async markFailed(row) {
       const url = new URL(`${baseUrl}/rest/v1/credit_negotiation_sends`);
@@ -658,36 +763,6 @@ function toSupabaseSendRow(
     subject: row.subject,
     to_email: row.to
   };
-}
-
-async function upsertNegotiationRound(
-  fetchImpl: EmailFetch,
-  input: {
-    baseUrl: string;
-    row: CreditNegotiationEmailPendingLedgerEntry;
-    serviceRoleKey: string;
-    status: "drafted";
-  }
-): Promise<void> {
-  const response = await fetchImpl(`${input.baseUrl}/rest/v1/credit_negotiation_rounds?on_conflict=round_id`, {
-    body: JSON.stringify({
-      account_id: input.row.accountId,
-      order_id: input.row.orderId,
-      round_id: input.row.actionId,
-      round_no: input.row.round,
-      status: input.status
-    }),
-    headers: {
-      apikey: input.serviceRoleKey,
-      authorization: `Bearer ${input.serviceRoleKey}`,
-      "content-type": "application/json",
-      prefer: "resolution=merge-duplicates,return=representation"
-    },
-    method: "POST"
-  });
-  if (!response.ok) {
-    throw new EmailGatewayError("Credit negotiation round reservation failed.", response.status);
-  }
 }
 
 async function updateNegotiationRoundSent(

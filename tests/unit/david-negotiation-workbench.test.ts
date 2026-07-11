@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   canSendNegotiationEmailForAction,
+  canUseNegotiationActions,
   DavidNegotiationWorkbench,
   buildNegotiationApprovalPacket,
   buildNegotiationCommunicationFlow,
@@ -10,10 +11,12 @@ import {
   defaultManualCounterRound,
   hasNegotiationCommunicationChanged,
   manualCounterRoundLabel,
+  negotiationCommunicationMessage,
   negotiationHydratedSendMessage,
   negotiationDraftRoundLabel,
   negotiationOrderReceivedLabel,
   negotiationRoundSummary,
+  readNegotiationCommunicationStatusResponse,
   selectNegotiationDraftCandidate
 } from "../../cockpit/components/david/david-negotiation-workbench.tsx";
 import { buildDavidApprovalGateCopy, buildDavidApprovalGateTitle } from "../../cockpit/components/david/david-approval-gate-dialog.tsx";
@@ -172,6 +175,53 @@ describe("David negotiation workbench", () => {
       expect.objectContaining({ detail: "Round 1 received", state: "complete", title: "Customer reply" }),
       expect.objectContaining({ detail: "Round 2 ready to evaluate", state: "current", title: "Governed draft" })
     ]);
+  });
+
+  it("surfaces an out-of-grammar email reply for human review without implying a governed draft is ready", () => {
+    const order = {
+      currentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      latestSentRound: {
+        actionId: "credit-v2:negotiation:ORD-HARBOR-6534:r1",
+        round: 1,
+        status: "sent"
+      },
+      nextRound: 2,
+      orderAmountLabel: "$640,010.00",
+      orderId: "ORD-HARBOR-6534"
+    } as CreditRiskAccountModel["negotiationOrders"][number];
+    const status = { hasInboundReply: true, round: 1, status: "human_review" };
+
+    expect(negotiationCommunicationMessage(order, status)).toBe(
+      "Customer reply received for round 1. Human review is required before a governed draft can be prepared."
+    );
+    expect(canUseNegotiationActions("ready", status)).toBe(false);
+    expect(canUseNegotiationActions("ready", { hasInboundReply: true, round: 1, status: "countered" })).toBe(true);
+    expect(canUseNegotiationActions("checking", undefined)).toBe(false);
+    expect(canUseNegotiationActions("unavailable", undefined)).toBe(false);
+    expect(canUseNegotiationActions("ready", undefined)).toBe(true);
+    expect(buildNegotiationCommunicationFlow(order, status)).toEqual([
+      expect.objectContaining({ state: "complete", title: "Order received" }),
+      expect.objectContaining({ detail: "Round 1 sent", state: "complete", title: "Outbound sent" }),
+      expect.objectContaining({ detail: "Round 1 received", state: "complete", title: "Customer reply" }),
+      expect.objectContaining({ detail: "Human review required", state: "current", title: "Governed draft" })
+    ]);
+  });
+
+  it("rejects malformed or cross-order communication status responses before actions become ready", () => {
+    const valid = {
+      checkedAtIso: "2026-07-11T09:43:27.000Z",
+      latestRound: { hasInboundReply: true, round: 1, status: "human_review" },
+      orderId: "ORD-HARBOR-6534"
+    };
+
+    expect(readNegotiationCommunicationStatusResponse(valid, "ORD-HARBOR-6534")).toEqual(valid);
+    expect(readNegotiationCommunicationStatusResponse({}, "ORD-HARBOR-6534")).toBeUndefined();
+    expect(readNegotiationCommunicationStatusResponse({ ...valid, orderId: "ORD-OTHER" }, "ORD-HARBOR-6534")).toBeUndefined();
+    expect(readNegotiationCommunicationStatusResponse({ ...valid, latestRound: { round: 0, status: "sent" } }, "ORD-HARBOR-6534")).toBeUndefined();
   });
 
   it("builds the governed approval packet for the next negotiation round from the top deterministic candidate", () => {

@@ -474,6 +474,7 @@ describe("David negotiation inbound webhook", () => {
     const store = {
       insertCounterOffer: vi.fn((row: Record<string, unknown>) => Promise.resolve(row)),
       insertInboundMetadata: vi.fn((row: Record<string, unknown>) => Promise.resolve(row)),
+      markRoundCountered: vi.fn((row: Record<string, unknown>) => Promise.resolve(row)),
       readContactForOrder: vi.fn(() => Promise.resolve({ contactEmail: "harbor-ap@example.com" })),
       readInboundByEmailId: vi.fn(() => Promise.resolve(undefined)),
       readRoundByToken: vi.fn(() =>
@@ -536,6 +537,7 @@ describe("David negotiation inbound webhook", () => {
       emailId: "eml_inbound_123",
       status: "human_review"
     });
+    expect(store.markRoundCountered).not.toHaveBeenCalled();
     expect(JSON.stringify(payload)).not.toContain("20%");
   });
 
@@ -1068,19 +1070,19 @@ describe("David negotiation inbound webhook", () => {
           })
         );
       }
-      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected counter-offer insert body to be JSON.");
         }
-
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const payload = JSON.parse(init.body) as { p_counter: Record<string, unknown> };
+        return Promise.resolve(Response.json(payload.p_counter));
       }
-      if (urlString.includes("/rest/v1/credit_negotiation_inbound_emails") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_negotiation_inbound") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected inbound metadata insert body to be JSON.");
         }
-
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const payload = JSON.parse(init.body) as { p_inbound: Record<string, unknown> };
+        return Promise.resolve(Response.json(payload.p_inbound));
       }
       if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "PATCH") {
         return Promise.resolve(new Response(JSON.stringify([{ status: "countered" }]), { status: 200 }));
@@ -1115,13 +1117,13 @@ describe("David negotiation inbound webhook", () => {
       url: typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url
     }));
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_inbound_emails") && call.method === "GET")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_inbound_emails") && call.method === "POST")).toBe(true);
+    expect(calls.some((call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_negotiation_inbound") && call.method === "POST")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "GET")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_account_contacts") && call.method === "GET")).toBe(true);
     expect(calls.find((call) => call.url.includes("/rest/v1/credit_account_contacts"))?.url).toContain("role=eq.ap");
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST")).toBe(true);
+    expect(calls.some((call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST")).toBe(true);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH")).toBe(true);
-    const counterInsert = calls.find((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST");
+    const counterInsert = calls.find((call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST");
     expect(counterInsert?.body).toContain("\"message_id\":\"<counter-1@harbor.example>\"");
     expect(JSON.stringify(calls)).not.toContain("supabase-service-secret");
   });
@@ -1231,7 +1233,7 @@ describe("David negotiation inbound webhook", () => {
     expect(body).not.toContain("20% deposit");
     expect(JSON.parse(body) as unknown).toEqual({ error: "Credit negotiation inbound metadata writer is not configured." });
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_inbound_emails") && call.method === "PATCH")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST")).toBe(false);
+    expect(calls.some((call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST")).toBe(false);
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH")).toBe(false);
     expect(JSON.stringify(calls)).not.toContain("supabase-service-secret");
   });
@@ -1287,12 +1289,12 @@ describe("David negotiation inbound webhook", () => {
       if (urlString === "https://api.resend.com/emails/receiving/eml_inbound_123") {
         return Promise.resolve(new Response(JSON.stringify({ text: "We can pay 20% deposit and accept 2 tranches." }), { status: 200 }));
       }
-      if (urlString.includes("/rest/v1/credit_negotiation_inbound_emails") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_negotiation_inbound") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected inbound metadata insert body to be JSON.");
         }
-
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const payload = JSON.parse(init.body) as { p_inbound: Record<string, unknown> };
+        return Promise.resolve(Response.json(payload.p_inbound));
       }
       if (urlString.includes("/rest/v1/credit_negotiation_inbound_emails") && init?.method === "PATCH") {
         if (typeof init.body !== "string") {
@@ -1301,12 +1303,12 @@ describe("David negotiation inbound webhook", () => {
 
         return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 200 }));
       }
-      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected counter-offer insert body to be JSON.");
         }
-
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const payload = JSON.parse(init.body) as { p_counter: Record<string, unknown> };
+        return Promise.resolve(Response.json(payload.p_counter));
       }
       if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "PATCH") {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
@@ -1342,7 +1344,7 @@ describe("David negotiation inbound webhook", () => {
     expect(body).not.toContain("20% deposit");
     expect(JSON.parse(body) as unknown).toEqual({ error: "Credit negotiation inbound persistence failed closed." });
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST")).toBe(true);
+    expect(calls.some((call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST")).toBe(true);
     const metadataRevert = calls.find((call) => call.url.includes("/rest/v1/credit_negotiation_inbound_emails") && call.method === "PATCH");
     expect(metadataRevert?.body).toContain("\"body_fetch_status\":\"failed\"");
   });

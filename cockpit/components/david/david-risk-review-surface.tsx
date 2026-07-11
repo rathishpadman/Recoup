@@ -98,7 +98,6 @@ export function DavidRiskReviewSurface({ displayName, model }: Readonly<DavidRis
       onSelectAccount={setSelectedAccountId}
       queueStats={model.queueStats}
       selectedAccountId={selectedAccountId}
-      sourceLabel={model.sourceLabel}
     />
   );
   const accountDossier =

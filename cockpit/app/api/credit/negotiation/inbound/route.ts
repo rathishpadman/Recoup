@@ -452,12 +452,11 @@ export function buildSupabaseNegotiationInboundStore(
 
   return {
     async insertCounterOffer(row) {
-      const response = await fetchImpl(`${baseUrl}/rest/v1/credit_counter_offers`, {
-        body: JSON.stringify(toSupabaseCounterOfferRow(row)),
+      const response = await fetchImpl(`${baseUrl}/rest/v1/rpc/recoup_insert_credit_counter_offer`, {
+        body: JSON.stringify({ p_counter: toSupabaseCounterOfferRow(row) }),
         headers: {
           ...headers,
-          "content-type": "application/json",
-          prefer: "return=representation"
+          "content-type": "application/json"
         },
         method: "POST"
       });
@@ -465,15 +464,14 @@ export function buildSupabaseNegotiationInboundStore(
         throw new Error("Credit negotiation counter-offer insert failed.");
       }
 
-      return counterOfferRowFromSupabase((await readJsonArray(response))[0]) ?? row;
+      return counterOfferRowFromSupabase(await response.json()) ?? row;
     },
     async insertInboundMetadata(row) {
-      const response = await fetchImpl(`${baseUrl}/rest/v1/credit_negotiation_inbound_emails`, {
-        body: JSON.stringify(toSupabaseInboundMetadataRow(row)),
+      const response = await fetchImpl(`${baseUrl}/rest/v1/rpc/recoup_insert_credit_negotiation_inbound`, {
+        body: JSON.stringify({ p_inbound: toSupabaseInboundMetadataRow(row) }),
         headers: {
           ...headers,
-          "content-type": "application/json",
-          prefer: "return=representation"
+          "content-type": "application/json"
         },
         method: "POST"
       });
@@ -481,7 +479,7 @@ export function buildSupabaseNegotiationInboundStore(
         throw new Error("Credit negotiation inbound metadata insert failed.");
       }
 
-      return inboundMetadataRowFromSupabase((await readJsonArray(response))[0]) ?? row;
+      return inboundMetadataRowFromSupabase(await response.json()) ?? row;
     },
     async updateInboundMetadata(row) {
       const url = new URL(`${baseUrl}/rest/v1/credit_negotiation_inbound_emails`);

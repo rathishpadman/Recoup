@@ -290,6 +290,20 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(queryDock).toContain('fetch("/api/forensics/query"');
     expect(queryDock).toContain("startRealtimeBrowserSession");
     expect(queryDock).toContain("../../app/realtime-browser-session");
+    expect(queryDock).toContain("../../app/browser-speech");
+    expect(queryDock).toContain("await speakExactBrowserText(mayaGreetingForHour(new Date().getHours()))");
+    expect(queryDock.indexOf("await speakExactBrowserText(mayaGreetingForHour(new Date().getHours()))")).toBeLessThan(
+      queryDock.indexOf("const realtimeSession = await startRealtimeBrowserSession")
+    );
+    expect(queryDock).toContain("speakExactBrowserText(visibleAnswer)");
+    expect(queryDock).toContain("cancelBrowserSpeech()");
+    const voiceResponseReadIndex = queryDock.lastIndexOf("const body = (await response.json())");
+    const postReadSessionCheckIndex = queryDock.indexOf(
+      "if (!isCurrentSession(activeStartToken) || latestEvidenceIdentityRef.current !== activeEvidenceIdentity)",
+      voiceResponseReadIndex
+    );
+    expect(voiceResponseReadIndex).toBeGreaterThan(-1);
+    expect(postReadSessionCheckIndex).toBeGreaterThan(voiceResponseReadIndex);
     expect(queryDock).toContain('aria-label="Ask by voice"');
     expect(queryDock).toContain("recordIds: activeRecordIds");
     expect(queryDock).toContain("selectedLineId: activeSelectedLine");

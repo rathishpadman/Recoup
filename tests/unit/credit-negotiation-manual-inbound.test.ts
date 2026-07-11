@@ -385,11 +385,14 @@ describe("David negotiation manual inbound fallback", () => {
           )
         );
       }
-      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected counter-offer insert body to be JSON.");
         }
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const body = JSON.parse(init.body) as { p_counter: Record<string, unknown> };
+        return Promise.resolve(
+          new Response(JSON.stringify({ counter_offer_id: "manual-counter-001", ...body.p_counter }), { status: 200 })
+        );
       }
       if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "PATCH") {
         if (typeof init.body !== "string") {
@@ -411,7 +414,9 @@ describe("David negotiation manual inbound fallback", () => {
     );
 
     expect(response.status).toBe(200);
-    const counterInsert = calls.find((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST");
+    const counterInsert = calls.find(
+      (call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST"
+    );
     const roundPatch = calls.find((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH");
     expect(counterInsert?.body).toContain("\"source\":\"manual\"");
     expect(counterInsert?.body).not.toContain("email_id");
@@ -461,11 +466,14 @@ describe("David negotiation manual inbound fallback", () => {
           )
         );
       }
-      if (urlString.includes("/rest/v1/credit_counter_offers") && init?.method === "POST") {
+      if (urlString.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && init?.method === "POST") {
         if (typeof init.body !== "string") {
           throw new TypeError("Expected counter-offer insert body to be JSON.");
         }
-        return Promise.resolve(new Response(JSON.stringify([JSON.parse(init.body) as Record<string, unknown>]), { status: 201 }));
+        const body = JSON.parse(init.body) as { p_counter: Record<string, unknown> };
+        return Promise.resolve(
+          new Response(JSON.stringify({ counter_offer_id: "manual-counter-001", ...body.p_counter }), { status: 200 })
+        );
       }
       if (urlString.includes("/rest/v1/credit_negotiation_rounds") && init?.method === "PATCH") {
         return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
@@ -488,6 +496,10 @@ describe("David negotiation manual inbound fallback", () => {
     expect(body).not.toContain("Harbor can pay");
     expect(JSON.parse(body) as unknown).toEqual({ error: "Credit negotiation manual inbound persistence failed closed." });
     expect(calls.some((call) => call.url.includes("/rest/v1/credit_negotiation_rounds") && call.method === "PATCH")).toBe(true);
-    expect(calls.some((call) => call.url.includes("/rest/v1/credit_counter_offers") && call.method === "POST")).toBe(true);
+    expect(
+      calls.some(
+        (call) => call.url.includes("/rest/v1/rpc/recoup_insert_credit_counter_offer") && call.method === "POST"
+      )
+    ).toBe(true);
   });
 });

@@ -272,6 +272,7 @@ async function main(options: { evalsFinopsOnly: boolean; mayaLoginOnly: boolean;
 
     await assertRoleRouting(browser);
     await assertPremiumSurfaces(browser);
+    await assertMayaSelectedCaseVoiceSpeech(browser);
     await captureResponsiveScreenshots(browser);
     await captureMayaShadcnStoryboardScreenshots(browser);
     console.log(`cockpit e2e passed; screenshots written to ${outputDir}`);
@@ -1058,11 +1059,166 @@ async function assertRecoupAgentLauncherOpensGroundedDock(page: Page, model: For
       const assistantText = document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-message"]')?.innerText ?? "";
       return assistantText.includes(answer);
     }, workspaceVoiceAnswer);
+    await page.waitForFunction((answer) => {
+      const speech = (window as unknown as { __recoupE2ESpeech?: { spokenTexts: string[] } }).__recoupE2ESpeech;
+      return speech?.spokenTexts.includes(answer) === true;
+    }, workspaceVoiceAnswer);
+    const overviewSpeech = await page.evaluate(() => {
+      const speech = (
+        window as unknown as {
+          __recoupE2ESpeech?: { cancelCount: number; events: string[]; spokenTexts: string[] };
+        }
+      ).__recoupE2ESpeech;
+      return {
+        cancelCount: speech?.cancelCount ?? -1,
+        events: speech?.events ?? [],
+        spokenTexts: speech?.spokenTexts ?? []
+      };
+    });
+    const overviewGreeting = overviewSpeech.spokenTexts.find((text) => /^Good (?:morning|afternoon|evening), Maya\. How can I help you\?$/u.test(text));
+    assert(overviewGreeting !== undefined, "Overview workspace Voice must speak the time-based Maya greeting.");
+    assert(
+      overviewSpeech.events.indexOf(`end:${overviewGreeting}`) < overviewSpeech.events.indexOf("microphone"),
+      "Overview workspace Voice must finish greeting playback before microphone capture starts."
+    );
+    assert(
+      overviewSpeech.spokenTexts.includes(workspaceVoiceAnswer),
+      "Overview workspace Voice must speak the exact visible cited answer."
+    );
+    const overviewCancelCountBeforeClose = overviewSpeech.cancelCount;
     await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+    await page.waitForFunction(
+      (previousCount) =>
+        ((window as unknown as { __recoupE2ESpeech?: { cancelCount: number } }).__recoupE2ESpeech?.cancelCount ?? 0) > previousCount,
+      overviewCancelCountBeforeClose
+    );
   } finally {
     await page.unroute("https://api.openai.com/v1/realtime/calls").catch(() => undefined);
     await page.unroute("**/api/query/realtime-client-secret").catch(() => undefined);
     await page.unroute("**/api/forensics/query").catch(() => undefined);
+  }
+}
+
+async function assertMayaSelectedCaseVoiceSpeech(browser: Browser): Promise<void> {
+  const model = await loadForensicsE2EModel();
+  const selectedRow =
+    model.worklist.find((item) => item.lineIds.includes(model.selected.lineId)) ?? firstItem(model.worklist, "selected Voice row");
+  const context = await newRoleContext(browser, "maya", 1440, 900);
+  await installBeat8RealtimeFakes(context);
+  const page = await context.newPage();
+  const selectedQuestion = "Which selected evidence records support this deduction review?";
+  const selectedAnswer = "E2E selected-case cited voice answer from the backend query route.";
+  let queryEvidenceContext: ForensicsSelectedEvidenceContext = model;
+  let selectedQueryBody: Record<string, unknown> | undefined;
+
+  await page.route("**/api/query/realtime-client-secret", async (route) => {
+    const requestBody = parseOptionalJsonRecord(route.request().postData());
+    assert(requestBody?.["mode"] === "transcription_only", "Selected-case Voice must request transcription-only Realtime mode.");
+    await route.fulfill({
+      body: JSON.stringify({
+        auditPolicy: {
+          allowedTools: [],
+          externalActions: "none",
+          recordIds: ["OPENAI-REALTIME-TRANSCRIPTION"],
+          retention: "No raw audio or uncited transcript is persisted by Recoup."
+        },
+        clientSecret: { value: "ek_e2e_selected_transcription" },
+        deterministicBasis: "E2E transcription-only Realtime session.",
+        model: "gpt-realtime-2",
+        status: "issued",
+        transport: "webrtc"
+      }),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+  await page.route("https://api.openai.com/v1/realtime/calls", async (route) => {
+    await route.fulfill({ body: "v=0\r\ns=e2e-selected-voice", contentType: "application/sdp", status: 201 });
+  });
+  await page.route("**/api/forensics/query", async (route) => {
+    selectedQueryBody = parseOptionalJsonRecord(route.request().postData());
+    await route.fulfill({
+      body: JSON.stringify(
+        buildE2EForensicsQueryResponse(
+          queryEvidenceContext,
+          selectedAnswer,
+          "E2E deterministic basis from the selected-case backend query response."
+        )
+      ),
+      contentType: "application/json",
+      status: 200
+    });
+  });
+
+  try {
+    await page.goto(`${appUrl}/forensics/shadcn`, { waitUntil: "domcontentloaded" });
+    await openMayaWorklistSection(page);
+    await page.locator(`[data-testid="maya-worklist-row"][data-line-id="${selectedRow.lineId}"]`).click();
+    queryEvidenceContext = await openSelectedMayaWorkItemDetail(page, selectedRow, "Maya selected-case Voice detail");
+    await openRecoupCopilotDock(page, "Maya selected-case Voice dock");
+    await page.getByRole("button", { name: /^Ask by voice$/u }).click();
+    await page.waitForFunction(() => {
+      const realtime = (window as unknown as { __recoupE2ERealtime?: { peerConnections: unknown[] } }).__recoupE2ERealtime;
+      const speech = (window as unknown as { __recoupE2ESpeech?: { spokenTexts: string[] } }).__recoupE2ESpeech;
+      return (realtime?.peerConnections.length ?? 0) > 0 && (speech?.spokenTexts.length ?? 0) > 0;
+    });
+    await page.evaluate((transcript) => {
+      const realtime = (
+        window as unknown as {
+          __recoupE2ERealtime?: { peerConnections?: Array<{ dataChannel?: EventTarget }> };
+        }
+      ).__recoupE2ERealtime;
+      const dataChannel = realtime?.peerConnections?.at(-1)?.dataChannel;
+      dataChannel?.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ transcript, type: "conversation.item.input_audio_transcription.completed" })
+        })
+      );
+    }, selectedQuestion);
+    await page.waitForFunction(
+      (answer) =>
+        document.querySelector<HTMLElement>('[data-testid="maya-query-assistant-answer"]')?.innerText.trim() === answer,
+      selectedAnswer
+    );
+    await page.waitForFunction((answer) => {
+      const speech = (window as unknown as { __recoupE2ESpeech?: { spokenTexts: string[] } }).__recoupE2ESpeech;
+      return speech?.spokenTexts.includes(answer) === true;
+    }, selectedAnswer);
+    assert(selectedQueryBody !== undefined, "Selected-case Voice query body must be captured.");
+    assert(selectedQueryBody["question"] === selectedQuestion, "Selected-case Voice must submit the microphone transcript.");
+    assert(selectedQueryBody["selectedLineId"] === queryEvidenceContext.selected.lineId, "Selected-case Voice must retain selectedLineId.");
+    assert(Array.isArray(selectedQueryBody["recordIds"]), "Selected-case Voice must submit scoped record IDs.");
+    const selectedSpeech = await page.evaluate(() => {
+      const speech = (
+        window as unknown as {
+          __recoupE2ESpeech?: { cancelCount: number; events: string[]; spokenTexts: string[] };
+        }
+      ).__recoupE2ESpeech;
+      return {
+        cancelCount: speech?.cancelCount ?? -1,
+        events: speech?.events ?? [],
+        spokenTexts: speech?.spokenTexts ?? []
+      };
+    });
+    const selectedGreeting = selectedSpeech.spokenTexts.find((text) => /^Good (?:morning|afternoon|evening), Maya\. How can I help you\?$/u.test(text));
+    assert(selectedGreeting !== undefined, "Selected-case Voice must speak the time-based Maya greeting.");
+    assert(
+      selectedSpeech.events.indexOf(`end:${selectedGreeting}`) < selectedSpeech.events.indexOf("microphone"),
+      "Selected-case Voice must finish greeting playback before microphone capture starts."
+    );
+    assert(selectedSpeech.spokenTexts.includes(selectedAnswer), "Selected-case Voice must speak the exact visible cited answer.");
+    const selectedCancelCountBeforeClose = selectedSpeech.cancelCount;
+    await closeVisibleOverlay(page, '[data-testid="maya-query-dock"]');
+    await page.waitForFunction(
+      (previousCount) =>
+        ((window as unknown as { __recoupE2ESpeech?: { cancelCount: number } }).__recoupE2ESpeech?.cancelCount ?? 0) > previousCount,
+      selectedCancelCountBeforeClose
+    );
+  } finally {
+    await page.unroute("**/api/forensics/query").catch(() => undefined);
+    await page.unroute("https://api.openai.com/v1/realtime/calls").catch(() => undefined);
+    await page.unroute("**/api/query/realtime-client-secret").catch(() => undefined);
+    await context.close();
   }
 }
 
@@ -1692,9 +1848,48 @@ async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void>
     mediaTrackStops: 0,
     peerConnections: []
   };
+  const speechState = {
+    cancelCount: 0,
+    events: [],
+    spokenTexts: []
+  };
   Object.defineProperty(window, "__recoupE2ERealtime", {
     configurable: true,
     value: runtimeState
+  });
+  Object.defineProperty(window, "__recoupE2ESpeech", {
+    configurable: true,
+    value: speechState
+  });
+
+  class E2ESpeechSynthesisUtterance {
+    constructor(text) {
+      this.text = text;
+      this.onend = null;
+      this.onerror = null;
+    }
+  }
+
+  Object.defineProperty(window, "SpeechSynthesisUtterance", {
+    configurable: true,
+    value: E2ESpeechSynthesisUtterance
+  });
+  Object.defineProperty(window, "speechSynthesis", {
+    configurable: true,
+    value: {
+      cancel: () => {
+        speechState.cancelCount += 1;
+        speechState.events.push("cancel");
+      },
+      speak: (utterance) => {
+        speechState.spokenTexts.push(utterance.text);
+        speechState.events.push("speak:" + utterance.text);
+        window.setTimeout(() => {
+          speechState.events.push("end:" + utterance.text);
+          utterance.onend?.(new Event("end"));
+        }, 0);
+      }
+    }
   });
 
   class E2EDataChannel extends EventTarget {
@@ -1786,6 +1981,7 @@ async function installBeat8RealtimeFakes(context: BrowserContext): Promise<void>
 
   const mediaDevices = {
     getUserMedia: () => {
+      speechState.events.push("microphone");
       if (runtimeState.denyMedia) {
         return Promise.reject(new DOMException("Microphone permission denied in E2E", "NotAllowedError"));
       }

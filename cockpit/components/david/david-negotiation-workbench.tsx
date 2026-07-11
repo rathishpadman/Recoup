@@ -25,6 +25,12 @@ import { refreshDavidCreditReadModel } from "./refresh-credit-read-model.ts";
 
 type NegotiationOrder = CreditRiskAccountModel["negotiationOrders"][number];
 type NegotiationCommunicationStatus = { hasInboundReply?: boolean; round: number; status: string };
+type NegotiationCommunicationCheckState = "checking" | "ready" | "unavailable";
+interface NegotiationCommunicationStatusResponse {
+  checkedAtIso: string;
+  latestRound?: NegotiationCommunicationStatus;
+  orderId: string;
+}
 type NegotiationFlowState = "complete" | "current" | "waiting";
 
 export interface NegotiationCommunicationFlowStep {
@@ -68,8 +74,14 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
   const [communicationMessage, setCommunicationMessage] = React.useState<string | undefined>();
   const [lastCommunicationCheckIso, setLastCommunicationCheckIso] = React.useState<string | undefined>();
   const [latestCommunicationStatus, setLatestCommunicationStatus] = React.useState<NegotiationCommunicationStatus | undefined>();
+  const [communicationCheckState, setCommunicationCheckState] = React.useState<NegotiationCommunicationCheckState>("checking");
+  const communicationAbortControllerRef = React.useRef<AbortController | null>(null);
+  const communicationRequestSequenceRef = React.useRef(0);
 
   React.useEffect(() => {
+    communicationRequestSequenceRef.current += 1;
+    communicationAbortControllerRef.current?.abort();
+    communicationAbortControllerRef.current = null;
     setModel(undefined);
     setLoading(false);
     setError(undefined);
@@ -87,38 +99,60 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
     setCommunicationMessage(undefined);
     setLastCommunicationCheckIso(undefined);
     setLatestCommunicationStatus(undefined);
+    setCommunicationCheckState("checking");
   }, [hydratedApprovalActionId, order, orderId]);
 
   const checkCommunication = React.useCallback(async (manual: boolean): Promise<void> => {
     if (orderId === undefined || order === undefined) {
       return;
     }
+    const requestSequence = communicationRequestSequenceRef.current + 1;
+    communicationRequestSequenceRef.current = requestSequence;
+    communicationAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    communicationAbortControllerRef.current = abortController;
     setCheckingCommunication(true);
+    setCommunicationCheckState("checking");
     try {
-      const response = await fetch(`/api/credit/negotiation/status?orderId=${encodeURIComponent(orderId)}`, { cache: "no-store" });
-      const body = (await response.json().catch(() => ({}))) as {
-        checkedAtIso?: string;
-        latestRound?: NegotiationCommunicationStatus;
-      };
-      if (!response.ok) {
+      const response = await fetch(`/api/credit/negotiation/status?orderId=${encodeURIComponent(orderId)}`, {
+        cache: "no-store",
+        signal: abortController.signal
+      });
+      const body = readNegotiationCommunicationStatusResponse(
+        await response.json().catch(() => undefined),
+        orderId
+      );
+      if (abortController.signal.aborted || communicationRequestSequenceRef.current !== requestSequence) {
+        return;
+      }
+      if (!response.ok || body === undefined) {
+        setCommunicationCheckState("unavailable");
         if (manual) {
           setCommunicationMessage("Communication status is unavailable.");
         }
         return;
       }
-      setLastCommunicationCheckIso(body.checkedAtIso ?? new Date().toISOString());
+      setLastCommunicationCheckIso(body.checkedAtIso);
       setLatestCommunicationStatus(body.latestRound);
+      setCommunicationCheckState("ready");
       if (body.latestRound !== undefined && hasNegotiationCommunicationChanged(order, body.latestRound)) {
-        setCommunicationMessage(`New customer reply detected for round ${body.latestRound.round.toString()}. Refresh communication to load it.`);
+        setCommunicationMessage(negotiationCommunicationMessage(order, body.latestRound));
       } else if (manual) {
         setCommunicationMessage("No new customer reply was found.");
       }
     } catch {
+      if (abortController.signal.aborted || communicationRequestSequenceRef.current !== requestSequence) {
+        return;
+      }
+      setCommunicationCheckState("unavailable");
       if (manual) {
         setCommunicationMessage("Communication status is unavailable.");
       }
     } finally {
-      setCheckingCommunication(false);
+      if (communicationRequestSequenceRef.current === requestSequence) {
+        communicationAbortControllerRef.current = null;
+        setCheckingCommunication(false);
+      }
     }
   }, [order, orderId]);
 
@@ -133,8 +167,17 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
 
     return () => {
       window.clearInterval(intervalId);
+      communicationRequestSequenceRef.current += 1;
+      communicationAbortControllerRef.current?.abort();
+      communicationAbortControllerRef.current = null;
     };
   }, [checkCommunication, open, orderId]);
+
+  React.useEffect(() => {
+    if (!canUseNegotiationActions(communicationCheckState, latestCommunicationStatus)) {
+      setApprovalDialogOpen(false);
+    }
+  }, [communicationCheckState, latestCommunicationStatus]);
 
   React.useEffect(() => {
     if (!open || orderId === undefined || model !== undefined) {
@@ -521,6 +564,8 @@ export function DavidNegotiationWorkbench({ account }: Readonly<{ account: Credi
               account={account}
               approvalDialogOpen={approvalDialogOpen}
               approvalRecordedActionId={approvalRecordedActionId}
+              communicationCheckState={communicationCheckState}
+              communicationStatus={latestCommunicationStatus}
               model={model}
               onApprovalDialogOpenChange={setApprovalDialogOpen}
               onApprovalRecorded={(actionId) => {
@@ -591,6 +636,66 @@ export function hasNegotiationCommunicationChanged(
   return order.currentRound === undefined || latestRound.round !== order.currentRound.round || latestRound.status !== order.currentRound.status;
 }
 
+export function negotiationCommunicationMessage(
+  order: NegotiationOrder,
+  latestRound: NegotiationCommunicationStatus
+): string {
+  if (latestRound.status === "human_review") {
+    return `Customer reply received for round ${latestRound.round.toString()}. Human review is required before a governed draft can be prepared.`;
+  }
+
+  return `New customer reply detected for round ${latestRound.round.toString()}. Refresh communication to load it.`;
+}
+
+export function canUseNegotiationActions(
+  checkState: NegotiationCommunicationCheckState,
+  latestRound: NegotiationCommunicationStatus | undefined
+): boolean {
+  return checkState === "ready" && latestRound?.status !== "human_review";
+}
+
+export function readNegotiationCommunicationStatusResponse(
+  value: unknown,
+  expectedOrderId: string
+): NegotiationCommunicationStatusResponse | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.orderId !== expectedOrderId ||
+    typeof record.checkedAtIso !== "string" ||
+    Number.isNaN(Date.parse(record.checkedAtIso))
+  ) {
+    return undefined;
+  }
+  if (record.latestRound === undefined) {
+    return { checkedAtIso: record.checkedAtIso, orderId: expectedOrderId };
+  }
+  if (typeof record.latestRound !== "object" || record.latestRound === null || Array.isArray(record.latestRound)) {
+    return undefined;
+  }
+  const latestRound = record.latestRound as Record<string, unknown>;
+  if (
+    !Number.isInteger(latestRound.round) ||
+    (latestRound.round as number) < 1 ||
+    typeof latestRound.status !== "string" ||
+    latestRound.status.length === 0 ||
+    (latestRound.hasInboundReply !== undefined && typeof latestRound.hasInboundReply !== "boolean")
+  ) {
+    return undefined;
+  }
+  return {
+    checkedAtIso: record.checkedAtIso,
+    latestRound: {
+      ...(typeof latestRound.hasInboundReply === "boolean" ? { hasInboundReply: latestRound.hasInboundReply } : {}),
+      round: latestRound.round as number,
+      status: latestRound.status
+    },
+    orderId: expectedOrderId
+  };
+}
+
 export function buildNegotiationCommunicationFlow(
   order: NegotiationOrder,
   latestRound?: NegotiationCommunicationStatus
@@ -619,8 +724,10 @@ export function buildNegotiationCommunicationFlow(
       title: "Customer reply"
     },
     {
-      detail: replyReceived
-        ? `Round ${order.nextRound.toString()} ready to evaluate`
+      detail: effectiveStatus === "human_review"
+        ? "Human review required"
+        : replyReceived
+          ? `Round ${order.nextRound.toString()} ready to evaluate`
         : `Round ${order.nextRound.toString()} after reply`,
       state: replyReceived ? "current" : "waiting",
       title: "Governed draft"
@@ -716,6 +823,8 @@ function DealOptimizerView({
   account,
   approvalDialogOpen,
   approvalRecordedActionId,
+  communicationCheckState,
+  communicationStatus,
   model,
   onApprovalDialogOpenChange,
   onApprovalRecorded,
@@ -727,6 +836,8 @@ function DealOptimizerView({
   account: CreditRiskAccountModel;
   approvalDialogOpen: boolean;
   approvalRecordedActionId: string | undefined;
+  communicationCheckState: NegotiationCommunicationCheckState;
+  communicationStatus: NegotiationCommunicationStatus | undefined;
   model: DealOptimizerModel;
   onApprovalDialogOpenChange: (open: boolean) => void;
   onApprovalRecorded: (actionId: string) => void;
@@ -739,6 +850,8 @@ function DealOptimizerView({
   const draftCandidate = selectNegotiationDraftCandidate(order, model);
   const approvalPacket = buildNegotiationApprovalPacket(account, order, draftCandidate);
   const approvalRecorded = canSendNegotiationEmailForAction(order, approvalPacket.actionId, approvalRecordedActionId);
+  const actionsBlocked = !canUseNegotiationActions(communicationCheckState, communicationStatus);
+  const humanReviewBlocked = communicationStatus?.status === "human_review";
   const displayedSendMessage = sendMessage ?? negotiationHydratedSendMessage(order);
   return (
     <div className="grid gap-4">
@@ -762,6 +875,23 @@ function DealOptimizerView({
       )}
 
       <div className="grid gap-3 rounded-lg border bg-background/80 p-3" data-testid="david-negotiation-approval-send-path">
+        {actionsBlocked ? (
+          <Alert data-testid="david-negotiation-human-review-gate">
+            <AlertCircleIcon aria-hidden="true" data-icon="inline-start" />
+            <AlertTitle>
+              {humanReviewBlocked
+                ? "Customer reply requires human review"
+                : communicationCheckState === "checking"
+                  ? "Checking customer replies"
+                  : "Communication status unavailable"}
+            </AlertTitle>
+            <AlertDescription>
+              {humanReviewBlocked
+                ? "Draft and send actions remain blocked until the out-of-policy terms are resolved."
+                : "Draft and send actions remain blocked until communication status is verified."}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <span className="text-sm font-medium">Draft and send governed counter</span>
@@ -776,7 +906,7 @@ function DealOptimizerView({
         <div className="flex flex-wrap gap-2">
           <Button
             data-testid="david-negotiation-draft-counter"
-            disabled={topCandidate === undefined}
+            disabled={topCandidate === undefined || actionsBlocked}
             onClick={() => {
               onApprovalDialogOpenChange(true);
             }}
@@ -789,7 +919,7 @@ function DealOptimizerView({
           </Button>
           <Button
             data-testid="david-negotiation-send-approved-email"
-            disabled={!approvalRecorded || sendingEmail}
+            disabled={!approvalRecorded || sendingEmail || actionsBlocked}
             onClick={() => {
               onSendApproved(approvalPacket);
             }}

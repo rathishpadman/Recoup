@@ -218,6 +218,33 @@ function buildNegotiationSupabaseState(action: CreditNegotiationApprovalAction) 
       }
 
       const tableName = urlString.includes("/rest/v1/") ? new URL(urlString).pathname.split("/").at(-1) : undefined;
+      if (tableName === "recoup_reserve_credit_negotiation_send" && method === "POST") {
+        const body = readJsonBody(init) as { p_send?: Record<string, unknown> };
+        const row = body.p_send;
+        if (row === undefined) {
+          throw new TypeError("Expected send reservation RPC payload.");
+        }
+        const existing = sends.find(
+          (entry) => entry.action_id === row.action_id || entry.idempotency_key === row.idempotency_key
+        );
+        if (existing !== undefined) {
+          return Promise.resolve(jsonResponse({ send: existing, status: "existing" }));
+        }
+        sends.push({ ...row });
+        return Promise.resolve(jsonResponse({ send: row, status: "reserved" }));
+      }
+      if (tableName === "recoup_insert_credit_counter_offer" && method === "POST") {
+        const body = readJsonBody(init) as { p_counter?: Record<string, unknown> };
+        if (body.p_counter === undefined) {
+          throw new TypeError("Expected counter-offer RPC payload.");
+        }
+        const row = {
+          counter_offer_id: `manual-counter-${(counterOffers.length + 1).toString().padStart(3, "0")}`,
+          ...body.p_counter
+        };
+        counterOffers.push(row);
+        return Promise.resolve(jsonResponse(row));
+      }
       if (tableName === "recoup_memory_records" && method === "GET") {
         return Promise.resolve(jsonResponse([approvalRecord]));
       }
