@@ -563,6 +563,53 @@ describe("Realtime browser session helper", () => {
     });
   });
 
+  it("recovers a governed query_answer call from the final response.done output", async () => {
+    const fakes = createConnectedRealtimeFakes();
+    fakes.enqueueJsonResponse({
+      deterministicBasis: "Realtime tool allowlist + service-layer Zod validation.",
+      output: {
+        answer: "S2 is supported by the selected cited records.",
+        citationParity: {
+          textRecordIds: ["S2-L1", "DOC-S2-L1"],
+          voiceRecordIds: ["S2-L1", "DOC-S2-L1"],
+          parity: "same_record_ids"
+        },
+        deterministicBasis: "query.answer + cited records",
+        recordIds: ["S2-L1", "DOC-S2-L1"]
+      },
+      recordIds: ["S2-L1", "DOC-S2-L1"],
+      status: "ok",
+      toolName: "query.answer"
+    });
+    const result = await startRealtimeBrowserSession({
+      createPeerConnection: fakes.createPeerConnection,
+      fetcher: fakes.fetcher,
+      mediaDevices: fakes.mediaDevices,
+      question: "Voice question from microphone for the selected evidence packet.",
+      recordIds: ["DOC-S2-L1"],
+      selectedLineId: "S2-L1"
+    });
+
+    fakes.lastDataChannel.dispatchMessage(JSON.stringify({
+      response: {
+        output: [{
+          arguments: JSON.stringify({ question: "What supports this verdict?" }),
+          call_id: "call-final-query-answer",
+          name: "query_answer",
+          type: "function_call"
+        }]
+      },
+      type: "response.done"
+    }));
+    await waitForMicrotasks();
+
+    expect(fakes.fetchCalls[2]?.url).toBe("/api/query/realtime-tool");
+    expect(result.getSnapshot()).toMatchObject({
+      answer: "S2 is supported by the selected cited records.",
+      status: "answered"
+    });
+  });
+
   it.each([
     {
       label: "network rejection",

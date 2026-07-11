@@ -792,6 +792,18 @@ function readRealtimeFunctionCall(event: Record<string, unknown>): RealtimeFunct
     return readFunctionCallFields(event, false);
   }
 
+  if (event["type"] === "response.done" && isObject(event["response"]) && Array.isArray(event["response"]["output"])) {
+    for (const outputItem of event["response"]["output"]) {
+      if (!isObject(outputItem)) {
+        continue;
+      }
+      const functionCall = readFunctionCallFields(outputItem, true);
+      if (functionCall !== undefined) {
+        return functionCall;
+      }
+    }
+  }
+
   return undefined;
 }
 
