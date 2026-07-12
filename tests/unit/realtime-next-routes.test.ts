@@ -16,6 +16,7 @@ import {
   mayaForensicsReadModelKey,
   publishCachedReadModelPayload,
   proxyJsonResponse,
+  scheduledReadModelMaxAgeMs,
   subscribeForensicsReadModelEvents
 } from "../../cockpit/app/api/read-model-cache.js";
 import {
@@ -61,7 +62,7 @@ describe("Realtime Next proxy routes", () => {
 
   it("versions Maya work-item detail cache keys independently from the top-level Maya model", () => {
     expect(mayaForensicsReadModelKey).toBe("maya:forensics:v1");
-    expect(mayaForensicsWorkItemReadModelKey("S6-L1")).toBe("maya:forensics:work-item:S6-L1:v2");
+    expect(mayaForensicsWorkItemReadModelKey("S6-L1")).toBe("maya:forensics:work-item:S6-L1:v3");
   });
 
   it("serves a Maya top-level cache hit without starting another Render refresh", async () => {
@@ -565,6 +566,7 @@ describe("Realtime Next proxy routes", () => {
 
   it("serves cached Maya work-item detail before triggering a non-blocking Render refresh", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
     const cachedDetail = {
       lineId: "S6-L1",
       recoveryDraft: {
@@ -602,13 +604,13 @@ describe("Realtime Next proxy routes", () => {
         return Promise.resolve(
           Response.json([
             {
-              generated_at: "2026-06-29T00:00:00.000Z",
+              generated_at: cachedAt,
               model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
               source_record_ids_json: ["S6-L1", "INV-S6-1", "recoup_deduction_lines"],
-              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              source_refreshed_at: cachedAt,
               surface: "forensics-analyst"
             }
           ])
@@ -640,6 +642,87 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
     expect(body).toEqual(cachedDetail);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("bypasses an expired Maya work-item detail cache and republishes the live backend payload", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const staleAt = new Date(Date.now() - scheduledReadModelMaxAgeMs - 1).toISOString();
+    const cachedDetail = {
+      lineId: "S1-L1",
+      recoveryDraft: { actionId: "ACT-S1-L1" },
+      selected: {
+        evidencePack: {
+          documents: [{
+            contentHash: "a".repeat(64),
+            documentType: "carrier-report",
+            evidenceId: "EVD-CACHED-S1-L1",
+            receiptId: "RECON-CACHED-S1-L1",
+            storageHref: "/api/forensics/evidence-documents/EVD-CACHED-S1-L1",
+            storageUri: "supabase://recoup_evidence_documents/EVD-CACHED-S1-L1"
+          }]
+        },
+        lineId: "S1-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S1-L1", lineIds: ["S1-L1"], workItemId: "S1-L1" }
+    };
+    const backendDetail = {
+      ...cachedDetail,
+      selected: {
+        ...cachedDetail.selected,
+        evidencePack: {
+          documents: [{
+            contentHash: "b".repeat(64),
+            documentId: "VECTOR-EVIDENCE-S1-L1",
+            documentType: "carrier-report",
+            evidenceId: "VECTOR-EVIDENCE-S1-L1",
+            receiptId: "RECON-LIVE-S1-L1",
+            retrieval: { provenance: "openai-vector-store" },
+            storageHref: "/api/forensics/evidence-documents/VECTOR-EVIDENCE-S1-L1",
+            storageUri: "supabase://recoup_evidence_documents/VECTOR-EVIDENCE-S1-L1"
+          }]
+        }
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([{
+          generated_at: staleAt,
+          model_key: mayaForensicsWorkItemReadModelKey("S1-L1"),
+          payload_hash: "a".repeat(64),
+          payload_json: cachedDetail,
+          persona: "maya",
+          source_record_ids_json: ["S1-L1", "EVD-CACHED-S1-L1"],
+          source_refreshed_at: staleAt,
+          surface: "forensics-analyst"
+        }]));
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S1-L1") {
+        return Promise.resolve(Response.json(backendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S1-L1", {
+        headers: { cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}` },
+        method: "GET"
+      }),
+      { params: { lineId: "S1-L1" } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(await response.json()).toEqual(backendDetail);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -721,6 +804,7 @@ describe("Realtime Next proxy routes", () => {
 
   it("augments a grouped root-line cached detail from sibling cached evidence rows", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
     const rootCachedDetail = {
       lineId: "S3-L1",
       recoveryDraft: {
@@ -830,13 +914,13 @@ describe("Realtime Next proxy routes", () => {
           return Promise.resolve(
             Response.json([
               {
-                generated_at: "2026-07-06T00:00:00.000Z",
+                generated_at: cachedAt,
                 model_key: mayaForensicsWorkItemReadModelKey("S3-L1"),
                 payload_hash: "a".repeat(64),
                 payload_json: rootCachedDetail,
                 persona: "maya",
                 source_record_ids_json: ["S3-L1", "recoup_deduction_lines"],
-                source_refreshed_at: "2026-07-06T00:00:00.000Z",
+                source_refreshed_at: cachedAt,
                 surface: "forensics-analyst"
               }
             ])
@@ -846,13 +930,13 @@ describe("Realtime Next proxy routes", () => {
           return Promise.resolve(
             Response.json([
               {
-                generated_at: "2026-07-06T00:00:00.000Z",
+                generated_at: cachedAt,
                 model_key: mayaForensicsWorkItemReadModelKey("S3-L2"),
                 payload_hash: "b".repeat(64),
                 payload_json: siblingCachedDetail,
                 persona: "maya",
                 source_record_ids_json: ["S3-L2", "recoup_deduction_lines"],
-                source_refreshed_at: "2026-07-06T00:00:00.000Z",
+                source_refreshed_at: cachedAt,
                 surface: "forensics-analyst"
               }
             ])
@@ -899,6 +983,7 @@ describe("Realtime Next proxy routes", () => {
 
   it("bypasses cached Maya work-item detail when approval memory has a newer receipt", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
     const cachedDetail = {
       lineId: "S6-L1",
       recoveryDraft: {
@@ -944,13 +1029,13 @@ describe("Realtime Next proxy routes", () => {
         return Promise.resolve(
           Response.json([
             {
-              generated_at: "2026-06-29T00:00:00.000Z",
+              generated_at: cachedAt,
               model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
               source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
-              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              source_refreshed_at: cachedAt,
               surface: "forensics-analyst"
             }
           ])
@@ -1005,6 +1090,7 @@ describe("Realtime Next proxy routes", () => {
 
   it("bypasses cached Maya work-item detail when a cached receipt has been reset", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
     const cachedDetail = {
       approvalReceipt: {
         actionId: "ACT-S6-L1",
@@ -1056,13 +1142,13 @@ describe("Realtime Next proxy routes", () => {
         return Promise.resolve(
           Response.json([
             {
-              generated_at: "2026-06-29T00:00:00.000Z",
+              generated_at: cachedAt,
               model_key: mayaForensicsWorkItemReadModelKey("S6-L1"),
               payload_hash: "b".repeat(64),
               payload_json: cachedDetail,
               persona: "maya",
               source_record_ids_json: ["S6-L1", "recoup_deduction_lines"],
-              source_refreshed_at: "2026-06-29T00:00:00.000Z",
+              source_refreshed_at: cachedAt,
               surface: "forensics-analyst"
             }
           ])

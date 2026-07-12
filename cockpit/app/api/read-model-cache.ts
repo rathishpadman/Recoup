@@ -233,7 +233,7 @@ export const creditRiskReviewPayloadSchema = z.object({
 }).passthrough();
 
 export function mayaForensicsWorkItemReadModelKey(lineId: string): string {
-  return `maya:forensics:work-item:${lineId}:v2`;
+  return `maya:forensics:work-item:${lineId}:v3`;
 }
 
 export async function readCachedReadModelPayload(

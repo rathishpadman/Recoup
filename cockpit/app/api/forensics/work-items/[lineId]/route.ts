@@ -6,7 +6,8 @@ import {
   readCachedReadModelPayload,
   readModelJsonResponse,
   readModelCacheHeader,
-  refreshReadModelAfterResponse
+  refreshReadModelAfterResponse,
+  scheduledReadModelMaxAgeMs
 } from "../../../read-model-cache.ts";
 
 type RuntimeEnv = Partial<Record<string, string | undefined>>;
@@ -33,6 +34,7 @@ export async function GET(request: Request, context: WorkItemRouteContext): Prom
 
   const modelKey = mayaForensicsWorkItemReadModelKey(lineId);
   const cached = await readCachedReadModelPayload(runtimeEnv, modelKey, "forensics-analyst", {
+    maxAgeMs: scheduledReadModelMaxAgeMs,
     payloadSurface: "forensics-work-item-detail"
   });
   if (
@@ -314,6 +316,7 @@ async function augmentGroupedWorkItemDetailFromSiblingCaches(
     }
 
     const siblingCached = await readCachedReadModelPayload(runtimeEnv, mayaForensicsWorkItemReadModelKey(siblingLineId), "forensics-analyst", {
+      maxAgeMs: scheduledReadModelMaxAgeMs,
       payloadSurface: "forensics-work-item-detail"
     });
     if (siblingCached === undefined || !cachedWorkItemDetailCanBeReused(siblingCached.payload, siblingLineId)) {
