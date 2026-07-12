@@ -673,14 +673,21 @@ describe("Realtime Next proxy routes", () => {
         ...cachedDetail.selected,
         evidencePack: {
           documents: [{
-            contentHash: "b".repeat(64),
+            citationId: "V1",
+            description: "Carrier evidence supports the selected case.",
             documentId: "VECTOR-EVIDENCE-S1-L1",
             documentType: "carrier-report",
-            evidenceId: "VECTOR-EVIDENCE-S1-L1",
-            receiptId: "RECON-LIVE-S1-L1",
+            provenance: {
+              deterministicBasis: "Governed vector evidence matched the selected S1-L1 record scope.",
+              recordIds: ["S1-L1", "PHOTO-CARRIER-1", "INV-S1-1"],
+              sourceKind: "derived_backend",
+              sourceName: "OpenAI evidence vector store"
+            },
+            relevance: "Selected evidence match",
             retrieval: { provenance: "openai-vector-store" },
-            storageHref: "/api/forensics/evidence-documents/VECTOR-EVIDENCE-S1-L1",
-            storageUri: "supabase://recoup_evidence_documents/VECTOR-EVIDENCE-S1-L1"
+            sourceLabel: "Evidence vector store",
+            summary: "Carrier evidence supports the selected case.",
+            verifiedLabel: "Verified"
           }]
         }
       }
