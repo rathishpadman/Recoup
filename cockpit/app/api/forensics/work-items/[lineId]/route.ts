@@ -399,6 +399,24 @@ function cachedWorkItemDetailHasCanonicalEvidenceProof(
 
   return documents.every((document) => {
     const record = readRecord(document);
+    const provenance = readRecord(record?.provenance);
+    const hasCockpitEvidenceProof =
+      readNonEmptyString(record?.citationId) !== undefined &&
+      readNonEmptyString(record?.description) !== undefined &&
+      readNonEmptyString(record?.documentId) !== undefined &&
+      readNonEmptyString(record?.documentType) !== undefined &&
+      readNonEmptyString(record?.relevance) !== undefined &&
+      readNonEmptyString(record?.sourceLabel) !== undefined &&
+      readNonEmptyString(record?.summary) !== undefined &&
+      readNonEmptyString(record?.verifiedLabel) !== undefined &&
+      readNonEmptyString(provenance?.deterministicBasis) !== undefined &&
+      readNonEmptyStringArray(provenance?.recordIds).length > 0 &&
+      readNonEmptyString(provenance?.sourceKind) !== undefined &&
+      readNonEmptyString(provenance?.sourceName) !== undefined;
+    if (record !== undefined && hasCockpitEvidenceProof) {
+      return true;
+    }
+
     const evidenceId = readNonEmptyString(record?.evidenceId);
     const receiptId = readNonEmptyString(record?.receiptId);
     const contentHash = readNonEmptyString(record?.contentHash);
