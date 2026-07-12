@@ -145,7 +145,9 @@ describe("Maya real-backend contract", () => {
     expect(connectors.provenance.sourceKind).toBe("derived_backend");
     for (const tile of connectors.sourceTiles.filter((sourceTile) => sourceTile.statusTone !== "ready")) {
       expect(tile.provenance.sourceKind).toBe("derived_backend");
-      expect(tile.provenance.deterministicBasis).toMatch(/credential|schema probe|read-only proof|ConnectorReadiness/iu);
+      expect(tile.provenance.deterministicBasis).toMatch(
+        /credential|schema probe|read-only (?:proof|provider health probe)|ConnectorReadiness/iu
+      );
     }
   });
 

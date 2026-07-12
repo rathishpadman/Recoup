@@ -24,8 +24,7 @@ export const DecisionEvidenceDocumentRetrievalMetadataSchema = z
     fileName: z.string().min(1),
     mode: z.literal("semantic-vector"),
     provenance: z.literal("openai-vector-store"),
-    score: z.number().min(0).max(1),
-    vectorStoreId: z.string().min(1)
+    score: z.number().min(0).max(1)
   })
   .strict();
 

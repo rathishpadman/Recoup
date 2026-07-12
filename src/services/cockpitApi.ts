@@ -1859,8 +1859,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         ...(options.openAiVectorStoreFetcher === undefined ? {} : { fetcher: options.openAiVectorStoreFetcher }),
         vectorStoreId
       }),
-      settlementRun,
-      vectorStoreId
+      settlementRun
     });
   }
 

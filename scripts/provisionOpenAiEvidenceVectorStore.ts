@@ -2,10 +2,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
+import {
+  openAiEvidenceVectorDocuments,
+  openAiEvidenceVectorManifest
+} from "../config/openAiEvidenceVectorManifest.js";
 
 const envFilePath = ".env.local";
 const openAiBaseUrl = "https://api.openai.com/v1";
 const vectorStoreName = "Recoup synthetic evidence";
+const expectedEvidenceFileCount = openAiEvidenceVectorDocuments.length;
+const defaultRequestTimeoutMs = 10_000;
 const pollDelayMs = 2_000;
 const maxPollAttempts = 30;
 
@@ -34,19 +40,24 @@ interface EvidenceDossier {
   fileName: string;
 }
 
-interface RuntimeEnv {
+export interface OpenAiEvidenceVectorProvisioningEnv {
   OPENAI_API_KEY?: string;
   OPENAI_EVIDENCE_VECTOR_STORE_ID?: string;
 }
 
-interface ProvisionResult {
+export interface OpenAiEvidenceVectorProvisionResult {
   createdVectorStore: boolean;
   uploadedFileCount: number;
+  vectorStoreId: string;
   wroteEnvFile: boolean;
 }
 
-interface ProvisionOptions {
+export interface OpenAiEvidenceVectorProvisionOptions {
+  env?: OpenAiEvidenceVectorProvisioningEnv;
+  fetcher?: typeof fetch;
+  requestTimeoutMs?: number;
   updateEnvFile: boolean;
+  writeVectorStoreId?: (vectorStoreId: string) => Promise<void>;
 }
 
 type FileBatchStatus = "in_progress" | "completed" | "cancelled" | "failed";
@@ -56,27 +67,55 @@ interface FileBatch {
   status: FileBatchStatus;
 }
 
-export async function provisionOpenAiEvidenceVectorStore(options: ProvisionOptions): Promise<ProvisionResult> {
-  const env = readRuntimeEnv();
-  const apiKey = readRequiredSecret(env, "OPENAI_API_KEY");
-  const vectorStore = await createOrReuseVectorStore(apiKey, env.OPENAI_EVIDENCE_VECTOR_STORE_ID);
-  const uploadedFiles = await uploadEvidenceFiles(apiKey, buildEvidenceDossiers());
-  const fileBatch = await attachFilesToVectorStore(apiKey, vectorStore.id, uploadedFiles);
+interface VectorStoreFileCounts {
+  cancelled: number;
+  completed: number;
+  failed: number;
+  inProgress: number;
+  total: number;
+}
 
-  await waitForFileBatch(apiKey, vectorStore.id, fileBatch.id);
+export async function provisionOpenAiEvidenceVectorStore(
+  options: OpenAiEvidenceVectorProvisionOptions
+): Promise<OpenAiEvidenceVectorProvisionResult> {
+  const env = options.env ?? readRuntimeEnv();
+  const fetcher = options.fetcher ?? fetch;
+  const requestTimeoutMs = readRequestTimeoutMs(options.requestTimeoutMs);
+  const apiKey = readRequiredSecret(env, "OPENAI_API_KEY");
+  const vectorStore = await createOrReuseVectorStore(
+    apiKey,
+    env.OPENAI_EVIDENCE_VECTOR_STORE_ID,
+    fetcher,
+    requestTimeoutMs
+  );
+  const uploadedFiles = vectorStore.shouldUpload
+    ? await uploadEvidenceFiles(apiKey, buildEvidenceDossiers(), fetcher, requestTimeoutMs)
+    : [];
+
+  if (uploadedFiles.length > 0) {
+    const fileBatch = await attachFilesToVectorStore(
+      apiKey,
+      vectorStore.id,
+      uploadedFiles,
+      fetcher,
+      requestTimeoutMs
+    );
+    await waitForFileBatch(apiKey, vectorStore.id, fileBatch.id, fetcher, requestTimeoutMs);
+  }
 
   if (options.updateEnvFile) {
-    await writeVectorStoreIdToEnvFile(vectorStore.id);
+    await (options.writeVectorStoreId ?? writeVectorStoreIdToEnvFile)(vectorStore.id);
   }
 
   return {
     createdVectorStore: vectorStore.created,
     uploadedFileCount: uploadedFiles.length,
+    vectorStoreId: vectorStore.id,
     wroteEnvFile: options.updateEnvFile
   };
 }
 
-function readRuntimeEnv(): RuntimeEnv {
+function readRuntimeEnv(): OpenAiEvidenceVectorProvisioningEnv {
   const envFile = existsSync(envFilePath) ? parseEnv(stripUtf8Bom(readFileSyncUtf8(envFilePath))) : {};
   return {
     ...configuredEnvValues(envFile),
@@ -88,8 +127,10 @@ function readFileSyncUtf8(filePath: string): string {
   return existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
 }
 
-function configuredEnvValues(source: NodeJS.ProcessEnv | Record<string, string | undefined>): RuntimeEnv {
-  const env: RuntimeEnv = {};
+function configuredEnvValues(
+  source: NodeJS.ProcessEnv | Record<string, string | undefined>
+): OpenAiEvidenceVectorProvisioningEnv {
+  const env: OpenAiEvidenceVectorProvisioningEnv = {};
   if (isConfiguredValue(source.OPENAI_API_KEY)) {
     env.OPENAI_API_KEY = source.OPENAI_API_KEY;
   }
@@ -100,7 +141,10 @@ function configuredEnvValues(source: NodeJS.ProcessEnv | Record<string, string |
   return env;
 }
 
-function readRequiredSecret(env: RuntimeEnv, key: keyof RuntimeEnv): string {
+function readRequiredSecret(
+  env: OpenAiEvidenceVectorProvisioningEnv,
+  key: keyof OpenAiEvidenceVectorProvisioningEnv
+): string {
   const value = env[key];
   if (!isConfiguredValue(value)) {
     throw new Error(`${key} is required in .env.local or the shell environment.`);
@@ -113,18 +157,58 @@ function isConfiguredValue(value: string | undefined): value is string {
   return value !== undefined && value.trim().length > 0;
 }
 
+function readRequestTimeoutMs(value: number | undefined): number {
+  if (value === undefined) {
+    return defaultRequestTimeoutMs;
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("OpenAI request timeout must be a positive finite number of milliseconds.");
+  }
+
+  return Math.floor(value);
+}
+
 async function createOrReuseVectorStore(
   apiKey: string,
-  existingVectorStoreId: string | undefined
-): Promise<{ created: boolean; id: string }> {
+  existingVectorStoreId: string | undefined,
+  fetcher: typeof fetch,
+  requestTimeoutMs: number
+): Promise<{ created: boolean; id: string; shouldUpload: boolean }> {
   if (isConfiguredValue(existingVectorStoreId)) {
-    return { created: false, id: existingVectorStoreId.trim() };
+    const existingId = existingVectorStoreId.trim();
+    const { body, response } = await withRequestTimeout(requestTimeoutMs, async (signal) => {
+      const response = await fetcher(`${openAiBaseUrl}/vector_stores/${encodeURIComponent(existingId)}`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+        method: "GET",
+        signal
+      });
+      const body = response.ok ? await response.json() as unknown : undefined;
+      return { body, response };
+    });
+    if (response.ok) {
+      const state = readVectorStoreState(body, existingId);
+      if (state.manifest !== openAiEvidenceVectorManifest) {
+        throw new Error("OpenAI configured vector store does not match the expected evidence manifest.");
+      }
+      if (isCompletedEvidenceManifest(state.fileCounts)) {
+        return { created: false, id: existingId, shouldUpload: false };
+      }
+      if (isEmptyEvidenceManifest(state.fileCounts)) {
+        return { created: false, id: existingId, shouldUpload: true };
+      }
+
+      throw new Error("OpenAI configured vector store has a nonempty incomplete evidence manifest.");
+    }
+    if (response.status !== 404) {
+      throw new Error(`OpenAI validate vector store request failed with HTTP ${String(response.status)}.`);
+    }
   }
 
   const response = await openAiJson(apiKey, "create vector store", "/vector_stores", {
     body: JSON.stringify({
       metadata: {
         app: "recoup",
+        manifest: openAiEvidenceVectorManifest,
         provenance: "synthetic",
         purpose: "evidence-vector-store"
       },
@@ -132,14 +216,16 @@ async function createOrReuseVectorStore(
     }),
     headers: { "content-type": "application/json" },
     method: "POST"
-  });
+  }, fetcher, requestTimeoutMs);
 
-  return { created: true, id: readResponseId(response, "vector store") };
+  return { created: true, id: readResponseId(response, "vector store"), shouldUpload: true };
 }
 
 async function uploadEvidenceFiles(
   apiKey: string,
-  dossiers: readonly EvidenceDossier[]
+  dossiers: readonly EvidenceDossier[],
+  fetcher: typeof fetch,
+  requestTimeoutMs: number
 ): Promise<Array<{ attributes: EvidenceAttributes; fileId: string }>> {
   const uploadedFiles: Array<{ attributes: EvidenceAttributes; fileId: string }> = [];
 
@@ -151,7 +237,7 @@ async function uploadEvidenceFiles(
     const response = await openAiJson(apiKey, "upload evidence file", "/files", {
       body: form,
       method: "POST"
-    });
+    }, fetcher, requestTimeoutMs);
 
     uploadedFiles.push({
       attributes: dossier.attributes,
@@ -165,7 +251,9 @@ async function uploadEvidenceFiles(
 async function attachFilesToVectorStore(
   apiKey: string,
   vectorStoreId: string,
-  uploadedFiles: ReadonlyArray<{ attributes: EvidenceAttributes; fileId: string }>
+  uploadedFiles: ReadonlyArray<{ attributes: EvidenceAttributes; fileId: string }>,
+  fetcher: typeof fetch,
+  requestTimeoutMs: number
 ): Promise<FileBatch> {
   const response = await openAiJson(apiKey, "create vector store file batch", `/vector_stores/${encodeURIComponent(vectorStoreId)}/file_batches`, {
     body: JSON.stringify({
@@ -176,18 +264,26 @@ async function attachFilesToVectorStore(
     }),
     headers: { "content-type": "application/json" },
     method: "POST"
-  });
+  }, fetcher, requestTimeoutMs);
 
   return readFileBatch(response);
 }
 
-async function waitForFileBatch(apiKey: string, vectorStoreId: string, fileBatchId: string): Promise<void> {
+async function waitForFileBatch(
+  apiKey: string,
+  vectorStoreId: string,
+  fileBatchId: string,
+  fetcher: typeof fetch,
+  requestTimeoutMs: number
+): Promise<void> {
   for (let attempt = 1; attempt <= maxPollAttempts; attempt += 1) {
     const response = await openAiJson(
       apiKey,
       "retrieve vector store file batch",
       `/vector_stores/${encodeURIComponent(vectorStoreId)}/file_batches/${encodeURIComponent(fileBatchId)}`,
-      { method: "GET" }
+      { method: "GET" },
+      fetcher,
+      requestTimeoutMs
     );
     const fileBatch = readFileBatch(response);
 
@@ -205,20 +301,94 @@ async function waitForFileBatch(apiKey: string, vectorStoreId: string, fileBatch
   throw new Error("OpenAI vector store file batch did not complete before the local polling timeout.");
 }
 
-async function openAiJson(apiKey: string, operation: string, path: string, init: RequestInit): Promise<unknown> {
+async function openAiJson(
+  apiKey: string,
+  operation: string,
+  path: string,
+  init: RequestInit,
+  fetcher: typeof fetch,
+  requestTimeoutMs: number
+): Promise<unknown> {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${apiKey}`);
 
-  const response = await fetch(`${openAiBaseUrl}${path}`, {
-    ...init,
-    headers
-  });
+  return withRequestTimeout(requestTimeoutMs, async (signal) => {
+    const response = await fetcher(`${openAiBaseUrl}${path}`, {
+      ...init,
+      headers,
+      signal
+    });
 
-  if (!response.ok) {
-    throw new Error(`OpenAI ${operation} request failed with HTTP ${String(response.status)}.`);
+    if (!response.ok) {
+      throw new Error(`OpenAI ${operation} request failed with HTTP ${String(response.status)}.`);
+    }
+
+    return await response.json() as unknown;
+  });
+}
+
+async function withRequestTimeout<T>(
+  requestTimeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, requestTimeoutMs);
+  try {
+    return await operation(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readVectorStoreState(
+  response: unknown,
+  expectedId: string
+): { fileCounts: VectorStoreFileCounts; manifest: string | undefined } {
+  if (!isJsonObject(response) || readResponseId(response, "vector store") !== expectedId) {
+    throw new Error("OpenAI vector store response did not match the configured store.");
+  }
+  if (!isJsonObject(response.file_counts)) {
+    throw new Error("OpenAI vector store response did not include file counts.");
   }
 
-  return response.json() as Promise<unknown>;
+  return {
+    fileCounts: {
+      cancelled: readNonNegativeInteger(response.file_counts.cancelled, "cancelled"),
+      completed: readNonNegativeInteger(response.file_counts.completed, "completed"),
+      failed: readNonNegativeInteger(response.file_counts.failed, "failed"),
+      inProgress: readNonNegativeInteger(response.file_counts.in_progress, "in_progress"),
+      total: readNonNegativeInteger(response.file_counts.total, "total")
+    },
+    manifest: isJsonObject(response.metadata) && typeof response.metadata.manifest === "string"
+      ? response.metadata.manifest
+      : undefined
+  };
+}
+
+function readNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isInteger(value) || typeof value !== "number" || value < 0) {
+    throw new Error(`OpenAI vector store response included an invalid ${label} file count.`);
+  }
+
+  return value;
+}
+
+function isCompletedEvidenceManifest(fileCounts: VectorStoreFileCounts): boolean {
+  return fileCounts.completed === expectedEvidenceFileCount
+    && fileCounts.total === expectedEvidenceFileCount
+    && fileCounts.cancelled === 0
+    && fileCounts.failed === 0
+    && fileCounts.inProgress === 0;
+}
+
+function isEmptyEvidenceManifest(fileCounts: VectorStoreFileCounts): boolean {
+  return fileCounts.completed === 0
+    && fileCounts.total === 0
+    && fileCounts.cancelled === 0
+    && fileCounts.failed === 0
+    && fileCounts.inProgress === 0;
 }
 
 function readResponseId(response: unknown, label: string): string {
@@ -275,36 +445,19 @@ function stripUtf8Bom(body: string): string {
 }
 
 function buildEvidenceDossiers(): EvidenceDossier[] {
-  return [
-    buildEvidenceDossier({
-      customerId: "CUST-GREENLEAF",
-      documentType: "carrier-report",
-      recordIds: ["S1-L1", "PHOTO-CARRIER-1", "INV-S1-1"],
-      scenarioType: "Damaged product, evidence received",
-      summary: "Carrier damage evidence links the deduction line, photo record, and invoice record for retrieval validation."
-    }),
-    buildEvidenceDossier({
-      customerId: "CUST-CRESTLINE",
-      documentType: "POD",
-      recordIds: ["S3-L1", "POD-SIGNED-1", "INV-S3-1"],
-      scenarioType: "Shortage claim with full signed POD",
-      summary: "Signed proof of delivery confirms the shortage evidence package is available for the deduction line."
-    }),
-    buildEvidenceDossier({
-      customerId: "CUST-CRESTLINE",
-      documentType: "contract",
-      recordIds: ["S6-L1", "PRICE-CLAUSE-1", "INV-S6-1"],
-      scenarioType: "Pricing chargeback below contracted price",
-      summary: "Contract clause evidence links the pricing dispute to the source invoice and deduction line."
-    }),
-    buildEvidenceDossier({
-      customerId: "CUST-HARBOR",
-      documentType: "credit-memo",
-      recordIds: ["S8-L1", "CREDIT-MEMO-1", "INV-S8-1"],
-      scenarioType: "Duplicate already-credited deduction",
-      summary: "Credit memo evidence links the duplicate deduction to the prior credit record and source invoice."
-    })
-  ];
+  const summaries: Record<(typeof openAiEvidenceVectorDocuments)[number]["lineId"], string> = {
+    "S1-L1": "Carrier damage evidence links the deduction line, photo record, and invoice record for retrieval validation.",
+    "S3-L1": "Signed proof of delivery confirms the shortage evidence package is available for the deduction line.",
+    "S6-L1": "Contract clause evidence links the pricing dispute to the source invoice and deduction line.",
+    "S8-L1": "Credit memo evidence links the duplicate deduction to the prior credit record and source invoice."
+  };
+  return openAiEvidenceVectorDocuments.map((document) => buildEvidenceDossier({
+    customerId: document.customerId,
+    documentType: document.documentType,
+    recordIds: [document.recordIds[0], document.recordIds[1], document.recordIds[2]],
+    scenarioType: document.scenarioType,
+    summary: summaries[document.lineId]
+  }));
 }
 
 function buildEvidenceDossier(input: {

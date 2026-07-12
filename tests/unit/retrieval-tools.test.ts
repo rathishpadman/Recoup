@@ -149,7 +149,7 @@ describe("retrieval tools", () => {
           expect(searchLine.lineId).toBe(line.lineId);
           return Promise.resolve([
             {
-              documentId: "file-vector-contract",
+              documentId: "VECTOR-EVIDENCE-S6-L1",
               documentType: "contract",
               fileName: "pricing-clause.pdf",
               provenance: "openai-vector-store",
@@ -159,7 +159,7 @@ describe("retrieval tools", () => {
               summary: "Vector recall found the pricing clause passage."
             },
             {
-              documentId: "file-vector-correspondence",
+              documentId: "VECTOR-EVIDENCE-S6-L1-CORRESPONDENCE",
               documentType: "correspondence",
               fileName: "buyer-email.eml",
               provenance: "openai-vector-store",
@@ -172,7 +172,6 @@ describe("retrieval tools", () => {
         }
       },
       settlementRun: { customers: [], deductionLines: [line], seed: 42 },
-      vectorStoreId: "vs_unit_test"
     });
 
     expect(
@@ -190,15 +189,14 @@ describe("retrieval tools", () => {
     ).toEqual([
       ...structuredDocs,
       {
-        documentId: "file-vector-contract",
+        documentId: "VECTOR-EVIDENCE-S6-L1",
         documentType: "contract",
-        recordIds: ["S6-L1", "file-vector-contract", "PRICE-CLAUSE-1"],
+        recordIds: ["S6-L1", "VECTOR-EVIDENCE-S6-L1", "PRICE-CLAUSE-1"],
         retrieval: {
           fileName: "pricing-clause.pdf",
           mode: "semantic-vector",
           provenance: "openai-vector-store",
-          score: 0.92,
-          vectorStoreId: "vs_unit_test"
+          score: 0.92
         },
         source: "docs",
         summary: "Vector recall found the pricing clause passage."
@@ -225,7 +223,7 @@ describe("retrieval tools", () => {
 
           return [
             {
-              documentId: `file-vector-${line.lineId}`,
+              documentId: `VECTOR-EVIDENCE-${line.lineId}`,
               documentType: "contract",
               fileName: `${line.lineId}.pdf`,
               provenance: "openai-vector-store",
@@ -238,22 +236,20 @@ describe("retrieval tools", () => {
         }
       },
       settlementRun: { customers: [], deductionLines: lines, seed: 42 },
-      vectorStoreId: "vs_parallel_test"
     });
 
     expect(maxActiveSearches).toBe(lines.length);
     for (const line of lines) {
       expect(vectorStoreEvidenceSource.readEvidence(line)).toEqual([
         {
-          documentId: `file-vector-${line.lineId}`,
+          documentId: `VECTOR-EVIDENCE-${line.lineId}`,
           documentType: "contract",
           recordIds: [line.lineId, line.recordIds[1]],
           retrieval: {
             fileName: `${line.lineId}.pdf`,
             mode: "semantic-vector",
             provenance: "openai-vector-store",
-            score: 0.91,
-            vectorStoreId: "vs_parallel_test"
+            score: 0.91
           },
           source: "docs",
           summary: `Vector recall for ${line.lineId}.`
@@ -285,7 +281,6 @@ describe("retrieval tools", () => {
         }
       },
       settlementRun: { customers: [], deductionLines: [line], seed: 42 },
-      vectorStoreId: "vs_unit_test"
     });
 
     expect(
@@ -295,6 +290,41 @@ describe("retrieval tools", () => {
         vectorStoreEvidenceSource
       })
     ).toEqual(structuredDocs);
+  });
+
+  it("drops provider-shaped evidence ids at the service boundary", async () => {
+    const line = buildLine();
+    const vectorStoreEvidenceSource = await buildOpenAiVectorStoreEvidenceSource({
+      reader: {
+        searchEvidence() {
+          return Promise.resolve([
+            {
+              documentId: "file-provider-id",
+              documentType: "contract",
+              fileName: "pricing-clause.pdf",
+              provenance: "openai-vector-store",
+              recordIds: [line.lineId, "PRICE-CLAUSE-1"],
+              score: 0.91,
+              source: "docs",
+              summary: "A provider-shaped identifier must not enter service evidence."
+            },
+            {
+              documentId: "VECTOR-EVIDENCE-S6-L1",
+              documentType: "contract",
+              fileName: "pricing-clause.pdf",
+              provenance: "openai-vector-store",
+              recordIds: [line.lineId, "file-provider-citation"],
+              score: 0.9,
+              source: "docs",
+              summary: "A provider-shaped citation must not enter service evidence."
+            }
+          ]);
+        }
+      },
+      settlementRun: { customers: [], deductionLines: [line], seed: 42 }
+    });
+
+    expect(vectorStoreEvidenceSource.readEvidence(line)).toEqual([]);
   });
 
   it("uses injected Supabase SAP evidence at the service boundary", () => {

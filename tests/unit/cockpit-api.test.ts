@@ -2880,7 +2880,6 @@ describe("S5 cockpit API", () => {
                 mode: string;
                 provenance: string;
                 score: number;
-                vectorStoreId: string;
               };
               sourceLabel: string;
             }>;
@@ -2891,7 +2890,7 @@ describe("S5 cockpit API", () => {
       const firstVectorSearch = vectorSearchCalls[0];
       const firstRequestBody = firstVectorSearch?.init.body;
       const vectorDocument = body.selected?.evidencePack?.documents.find(
-        (document) => document.documentId === "file-vector-runtime-contract"
+        (document) => document.documentId === "VECTOR-EVIDENCE-S6-L1"
       );
 
       expect(response.status).toBe(200);
@@ -2912,7 +2911,7 @@ describe("S5 cockpit API", () => {
       expect(firstBody.query).toContain("deduction:");
       expect(firstBody.query).toContain("scenario:");
       expect(vectorDocument).toMatchObject({
-        documentId: "file-vector-runtime-contract",
+        documentId: "VECTOR-EVIDENCE-S6-L1",
         provenance: {
           sourceKind: "derived_backend",
           sourceName: "OpenAI vector store semantic retrieval"
@@ -2921,13 +2920,13 @@ describe("S5 cockpit API", () => {
           fileName: "pricing-clause.pdf",
           mode: "semantic-vector",
           provenance: "openai-vector-store",
-          score: 0.91,
-          vectorStoreId: "vs_evidence_test"
+          score: 0.91
         },
         sourceLabel: "OpenAI vector store"
       });
       expect(vectorDocument?.provenance.deterministicBasis).toContain("OpenAI vector store semantic retrieval");
-      expect(vectorDocument?.provenance.deterministicBasis).toContain("vs_evidence_test");
+      expect(JSON.stringify(body)).not.toContain("file-vector-runtime-contract");
+      expect(JSON.stringify(body)).not.toContain("vs_evidence_test");
     } finally {
       await close(enabledGate.server);
     }
@@ -6709,14 +6708,14 @@ describe("S5 cockpit API", () => {
           evidencePack?: {
             documents: Array<{
               documentId: string;
-              retrieval?: { provenance: string; vectorStoreId: string };
+              retrieval?: { provenance: string };
               sourceLabel: string;
             }>;
           };
         };
       };
       const vectorDocument = body.selected?.evidencePack?.documents.find(
-        (document) => document.documentId === "file-vector-runtime-contract"
+        (document) => document.documentId === "VECTOR-EVIDENCE-S6-L1"
       );
 
       expect(response.status).toBe(200);
@@ -6724,11 +6723,12 @@ describe("S5 cockpit API", () => {
       expect(vectorSearchCalls[0]?.url).toBe("https://api.openai.com/v1/vector_stores/vs_runtime_test/search");
       expect(vectorDocument).toMatchObject({
         retrieval: {
-          provenance: "openai-vector-store",
-          vectorStoreId: "vs_runtime_test"
+          provenance: "openai-vector-store"
         },
         sourceLabel: "OpenAI vector store"
       });
+      expect(JSON.stringify(body)).not.toContain("file-vector-runtime-contract");
+      expect(JSON.stringify(body)).not.toContain("vs_runtime_test");
     } finally {
       await runtime.close();
     }
@@ -7715,10 +7715,10 @@ function vectorStoreSearchResponseForS6(): Response {
             customer_id: "CUST-CRESTLINE",
             documentType: "contract",
             provenance: "synthetic",
-            record_id: "PRICE-CLAUSE-1",
-            recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
+            record_id: "S6-L1",
+            recordIds: ["S6-L1", "PRICE-CLAUSE-1", "INV-S6-1"],
             scenario_type: "Pricing chargeback below contracted price",
-            source_table: "recoup_src_docs"
+            source_table: "synthetic_deduction_lines"
           },
           content: [
             {
@@ -7745,10 +7745,10 @@ function vectorStoreSearchResponseForS1HiddenFile(): Response {
             customer_id: "CUST-GREENLEAF",
             documentType: "carrier-report",
             provenance: "synthetic",
-            record_id: "CARRIER-REPORT-S1-L1",
-            recordIds: ["S1-L1", "CARRIER-REPORT-S1-L1"],
+            record_id: "S1-L1",
+            recordIds: ["S1-L1", "PHOTO-CARRIER-1", "INV-S1-1"],
             scenario_type: "Damaged product, evidence received",
-            source_table: "recoup_src_docs"
+            source_table: "synthetic_deduction_lines"
           },
           content: [
             {

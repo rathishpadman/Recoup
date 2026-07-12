@@ -1023,16 +1023,17 @@ describe("enterprise read-only connector adapters", () => {
     expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({ max_num_results: 5 });
     expect(docs).toEqual([
       {
-        documentId: "file-pod-1",
-        documentType: "POD",
+        documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+        documentType: "carrier-report",
         fileName: "greenleaf-pod.pdf",
         provenance: "openai-vector-store",
-        recordIds: [line.lineId, "DOC-POD-1"],
+        recordIds: [line.lineId, "PHOTO-CARRIER-1", "INV-S1-1"],
         score: 0.91,
         source: "docs",
         summary: "Signed POD confirms delivery timing."
       }
     ]);
+    expect(JSON.stringify(docs)).not.toContain("file-pod-1");
     expect(JSON.stringify({ calls, docs })).not.toContain("sk-live-secret");
   });
 
@@ -1081,8 +1082,8 @@ describe("enterprise read-only connector adapters", () => {
 
     expect(docs).toHaveLength(1);
     expect(docs[0]).toMatchObject({
-      documentId: "file-pod-1",
-      recordIds: [line.lineId, "DOC-POD-1"],
+      documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+      recordIds: [line.lineId, "PHOTO-CARRIER-1", "INV-S1-1"],
       summary: "First matching chunk."
     });
   });
@@ -1189,7 +1190,7 @@ describe("enterprise read-only connector adapters", () => {
     await expect(reader.searchEvidence(line)).rejects.toThrow();
   });
 
-  it("filters OpenAI vector-store hits for other customers or scenarios", async () => {
+  it("filters OpenAI vector-store hits with any foreign customer, scenario, source table, or record id", async () => {
     const reader = createOpenAiVectorStoreEvidenceReader({
       apiKey: "sk-live-secret",
       fetcher: () =>
@@ -1212,6 +1213,27 @@ describe("enterprise read-only connector adapters", () => {
                   score: 0.92
                 },
                 {
+                  attributes: vectorAttributes({ source_table: "recoup_src_docs" }),
+                  content: [{ text: "Wrong source table.", type: "text" }],
+                  file_id: "file-wrong-source-table",
+                  filename: "wrong-source-table.pdf",
+                  score: 0.92
+                },
+                {
+                  attributes: vectorAttributes({ record_id: "DOC-POD-1" }),
+                  content: [{ text: "Wrong primary record id.", type: "text" }],
+                  file_id: "file-wrong-record-id",
+                  filename: "wrong-record-id.pdf",
+                  score: 0.92
+                },
+                {
+                  attributes: vectorAttributes({ recordIds: [line.lineId, "DOC-POD-1", "S8-L1"] }),
+                  content: [{ text: "Foreign citation mixed into an otherwise valid hit.", type: "text" }],
+                  file_id: "file-foreign-citation",
+                  filename: "foreign-citation.pdf",
+                  score: 0.92
+                },
+                {
                   attributes: vectorAttributes(),
                   content: [{ text: "Matching metadata.", type: "text" }],
                   file_id: "file-pod-1",
@@ -1228,11 +1250,11 @@ describe("enterprise read-only connector adapters", () => {
 
     await expect(reader.searchEvidence(line)).resolves.toEqual([
       {
-        documentId: "file-pod-1",
-        documentType: "POD",
+        documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+        documentType: "carrier-report",
         fileName: "greenleaf-pod.pdf",
         provenance: "openai-vector-store",
-        recordIds: [line.lineId, "DOC-POD-1"],
+        recordIds: [line.lineId, "PHOTO-CARRIER-1", "INV-S1-1"],
         score: 0.91,
         source: "docs",
         summary: "Matching metadata."
@@ -1240,7 +1262,40 @@ describe("enterprise read-only connector adapters", () => {
     ]);
   });
 
-  it("uses OpenAI vector-store record_id for relevance and deduped evidence citations", async () => {
+  it("rejects vector hits with an incomplete record set or the wrong governed document type", async () => {
+    const reader = createOpenAiVectorStoreEvidenceReader({
+      apiKey: "sk-live-secret",
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  attributes: vectorAttributes({ documentType: "contract" }),
+                  content: [{ text: "Wrong document type.", type: "text" }],
+                  file_id: "file-wrong-type",
+                  filename: "wrong-type.pdf",
+                  score: 0.95
+                },
+                {
+                  attributes: vectorAttributes({ recordIds: [line.lineId] }),
+                  content: [{ text: "Incomplete record set.", type: "text" }],
+                  file_id: "file-incomplete-records",
+                  filename: "incomplete.pdf",
+                  score: 0.94
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        ),
+      vectorStoreId: "vs_recoup_evidence_123456"
+    });
+
+    await expect(reader.searchEvidence(line)).resolves.toEqual([]);
+  });
+
+  it("rejects a hit when record_id is not the selected deduction line", async () => {
     const reader = createOpenAiVectorStoreEvidenceReader({
       apiKey: "sk-live-secret",
       fetcher: () =>
@@ -1250,7 +1305,7 @@ describe("enterprise read-only connector adapters", () => {
               data: [
                 {
                   attributes: vectorAttributes({
-                    recordIds: ["DOC-SECONDARY"],
+                    recordIds: [line.lineId, "DOC-POD-1"],
                     record_id: "DOC-POD-1"
                   }),
                   content: [{ text: "Record id match.", type: "text" }],
@@ -1266,13 +1321,7 @@ describe("enterprise read-only connector adapters", () => {
       vectorStoreId: "vs_recoup_evidence_123456"
     });
 
-    await expect(reader.searchEvidence(line)).resolves.toMatchObject([
-      {
-        documentId: "file-pod-1",
-        recordIds: ["DOC-SECONDARY", "DOC-POD-1"],
-        summary: "Record id match."
-      }
-    ]);
+    await expect(reader.searchEvidence(line)).resolves.toEqual([]);
   });
 
   it("fails closed on malformed OpenAI vector-store rows and non-2xx responses", async () => {
@@ -1427,12 +1476,12 @@ const rowsBySyntheticTable: Record<string, unknown[]> = {
 function vectorAttributes(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     customer_id: line.customerId,
-    documentType: "POD",
+    documentType: "carrier-report",
     provenance: "synthetic",
-    record_id: "DOC-POD-1",
-    recordIds: [line.lineId, "DOC-POD-1"],
+    record_id: line.lineId,
+    recordIds: [line.lineId, "PHOTO-CARRIER-1", "INV-S1-1"],
     scenario_type: line.scenarioType,
-    source_table: "recoup_src_docs",
+    source_table: "synthetic_deduction_lines",
     ...overrides
   };
 }

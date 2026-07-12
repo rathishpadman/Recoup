@@ -622,7 +622,6 @@ export async function buildSupabaseServiceSapEvidenceSource(input: {
 export async function buildOpenAiVectorStoreEvidenceSource(input: {
   reader: OpenAiVectorStoreEvidenceReader;
   settlementRun: SyntheticDatasetCore;
-  vectorStoreId: string;
 }): Promise<ServiceVectorStoreEvidenceSource> {
   const documentsByLineId = new Map<string, EvidenceDocument[]>();
 
@@ -632,7 +631,7 @@ export async function buildOpenAiVectorStoreEvidenceSource(input: {
         const evidence = await input.reader.searchEvidence(line);
         documentsByLineId.set(
           line.lineId,
-          dedupeEvidenceDocuments(evidence.flatMap((document) => toVectorStoreEvidenceDocument(input.vectorStoreId, document)))
+          dedupeEvidenceDocuments(evidence.flatMap(toVectorStoreEvidenceDocument))
         );
       } catch {
         documentsByLineId.set(line.lineId, []);
@@ -1618,8 +1617,12 @@ function toSapEvidenceDocument(evidence: SapSourceEvidence): EvidenceDocument {
   };
 }
 
-function toVectorStoreEvidenceDocument(vectorStoreId: string, evidence: OpenAiVectorStoreEvidence): EvidenceDocument[] {
-  if (evidence.documentType === "correspondence") {
+function toVectorStoreEvidenceDocument(evidence: OpenAiVectorStoreEvidence): EvidenceDocument[] {
+  if (
+    evidence.documentType === "correspondence" ||
+    isProviderEvidenceIdentifier(evidence.documentId) ||
+    evidence.recordIds.some(isProviderEvidenceIdentifier)
+  ) {
     return [];
   }
 
@@ -1632,13 +1635,16 @@ function toVectorStoreEvidenceDocument(vectorStoreId: string, evidence: OpenAiVe
         fileName: evidence.fileName,
         mode: "semantic-vector",
         provenance: evidence.provenance,
-        score: evidence.score,
-        vectorStoreId
+        score: evidence.score
       },
       source: evidence.source,
       summary: evidence.summary
     }
   ];
+}
+
+function isProviderEvidenceIdentifier(value: string): boolean {
+  return /^(?:file-|vs[_-])/u.test(value);
 }
 
 function dedupeEvidenceDocuments(documents: readonly EvidenceDocument[]): EvidenceDocument[] {
