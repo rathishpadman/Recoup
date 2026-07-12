@@ -83,7 +83,7 @@
 - [x] Verify expected vector cards show `OpenAI vector store` and semantic scores.
 - [x] Verify no raw `file-*` / vector-store IDs or cross-case citations are exposed.
 - [x] Run repeated senior diff critiques, remediate all code findings, and reconcile this plan with actual evidence.
-- [ ] Commit and push the reviewed branch; prepare a PR without merging.
+- [x] Commit and push the reviewed branch; prepare PR #8 without merging.
 
 ### Task 6: Production approval gate
 
