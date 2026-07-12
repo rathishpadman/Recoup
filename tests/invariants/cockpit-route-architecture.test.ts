@@ -65,6 +65,11 @@ describe("cockpit route architecture", () => {
     expect(landingSources).toContain("@/components/ui/tabs");
     expect(landingSources).toContain("@/components/ui/button");
     expect(landingSources).toContain("How We Built It");
+    expect(landingSources).toContain("Codex build harness");
+    expect(landingSources).toContain("Codex executes scoped implementation goals under AGENTS.md");
+    expect(landingSources).toContain("Goal-oriented implementer and reviewer subagents work in isolated worktrees");
+    expect(landingSources).toContain("Tests-first delivery gates every change");
+    expect(landingSources).toContain("Senior critique and human approval precede merge and production deployment");
     expect(landingSources).toContain("About");
     expect(root).not.toContain("requireDemoSession");
     expect(root).not.toContain("redirect(");

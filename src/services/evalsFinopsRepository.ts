@@ -427,7 +427,7 @@ function parseModelPricingRow(row: ModelPricingRow): ModelPricing {
     pricingId: requireString(row.pricing_id, "pricing_id"),
     ...(row.provider_source_url === null || row.provider_source_url === undefined
       ? {}
-      : { providerSourceUrl: requireString(row.provider_source_url, "provider_source_url") }),
+      : { providerSourceUrl: requireHttpsUrl(row.provider_source_url) }),
     reasoningPer1mTokens: requireNumericString(row.reasoning_per_1m_tokens, "reasoning_per_1m_tokens"),
     serviceTier: requireString(row.service_tier, "service_tier"),
     ...(row.source_retrieved_at === null || row.source_retrieved_at === undefined
@@ -705,6 +705,19 @@ function requireString(value: unknown, fieldName: string): string {
   }
 
   return value;
+}
+
+function requireHttpsUrl(value: unknown): string {
+  const sourceUrl = requireString(value, "provider_source_url");
+  try {
+    if (new URL(sourceUrl).protocol === "https:") {
+      return sourceUrl;
+    }
+  } catch {
+    // Fall through to the governed validation error.
+  }
+
+  throw new Error("Supabase Evals FinOps row contained an invalid HTTPS URL.");
 }
 
 function requireBoolean(value: unknown, fieldName: string): boolean {

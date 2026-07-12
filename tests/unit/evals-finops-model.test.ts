@@ -198,6 +198,22 @@ describe("evals FinOps cockpit model", () => {
     expect(model.blockedInputs.find((input) => input.inputId === "token_breakdown")?.reason).toContain("suppressed");
   });
 
+  it("suppresses future-dated usage receipts instead of presenting them as fresh", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      generatedAtIso: "2026-07-01T00:00:00.000Z",
+      persona: "maya",
+      repository: repositoryFixture({
+        usageRuns: [usageRun({ createdAt: "2026-07-01T00:05:00.000Z", recordIds: ["future-usage"] })]
+      })
+    });
+
+    expect(model.workflowMetrics).toEqual([]);
+    expect(model.summary.runCount).toBe(0);
+    expect(model.freshnessStatus).toBe("unavailable");
+    expect(model.blockedInputs.find((input) => input.inputId === "usage_timestamp")?.reason).toContain("future");
+    expect(JSON.stringify(model)).not.toContain("future-usage");
+  });
+
   it("exposes persona token components and returns unavailable cost for missing or ambiguous pricing", async () => {
     const run = usageRun({
       cachedInputTokens: 0,

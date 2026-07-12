@@ -99,6 +99,31 @@ function workflowMetricFixture(): PersonaFinopsCockpitModel["workflowMetrics"][n
 }
 
 describe("PersonaFinopsSurface", () => {
+  it("scopes every supporting FinOps selector to the persona surface", () => {
+    const css = readFileSync("cockpit/app/styles.css", "utf8");
+    const supportingClasses = [
+      "coverage-table",
+      "finops-chart-empty",
+      "finops-chart-legend",
+      "finops-stack",
+      "finops-trend-chart",
+      "legend-swatch",
+      "price-model",
+      "price-proof",
+      "price-rate",
+      "scorecard-detail",
+      "scorecard-table",
+      "token-measure",
+      "token-measures",
+      "workflow-provenance-list"
+    ];
+
+    for (const className of supportingClasses) {
+      expect(css).not.toMatch(new RegExp(`(^|\\n)\\.${className}(?:[\\s:{.#>]|$)`, "u"));
+      expect(css).toContain(`.persona-finops .${className}`);
+    }
+  });
+
   it("keeps the mobile context row contained at 375px", () => {
     const css = readFileSync("cockpit/app/styles.css", "utf8");
     expect(css).toMatch(/\.persona-finops-context > div\s*\{[^}]*min-width:\s*0;[^}]*flex-wrap:\s*wrap;/su);

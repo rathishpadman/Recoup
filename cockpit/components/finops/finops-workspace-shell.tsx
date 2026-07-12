@@ -129,7 +129,7 @@ export function FinopsWorkspaceShell({
       <SidebarInset className="min-h-svh bg-background text-foreground" data-testid="finops-workbench">
         <header className="flex min-w-0 items-center justify-between gap-4 px-5 py-5">
           <div className="flex min-w-0 items-center gap-2">
-            <SidebarTrigger className="md:hidden" />
+            <SidebarTrigger aria-label="Open FinOps navigation" className="md:hidden" />
             <div className="grid min-w-0 gap-1">
               <h1 className="truncate text-2xl font-semibold leading-none">{heading}</h1>
               <p className="truncate px-0 text-sm text-muted-foreground">{support}</p>

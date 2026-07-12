@@ -301,6 +301,8 @@ export async function buildEvalFinopsCockpitModel(
 export async function buildPersonaFinopsCockpitModel(
   input: BuildPersonaFinopsCockpitModelInput
 ): Promise<PersonaFinopsCockpitModel> {
+  const generatedAtIso = input.generatedAtIso ?? new Date().toISOString();
+  const generatedAtMs = new Date(generatedAtIso).getTime();
   const [usageRunsResult, pricingRowsResult, recommendationsResult] = await Promise.allSettled([
     input.repository.listAgentUsageRuns({
       fromIso: input.period.fromIso,
@@ -312,7 +314,10 @@ export async function buildPersonaFinopsCockpitModel(
   ]);
   const allowedWorkflows: readonly string[] = personaFinopsWorkflowScopes[input.persona];
   const scopedUsageRuns = settledValue(usageRunsResult, []).filter((run) => allowedWorkflows.includes(run.workflowName));
-  const usageRuns = scopedUsageRuns.filter((run) => run.recordIds.length > 0 && hasCompleteTokenBreakdown(run));
+  const futureUsageRuns = scopedUsageRuns.filter((run) => new Date(run.createdAt).getTime() > generatedAtMs + 30_000);
+  const usageRuns = scopedUsageRuns.filter(
+    (run) => !futureUsageRuns.includes(run) && run.recordIds.length > 0 && hasCompleteTokenBreakdown(run)
+  );
   const pricingRows = settledValue(pricingRowsResult, []);
   const recommendations = settledValue(recommendationsResult, []).filter(
     (recommendation) =>
@@ -338,9 +343,11 @@ export async function buildPersonaFinopsCockpitModel(
   if (scopedUsageRuns.some((run) => !hasCompleteTokenBreakdown(run))) {
     blockedInputs.push({ inputId: "token_breakdown", reason: "Usage metrics with a missing or inconsistent token breakdown were suppressed." });
   }
+  if (futureUsageRuns.length > 0) {
+    blockedInputs.push({ inputId: "usage_timestamp", reason: "Usage metrics with future timestamps were suppressed." });
+  }
   const workflowMetrics = buildPersonaWorkflowMetrics(usageRuns, pricingRows);
   const usageAsOf = maxIso(usageRuns.map((run) => run.createdAt));
-  const generatedAtIso = input.generatedAtIso ?? new Date().toISOString();
   const freshnessStatus = personaFreshnessStatus(usageAsOf, generatedAtIso, usageRunsResult.status === "rejected");
   const pricingAsOf = maxIso(pricingRows.flatMap((row) => row.sourceRetrievedAt === undefined ? [] : [row.sourceRetrievedAt]));
   const recommendationsAsOf = maxIso(recommendations.map((row) => row.createdAt));

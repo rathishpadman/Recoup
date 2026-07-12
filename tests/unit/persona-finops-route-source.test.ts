@@ -19,6 +19,8 @@ describe("persona FinOps route source", () => {
     expect(source).not.toContain("CockpitShell");
     expect(source).not.toContain("computedCostAmount:");
     expect(source).not.toContain("pricingProvenance:");
+    const shell = readFileSync("cockpit/components/finops/finops-workspace-shell.tsx", "utf8");
+    expect(shell).toContain('aria-label="Open FinOps navigation"');
   });
 
   it("does not derive the persona scope from any client-controlled value", () => {
@@ -27,13 +29,17 @@ describe("persona FinOps route source", () => {
     expect(source).not.toContain("persona=");
   });
 
-  it("keeps persona FinOps out of the Maya and David workspaces", () => {
+  it("keeps persona FinOps out of Maya and David navigation while exposing one CFO entry", () => {
     expect(existsSync("cockpit/app/forensics/finops/page.tsx")).toBe(false);
     expect(existsSync("cockpit/app/credit/finops/page.tsx")).toBe(false);
     const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
     expect(shell).not.toContain("/forensics/finops");
     expect(shell).not.toContain("/credit/finops");
-    expect(shell).not.toContain('label: "FinOps"');
+    expect(shell).toContain('href: "/finops"');
+    expect(shell).toContain('label: "Agent Cost Engineering"');
+    expect(shell).toContain("sessionScoped: true");
+    const profiles = readFileSync("config/cockpitDemoProfiles.ts", "utf8");
+    expect(profiles).not.toContain('"/finops"');
   });
 
   it("keeps CFO Evals and FinOps on its existing route and surface", () => {
@@ -42,5 +48,7 @@ describe("persona FinOps route source", () => {
     expect(source).toContain("fetchEvalFinopsModel");
     expect(source).toContain("EvalsFinopsSurface");
     expect(source).not.toContain("PersonaFinopsSurface");
+    const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
+    expect(shell).toContain('href: "/governance/evals-finops"');
   });
 });

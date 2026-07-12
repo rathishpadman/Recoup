@@ -51,7 +51,7 @@ export function PersonaFinopsSurface({ displayName, model, periodDays }: Readonl
           <section className="persona-finops-kpis" aria-label="Agent cost engineering summary">
             <Kpi icon={<Lightning size={18} />} label="Runs" value={formatInteger(model.summary.runCount)} support="typed usage receipts" />
             {model.summary.totalCostLabel === undefined ? null : (
-              <Kpi accent icon={<Coins size={18} />} label="Total cost" value={model.summary.totalCostLabel} support={`${periodDays}-day calculated spend`} />
+              <Kpi accent icon={<Coins size={18} />} label="Total cost" value={model.summary.totalCostLabel} support={`${String(periodDays)}-day calculated spend`} />
             )}
             {model.summary.averageCostPerRunLabel === undefined ? null : (
               <Kpi icon={<Calculator size={18} />} label="Cost / run" value={model.summary.averageCostPerRunLabel} support="backend Decimal average" />
@@ -235,7 +235,7 @@ function DailyTrendChart({ trend }: Readonly<{ trend: PersonaFinopsCockpitModel[
       className="finops-trend-chart"
       preserveAspectRatio="xMinYMax meet"
       role="img"
-      viewBox={`0 0 ${width} ${chartHeight + labelHeight}`}
+      viewBox={`0 0 ${String(width)} ${String(chartHeight + labelHeight)}`}
     >
       {trend.map((day, index) => {
         const x = gap + index * (barWidth + gap);

@@ -699,6 +699,37 @@ describe("evals FinOps Supabase repository", () => {
     );
   });
 
+  it("rejects non-HTTPS pricing provenance links", async () => {
+    const repository = createSupabaseEvalsFinopsRepository({
+      fetcher: () =>
+        ok([
+          {
+            active: true,
+            approved_by: "human:rathish-owner",
+            cached_input_per_1m_tokens: "0.125",
+            currency: "USD",
+            effective_from: "2026-06-30T00:00:00.000Z",
+            effective_to: null,
+            input_per_1m_tokens: "1.25",
+            model_id: "gpt-5-mini",
+            output_per_1m_tokens: "10.00",
+            pricing_hash: "c".repeat(64),
+            pricing_id: "pricing-1",
+            provider_source_url: "javascript:alert(1)",
+            reasoning_per_1m_tokens: "0",
+            service_tier: "default",
+            source_retrieved_at: "2026-06-30T00:00:00.000Z"
+          }
+        ]),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.listActiveModelPricing()).rejects.toThrow(
+      "Supabase Evals FinOps row contained an invalid HTTPS URL."
+    );
+  });
+
   it("constructs the repository only from server-side Supabase credentials", () => {
     expect(createSupabaseEvalsFinopsRepositoryFromEnv({})).toBeUndefined();
     expect(

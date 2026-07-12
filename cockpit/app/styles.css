@@ -6500,15 +6500,15 @@ code {
   width: 100%;
 }
 
-.scorecard-table {
+.persona-finops .scorecard-table {
   min-width: 1120px;
 }
 
-.coverage-table {
+.persona-finops .coverage-table {
   min-width: 880px;
 }
 
-.coverage-table td:last-child {
+.persona-finops .coverage-table td:last-child {
   color: var(--text-secondary);
   max-width: 340px;
 }
@@ -6610,38 +6610,38 @@ code {
   padding: 10px var(--space-3);
 }
 
-.price-model,
-.price-rate {
+.persona-finops .price-model,
+.persona-finops .price-rate {
   display: grid;
   gap: 2px;
 }
 
-.price-model strong,
-.price-rate strong {
+.persona-finops .price-model strong,
+.persona-finops .price-rate strong {
   color: var(--text-primary);
   font-size: 12px;
 }
 
-.price-model span,
-.price-rate small {
+.persona-finops .price-model span,
+.persona-finops .price-rate small {
   color: var(--text-muted);
   font-size: 10px;
 }
 
-.price-rate strong {
+.persona-finops .price-rate strong {
   font-variant-numeric: tabular-nums;
 }
 
-.price-proof summary,
-.scorecard-detail summary {
+.persona-finops .price-proof summary,
+.persona-finops .scorecard-detail summary {
   color: var(--color-primary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 750;
 }
 
-.price-proof > div,
-.scorecard-detail > div {
+.persona-finops .price-proof > div,
+.persona-finops .scorecard-detail > div {
   background: var(--bg-subtle);
   display: grid;
   gap: 4px;
@@ -6651,15 +6651,15 @@ code {
   padding: var(--space-2);
 }
 
-.price-proof a,
-.price-proof code,
-.price-proof span,
-.scorecard-detail span {
+.persona-finops .price-proof a,
+.persona-finops .price-proof code,
+.persona-finops .price-proof span,
+.persona-finops .scorecard-detail span {
   color: var(--text-secondary);
   font-size: 10px;
 }
 
-.scorecard-detail strong {
+.persona-finops .scorecard-detail strong {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
@@ -6712,21 +6712,21 @@ code {
   font-size: 11px;
 }
 
-.workflow-provenance-list {
+.persona-finops .workflow-provenance-list {
   border-top: 1px solid var(--border-subtle);
   content-visibility: auto;
 }
 
-.workflow-provenance-list details {
+.persona-finops .workflow-provenance-list details {
   border-bottom: 1px solid var(--border-subtle);
   content-visibility: auto;
 }
 
-.workflow-provenance-list details:last-child {
+.persona-finops .workflow-provenance-list details:last-child {
   border-bottom: 0;
 }
 
-.workflow-provenance-list summary {
+.persona-finops .workflow-provenance-list summary {
   color: var(--text-primary);
   cursor: pointer;
   font-size: 12px;
@@ -6734,21 +6734,21 @@ code {
   padding: var(--space-3) var(--space-4);
 }
 
-.workflow-provenance-list details > div {
+.persona-finops .workflow-provenance-list details > div {
   background: var(--bg-subtle);
   display: grid;
   gap: var(--space-2);
   padding: 0 var(--space-4) var(--space-4);
 }
 
-.workflow-provenance-list p,
-.workflow-provenance-list li {
+.persona-finops .workflow-provenance-list p,
+.persona-finops .workflow-provenance-list li {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 16px;
 }
 
-.workflow-provenance-list ul {
+.persona-finops .workflow-provenance-list ul {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
@@ -6757,7 +6757,7 @@ code {
   padding: 0;
 }
 
-.workflow-provenance-list li {
+.persona-finops .workflow-provenance-list li {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -6787,13 +6787,13 @@ code {
   font-size: 12px;
 }
 
-.token-measures {
+.persona-finops .token-measures {
   display: grid;
   gap: var(--space-2);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.token-measure {
+.persona-finops .token-measure {
   column-gap: var(--space-2);
   display: grid;
   grid-template-columns: 6px minmax(0, 1fr);
@@ -6801,25 +6801,25 @@ code {
   row-gap: 2px;
 }
 
-.token-measure i {
+.persona-finops .token-measure i {
   background: var(--persona-maya-accent);
   border-radius: 2px;
   grid-row: 1 / span 2;
 }
 
-.token-measure.cached i {
+.persona-finops .token-measure.cached i {
   background: var(--aging-current);
 }
 
-.token-measure.output i {
+.persona-finops .token-measure.output i {
   background: var(--aging-31-60);
 }
 
-.token-measure.reasoning i {
+.persona-finops .token-measure.reasoning i {
   background: var(--focus-ring);
 }
 
-.finops-stack {
+.persona-finops .finops-stack {
   border-radius: 3px;
   display: flex;
   gap: 2px;
@@ -6828,25 +6828,25 @@ code {
   overflow: hidden;
 }
 
-.finops-stack .seg {
+.persona-finops .finops-stack .seg {
   border-radius: 2px;
   flex-basis: 0;
   min-width: 3px;
 }
 
-.finops-stack .seg.uncached {
+.persona-finops .finops-stack .seg.uncached {
   background: var(--persona-maya-accent);
 }
 
-.finops-stack .seg.cached {
+.persona-finops .finops-stack .seg.cached {
   background: var(--aging-current);
 }
 
-.finops-stack .seg.output {
+.persona-finops .finops-stack .seg.output {
   background: var(--aging-31-60);
 }
 
-.finops-stack .seg.reasoning {
+.persona-finops .finops-stack .seg.reasoning {
   background: var(--focus-ring);
 }
 
@@ -6863,32 +6863,32 @@ code {
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
-.finops-trend-chart {
+.persona-finops .finops-trend-chart {
   display: block;
   max-height: 220px;
   width: 100%;
 }
 
-.finops-trend-chart .trend-bar-total {
+.persona-finops .finops-trend-chart .trend-bar-total {
   fill: color-mix(in srgb, var(--persona-maya-accent) 26%, var(--bg-subtle));
 }
 
-.finops-trend-chart .trend-bar-cached {
+.persona-finops .finops-trend-chart .trend-bar-cached {
   fill: var(--persona-maya-accent);
 }
 
-.finops-trend-chart .trend-label {
+.persona-finops .finops-trend-chart .trend-label {
   fill: var(--text-muted);
   font-family: var(--font-ui);
   font-size: 10px;
 }
 
-.finops-chart-legend {
+.persona-finops .finops-chart-legend {
   display: flex;
   gap: var(--space-4);
 }
 
-.finops-chart-legend span {
+.persona-finops .finops-chart-legend span {
   align-items: center;
   color: var(--text-secondary);
   display: inline-flex;
@@ -6896,35 +6896,35 @@ code {
   gap: 6px;
 }
 
-.legend-swatch {
+.persona-finops .legend-swatch {
   border-radius: 2px;
   display: inline-block;
   height: 10px;
   width: 10px;
 }
 
-.legend-swatch.total {
+.persona-finops .legend-swatch.total {
   background: color-mix(in srgb, var(--persona-maya-accent) 26%, var(--bg-subtle));
 }
 
-.legend-swatch.cached {
+.persona-finops .legend-swatch.cached {
   background: var(--persona-maya-accent);
 }
 
-.finops-chart-empty {
+.persona-finops .finops-chart-empty {
   color: var(--text-secondary);
   font-size: 12px;
   padding: var(--space-4);
 }
 
-.token-measure span {
+.persona-finops .token-measure span {
   color: var(--text-muted);
   font-size: 11px;
   grid-column: 2;
   white-space: nowrap;
 }
 
-.token-measure strong {
+.persona-finops .token-measure strong {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   grid-column: 2;
@@ -7064,7 +7064,7 @@ code {
   }
 
   .persona-finops-kpis,
-  .token-measures {
+  .persona-finops .token-measures {
     grid-template-columns: 1fr;
   }
 
@@ -7073,8 +7073,8 @@ code {
     grid-template-columns: 1fr 1fr;
   }
 
-  .price-model,
-  .price-proof {
+  .persona-finops .price-model,
+  .persona-finops .price-proof {
     grid-column: 1 / -1;
   }
 

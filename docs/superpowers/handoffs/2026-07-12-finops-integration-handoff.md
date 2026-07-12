@@ -4,9 +4,11 @@ Audience: a coding agent (Codex) integrating this feature branch into the main R
 
 ## Where the work lives
 
-- Worktree: `C:/Users/rathi/.config/superpowers/worktrees/Recoup/maya-david-agent-cost-engineering`
-- Branch: `codex/maya-david-agent-cost-engineering` (branched from `main`; base HEAD at handoff: `e19d44d`)
-- State: **all changes are uncommitted in the working tree** (26 modified files, 8 new paths, ~3,049 insertions). Nothing pushed, nothing merged.
+- Preserved source worktree: `C:/Users/rathi/.config/superpowers/worktrees/Recoup/maya-david-agent-cost-engineering`
+- Preserved source branch: `codex/maya-david-agent-cost-engineering`; feature commits `7e224df` and `2afa05e` after integration cherry-pick.
+- Integration worktree: `C:/Users/rathi/.config/superpowers/worktrees/Recoup/finops-integration-hardening`
+- Integration branch: `codex/finops-integration-hardening`, created from `origin/main` at `e1d605b`.
+- State: feature commits are preserved on the integration branch; the final hardening and verification changes are recorded below. Nothing has been deployed to production from this branch.
 - Full plan (original spec): `docs/superpowers/plans/2026-07-11-maya-david-agent-cost-engineering.md`
 
 ## What the feature is
@@ -19,12 +21,20 @@ One standalone route `GET /finops` — "Agent cost engineering" — serving all 
 | David | `credit_risk` only |
 | CFO | Consolidated: both workflows |
 
-It is intentionally **not** linked from Maya's or David's workspace navigation and **not** in any profile's `allowedRoutes` (see gotcha #1). The CFO's existing `/governance/evals-finops` surface is untouched and must stay untouched.
+It is intentionally **not** linked from Maya's or David's workspace navigation and **not** in any profile's `allowedRoutes` (see gotcha #1). The CFO sidebar now exposes one teal `Agent Cost Engineering` link to `/finops`; the CFO's existing `/governance/evals-finops` surface remains untouched.
 
-## New files (untracked)
+## Integration hardening added on 2026-07-12
+
+- Scheduled Maya/David Supabase read-model cache validity is one hour. The GitHub refresh workflow may still attempt a refresh every 10 minutes, but a delayed scheduler no longer forces a cold Render read during a hackathon demo. Approval, negotiation, query-source, realtime-session, and provider prompt-cache TTLs are unchanged.
+- CFO receives a single session-scoped `Agent Cost Engineering` sidebar link. `/finops` was deliberately not added to `allowedRoutes`; Maya and David navigation remain unchanged.
+- Landing page `How We Built It` now names Codex, `AGENTS.md`, goal-oriented implementer/reviewer subagents, isolated worktrees, tests-first gates, senior critique, and human approval before production.
+- Future-dated usage receipts are suppressed with a governed blocked-input reason, and pricing provenance URLs must be valid HTTPS URLs.
+- Supporting FinOps CSS selectors are scoped beneath `.persona-finops` to prevent style leakage into Maya, David, or the existing CFO governance view.
+
+## Feature files
 
 - `cockpit/app/finops/page.tsx` — server component; `requireDemoSession()` (no route-allowlist check — deliberate), `requireBackendReadAuthHeaders([session.role])`, fetches the model, renders shell + surface.
-- `cockpit/components/finops/finops-workspace-shell.tsx` — client component; replica of `MayaWorkspaceShell` (shadcn `SidebarProvider`/`Sidebar`, teal `mayaAccent`, single "Evals + FinOps" nav item).
+- `cockpit/components/finops/finops-workspace-shell.tsx` — client component; replica of `MayaWorkspaceShell` (shadcn `SidebarProvider`/`Sidebar`, teal `mayaAccent`, single persona-scoped FinOps nav item).
 - `cockpit/components/finops/persona-finops-surface.tsx` — server-rendered surface: KPI tiles, pricing band, workflow provenance disclosures, scorecard table, daily-token SVG bar chart, stacked composition bars, recommendations, usage-capture coverage table.
 - `cockpit/components/finops/persona-finops-period.ts` — 7/30-day period parsing.
 - `tests/unit/persona-finops-surface.test.ts`, `tests/unit/persona-finops-route-source.test.ts` — surface render + route-source invariants.
@@ -59,8 +69,12 @@ It is intentionally **not** linked from Maya's or David's workspace navigation a
 
 ## Test status at handoff
 
-- Full suite: `npm run test` → **1,505 passing, 0 failing** (vitest, `--pool=threads`).
-- `npm run typecheck` clean. `npm run lint` / `npm run depcruise` / `npm run verify:release` not yet run in final state — run `npm run verify` before merging.
+- Full environment-backed `npm run verify`: **passed** on the integration branch.
+- Vitest: **169 files / 1,538 tests passing, 0 failing**.
+- Lint, typecheck, dependency-cruiser (**155 modules / 542 dependencies**), and release readiness: **passed**.
+- Full browser E2E: `npx tsx tests/e2e/cockpit-premium-e2e.ts` **passed** across landing, login/role routing, Maya, David, CFO governance, voice UI behavior, responsive views, and all three `/finops` personas.
+- Focused browser E2E: `--persona-finops-only` and `--evals-finops-only` both **passed** at desktop and narrow viewports.
+- Live read-only Supabase check: **691 usage rows, 0 missing service tiers, 2 active pricing rows**; Maya, David, and CFO models were fresh and computed without blocked pricing inputs. No Supabase DML was performed during integration hardening.
 - Key suites: `persona-finops-surface`, `persona-finops-route-source`, `cockpit-role-auth`, `cockpit-demo-auth`, `cockpit-api` (persona-finops block includes CFO-allowed + unsigned-401 + period validation + cross-persona exclusion), `evals-finops-model/-repository/-rollups`, `agent-cost-calculator`.
 
 ## How to run and verify locally
@@ -69,15 +83,15 @@ It is intentionally **not** linked from Maya's or David's workspace navigation a
 npm run start:api      # Express cockpit API on :4317 (use start:api, NOT dev:api)
 npm run dev:cockpit    # Next.js on :3000
 ```
-Login at `/login` (Maya / david / CFO demo logins), then open `/finops`. Expect: teal sidebar with one "Evals + FinOps" tab; KPI row (Runs, Total cost, Cost/run, Cost/cited answer, Tokens/run, Cache-hit, Cache savings); "Fresh" chip; every scorecard row green "Calculated from effective owner pricing"; daily token bar chart; stacked composition bars; "Usage capture coverage" table listing all 10 workloads.
+Login at `/login` (Maya / David / CFO demo logins), then open `/finops`. Expect: teal sidebar with one persona-scoped FinOps tab; KPI row (Runs, Total cost, Cost/run, Cost/cited answer, Tokens/run, Cache-hit, Cache savings); "Fresh" chip; every scorecard row green "Calculated from effective owner pricing"; daily token bar chart; stacked composition bars; "Usage capture coverage" table listing the applicable workloads.
 
 ## Suggested integration steps
 
-1. From the worktree, review `git diff` + untracked files; commit as logical units (backend types/model, API, UI shell+surface+styles, tests) on `codex/maya-david-agent-cost-engineering`.
-2. Rebase onto latest `main`; the likeliest conflict surfaces are `src/services/cockpitApi.ts`, `cockpit/app/styles.css`, and test files.
-3. Run `npm run verify` (lint + typecheck + tests + depcruise + release readiness).
-4. Browser-check `/finops` for all three roles at 1440px and a narrow viewport (no page-level horizontal overflow).
-5. Merge / PR per repo convention. No further DB migration is needed — Supabase changes are already live.
+1. Review the final integration commits and diff on `codex/finops-integration-hardening`.
+2. Re-run `npm run verify` with the governed local runtime environment available.
+3. Re-run the full cockpit browser E2E and inspect `/finops` for Maya, David, and CFO at desktop and narrow viewports.
+4. Obtain explicit owner approval before push, merge, or production deployment.
+5. After deployment, smoke the public alias for landing, Maya, David, CFO navigation, both CFO FinOps routes, cache headers/freshness, and cross-persona data isolation. No further DB migration is needed.
 
 ## Known gaps / deliberate omissions (candidate follow-ups, not blockers)
 
@@ -96,4 +110,4 @@ Implementation (both halves recommended):
 4. When capture lands, flip the two realtime entries in `openAiWorkloadCaptureCoverage` (`src/services/evalsFinopsModel.ts`) from `not_captured` to `typed_receipts`, and extend the persona scopes if voice usage should attribute to Maya/David workflows.
 - No per-transaction model routing exists; models are pinned per agent role in `config/models.ts`. Routing changes must stay owner-approved (read-only recommendations only).
 - David business-outcome denominators (cost per completed arbitration etc.) remain "requires verified outcomes" until the owner ratifies source-backed denominators; cost-per-cited-answer is the only outcome metric currently computable.
-- E2E coverage for `/finops` in `tests/e2e/cockpit-premium-e2e.ts` was not added (unit/API/invariant tests only).
+- Realtime voice and additional uncaptured OpenAI workloads remain explicit follow-ups; the `/finops` route itself now has desktop/mobile E2E coverage for Maya, David, and CFO.
