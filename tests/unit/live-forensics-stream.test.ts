@@ -647,7 +647,8 @@ describe("live forensics Agents SDK stream", () => {
     expect(fakeRunner.lastAgent?.mcpServers).toBe(gateway.mcpServers);
     expect(fakeRunner.lastAgent?.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: "recoup:v2:deduction-forensics:v1"
+        prompt_cache_key: "recoup:v2:deduction-forensics:v1",
+        service_tier: "default"
       },
       reasoning: { effort: "high" },
       text: { verbosity: "low" }

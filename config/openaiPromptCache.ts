@@ -32,8 +32,14 @@ export const openAiPromptCacheConfig = {
   }
 >;
 
-export function openAiPromptCacheProviderData(capability: OpenAiPromptCacheCapability): { prompt_cache_key: string } {
+export type OpenAiServiceTier = "default" | "flex" | "priority";
+
+export function openAiPromptCacheProviderData(
+  capability: OpenAiPromptCacheCapability,
+  serviceTier: OpenAiServiceTier
+): { prompt_cache_key: string; service_tier: OpenAiServiceTier } {
   return {
-    prompt_cache_key: openAiPromptCacheConfig[capability].promptCacheKey
+    prompt_cache_key: openAiPromptCacheConfig[capability].promptCacheKey,
+    service_tier: serviceTier
   };
 }

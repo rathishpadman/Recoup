@@ -44,13 +44,14 @@ export function buildFinopsDailyRollups(input: BuildFinopsDailyRollupsInput): Fi
     const cachedInputTokens = sum(group.runs.map((run) => run.cachedInputTokens));
     const uncachedInputTokens = sum(group.runs.map((run) => run.uncachedInputTokens));
     const reasoningTokens = sum(group.runs.map((run) => run.reasoningTokens));
+    const nonReasoningOutputTokens = sum(group.runs.map((run) => Math.max(run.outputTokens - run.reasoningTokens, 0)));
     const totalTokens = sum(group.runs.map((run) => run.totalTokens));
     const computedCostAmount = pricing === undefined
       ? undefined
       : new Decimal(uncachedInputTokens)
           .mul(pricing.inputPer1mTokens)
           .plus(new Decimal(cachedInputTokens).mul(pricing.cachedInputPer1mTokens))
-          .plus(new Decimal(outputTokens).mul(pricing.outputPer1mTokens))
+          .plus(new Decimal(nonReasoningOutputTokens).mul(pricing.outputPer1mTokens))
           .plus(new Decimal(reasoningTokens).mul(pricing.reasoningPer1mTokens))
           .div(1_000_000);
     const promptCacheSavingsAmount =

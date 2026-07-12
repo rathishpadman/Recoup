@@ -3,6 +3,7 @@ import {
   type OpenAiPromptCacheCapability
 } from "../../config/openaiPromptCache.js";
 import type { OpenAiTokenUsageSnapshot } from "../agents/liveForensicsStream.js";
+import { runtimeOpenAiServiceTier } from "../../config/models.js";
 
 export const openAiUsageReceiptType = "openai_agent_usage" as const;
 export const openAiUsageCostStatus = "pricing_not_configured_not_computed" as const;
@@ -38,6 +39,7 @@ export function buildOpenAiUsageReceiptPayload(input: BuildOpenAiUsageReceiptInp
     rawModelTextPolicy: input.rawModelTextPolicy,
     recordIds: input.recordIds,
     receiptType: openAiUsageReceiptType,
+    serviceTier: runtimeOpenAiServiceTier,
     tokenCount: input.usage.totalTokens,
     totalTokens: input.usage.totalTokens
   };

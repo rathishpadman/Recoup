@@ -1,8 +1,53 @@
 import { describe, expect, it } from "vitest";
 import { buildFinopsDailyRollups } from "../../src/services/evalsFinopsRollups.js";
+import { buildPersonaFinopsCockpitModel } from "../../src/services/evalsFinopsModel.js";
+import type { EvalsFinopsRepository } from "../../src/services/evalsFinopsRepository.js";
 import type { AgentUsageRun, ModelPricing } from "../../src/services/evalsFinopsTypes.js";
 
 describe("evals FinOps rollups", () => {
+  it("matches persona direct cost when top-level output includes reasoning tokens", async () => {
+    const run = usageRun({
+      inputTokens: 0,
+      outputTokens: 1_000_000,
+      reasoningTokens: 250_000,
+      serviceTier: "default",
+      totalTokens: 1_000_000,
+      uncachedInputTokens: 0
+    });
+    const price = pricing({ inputPer1mTokens: "0", outputPer1mTokens: "10", reasoningPer1mTokens: "20" });
+    const rollup = buildFinopsDailyRollups({
+      businessDenominators: [
+        {
+          agentName: "Maya Forensics",
+          approvedDraftCount: 0,
+          casesProcessedCount: 1,
+          citedAnswerCount: 1,
+          deterministicBasis: "test denominator",
+          disputedAmount: "0",
+          modelId: "gpt-5-mini",
+          recordIds: ["denominator-1"],
+          workflowName: "maya_forensics_query"
+        }
+      ],
+      pricingRows: [price],
+      rollupDate: "2026-06-30",
+      usageRuns: [run]
+    })[0];
+    const repository = {
+      listActiveModelPricing: () => Promise.resolve([price]),
+      listModelPricingForPeriod: () => Promise.resolve([price]),
+      listAgentUsageRuns: () => Promise.resolve([run]),
+      listOpenRecommendations: () => Promise.resolve([])
+    } as unknown as EvalsFinopsRepository;
+    const persona = await buildPersonaFinopsCockpitModel({
+      period: { fromIso: "2026-06-01T00:00:00.000Z", toIso: "2026-07-01T00:00:00.000Z" },
+      persona: "maya",
+      repository
+    });
+
+    expect(rollup?.computedCostAmount).toBe("12.5000");
+    expect(rollup?.computedCostAmount).toBe(persona.workflowMetrics[0]?.computedCostAmount);
+  });
   it("aggregates daily usage by workflow, agent, and model with Decimal cost and prompt-cache savings", () => {
     const rollups = buildFinopsDailyRollups({
       pricingRows: [
@@ -170,8 +215,10 @@ function pricing(overrides: Partial<ModelPricing> = {}): ModelPricing {
     outputPer1mTokens: "0.000",
     pricingHash: "b".repeat(64),
     pricingId: "pricing-1",
+    providerSourceUrl: "https://openai.com/api/pricing/",
     reasoningPer1mTokens: "0.000",
     serviceTier: "default",
+    sourceRetrievedAt: "2026-06-30T00:00:00.000Z",
     ...overrides
   };
 }

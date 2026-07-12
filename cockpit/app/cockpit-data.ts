@@ -97,6 +97,85 @@ export interface EvalFinopsCockpitModel {
   }>;
 }
 
+export interface PersonaFinopsCockpitModel {
+  surface: "persona-finops";
+  persona: "maya" | "david" | "cfo";
+  generatedAtIso: string;
+  period: { fromIso: string; toIso: string };
+  sourceAsOf: { usageIso?: string; pricingIso?: string; recommendationsIso?: string };
+  freshnessStatus: "fresh" | "stale" | "not_configured" | "unavailable";
+  provenance: MayaFieldProvenance & { sourceKind: "derived_backend"; sourceName: "persona-finops-model" };
+  sourceStatus: { usage: "available" | "unavailable"; pricing: "available" | "unavailable"; recommendations: "available" | "unavailable" };
+  blockedInputs: Array<{ inputId: string; reason: string }>;
+  captureCoverage: Array<{
+    workloadLabel: string;
+    workflowName?: string;
+    models: string[];
+    persona: "maya" | "david" | "shared";
+    captureStatus: "typed_receipts" | "not_captured";
+    note: string;
+  }>;
+  summary: {
+    runCount: number;
+    tokensPerRunLabel: string;
+    cacheHitRateLabel: string;
+    latencyP95Label: string;
+    costPerOutcomeLabel: "Requires verified outcomes";
+    totalCostLabel?: string;
+    averageCostPerRunLabel?: string;
+    cacheSavingsLabel?: string;
+    costPerCitedAnswerLabel?: string;
+  };
+  dailyTrend: Array<{ date: string; totalTokens: number; cachedInputTokens: number; uncachedInputTokens: number; cacheSavingsLabel: string; cacheSavingsStatus: "computed_from_owner_pricing" | "pricing_not_configured_not_computed" | "no_cached_tokens_observed"; recordIds: string[] }>;
+  recommendations: Array<{ recommendationId: string; severity: "critical" | "important" | "advisory"; title: string; recommendedAction: string; requiresHumanApproval: boolean; deterministicBasis: string; recordIds: string[] }>;
+  workflowMetrics: Array<{
+    workflowLabel: string;
+    workflowName: string;
+    participatingAgentNames?: string[];
+    modelId: string;
+    serviceTier?: "default" | "flex" | "priority";
+    runCount: number;
+    successRateLabel: string;
+    tokensPerRunLabel: string;
+    toolCallsPerRunLabel: string;
+    citedAnswerRateLabel: string;
+    humanReviewRateLabel: "Unavailable";
+    inputTokens: number;
+    cachedInputTokens: number;
+    uncachedInputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    reasoningTokensStatus: "observed" | "unavailable";
+    totalTokens: number;
+    guardrailTripCount: number;
+    guardrailTripCountStatus: "observed" | "unavailable";
+    costStatus: EvalsFinopsCostStatus;
+    computedCostAmount?: string;
+    computedCostCurrency?: string;
+    costCalculationBasis: string;
+    costUnavailableReason?: "non_live_execution" | "missing_service_tier" | "unknown_model" | "pricing_period_mismatch" | "ambiguous_pricing" | "pricing_provenance_incomplete";
+    pricingProvenance: Array<{
+      pricingId: string;
+      pricingHash: string;
+      serviceTier: "default" | "flex" | "priority";
+      inputPer1mTokens: string;
+      cachedInputPer1mTokens: string;
+      outputPer1mTokens: string;
+      reasoningPer1mTokens: string;
+      currency: string;
+      effectiveFrom: string;
+      effectiveTo?: string;
+      approvedBy: string;
+      providerSourceUrl: string;
+      sourceRetrievedAt: string;
+    }>;
+    usageRunIds: string[];
+    sourceReceiptIds: string[];
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+}
+
 export interface CockpitApiFailClosedBody {
   correlationId: string;
   error: string;
@@ -1196,6 +1275,14 @@ export async function fetchConnectorReadinessModel(headers?: HeadersInit): Promi
 
 export async function fetchEvalFinopsModel(headers?: HeadersInit): Promise<EvalFinopsCockpitModel> {
   return fetchJson<EvalFinopsCockpitModel>("/evals-finops", headers ?? buildServerCockpitAuthHeaders());
+}
+
+export async function fetchPersonaFinopsModel(
+  period: { fromIso: string; toIso: string },
+  headers?: HeadersInit
+): Promise<PersonaFinopsCockpitModel> {
+  const query = new URLSearchParams({ from: period.fromIso, to: period.toIso });
+  return fetchJson<PersonaFinopsCockpitModel>(`/persona-finops?${query.toString()}`, headers ?? buildServerCockpitAuthHeaders());
 }
 
 function buildServerCockpitAuthHeaders(): HeadersInit | undefined {

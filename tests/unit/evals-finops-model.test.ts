@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { EvalsFinopsRepository } from "../../src/services/evalsFinopsRepository.js";
-import { buildEvalFinopsCockpitModel } from "../../src/services/evalsFinopsModel.js";
+import {
+  buildEvalFinopsCockpitModel,
+  buildPersonaFinopsCockpitModel as buildPersonaFinopsCockpitModelRaw,
+  personaFinopsWorkflowScopes
+} from "../../src/services/evalsFinopsModel.js";
 import type {
   AgentUsageRun,
   EvalGateRun,
@@ -10,7 +14,472 @@ import type {
   OpenAiCostBucket
 } from "../../src/services/evalsFinopsTypes.js";
 
+const personaPeriod = { fromIso: "2026-06-01T00:00:00.000Z", toIso: "2026-08-01T00:00:00.000Z" };
+function buildPersonaFinopsCockpitModel(
+  input: Omit<Parameters<typeof buildPersonaFinopsCockpitModelRaw>[0], "period">
+) {
+  return buildPersonaFinopsCockpitModelRaw({ ...input, period: personaPeriod });
+}
+
 describe("evals FinOps cockpit model", () => {
+  it("preserves the CFO model while persona models filter exact workflows before aggregation", async () => {
+    const mayaRun = usageRun({ recordIds: ["maya-only"], usageRunId: "maya-run" });
+    const davidRun = usageRun({
+      agentName: "David Credit Risk",
+      participatingAgentNames: ["David Credit Risk", "Credit Sentinel", "Action Packet Drafter"],
+      recordIds: ["david-only"],
+      usageRunId: "david-run",
+      workflowName: "credit_risk"
+    });
+    const repository = repositoryFixture({ usageRuns: [mayaRun, davidRun] });
+
+    const [cfo, maya, david] = await Promise.all([
+      buildEvalFinopsCockpitModel({ repository }),
+      buildPersonaFinopsCockpitModel({ persona: "maya", repository }),
+      buildPersonaFinopsCockpitModel({ persona: "david", repository })
+    ]);
+
+    expect(personaFinopsWorkflowScopes).toEqual({
+      cfo: ["credit_risk", "maya_forensics_query"],
+      david: ["credit_risk"],
+      maya: ["maya_forensics_query"]
+    });
+    expect(cfo.agentMetrics.map((metric) => metric.workflowName)).toEqual(["maya_forensics_query", "credit_risk"]);
+    expect(maya.workflowMetrics).toEqual([expect.objectContaining({ recordIds: ["maya-only"], workflowName: "maya_forensics_query" })]);
+    expect(david.workflowMetrics).toEqual([expect.objectContaining({
+      participatingAgentNames: ["David Credit Risk", "Credit Sentinel", "Action Packet Drafter"],
+      recordIds: ["david-only"],
+      workflowLabel: "David Credit Risk",
+      workflowName: "credit_risk"
+    })]);
+    expect(JSON.stringify(maya)).not.toContain("david-only");
+    expect(JSON.stringify(david)).not.toContain("maya-only");
+  });
+
+  it("builds workflow KPIs, daily cache trend, and evidence-backed persona recommendations on the backend", async () => {
+    const first = usageRun({
+      agentName: "Credit Sentinel",
+      cachedInputTokens: 400,
+      createdAt: "2026-06-30T10:00:00.000Z",
+      inputTokens: 1000,
+      latencyMs: 120,
+      participatingAgentNames: ["Credit Sentinel"],
+      recordIds: ["usage-1", "credit-record-1"],
+      serviceTier: "default",
+      sourceReceiptId: "receipt-1",
+      status: "succeeded",
+      uncachedInputTokens: 600,
+      usageRunId: "usage-1",
+      workflowName: "credit_risk"
+    });
+    const second = usageRun({
+      agentName: "Action Packet Drafter",
+      cachedInputTokens: 200,
+      citedRecordIds: [],
+      createdAt: "2026-07-01T10:00:00.000Z",
+      inputTokens: 1000,
+      latencyMs: 240,
+      participatingAgentNames: ["Action Packet Drafter"],
+      recordIds: ["usage-2", "credit-record-2"],
+      serviceTier: "default",
+      sourceReceiptId: "receipt-2",
+      status: "blocked",
+      uncachedInputTokens: 800,
+      usageRunId: "usage-2",
+      workflowName: "credit_risk"
+    });
+    const recommendation: FinopsRecommendation = {
+      recommendationId: "recommendation-1",
+      recommendationType: "prompt_cache",
+      severity: "important",
+      status: "open",
+      title: "Review stable prefix",
+      recommendedAction: "Inspect the governed prompt prefix before changing it.",
+      affectedWorkflowName: "credit_risk",
+      expectedImpact: {},
+      evidenceRecordIds: ["receipt-1"],
+      deterministicBasis: "Observed cache utilization in typed receipts.",
+      requiresHumanApproval: true,
+      createdAt: "2026-07-01T11:00:00.000Z"
+    };
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "david",
+      repository: repositoryFixture({ pricing: [pricing()], recommendations: [recommendation], usageRuns: [first, second] })
+    });
+
+    expect(model.period).toEqual({ fromIso: personaPeriod.fromIso, toIso: personaPeriod.toIso });
+    expect(model.sourceAsOf).toEqual({ pricingIso: "2026-06-30T00:00:00.000Z", recommendationsIso: "2026-07-01T11:00:00.000Z", usageIso: "2026-07-01T10:00:00.000Z" });
+    expect(model.summary).toMatchObject({
+      cacheHitRateLabel: "30.0%",
+      costPerOutcomeLabel: "Requires verified outcomes",
+      latencyP95Label: "240 ms",
+      runCount: 2,
+      tokensPerRunLabel: "1,500"
+    });
+    expect(model.freshnessStatus).toBe("stale");
+    expect(model.blockedInputs.find((input) => input.inputId === "freshness_threshold")).toBeUndefined();
+    expect(model.workflowMetrics).toHaveLength(1);
+    expect(model.workflowMetrics[0]).toMatchObject({
+      citedAnswerRateLabel: "50.0%",
+      humanReviewRateLabel: "Unavailable",
+      participatingAgentNames: ["Credit Sentinel", "Action Packet Drafter"],
+      successRateLabel: "50.0%",
+      tokensPerRunLabel: "1,500",
+      toolCallsPerRunLabel: "3.0",
+      workflowLabel: "David Credit Risk"
+    });
+    expect(model.dailyTrend).toEqual([
+      expect.objectContaining({ cachedInputTokens: 400, date: "2026-06-30", totalTokens: 1500 }),
+      expect.objectContaining({ cachedInputTokens: 200, date: "2026-07-01", totalTokens: 1500 })
+    ]);
+    expect(model.recommendations).toEqual([expect.objectContaining({ recommendationId: "recommendation-1", recordIds: ["receipt-1"] })]);
+  });
+
+  it("does not equate a blocked run with human review", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ usageRuns: [usageRun({ status: "blocked" })] })
+    });
+    expect(model.workflowMetrics[0]?.humanReviewRateLabel).toBe("Unavailable");
+  });
+
+  it("fails pricing closed when provider provenance is incomplete", async () => {
+    const incompletePricing = { ...pricing() };
+    delete incompletePricing.providerSourceUrl;
+    delete incompletePricing.sourceRetrievedAt;
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        pricing: [incompletePricing],
+        usageRuns: [usageRun({ serviceTier: "default" })]
+      })
+    });
+    expect(model.workflowMetrics[0]).toMatchObject({
+      costStatus: "pricing_not_configured_not_computed",
+      costUnavailableReason: "pricing_provenance_incomplete",
+      pricingProvenance: []
+    });
+  });
+
+  it("filters recommendations to the selected half-open period", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        recommendations: [
+          recommendation({ createdAt: "2026-05-31T23:59:59.999Z", recommendationId: "before" }),
+          recommendation({ createdAt: personaPeriod.fromIso, recommendationId: "at-from" }),
+          recommendation({ createdAt: personaPeriod.toIso, recommendationId: "at-to" })
+        ]
+      })
+    });
+
+    expect(model.recommendations.map((item) => item.recommendationId)).toEqual(["at-from"]);
+    expect(model.sourceAsOf.recommendationsIso).toBe(personaPeriod.fromIso);
+  });
+
+  it("suppresses receipt rows without record IDs and exposes the fail-closed reason", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ usageRuns: [usageRun({ recordIds: [] })] })
+    });
+
+    expect(model.workflowMetrics).toEqual([]);
+    const recordIdBlock = model.blockedInputs.find((input) => input.inputId === "record_ids");
+    expect(recordIdBlock?.reason).toContain("suppressed");
+  });
+
+  it("suppresses inconsistent token breakdowns instead of estimating them", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ usageRuns: [usageRun({ cachedInputTokens: 1, inputTokens: 1000, uncachedInputTokens: 1000 })] })
+    });
+
+    expect(model.workflowMetrics).toEqual([]);
+    expect(model.blockedInputs.find((input) => input.inputId === "token_breakdown")?.reason).toContain("suppressed");
+  });
+
+  it("exposes persona token components and returns unavailable cost for missing or ambiguous pricing", async () => {
+    const run = usageRun({
+      cachedInputTokens: 0,
+      guardrailTripCount: 0,
+      guardrailTripCountStatus: "unavailable",
+      reasoningTokens: 0,
+      reasoningTokensStatus: "unavailable",
+      recordIds: ["maya-run-zero-valid"],
+      uncachedInputTokens: 1000
+    });
+    const duplicatePricing = [pricing({ pricingId: "price-a" }), pricing({ pricingId: "price-b" })];
+
+    const missing = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ pricing: [], usageRuns: [run] })
+    });
+    const ambiguous = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ pricing: duplicatePricing, usageRuns: [run] })
+    });
+
+    for (const model of [missing, ambiguous]) {
+      expect(model.workflowMetrics).toEqual([
+        expect.objectContaining({
+          cachedInputTokens: 0,
+          costStatus: "pricing_not_configured_not_computed",
+          deterministicBasis: "typed usage run fixture",
+          inputTokens: 1000,
+          modelId: "gpt-5-mini",
+          outputTokens: 500,
+          reasoningTokens: 0,
+          reasoningTokensStatus: "unavailable",
+          guardrailTripCountStatus: "unavailable",
+          recordIds: ["maya-run-zero-valid"],
+          uncachedInputTokens: 1000
+        })
+      ]);
+      expect(model.workflowMetrics[0]).not.toHaveProperty("computedCostAmount");
+      expect(JSON.stringify(model)).not.toContain("$0");
+    }
+  });
+
+  it("keeps provider-observed reasoning and guardrail counts distinct from unavailable sentinels", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        usageRuns: [usageRun({ guardrailTripCount: 0, guardrailTripCountStatus: "observed", reasoningTokens: 25, reasoningTokensStatus: "observed" })]
+      })
+    });
+
+    expect(model.workflowMetrics[0]).toMatchObject({
+      guardrailTripCount: 0,
+      guardrailTripCountStatus: "observed",
+      reasoningTokens: 25,
+      reasoningTokensStatus: "observed"
+    });
+  });
+
+  it("prices each live run at its effective default-tier interval and treats effectiveTo as exclusive", async () => {
+    const beforeBoundary = usageRun({
+      createdAt: "2026-06-30T23:59:59.999Z",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      recordIds: ["run-before"],
+      sourceReceiptId: "receipt-before",
+      serviceTier: "default",
+      totalTokens: 1_000_000,
+      uncachedInputTokens: 1_000_000,
+      usageRunId: "run-before"
+    });
+    const atBoundary = usageRun({
+      createdAt: "2026-07-01T00:00:00.000Z",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      recordIds: ["run-at"],
+      sourceReceiptId: "receipt-at",
+      serviceTier: "default",
+      totalTokens: 1_000_000,
+      uncachedInputTokens: 1_000_000,
+      usageRunId: "run-at"
+    });
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        pricing: [
+          pricing({
+            active: false,
+            effectiveFrom: "2026-06-01T00:00:00.000Z",
+            effectiveTo: "2026-07-01T00:00:00.000Z",
+            inputPer1mTokens: "1.00",
+            pricingHash: "a".repeat(64),
+            pricingId: "price-june"
+          }),
+          pricing({
+            effectiveFrom: "2026-07-01T00:00:00.000Z",
+            inputPer1mTokens: "2.00",
+            pricingHash: "b".repeat(64),
+            pricingId: "price-july"
+          })
+        ],
+        usageRuns: [beforeBoundary, atBoundary]
+      })
+    });
+
+    expect(model.workflowMetrics[0]).toMatchObject({
+      computedCostAmount: "3.0000",
+      computedCostCurrency: "USD",
+      costCalculationBasis:
+        "Sum per run: (uncached input * input price + cached input * cached price + max(output - reasoning, 0) * output price + reasoning * reasoning price) / 1,000,000 using effective default-tier pricing price-june, price-july.",
+      costStatus: "computed_from_owner_pricing",
+      pricingProvenance: [
+        { pricingHash: "a".repeat(64), pricingId: "price-june" },
+        { pricingHash: "b".repeat(64), pricingId: "price-july" }
+      ],
+      sourceReceiptIds: ["receipt-before", "receipt-at"],
+      usageRunIds: ["run-before", "run-at"]
+    });
+  });
+
+  it("fails cost closed when effective pricing overlaps or execution mode is unsupported", async () => {
+    const overlapping = [
+      pricing({ effectiveFrom: "2026-06-01T00:00:00.000Z", pricingId: "price-a" }),
+      pricing({ active: false, effectiveFrom: "2026-06-15T00:00:00.000Z", pricingId: "price-b" })
+    ];
+    const overlapModel = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ pricing: overlapping })
+    });
+    const unsupportedModel = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        pricing: [pricing()],
+        usageRuns: [usageRun({ modelExecutionMode: "fixture" })]
+      })
+    });
+
+    for (const model of [overlapModel, unsupportedModel]) {
+      expect(model.workflowMetrics[0]).toMatchObject({ costStatus: "pricing_not_configured_not_computed" });
+      expect(model.workflowMetrics[0]).not.toHaveProperty("computedCostAmount");
+      expect(model.workflowMetrics[0]?.pricingProvenance).toEqual([]);
+    }
+  });
+
+  it("fails historical unknown and mismatched service tiers closed", async () => {
+    const historicalUnknown = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ pricing: [pricing()], usageRuns: [usageRun()] })
+    });
+    const mismatched = await Promise.all(
+      (["flex", "priority"] as const).map((serviceTier) =>
+        buildPersonaFinopsCockpitModel({
+          persona: "maya",
+          repository: repositoryFixture({ pricing: [pricing()], usageRuns: [usageRun({ serviceTier })] })
+        })
+      )
+    );
+
+    for (const model of [historicalUnknown, ...mismatched]) {
+      expect(model.workflowMetrics[0]).toMatchObject({ costStatus: "pricing_not_configured_not_computed" });
+      expect(model.workflowMetrics[0]).not.toHaveProperty("computedCostAmount");
+    }
+  });
+
+  it("reports the matched flex tier and keeps mixed tiers in separate agent rows", async () => {
+    const defaultRun = usageRun({
+      recordIds: ["default-run"],
+      serviceTier: "default",
+      usageRunId: "default-run"
+    });
+    const flexRun = usageRun({
+      recordIds: ["flex-run"],
+      serviceTier: "flex",
+      usageRunId: "flex-run"
+    });
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        pricing: [
+          pricing({ pricingHash: "d".repeat(64), pricingId: "price-default", serviceTier: "default" }),
+          pricing({ pricingHash: "f".repeat(64), pricingId: "price-flex", serviceTier: "flex" })
+        ],
+        usageRuns: [defaultRun, flexRun]
+      })
+    });
+
+    expect(model.workflowMetrics).toHaveLength(2);
+    const flexMetric = model.workflowMetrics.find((metric) => metric.serviceTier === "flex");
+    expect(flexMetric).toMatchObject({
+      costCalculationBasis:
+        "Sum per run: (uncached input * input price + cached input * cached price + max(output - reasoning, 0) * output price + reasoning * reasoning price) / 1,000,000 using effective flex-tier pricing price-flex.",
+      costStatus: "computed_from_owner_pricing",
+      pricingProvenance: [
+        { pricingHash: "f".repeat(64), pricingId: "price-flex", serviceTier: "flex" }
+      ],
+      recordIds: ["flex-run"],
+      serviceTier: "flex",
+      usageRunIds: ["flex-run"]
+    });
+    expect(model.workflowMetrics.find((metric) => metric.serviceTier === "default")?.recordIds).toEqual(["default-run"]);
+  });
+
+  it("requests only the persona workflows and requested period from the repository", async () => {
+    const calls: unknown[] = [];
+    const repository = repositoryFixture({ usageRuns: [] });
+    repository.listAgentUsageRuns = (filter) => {
+      calls.push(filter);
+      return Promise.resolve([]);
+    };
+
+    await buildPersonaFinopsCockpitModelRaw({ persona: "maya", period: personaPeriod, repository });
+
+    expect(calls).toEqual([
+      { fromIso: personaPeriod.fromIso, toIso: personaPeriod.toIso, workflowNames: ["maya_forensics_query"] }
+    ]);
+  });
+
+  it("conserves output tokens when reasoning is included in top-level output", async () => {
+    const model = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        pricing: [
+          pricing({ inputPer1mTokens: "0", outputPer1mTokens: "10", reasoningPer1mTokens: "20" })
+        ],
+        usageRuns: [
+          usageRun({
+            inputTokens: 0,
+            outputTokens: 1_000_000,
+            reasoningTokens: 250_000,
+            serviceTier: "default",
+            totalTokens: 1_000_000,
+            uncachedInputTokens: 0
+          })
+        ]
+      })
+    });
+
+    expect(model.workflowMetrics[0]).toMatchObject({
+      computedCostAmount: "12.5000",
+      costCalculationBasis:
+        "Sum per run: (uncached input * input price + cached input * cached price + max(output - reasoning, 0) * output price + reasoning * reasoning price) / 1,000,000 using effective default-tier pricing pricing-1.",
+      outputTokens: 1_000_000,
+      reasoningTokens: 250_000
+    });
+    expect(model.workflowMetrics[0]?.pricingProvenance).toEqual([
+      expect.objectContaining({
+        cachedInputPer1mTokens: "0.000",
+        currency: "USD",
+        effectiveFrom: "2026-06-30T00:00:00.000Z",
+        inputPer1mTokens: "0",
+        outputPer1mTokens: "10",
+        pricingHash: "b".repeat(64),
+        pricingId: "pricing-1",
+        reasoningPer1mTokens: "20",
+        serviceTier: "default"
+      })
+    ]);
+  });
+
+  it("distinguishes repository failures from genuine empty persona sources", async () => {
+    const failed = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({
+        listActiveModelPricingError: new Error("pricing unavailable"),
+        listAgentUsageRunsError: new Error("usage unavailable")
+      })
+    });
+    const empty = await buildPersonaFinopsCockpitModel({
+      persona: "maya",
+      repository: repositoryFixture({ pricing: [], usageRuns: [] })
+    });
+
+    expect(failed.sourceStatus).toEqual({ pricing: "unavailable", recommendations: "available", usage: "unavailable" });
+    expect(failed.blockedInputs).toEqual([
+      expect.objectContaining({ inputId: "recoup_agent_usage_runs", reason: "Agent usage source read failed." }),
+      expect.objectContaining({ inputId: "recoup_model_pricing", reason: "Model pricing source read failed." })
+    ]);
+    expect(failed.freshnessStatus).toBe("unavailable");
+    expect(empty.sourceStatus).toEqual({ pricing: "available", recommendations: "available", usage: "available" });
+    expect(empty.blockedInputs).toEqual([]);
+    expect(empty.freshnessStatus).toBe("unavailable");
+  });
+
   it("fails closed when pricing, labels, and usage rows are missing", async () => {
     const model = await buildEvalFinopsCockpitModel({
       repository: repositoryFixture({
@@ -501,6 +970,8 @@ function repositoryFixture(input: {
   return {
     listActiveModelPricing: () =>
       input.listActiveModelPricingError === undefined ? Promise.resolve(input.pricing ?? []) : Promise.reject(input.listActiveModelPricingError),
+    listModelPricingForPeriod: () =>
+      input.listActiveModelPricingError === undefined ? Promise.resolve(input.pricing ?? []) : Promise.reject(input.listActiveModelPricingError),
     listAgentUsageRuns: () =>
       input.listAgentUsageRunsError === undefined ? Promise.resolve(input.usageRuns ?? [usageRun()]) : Promise.reject(input.listAgentUsageRunsError),
     listDailyRollups: () =>
@@ -561,8 +1032,28 @@ function pricing(overrides: Partial<ModelPricing> = {}): ModelPricing {
     outputPer1mTokens: "0.000",
     pricingHash: "b".repeat(64),
     pricingId: "pricing-1",
+    providerSourceUrl: "https://openai.com/api/pricing/",
     reasoningPer1mTokens: "0.000",
     serviceTier: "default",
+    sourceRetrievedAt: "2026-06-30T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function recommendation(overrides: Partial<FinopsRecommendation> = {}): FinopsRecommendation {
+  return {
+    recommendationId: "recommendation-1",
+    recommendationType: "prompt_cache",
+    severity: "important",
+    status: "open",
+    title: "Review stable prefix",
+    recommendedAction: "Inspect the governed prompt prefix before changing it.",
+    affectedWorkflowName: "maya_forensics_query",
+    expectedImpact: {},
+    evidenceRecordIds: ["receipt-1"],
+    deterministicBasis: "Observed cache utilization in typed receipts.",
+    requiresHumanApproval: true,
+    createdAt: "2026-07-01T11:00:00.000Z",
     ...overrides
   };
 }

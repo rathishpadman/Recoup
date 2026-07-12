@@ -73,42 +73,48 @@ describe("agent runtime roster", () => {
   it("applies explicit reasoning effort settings to SDK agents", () => {
     expect(forensicsInvestigatorAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "high" },
       text: { verbosity: "low" }
     });
     expect(riskMeshSupervisorAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.risk_mesh.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.risk_mesh.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "low" },
       text: { verbosity: "low" }
     });
     expect(recoveryDrafterAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "low" },
       text: { verbosity: "low" }
     });
     expect(sentinelAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "low" },
       text: { verbosity: "low" }
     });
     expect(actionPacketDrafterAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "low" },
       text: { verbosity: "low" }
     });
     expect(containmentIntentAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.containment.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.containment.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "low" },
       text: { verbosity: "low" }
@@ -126,7 +132,8 @@ describe("agent runtime roster", () => {
     expect(forensicsAgent.handoffs).toHaveLength(1);
     expect(forensicsAgent.modelSettings).toEqual({
       providerData: {
-        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+        prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey,
+        service_tier: "default"
       },
       reasoning: { effort: "high" },
       text: { verbosity: "low" }

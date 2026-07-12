@@ -258,6 +258,11 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("cached_input_tokens int NOT NULL CHECK (cached_input_tokens >= 0)");
     expect(sql).toContain("uncached_input_tokens int NOT NULL CHECK (uncached_input_tokens >= 0)");
     expect(sql).toContain("total_tokens int NOT NULL CHECK (total_tokens >= 0)");
+    expect(sql).toContain("ALTER TABLE recoup_agent_usage_runs ADD COLUMN IF NOT EXISTS service_tier text;");
+    expect(sql).toContain("ADD CONSTRAINT recoup_agent_usage_runs_participating_agent_names_json_array_check");
+    expect(sql).toContain("AND conrelid = 'recoup_agent_usage_runs'::regclass");
+    expect(sql).toContain("jsonb_typeof(participating_agent_names_json) = 'array'");
+    expect(sql).toContain("service_tier IS NULL OR service_tier IN ('default', 'flex', 'priority')");
     expect(sql).toContain(
       "record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0)"
     );
@@ -272,6 +277,11 @@ describe("supabase memory repository", () => {
     expect(sql).toContain("input_per_1m_tokens numeric NOT NULL CHECK (input_per_1m_tokens >= 0)");
     expect(sql).toContain("cached_input_per_1m_tokens numeric NOT NULL CHECK (cached_input_per_1m_tokens >= 0)");
     expect(sql).toContain("approved_by text NOT NULL REFERENCES recoup_app_principals(principal)");
+    expect(sql).toContain("provider_source_url text");
+    expect(sql).toContain("source_retrieved_at timestamptz");
+    expect(sql).toContain("ALTER TABLE IF EXISTS recoup_model_pricing");
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS provider_source_url text");
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS source_retrieved_at timestamptz");
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_recoup_model_pricing_active_model_tier");
 
     expect(sql).toContain("provenance text NOT NULL CHECK (provenance = 'openai_org_cost_api')");

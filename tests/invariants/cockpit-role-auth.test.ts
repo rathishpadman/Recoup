@@ -86,6 +86,21 @@ describe("cockpit role-based demo auth", () => {
     expect(demoProfiles).toContain('defaultRoute: "/credit"');
     expect(demoProfiles).toContain('defaultRoute: "/cfo"');
     expect(demoProfiles).toContain('"/governance/connectors"');
+    expect(demoProfiles).toContain('allowedRoutes: ["/forensics", "/run"]');
+    expect(demoProfiles).toContain('allowedRoutes: ["/credit"]');
+  });
+
+  it("keeps persona FinOps standalone without touching persona navigation or the CFO governance route", () => {
+    const shell = readFileSync("cockpit/app/cockpit-shell.tsx", "utf8");
+    const finopsPage = readFileSync("cockpit/app/finops/page.tsx", "utf8");
+
+    expect(shell).not.toContain('href: "/forensics/finops"');
+    expect(shell).not.toContain('href: "/credit/finops"');
+    expect(shell).not.toContain('href: "/finops"');
+    expect(shell).toContain('href: "/governance/evals-finops"');
+    expect(finopsPage).toContain("requireDemoSession");
+    expect(finopsPage).toContain("requireBackendReadAuthHeaders([session.role]");
+    expect(finopsPage).not.toContain("CockpitShell");
   });
 
   it("prefills landing persona login IDs without bypassing credential auth", () => {

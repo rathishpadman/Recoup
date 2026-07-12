@@ -812,6 +812,7 @@ CREATE TABLE IF NOT EXISTS recoup_agent_usage_runs (
   agent_name text NOT NULL,
   model_id text NOT NULL,
   model_execution_mode text NOT NULL,
+  service_tier text CHECK (service_tier IS NULL OR service_tier IN ('default', 'flex', 'priority')),
   cache_capability text CHECK (cache_capability IS NULL OR cache_capability IN ('deduction_forensics', 'credit_risk', 'risk_mesh', 'containment')),
   prompt_cache_key text,
   prompt_prefix_version text,
@@ -821,17 +822,74 @@ CREATE TABLE IF NOT EXISTS recoup_agent_usage_runs (
   cached_input_tokens int NOT NULL CHECK (cached_input_tokens >= 0),
   uncached_input_tokens int NOT NULL CHECK (uncached_input_tokens >= 0),
   reasoning_tokens int NOT NULL CHECK (reasoning_tokens >= 0),
+  reasoning_tokens_status text NOT NULL DEFAULT 'unavailable' CHECK (reasoning_tokens_status IN ('observed', 'unavailable')),
   total_tokens int NOT NULL CHECK (total_tokens >= 0),
   latency_ms int CHECK (latency_ms IS NULL OR latency_ms >= 0),
   handoff_count int NOT NULL CHECK (handoff_count >= 0),
   tool_call_count int NOT NULL CHECK (tool_call_count >= 0),
   guardrail_trip_count int NOT NULL CHECK (guardrail_trip_count >= 0),
+  guardrail_trip_count_status text NOT NULL DEFAULT 'unavailable' CHECK (guardrail_trip_count_status IN ('observed', 'unavailable')),
+  participating_agent_names_json jsonb CHECK (participating_agent_names_json IS NULL OR jsonb_typeof(participating_agent_names_json) = 'array'),
   record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(record_ids_json) = 'array' AND jsonb_array_length(record_ids_json) > 0),
   cited_record_ids_json jsonb NOT NULL CHECK (jsonb_typeof(cited_record_ids_json) = 'array'),
   deterministic_basis text NOT NULL,
   source_receipt_id text,
   created_at timestamptz NOT NULL
 );
+
+ALTER TABLE recoup_agent_usage_runs ADD COLUMN IF NOT EXISTS service_tier text;
+ALTER TABLE recoup_agent_usage_runs ADD COLUMN IF NOT EXISTS reasoning_tokens_status text NOT NULL DEFAULT 'unavailable';
+ALTER TABLE recoup_agent_usage_runs ADD COLUMN IF NOT EXISTS guardrail_trip_count_status text NOT NULL DEFAULT 'unavailable';
+ALTER TABLE recoup_agent_usage_runs ADD COLUMN IF NOT EXISTS participating_agent_names_json jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recoup_agent_usage_runs_participating_agent_names_json_array_check'
+      AND conrelid = 'recoup_agent_usage_runs'::regclass
+  ) THEN
+    ALTER TABLE recoup_agent_usage_runs
+      ADD CONSTRAINT recoup_agent_usage_runs_participating_agent_names_json_array_check
+      CHECK (participating_agent_names_json IS NULL OR jsonb_typeof(participating_agent_names_json) = 'array') NOT VALID;
+  END IF;
+END
+$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recoup_agent_usage_runs_reasoning_tokens_status_allowed'
+      AND conrelid = 'recoup_agent_usage_runs'::regclass
+  ) THEN
+    ALTER TABLE recoup_agent_usage_runs
+      ADD CONSTRAINT recoup_agent_usage_runs_reasoning_tokens_status_allowed
+      CHECK (reasoning_tokens_status IN ('observed', 'unavailable')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recoup_agent_usage_runs_guardrail_trip_count_status_allowed'
+      AND conrelid = 'recoup_agent_usage_runs'::regclass
+  ) THEN
+    ALTER TABLE recoup_agent_usage_runs
+      ADD CONSTRAINT recoup_agent_usage_runs_guardrail_trip_count_status_allowed
+      CHECK (guardrail_trip_count_status IN ('observed', 'unavailable')) NOT VALID;
+  END IF;
+END;
+$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recoup_agent_usage_runs_service_tier_allowed'
+      AND conrelid = 'recoup_agent_usage_runs'::regclass
+  ) THEN
+    ALTER TABLE recoup_agent_usage_runs
+      ADD CONSTRAINT recoup_agent_usage_runs_service_tier_allowed
+      CHECK (service_tier IS NULL OR service_tier IN ('default', 'flex', 'priority')) NOT VALID;
+  END IF;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS recoup_eval_gate_runs (
   eval_run_id text PRIMARY KEY,
@@ -874,9 +932,16 @@ CREATE TABLE IF NOT EXISTS recoup_model_pricing (
   effective_to timestamptz,
   approved_by text NOT NULL REFERENCES recoup_app_principals(principal),
   pricing_hash text NOT NULL CHECK (pricing_hash ~ '^[a-f0-9]{64}$'),
+  provider_source_url text,
+  source_retrieved_at timestamptz,
   active boolean NOT NULL DEFAULT true,
   CHECK (effective_to IS NULL OR effective_to > effective_from)
 );
+
+ALTER TABLE IF EXISTS recoup_model_pricing
+  ADD COLUMN IF NOT EXISTS provider_source_url text;
+ALTER TABLE IF EXISTS recoup_model_pricing
+  ADD COLUMN IF NOT EXISTS source_retrieved_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS recoup_openai_cost_buckets (
   cost_bucket_id text PRIMARY KEY,
