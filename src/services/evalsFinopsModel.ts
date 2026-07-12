@@ -15,6 +15,9 @@ import type {
   FinopsDailyRollup,
   ModelPricing,
   OpenAiCostBucket,
+  PersonaFinopsCaptureCoverage,
+  PersonaFinopsCockpitModel,
+  PersonaFinopsPersona,
   PromptCacheSavingsStatus
 } from "./evalsFinopsTypes.js";
 
@@ -22,6 +25,117 @@ export interface BuildEvalFinopsCockpitModelInput {
   generatedAtIso?: string;
   labelManifest?: unknown;
   releaseReadinessInput?: CurrentReleaseReadinessInput;
+  repository: EvalsFinopsRepository;
+}
+
+export const personaFinopsWorkflowScopes = {
+  cfo: ["credit_risk", "maya_forensics_query"],
+  david: ["credit_risk"],
+  maya: ["maya_forensics_query"]
+} as const satisfies Record<PersonaFinopsPersona, readonly string[]>;
+
+const personaFinopsWorkflowLabels: Record<(typeof personaFinopsWorkflowScopes)[PersonaFinopsPersona][number], string> = {
+  credit_risk: "David Credit Risk",
+  maya_forensics_query: "Maya Forensics Query"
+};
+
+export const openAiWorkloadCaptureCoverage: readonly PersonaFinopsCaptureCoverage[] = [
+  {
+    workloadLabel: "Maya Copilot query",
+    workflowName: "maya_forensics_query",
+    models: ["gpt-5.4"],
+    persona: "maya",
+    captureStatus: "typed_receipts",
+    note: "Typed usage receipts are persisted per successful live query."
+  },
+  {
+    workloadLabel: "David credit query",
+    workflowName: "credit_risk",
+    models: ["gpt-5.4"],
+    persona: "david",
+    captureStatus: "typed_receipts",
+    note: "Typed usage receipts are persisted per successful live query."
+  },
+  {
+    workloadLabel: "Forensics Investigator settlement runs",
+    workflowName: "deduction_forensics",
+    models: ["gpt-5.4"],
+    persona: "maya",
+    captureStatus: "not_captured",
+    note: "Agent SDK settlement runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Recovery Drafter",
+    workflowName: "deduction_forensics",
+    models: ["gpt-5.4"],
+    persona: "maya",
+    captureStatus: "not_captured",
+    note: "Agent SDK drafting runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Credit Sentinel",
+    workflowName: "credit_risk",
+    models: ["gpt-5.4"],
+    persona: "david",
+    captureStatus: "not_captured",
+    note: "Agent SDK monitoring runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Risk Mesh arbitration",
+    workflowName: "risk_mesh",
+    models: ["gpt-5.4"],
+    persona: "david",
+    captureStatus: "not_captured",
+    note: "Agent SDK arbitration runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Behavioural Containment",
+    workflowName: "containment",
+    models: ["gpt-5.4"],
+    persona: "david",
+    captureStatus: "not_captured",
+    note: "Agent SDK containment runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Action Packet Drafter",
+    workflowName: "credit_risk",
+    models: ["gpt-5.4"],
+    persona: "david",
+    captureStatus: "not_captured",
+    note: "Agent SDK drafting runs do not persist typed usage receipts yet."
+  },
+  {
+    workloadLabel: "Negotiation counter extractor",
+    workflowName: "credit_risk",
+    models: ["gpt-5.4-mini"],
+    persona: "david",
+    captureStatus: "not_captured",
+    note: "Structured extraction calls do not persist typed usage receipts yet; gpt-5.4-mini also has no owner-approved pricing row."
+  },
+  {
+    workloadLabel: "Realtime voice query",
+    models: ["gpt-realtime-2", "gpt-4o-mini-transcribe"],
+    persona: "shared",
+    captureStatus: "not_captured",
+    note: "Realtime audio sessions do not persist typed usage receipts; audio token pricing is not configured."
+  }
+];
+
+function personaCaptureCoverage(persona: PersonaFinopsPersona): PersonaFinopsCaptureCoverage[] {
+  if (persona === "cfo") {
+    return [...openAiWorkloadCaptureCoverage];
+  }
+
+  return openAiWorkloadCaptureCoverage.filter((entry) => entry.persona === persona || entry.persona === "shared");
+}
+
+export interface BuildPersonaFinopsCockpitModelInput {
+  generatedAtIso?: string;
+  period: {
+    fromIso: string;
+    toIso: string;
+  };
+  persona: PersonaFinopsPersona;
   repository: EvalsFinopsRepository;
 }
 
@@ -182,6 +296,407 @@ export async function buildEvalFinopsCockpitModel(
     ]),
     blockedInputs
   };
+}
+
+export async function buildPersonaFinopsCockpitModel(
+  input: BuildPersonaFinopsCockpitModelInput
+): Promise<PersonaFinopsCockpitModel> {
+  const generatedAtIso = input.generatedAtIso ?? new Date().toISOString();
+  const generatedAtMs = new Date(generatedAtIso).getTime();
+  const [usageRunsResult, pricingRowsResult, recommendationsResult] = await Promise.allSettled([
+    input.repository.listAgentUsageRuns({
+      fromIso: input.period.fromIso,
+      toIso: input.period.toIso,
+      workflowNames: [...personaFinopsWorkflowScopes[input.persona]]
+    }),
+    input.repository.listModelPricingForPeriod(input.period),
+    input.repository.listOpenRecommendations()
+  ]);
+  const allowedWorkflows: readonly string[] = personaFinopsWorkflowScopes[input.persona];
+  const scopedUsageRuns = settledValue(usageRunsResult, []).filter((run) => allowedWorkflows.includes(run.workflowName));
+  const futureUsageRuns = scopedUsageRuns.filter((run) => new Date(run.createdAt).getTime() > generatedAtMs + 30_000);
+  const usageRuns = scopedUsageRuns.filter(
+    (run) => !futureUsageRuns.includes(run) && run.recordIds.length > 0 && hasCompleteTokenBreakdown(run)
+  );
+  const pricingRows = settledValue(pricingRowsResult, []);
+  const recommendations = settledValue(recommendationsResult, []).filter(
+    (recommendation) =>
+      recommendation.affectedWorkflowName !== undefined &&
+      allowedWorkflows.includes(recommendation.affectedWorkflowName) &&
+      new Date(recommendation.createdAt) >= new Date(input.period.fromIso) &&
+      new Date(recommendation.createdAt) < new Date(input.period.toIso) &&
+      recommendation.evidenceRecordIds.length > 0
+  );
+  const blockedInputs: PersonaFinopsCockpitModel["blockedInputs"] = [];
+  if (usageRunsResult.status === "rejected") {
+    blockedInputs.push({ inputId: "recoup_agent_usage_runs", reason: "Agent usage source read failed." });
+  }
+  if (pricingRowsResult.status === "rejected") {
+    blockedInputs.push({ inputId: "recoup_model_pricing", reason: "Model pricing source read failed." });
+  }
+  if (recommendationsResult.status === "rejected") {
+    blockedInputs.push({ inputId: "recoup_finops_recommendations", reason: "FinOps recommendation source read failed." });
+  }
+  if (scopedUsageRuns.some((run) => run.recordIds.length === 0)) {
+    blockedInputs.push({ inputId: "record_ids", reason: "Usage metrics without record IDs were suppressed." });
+  }
+  if (scopedUsageRuns.some((run) => !hasCompleteTokenBreakdown(run))) {
+    blockedInputs.push({ inputId: "token_breakdown", reason: "Usage metrics with a missing or inconsistent token breakdown were suppressed." });
+  }
+  if (futureUsageRuns.length > 0) {
+    blockedInputs.push({ inputId: "usage_timestamp", reason: "Usage metrics with future timestamps were suppressed." });
+  }
+  const workflowMetrics = buildPersonaWorkflowMetrics(usageRuns, pricingRows);
+  const usageAsOf = maxIso(usageRuns.map((run) => run.createdAt));
+  const freshnessStatus = personaFreshnessStatus(usageAsOf, generatedAtIso, usageRunsResult.status === "rejected");
+  const pricingAsOf = maxIso(pricingRows.flatMap((row) => row.sourceRetrievedAt === undefined ? [] : [row.sourceRetrievedAt]));
+  const recommendationsAsOf = maxIso(recommendations.map((row) => row.createdAt));
+
+  return {
+    surface: "persona-finops",
+    persona: input.persona,
+    generatedAtIso,
+    period: input.period,
+    freshnessStatus,
+    sourceAsOf: {
+      ...(usageAsOf === undefined ? {} : { usageIso: usageAsOf }),
+      ...(pricingAsOf === undefined ? {} : { pricingIso: pricingAsOf }),
+      ...(recommendationsAsOf === undefined ? {} : { recommendationsIso: recommendationsAsOf })
+    },
+    provenance: {
+      sourceKind: "derived_backend",
+      sourceName: "persona-finops-model",
+      deterministicBasis: `Persona FinOps filters exact ${input.persona} workflow identifiers before aggregation.`,
+      recordIds: unique(usageRuns.flatMap((run) => run.recordIds))
+    },
+    sourceStatus: {
+      usage: usageRunsResult.status === "rejected" ? "unavailable" : "available",
+      pricing: pricingRowsResult.status === "rejected" ? "unavailable" : "available",
+      recommendations: recommendationsResult.status === "rejected" ? "unavailable" : "available"
+    },
+    blockedInputs,
+    captureCoverage: personaCaptureCoverage(input.persona),
+    summary: {
+      ...buildPersonaSummary(usageRuns),
+      ...buildPersonaCostRollup(workflowMetrics, usageRuns, pricingRows)
+    },
+    dailyTrend: buildPersonaDailyTrend(usageRuns, pricingRows),
+    recommendations: recommendations.map((recommendation) => ({
+      recommendationId: recommendation.recommendationId,
+      severity: recommendation.severity,
+      title: recommendation.title,
+      recommendedAction: recommendation.recommendedAction,
+      requiresHumanApproval: recommendation.requiresHumanApproval,
+      deterministicBasis: recommendation.deterministicBasis,
+      recordIds: recommendation.evidenceRecordIds
+    })),
+    workflowMetrics
+  };
+}
+
+const personaCostFormula =
+  "Sum per run: (uncached input * input price + cached input * cached price + max(output - reasoning, 0) * output price + reasoning * reasoning price) / 1,000,000";
+
+const personaFinopsFreshnessThresholdHours = 48;
+
+function personaFreshnessStatus(
+  usageAsOf: string | undefined,
+  generatedAtIso: string,
+  usageSourceRejected: boolean
+): PersonaFinopsCockpitModel["freshnessStatus"] {
+  if (usageSourceRejected) {
+    return "unavailable";
+  }
+  if (usageAsOf === undefined) {
+    return "unavailable";
+  }
+  const ageMs = new Date(generatedAtIso).getTime() - new Date(usageAsOf).getTime();
+  return ageMs <= personaFinopsFreshnessThresholdHours * 60 * 60 * 1000 ? "fresh" : "stale";
+}
+
+function buildPersonaCostRollup(
+  workflowMetrics: PersonaFinopsCockpitModel["workflowMetrics"],
+  usageRuns: AgentUsageRun[],
+  pricingRows: ModelPricing[]
+): Partial<PersonaFinopsCockpitModel["summary"]> {
+  if (workflowMetrics.length === 0) {
+    return {};
+  }
+  const allPriced = workflowMetrics.every(
+    (metric) =>
+      metric.costStatus === "computed_from_owner_pricing" &&
+      metric.computedCostAmount !== undefined &&
+      metric.computedCostCurrency !== undefined
+  );
+  const currencies = unique(workflowMetrics.flatMap((metric) => metric.computedCostCurrency === undefined ? [] : [metric.computedCostCurrency]));
+  const rollup: Partial<PersonaFinopsCockpitModel["summary"]> = {};
+  if (allPriced && currencies.length === 1 && currencies[0] !== undefined) {
+    const currency = currencies[0];
+    const total = workflowMetrics.reduce((sum, metric) => sum.plus(metric.computedCostAmount ?? "0"), new Decimal(0));
+    const runCount = usageRuns.length;
+    rollup.totalCostLabel = `${currency} ${total.toFixed(4)}`;
+    if (runCount > 0) {
+      rollup.averageCostPerRunLabel = `${currency} ${total.div(runCount).toFixed(4)}`;
+    }
+    const citedRunCount = usageRuns.filter((run) => run.citedRecordIds.length > 0).length;
+    if (citedRunCount > 0) {
+      rollup.costPerCitedAnswerLabel = `${currency} ${total.div(citedRunCount).toFixed(4)}`;
+    }
+  }
+  const savings = computePersonaCacheSavings(usageRuns, pricingRows);
+  if (savings.status === "computed_from_owner_pricing") {
+    rollup.cacheSavingsLabel = savings.label;
+  }
+  return rollup;
+}
+
+function buildPersonaWorkflowMetrics(
+  usageRuns: AgentUsageRun[],
+  pricingRows: ModelPricing[]
+): PersonaFinopsCockpitModel["workflowMetrics"] {
+  const groups = new Map<string, AgentUsageRun[]>();
+  for (const run of usageRuns) {
+    const key = [run.workflowName, run.modelId, run.serviceTier ?? "unknown"].join("\u0000");
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
+
+  return [...groups.values()].map((runs) => {
+    const first = runs[0];
+    if (first === undefined) {
+      throw new Error("Persona FinOps cannot aggregate an empty usage group.");
+    }
+    const cost = computePersonaCostSummary(runs, pricingRows);
+
+    return {
+      workflowLabel: personaFinopsWorkflowLabels[first.workflowName as keyof typeof personaFinopsWorkflowLabels],
+      workflowName: first.workflowName,
+      participatingAgentNames: unique(runs.flatMap((run) => [run.agentName, ...(run.participatingAgentNames ?? [])])),
+      modelId: first.modelId,
+      ...(first.serviceTier === undefined ? {} : { serviceTier: first.serviceTier }),
+      runCount: runs.length,
+      successRateLabel: formatPercent(runs.filter((run) => run.status === "succeeded").length, runs.length),
+      tokensPerRunLabel: formatInteger(Math.round(sumNumbers(runs.map((run) => run.totalTokens)) / runs.length)),
+      toolCallsPerRunLabel: new Decimal(sumNumbers(runs.map((run) => run.toolCallCount))).div(runs.length).toFixed(1),
+      citedAnswerRateLabel: formatPercent(runs.filter((run) => run.citedRecordIds.length > 0).length, runs.length),
+      humanReviewRateLabel: "Unavailable",
+      inputTokens: sumNumbers(runs.map((run) => run.inputTokens)),
+      cachedInputTokens: sumNumbers(runs.map((run) => run.cachedInputTokens)),
+      uncachedInputTokens: sumNumbers(runs.map((run) => run.uncachedInputTokens)),
+      outputTokens: sumNumbers(runs.map((run) => run.outputTokens)),
+      reasoningTokens: sumNumbers(runs.map((run) => run.reasoningTokens)),
+      reasoningTokensStatus: runs.every((run) => run.reasoningTokensStatus === "observed") ? "observed" : "unavailable",
+      totalTokens: sumNumbers(runs.map((run) => run.totalTokens)),
+      guardrailTripCount: sumNumbers(runs.map((run) => run.guardrailTripCount)),
+      guardrailTripCountStatus: runs.every((run) => run.guardrailTripCountStatus === "observed") ? "observed" : "unavailable",
+      costStatus: cost.status,
+      ...(cost.currency === undefined
+        ? {}
+        : { computedCostAmount: cost.amount.toFixed(4), computedCostCurrency: cost.currency }),
+      costCalculationBasis: buildPersonaCostCalculationBasis(cost),
+      ...(cost.unavailableReason === undefined ? {} : { costUnavailableReason: cost.unavailableReason }),
+      pricingProvenance: cost.pricingProvenance,
+      usageRunIds: runs.map((run) => run.usageRunId),
+      sourceReceiptIds: unique(runs.flatMap((run) => (run.sourceReceiptId === undefined ? [] : [run.sourceReceiptId]))),
+      deterministicBasis: unique(runs.map((run) => run.deterministicBasis)).join("; "),
+      recordIds: unique(runs.flatMap((run) => run.recordIds))
+    };
+  });
+}
+
+interface PersonaCostSummary extends CostSummary {
+  unavailableReason?: PersonaFinopsCockpitModel["workflowMetrics"][number]["costUnavailableReason"];
+  pricingProvenance: Array<{
+    cachedInputPer1mTokens: string;
+    currency: string;
+    effectiveFrom: string;
+    effectiveTo?: string;
+    inputPer1mTokens: string;
+    outputPer1mTokens: string;
+    pricingHash: string;
+    pricingId: string;
+    reasoningPer1mTokens: string;
+    serviceTier: "default" | "flex" | "priority";
+    approvedBy: string;
+    providerSourceUrl: string;
+    sourceRetrievedAt: string;
+  }>;
+}
+
+function computePersonaCostSummary(usageRuns: AgentUsageRun[], pricingRows: ModelPricing[]): PersonaCostSummary {
+  let amount = new Decimal(0);
+  let currency: string | undefined;
+  const pricingProvenance: PersonaCostSummary["pricingProvenance"] = [];
+
+  for (const run of usageRuns) {
+    if (run.modelExecutionMode !== "live_openai_agents") {
+      return unavailablePersonaCostSummary(usageRuns, "non_live_execution");
+    }
+    const serviceTier = run.serviceTier;
+    if (serviceTier === undefined) {
+      return unavailablePersonaCostSummary(usageRuns, "missing_service_tier");
+    }
+    const runAt = new Date(run.createdAt).getTime();
+    const matches = pricingRows.filter((row) => {
+      if (row.modelId !== run.modelId || row.serviceTier !== serviceTier) {
+        return false;
+      }
+      const startsAt = new Date(row.effectiveFrom).getTime();
+      const endsAt = row.effectiveTo === undefined ? undefined : new Date(row.effectiveTo).getTime();
+      return startsAt <= runAt && (endsAt === undefined || runAt < endsAt);
+    });
+    if (matches.length !== 1 || matches[0] === undefined) {
+      const modelRows = pricingRows.filter((row) => row.modelId === run.modelId && row.serviceTier === serviceTier);
+      return unavailablePersonaCostSummary(usageRuns, modelRows.length === 0 ? "unknown_model" : matches.length > 1 ? "ambiguous_pricing" : "pricing_period_mismatch");
+    }
+    const pricing = matches[0];
+    if (!hasVerifiedPricingProvenance(pricing)) {
+      return unavailablePersonaCostSummary(usageRuns, "pricing_provenance_incomplete");
+    }
+    const runCost = computeCostSummary([run], new Map([[run.modelId, pricing]]), []);
+    if (runCost.currency === undefined || (currency !== undefined && currency !== runCost.currency)) {
+      return unavailablePersonaCostSummary(usageRuns);
+    }
+    currency = runCost.currency;
+    amount = amount.plus(runCost.amount);
+    if (!pricingProvenance.some((item) => item.pricingId === pricing.pricingId && item.pricingHash === pricing.pricingHash)) {
+      pricingProvenance.push({
+        approvedBy: pricing.approvedBy,
+        cachedInputPer1mTokens: pricing.cachedInputPer1mTokens,
+        currency: pricing.currency,
+        effectiveFrom: pricing.effectiveFrom,
+        ...(pricing.effectiveTo === undefined ? {} : { effectiveTo: pricing.effectiveTo }),
+        inputPer1mTokens: pricing.inputPer1mTokens,
+        outputPer1mTokens: pricing.outputPer1mTokens,
+        pricingHash: pricing.pricingHash,
+        pricingId: pricing.pricingId,
+        reasoningPer1mTokens: pricing.reasoningPer1mTokens,
+        serviceTier,
+        providerSourceUrl: pricing.providerSourceUrl,
+        sourceRetrievedAt: pricing.sourceRetrievedAt
+      });
+    }
+  }
+
+  return currency === undefined
+    ? unavailablePersonaCostSummary(usageRuns)
+    : {
+        amount,
+        currency,
+        missingModelIds: [],
+        pricingProvenance,
+        recordIds: unique(usageRuns.flatMap((run) => run.recordIds)),
+        status: "computed_from_owner_pricing"
+      };
+}
+
+function buildPersonaCostCalculationBasis(cost: PersonaCostSummary): string {
+  if (cost.status !== "computed_from_owner_pricing" || cost.pricingProvenance.length === 0) {
+    return "Cost unavailable: every usage receipt requires exactly one effective model and service-tier pricing row.";
+  }
+  const tiers = unique(cost.pricingProvenance.map((pricing) => pricing.serviceTier));
+  const pricingIds = unique(cost.pricingProvenance.map((pricing) => pricing.pricingId));
+  return `${personaCostFormula} using effective ${tiers.join(", ")}-tier pricing ${pricingIds.join(", ")}.`;
+}
+
+function unavailablePersonaCostSummary(
+  usageRuns: AgentUsageRun[],
+  unavailableReason: NonNullable<PersonaCostSummary["unavailableReason"]> = "unknown_model"
+): PersonaCostSummary {
+  return {
+    amount: new Decimal(0),
+    missingModelIds: unique(usageRuns.map((run) => run.modelId)),
+    pricingProvenance: [],
+    recordIds: unique(usageRuns.flatMap((run) => run.recordIds)),
+    status: "pricing_not_configured_not_computed",
+    unavailableReason
+  };
+}
+
+function hasCompleteTokenBreakdown(run: AgentUsageRun): boolean {
+  return run.inputTokens === run.cachedInputTokens + run.uncachedInputTokens &&
+    [run.inputTokens, run.cachedInputTokens, run.uncachedInputTokens, run.outputTokens, run.reasoningTokens, run.totalTokens]
+      .every((value) => Number.isInteger(value) && value >= 0);
+}
+
+function hasVerifiedPricingProvenance(
+  pricing: ModelPricing
+): pricing is ModelPricing & { providerSourceUrl: string; sourceRetrievedAt: string } {
+  if (pricing.providerSourceUrl === undefined || pricing.sourceRetrievedAt === undefined) return false;
+  try {
+    const url = new URL(pricing.providerSourceUrl);
+    return (url.protocol === "https:" || url.protocol === "http:") && Number.isFinite(new Date(pricing.sourceRetrievedAt).valueOf());
+  } catch {
+    return false;
+  }
+}
+
+function buildPersonaSummary(usageRuns: AgentUsageRun[]): PersonaFinopsCockpitModel["summary"] {
+  const runCount = usageRuns.length;
+  const totalTokens = sumNumbers(usageRuns.map((run) => run.totalTokens));
+  const totalInput = sumNumbers(usageRuns.map((run) => run.inputTokens));
+  const cachedInput = sumNumbers(usageRuns.map((run) => run.cachedInputTokens));
+  const latencies = usageRuns.flatMap((run) => run.latencyMs === undefined ? [] : [run.latencyMs]).sort((left, right) => left - right);
+  const p95Index = latencies.length === 0 || latencies.length !== usageRuns.length
+    ? undefined
+    : Math.max(Math.ceil(latencies.length * 0.95) - 1, 0);
+  return {
+    runCount,
+    tokensPerRunLabel: runCount === 0 ? "Unavailable" : formatInteger(Math.round(totalTokens / runCount)),
+    cacheHitRateLabel: totalInput === 0 ? "Unavailable" : formatPercent(cachedInput, totalInput),
+    latencyP95Label: p95Index === undefined ? "Unavailable" : `${formatInteger(latencies[p95Index] ?? 0)} ms`,
+    costPerOutcomeLabel: "Requires verified outcomes"
+  };
+}
+
+function buildPersonaDailyTrend(
+  usageRuns: AgentUsageRun[],
+  pricingRows: ModelPricing[]
+): PersonaFinopsCockpitModel["dailyTrend"] {
+  const byDate = new Map<string, AgentUsageRun[]>();
+  for (const run of usageRuns) {
+    const date = run.createdAt.slice(0, 10);
+    byDate.set(date, [...(byDate.get(date) ?? []), run]);
+  }
+  return [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, runs]) => {
+    const savings = computePersonaCacheSavings(runs, pricingRows);
+    return {
+      date,
+      totalTokens: sumNumbers(runs.map((run) => run.totalTokens)),
+      cachedInputTokens: sumNumbers(runs.map((run) => run.cachedInputTokens)),
+      uncachedInputTokens: sumNumbers(runs.map((run) => run.uncachedInputTokens)),
+      cacheSavingsLabel: savings.label,
+      cacheSavingsStatus: savings.status,
+      recordIds: unique(runs.flatMap((run) => run.recordIds))
+    };
+  });
+}
+
+function computePersonaCacheSavings(
+  runs: AgentUsageRun[],
+  pricingRows: ModelPricing[]
+): { label: string; status: PromptCacheSavingsStatus } {
+  if (sumNumbers(runs.map((run) => run.cachedInputTokens)) === 0) {
+    return { label: "No cached tokens observed", status: "no_cached_tokens_observed" };
+  }
+  let currency: string | undefined;
+  let amount = new Decimal(0);
+  for (const run of runs) {
+    const tier = run.serviceTier;
+    const matches = tier === undefined ? [] : pricingRows.filter((row) => row.modelId === run.modelId && row.serviceTier === tier && new Date(row.effectiveFrom) <= new Date(run.createdAt) && (row.effectiveTo === undefined || new Date(run.createdAt) < new Date(row.effectiveTo)));
+    const price = matches.length === 1 ? matches[0] : undefined;
+    if (price === undefined || !hasVerifiedPricingProvenance(price) || (currency !== undefined && currency !== price.currency)) {
+      return { label: "Pricing unavailable", status: "pricing_not_configured_not_computed" };
+    }
+    currency = price.currency;
+    amount = amount.plus(new Decimal(run.cachedInputTokens).mul(new Decimal(price.inputPer1mTokens).minus(price.cachedInputPer1mTokens)).div(1_000_000));
+  }
+  return currency === undefined
+    ? { label: "Pricing unavailable", status: "pricing_not_configured_not_computed" }
+    : { label: `${currency} ${amount.toFixed(4)}`, status: "computed_from_owner_pricing" };
+}
+
+function maxIso(values: string[]): string | undefined {
+  return values.length === 0 ? undefined : values.reduce((latest, value) => new Date(value) > new Date(latest) ? value : latest);
 }
 
 function buildAgentMetrics(usageRuns: AgentUsageRun[]): EvalFinopsCockpitModel["agentMetrics"] {
@@ -397,7 +912,7 @@ function computeCostSummary(
     currency = pricing.currency;
     const uncachedInputTokens = new Decimal(run.uncachedInputTokens);
     const cachedInputTokens = new Decimal(run.cachedInputTokens);
-    const outputTokens = new Decimal(run.outputTokens);
+    const outputTokens = new Decimal(Math.max(run.outputTokens - run.reasoningTokens, 0));
     const reasoningTokens = new Decimal(run.reasoningTokens);
 
     const runAmount = uncachedInputTokens

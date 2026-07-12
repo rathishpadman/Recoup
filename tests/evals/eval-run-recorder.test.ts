@@ -134,6 +134,7 @@ function repositoryRecorder(): EvalsFinopsRepository & { evalResults: EvalGateRe
     evalResults,
     evalRuns,
     listActiveModelPricing: () => Promise.resolve([]),
+    listModelPricingForPeriod: () => Promise.resolve([]),
     listAgentUsageRuns: () => Promise.resolve([]),
     listDailyRollups: () => Promise.resolve([]),
     listEvalGateResults: () => Promise.resolve([]),

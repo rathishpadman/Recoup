@@ -2,10 +2,18 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runtimeModelSettings, runtimeModels } from "../../config/models.js";
+import { runtimeModelSettings, runtimeModels, runtimeOpenAiServiceTier } from "../../config/models.js";
 import { openAiPromptCacheConfig } from "../../config/openaiPromptCache.js";
 
 describe("runtime model config", () => {
+  it("governs the live OpenAI service tier explicitly", () => {
+    expect(runtimeOpenAiServiceTier).toBe("default");
+    for (const settings of Object.values(runtimeModelSettings)) {
+      if ("providerData" in settings) {
+        expect(settings.providerData).toMatchObject({ service_tier: "default" });
+      }
+    }
+  });
   it("uses only pinned runtime model identifiers", () => {
     expect(runtimeModels).toEqual({
       reasoning: "gpt-5.4",
@@ -21,42 +29,48 @@ describe("runtime model config", () => {
     expect(runtimeModelSettings).toEqual({
       forensicsInvestigator: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "high" },
         text: { verbosity: "low" }
       },
       riskMeshSupervisor: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.risk_mesh.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.risk_mesh.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "low" },
         text: { verbosity: "low" }
       },
       recoveryDrafter: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.deduction_forensics.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "low" },
         text: { verbosity: "low" }
       },
       actionPacketDrafter: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "low" },
         text: { verbosity: "low" }
       },
       sentinel: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.credit_risk.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "low" },
         text: { verbosity: "low" }
       },
       containmentIntent: {
         providerData: {
-          prompt_cache_key: openAiPromptCacheConfig.containment.promptCacheKey
+          prompt_cache_key: openAiPromptCacheConfig.containment.promptCacheKey,
+          service_tier: "default"
         },
         reasoning: { effort: "low" },
         text: { verbosity: "low" }

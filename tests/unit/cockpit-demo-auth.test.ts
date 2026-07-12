@@ -41,6 +41,9 @@ describe("cockpit demo auth helpers", () => {
     expect(isDemoRouteAllowed("/forensics", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/forensics/shadcn", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/forensics/line/S2", mayaRoutes)).toBe(true);
+    expect(isDemoRouteAllowed("/finops", mayaRoutes)).toBe(false);
+    expect(isDemoRouteAllowed("/finops", roleAllowedRoutes("david"))).toBe(false);
+    expect(isDemoRouteAllowed("/finops", cfoRoutes)).toBe(false);
     expect(isDemoRouteAllowed("/run/replay", mayaRoutes)).toBe(true);
     expect(isDemoRouteAllowed("/credit", mayaRoutes)).toBe(false);
     expect(isDemoRouteAllowed("/governance/evals-finops", mayaRoutes)).toBe(false);
@@ -118,6 +121,20 @@ describe("cockpit demo auth helpers", () => {
       displayName: "Maya Patel",
       loginId: "Maya",
       role: "maya"
+    });
+
+    expect(demoSessionFromSupabaseRecord({
+      allowed_routes: ["/credit"],
+      default_route: "/credit",
+      display_name: "David Kim",
+      login_id: "david",
+      role: "david"
+    })).toEqual({
+      allowedRoutes: ["/credit"],
+      defaultRoute: "/credit",
+      displayName: "David Kim",
+      loginId: "david",
+      role: "david"
     });
   });
 });

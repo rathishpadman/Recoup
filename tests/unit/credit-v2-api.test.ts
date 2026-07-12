@@ -939,6 +939,185 @@ describe("GET /credit/v2/orders/:orderId/deals", () => {
 });
 
 describe("POST /credit/query", () => {
+  it("persists one non-zero workflow-level David usage receipt after a successful token-bearing live query", async () => {
+    const usageRows: Array<Record<string, unknown>> = [];
+    const auditRows: Array<Record<string, unknown>> = [];
+    const baseFetcher = creditRiskFetcher([], { auditRows, usageRows });
+    let durableWriteFinished = false;
+    const delayedDurableFetcher: SupabaseMemoryFetch = async (url, init) => {
+      const isAuditWrite = init.method === "POST" && url.includes("/rest/v1/recoup_memory_records");
+      if (isAuditWrite) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      const result = await baseFetcher(url, init);
+      if (isAuditWrite) {
+        durableWriteFinished = true;
+      }
+      return result;
+    };
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Credit Sentinel", hook: "agent_start", recordIds }));
+      request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({
+        agentName: "Credit Sentinel", hook: "agent_handoff", nextAgentName: "Action Packet Drafter", recordIds
+      }));
+      request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Action Packet Drafter", hook: "agent_start", recordIds }));
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", {
+          arguments: { accountId: "ACC-CRE", question: "Why is Crestline high risk?", recordIds }
+        });
+        yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", {
+          output: {
+            sourceReadStatus: "source_backed_selected_scope",
+            sourceReads: {
+              canonicalModel: "CreditRiskEvidenceDocument",
+              primarySourceLabel: "Supabase credit evidence documents",
+              primarySourceSystem: "supabase",
+              selectedEvidence: [{ documentId: "EVD-CREDIT-ACC-CRE-AR", recordIds }],
+              selectedRecordIds: recordIds,
+              sourceFreshness: "snapshot",
+              transportLabel: "Governed credit risk read-model",
+              transportLayer: "supabase_credit_risk"
+            }
+          }
+        });
+        yield {
+          data: { response: { usage: { input_tokens: 1700, input_tokens_details: { cached_tokens: 512 }, output_tokens: 142, total_tokens: 1842 } }, type: "response.completed" },
+          type: "raw_model_stream_event"
+        };
+      })();
+    });
+    const { baseUrl, server } = await listen(delayedDurableFetcher, {
+      creditRiskStreamRunner: liveRunner,
+      env: { OPENAI_API_KEY: "sk-test-credit-query" }
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, {
+        body: JSON.stringify({ accountId: "ACC-CRE", question: "Why is Crestline high risk?", recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"] }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+
+      expect(response.status).toBe(200);
+      expect(durableWriteFinished).toBe(true);
+      expect(usageRows).toHaveLength(1);
+      expect(auditRows).toHaveLength(1);
+      expect(usageRows[0]).toMatchObject({
+        agent_name: "David credit query workflow",
+        cached_input_tokens: 512,
+        cache_capability: "credit_risk",
+        handoff_count: 1,
+        guardrail_trip_count_status: "unavailable",
+        input_tokens: 1700,
+        output_tokens: 142,
+        participating_agent_names_json: ["Credit Sentinel", "Action Packet Drafter"],
+        reasoning_tokens_status: "unavailable",
+        status: "succeeded",
+        tool_call_count: 1,
+        total_tokens: 1842,
+        uncached_input_tokens: 1188,
+        workflow_name: "credit_risk"
+      });
+      expect(usageRows[0]?.["source_receipt_id"]).toBe(auditRows[0]?.["id"]);
+      expect(auditRows[0]).toMatchObject({ category: "audit_refs", trust_level: "trusted" });
+      expect(usageRows[0]?.["reasoning_tokens"]).toBe(0);
+      expect(usageRows[0]?.["latency_ms"]).toBeNull();
+      expect(usageRows[0]?.["guardrail_trip_count"]).toBe(0);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("does not persist David usage when the live response has no token snapshot", async () => {
+    const usageRows: Array<Record<string, unknown>> = [];
+    const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
+      const recordIds = request.agentHookAudit?.recordIds ?? [];
+      request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Credit Sentinel", hook: "agent_start", recordIds }));
+      request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Credit Sentinel", hook: "agent_handoff", nextAgentName: "Action Packet Drafter", recordIds }));
+      return (async function* stream() {
+        await Promise.resolve();
+        yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", { arguments: { accountId: "ACC-CRE", question: "Why?", recordIds } });
+        yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", { output: { sourceReadStatus: "source_backed_selected_scope", sourceReads: { selectedEvidence: [{ documentId: "EVD-CREDIT-ACC-CRE-AR", recordIds }], selectedRecordIds: recordIds, transportLayer: "supabase_credit_risk" } } });
+      })();
+    });
+    const { baseUrl, server } = await listen(creditRiskFetcher([], { usageRows }), { creditRiskStreamRunner: liveRunner, env: { OPENAI_API_KEY: "sk-test-credit-query" } });
+    try {
+      await fetch(`${baseUrl}/credit/query`, { body: JSON.stringify({ accountId: "ACC-CRE", question: "Why?", recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"] }), headers: cockpitAuthHeaders, method: "POST" });
+      expect(usageRows).toEqual([]);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("waits only for the bounded David durability window and aborts never-settling telemetry without claiming persistence", async () => {
+    const baseFetcher = creditRiskFetcher([]);
+    let persistenceSignal: AbortSignal | undefined;
+    let usageWriteCount = 0;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    const fetcher: SupabaseMemoryFetch = (url, init) => {
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+        persistenceSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      if (init.method === "POST" && url.includes("/rest/v1/recoup_agent_usage_runs")) {
+        usageWriteCount += 1;
+      }
+      return baseFetcher(url, init);
+    };
+    const { baseUrl, server } = await listen(fetcher, { creditRiskStreamRunner: successfulUsageCreditRunner(), env: { OPENAI_API_KEY: "sk-test-credit-query" } });
+    try {
+      const startedAt = Date.now();
+      const response = await fetch(`${baseUrl}/credit/query`, { body: JSON.stringify({ accountId: "ACC-CRE", question: "Why?", recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"] }), headers: cockpitAuthHeaders, method: "POST" });
+      expect(response.status).toBe(200);
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_500);
+      expect(Date.now() - startedAt).toBeLessThan(2_750);
+      expect((await response.json()) as { answer?: string }).toHaveProperty("answer");
+      expect(persistenceSignal?.aborted).toBe(true);
+      expect(usageWriteCount).toBe(0);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      await close(server);
+    }
+  }, 5_000);
+
+  it("writes usage without a source receipt claim when the audit write fails", async () => {
+    const usageRows: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen(creditRiskFetcher([], { failAuditWrite: true, usageRows }), { creditRiskStreamRunner: successfulUsageCreditRunner(), env: { OPENAI_API_KEY: "sk-test-credit-query" } });
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, { body: JSON.stringify({ accountId: "ACC-CRE", question: "Why?", recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"] }), headers: cockpitAuthHeaders, method: "POST" });
+      expect(response.status).toBe(200);
+      expect(usageRows).toHaveLength(1);
+      expect(usageRows[0]?.["source_receipt_id"]).toBeNull();
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("keeps the customer answer successful when usage persistence fails after the durable audit", async () => {
+    const auditRows: Array<Record<string, unknown>> = [];
+    const usageRows: Array<Record<string, unknown>> = [];
+    const { baseUrl, server } = await listen(creditRiskFetcher([], { auditRows, failUsageWrite: true, usageRows }), { creditRiskStreamRunner: successfulUsageCreditRunner(), env: { OPENAI_API_KEY: "sk-test-credit-query" } });
+    try {
+      const response = await fetch(`${baseUrl}/credit/query`, { body: JSON.stringify({ accountId: "ACC-CRE", question: "Why?", recordIds: ["ACC-CRE", "S3", "S6", "EVD-CREDIT-ACC-CRE-AR"] }), headers: cockpitAuthHeaders, method: "POST" });
+      expect(response.status).toBe(200);
+      expect(auditRows).toHaveLength(1);
+      expect(usageRows).toHaveLength(1);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("returns a Maya-style live-agent David investigation with token usage and cited credit evidence", async () => {
     const calls: string[] = [];
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
@@ -1787,6 +1966,9 @@ describe("POST /credit/query", () => {
 async function listen(
   memoryFetcher: SupabaseMemoryFetch,
   options: {
+    auditRows?: Array<Record<string, unknown>>;
+    failAuditWrite?: boolean;
+    failUsageWrite?: boolean;
     creditRiskStreamRunner?: LiveForensicsStreamRunner;
     env?: Record<string, string>;
     openAiVectorStoreFetcher?: OpenAiVectorStoreFetch;
@@ -1834,6 +2016,35 @@ function sdkToolEvent(
   };
 }
 
+function successfulUsageCreditRunner(): LiveForensicsStreamRunner {
+  return (request) => {
+    const recordIds = request.agentHookAudit?.recordIds ?? [];
+    request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Credit Sentinel", hook: "agent_start", recordIds }));
+    request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Credit Sentinel", hook: "agent_handoff", nextAgentName: "Action Packet Drafter", recordIds }));
+    request.agentHookAudit?.onReceipt(createAgentHookAuditReceipt({ agentName: "Action Packet Drafter", hook: "agent_start", recordIds }));
+    return (async function* stream() {
+      await Promise.resolve();
+      yield sdkToolEvent("tool_called", "credit_risk_answer", "Credit Sentinel", { arguments: { accountId: "ACC-CRE", question: "Why?", recordIds } });
+      yield sdkToolEvent("tool_output", "credit_risk_answer", "Credit Sentinel", {
+        output: {
+          sourceReadStatus: "source_backed_selected_scope",
+          sourceReads: {
+            canonicalModel: "CreditRiskEvidenceDocument",
+            primarySourceLabel: "Supabase credit evidence documents",
+            primarySourceSystem: "supabase",
+            selectedEvidence: [{ documentId: "EVD-CREDIT-ACC-CRE-AR", recordIds }],
+            selectedRecordIds: recordIds,
+            sourceFreshness: "snapshot",
+            transportLabel: "Governed credit risk read-model",
+            transportLayer: "supabase_credit_risk"
+          }
+        }
+      });
+      yield { data: { response: { usage: { input_tokens: 1000, output_tokens: 100, total_tokens: 1100 } }, type: "response.completed" }, type: "raw_model_stream_event" };
+    })();
+  };
+}
+
 async function close(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -1850,12 +2061,16 @@ async function close(server: Server): Promise<void> {
 function creditRiskFetcher(
   calls: string[],
   options: {
+    auditRows?: Array<Record<string, unknown>>;
     approvalRecords?: Array<Record<string, unknown>>;
     counterOfferRows?: Array<Record<string, unknown>>;
     emptyTables?: string[];
     failedTables?: Record<string, number>;
+    failAuditWrite?: boolean;
+    failUsageWrite?: boolean;
     negotiationRoundRows?: Array<Record<string, unknown>>;
     throwingTables?: string[];
+    usageRows?: Array<Record<string, unknown>>;
   } = {}
 ): SupabaseMemoryFetch {
   const fixture = loadCreditRiskFixtureRows();
@@ -1880,7 +2095,24 @@ function creditRiskFetcher(
     }
 
     if (url.includes("/rest/v1/recoup_memory_records")) {
+      if (init.method === "POST") {
+        const row = JSON.parse(typeof init.body === "string" ? init.body : "{}") as Record<string, unknown>;
+        options.auditRows?.push(row);
+        if (options.failAuditWrite === true) {
+          return Promise.resolve(jsonResponse({ error: "audit failed" }, 500));
+        }
+        return Promise.resolve(jsonResponse([row], 201));
+      }
       return Promise.resolve(jsonResponse(approvalRecords));
+    }
+
+    if (init.method === "POST" && url.includes("/rest/v1/recoup_agent_usage_runs")) {
+      const row = JSON.parse(typeof init.body === "string" ? init.body : "{}") as Record<string, unknown>;
+      options.usageRows?.push(row);
+      if (options.failUsageWrite === true) {
+        return Promise.resolve(jsonResponse({ error: "usage failed" }, 500));
+      }
+      return Promise.resolve(jsonResponse([row], 201));
     }
 
     const tableName = new URL(url).pathname.split("/").at(-1);

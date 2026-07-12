@@ -217,11 +217,17 @@ if (process.argv.includes("--fixture-api")) {
   await main({
     evalsFinopsOnly: process.argv.includes("--evals-finops-only"),
     mayaLoginOnly: process.argv.includes("--maya-login-only"),
-    mayaShadcnOnly: process.argv.includes("--maya-shadcn-only")
+    mayaShadcnOnly: process.argv.includes("--maya-shadcn-only"),
+    personaFinopsOnly: process.argv.includes("--persona-finops-only")
   });
 }
 
-async function main(options: { evalsFinopsOnly: boolean; mayaLoginOnly: boolean; mayaShadcnOnly: boolean }): Promise<void> {
+async function main(options: {
+  evalsFinopsOnly: boolean;
+  mayaLoginOnly: boolean;
+  mayaShadcnOnly: boolean;
+  personaFinopsOnly: boolean;
+}): Promise<void> {
   const managedProcesses: ManagedProcess[] = [];
   let browser: Browser | undefined;
 
@@ -242,6 +248,11 @@ async function main(options: { evalsFinopsOnly: boolean; mayaLoginOnly: boolean;
     if (options.evalsFinopsOnly) {
       await assertEvalsFinopsGovernanceRoute(browser);
       console.log(`Evals FinOps governance route checked; screenshot written to ${outputDir}/governance-evals-finops-1440.png`);
+      return;
+    }
+    if (options.personaFinopsOnly) {
+      await assertPersonaFinopsRoutes(browser);
+      console.log(`Persona FinOps routes checked; screenshots written to ${outputDir}/*-finops-{1440,375}.png`);
       return;
     }
 
@@ -272,6 +283,7 @@ async function main(options: { evalsFinopsOnly: boolean; mayaLoginOnly: boolean;
 
     await assertRoleRouting(browser);
     await assertPremiumSurfaces(browser);
+    await assertPersonaFinopsRoutes(browser);
     await assertMayaSelectedCaseVoiceSpeech(browser);
     await captureResponsiveScreenshots(browser);
     await captureMayaShadcnStoryboardScreenshots(browser);
@@ -550,8 +562,11 @@ async function assertLandingPage(browser: Browser): Promise<void> {
 
     await page.getByRole("tab", { name: "How We Built It" }).click();
     await expectVisibleText(page, "OpenAI Agents SDK orchestration");
+    await expectVisibleText(page, "Codex build harness");
+    await expectVisibleText(page, "Codex executes scoped implementation goals under AGENTS.md");
+    await expectVisibleText(page, "Goal-oriented implementer and reviewer subagents work in isolated worktrees");
     const buildCopy = await page.getByTestId("recoup-landing-tab-build").innerText();
-    assert(!/Claude|Codex|Superpowers/iu.test(buildCopy), "How We Built It must not expose internal coding tool references");
+    assert(!/Claude|Superpowers/iu.test(buildCopy), "How We Built It must not expose unrelated internal coding tool references");
     const buildCardHeights = await page.evaluate(() => {
       const invariantsCard = document.querySelector('[data-testid="recoup-landing-invariants-card"]');
       const runFlowCard = document.querySelector('[data-testid="recoup-landing-run-flow-card"]');
@@ -2116,6 +2131,65 @@ async function assertEvalsFinopsGovernanceRoute(browser: Browser): Promise<void>
     await page.screenshot({ fullPage: true, path: `${outputDir}/governance-evals-finops-1440.png` });
   } finally {
     await cfoContext.close();
+  }
+}
+
+async function assertPersonaFinopsRoutes(browser: Browser): Promise<void> {
+  const expectations = {
+    cfo: { excluded: [], included: ["Maya Forensics Query", "David Credit Risk"] },
+    david: { excluded: ["Maya Forensics Query"], included: ["David Credit Risk"] },
+    maya: { excluded: ["David Credit Risk"], included: ["Maya Forensics Query"] }
+  } as const;
+
+  const cfoContext = await newRoleContext(browser, "cfo", 1440, 900);
+  const cfoEntryPage = await cfoContext.newPage();
+  await cfoEntryPage.goto(`${appUrl}/cfo`, { waitUntil: "networkidle" });
+  const finopsEntry = cfoEntryPage.getByRole("link", { name: "Agent Cost Engineering" });
+  await finopsEntry.waitFor({ state: "visible", timeout: 15_000 });
+  await finopsEntry.click();
+  await cfoEntryPage.waitForURL("**/finops", { timeout: 15_000 });
+  await cfoContext.close();
+
+  for (const role of ["maya", "david", "cfo"] as const) {
+    for (const viewport of [
+      { height: 900, label: "1440", width: 1440 },
+      { height: 812, label: "375", width: 375 }
+    ]) {
+      const context = await newRoleContext(browser, role, viewport.width, viewport.height);
+      const page = await context.newPage();
+      try {
+        await page.goto(`${appUrl}/finops`, { waitUntil: "networkidle" });
+        await expectVisibleLocator(page, '[data-testid="persona-finops-surface"]', `${role} persona FinOps surface`);
+        if (viewport.width < 768) {
+          await page.getByRole("button", { name: "Open FinOps navigation" }).click();
+          await expectVisibleLocator(page, '[data-mobile="true"][data-sidebar="sidebar"]', `${role} mobile persona FinOps sidebar`);
+        } else {
+          await expectVisibleLocator(page, '[data-testid="finops-sidebar"]', `${role} persona FinOps sidebar`);
+        }
+        assert(
+          (await page.locator('[data-testid="finops-sidebar-nav-item"]').count()) === 1,
+          `${role} persona FinOps must expose exactly one sidebar item`
+        );
+        if (viewport.width < 768) {
+          await page.keyboard.press("Escape");
+        }
+        const surfaceText = await page.getByTestId("persona-finops-surface").innerText();
+        for (const included of expectations[role].included) {
+          assert(surfaceText.includes(included), `${role} FinOps must include ${included}`);
+        }
+        for (const excluded of expectations[role].excluded) {
+          assert(!surfaceText.includes(excluded), `${role} FinOps must exclude ${excluded}`);
+        }
+        assert(surfaceText.includes("Calculated from effective owner pricing"), `${role} FinOps must use owner pricing`);
+        await assertNoHorizontalOverflow(page, `${role} persona FinOps ${String(viewport.width)}px`);
+        await page.screenshot({
+          fullPage: true,
+          path: `${outputDir}/${role}-finops-${viewport.label}.png`
+        });
+      } finally {
+        await context.close();
+      }
+    }
   }
 }
 
@@ -5424,6 +5498,7 @@ function fixtureSupabaseFetcher(url: string): Promise<Response> {
             prompt_prefix_version: "2026-06-30",
             reasoning_tokens: 0,
             record_ids_json: ["usage-1", "S3-L1", "q1"],
+            service_tier: "default",
             source_receipt_id: "memory-usage-1",
             status: "succeeded",
             tool_call_count: 7,
@@ -5432,6 +5507,36 @@ function fixtureSupabaseFetcher(url: string): Promise<Response> {
             usage_run_id: "usage-1",
             workflow_name: "maya_forensics_query"
           },
+          ...(parsedUrl.searchParams.has("workflow_name") ? [{
+            agent_name: "David Credit Risk",
+            cached_input_tokens: 40_000,
+            cache_capability: "credit_risk",
+            cited_record_ids_json: ["ACC-CRE", "credit-query-1"],
+            correlation_id: "e2e-finops-david-corr-1",
+            created_at: "2026-06-30T01:03:00.000Z",
+            deterministic_basis: "E2E David typed usage receipt from fixture Supabase rows",
+            guardrail_trip_count: 0,
+            handoff_count: 2,
+            input_tokens: 200_000,
+            latency_ms: 980,
+            model_execution_mode: "live_openai_agents",
+            model_id: "gpt-5.4",
+            output_tokens: 20_000,
+            participating_agent_names_json: ["Credit Sentinel", "Action Packet Drafter"],
+            prompt_cache_key: "recoup:v2:credit-risk:v1",
+            prompt_prefix_version: "v1",
+            reasoning_tokens: 0,
+            reasoning_tokens_status: "unavailable",
+            record_ids_json: ["usage-david-1", "ACC-CRE", "credit-query-1"],
+            service_tier: "default",
+            source_receipt_id: "memory-usage-david-1",
+            status: "succeeded",
+            tool_call_count: 4,
+            total_tokens: 220_000,
+            uncached_input_tokens: 160_000,
+            usage_run_id: "usage-david-1",
+            workflow_name: "credit_risk"
+          }] : []),
           {
             agent_name: "Release Evaluator",
             cached_input_tokens: 0,
@@ -5550,8 +5655,27 @@ function fixtureSupabaseFetcher(url: string): Promise<Response> {
             output_per_1m_tokens: "10.000",
             pricing_hash: "5".repeat(64),
             pricing_id: "pricing-gpt-55-default",
+            provider_source_url: "https://openai.com/api/pricing/",
             reasoning_per_1m_tokens: "0.000",
-            service_tier: "default"
+            service_tier: "default",
+            source_retrieved_at: "2026-06-30T00:00:00.000Z"
+          },
+          {
+            active: true,
+            approved_by: "human:rathish-owner",
+            cached_input_per_1m_tokens: "0.250",
+            currency: "USD",
+            effective_from: "2026-06-30T00:00:00.000Z",
+            effective_to: null,
+            input_per_1m_tokens: "2.500",
+            model_id: "gpt-5.4",
+            output_per_1m_tokens: "15.000",
+            pricing_hash: "4".repeat(64),
+            pricing_id: "pricing-gpt-54-default",
+            provider_source_url: "https://openai.com/api/pricing/",
+            reasoning_per_1m_tokens: "15.000",
+            service_tier: "default",
+            source_retrieved_at: "2026-06-30T00:00:00.000Z"
           }
         ]),
         { status: 200 }

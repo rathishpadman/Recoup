@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
-import { runtimeModels } from "../../config/models.js";
+import { runtimeModels, runtimeOpenAiServiceTier } from "../../config/models.js";
 import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues } from "../../config/governed.js";
 import { readCanaryLines, readReconciliationMode } from "../../config/reconciliationRollout.js";
 import { runForensicsInvestigation, type ForensicsReconciliationOptions } from "../agents/forensics.js";
@@ -20,8 +20,10 @@ import {
   cockpitHumanProxyNonceHeader,
   cockpitHumanProxyProofHeader,
   cockpitHumanProxyRoleHeader,
+  cockpitHumanPrincipalByDemoRole,
   defaultCockpitHumanPrincipal,
   verifyCockpitHumanProxyPrincipal,
+  type CockpitDemoRole,
   type CockpitHumanProxyPurpose
 } from "../../config/cockpitHumanPrincipals.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
@@ -127,14 +129,17 @@ import {
   type CreditNegotiationApprovalAction,
   type CreditRiskApprovalReceipt
 } from "./creditRiskModel.js";
-import { runCreditRiskQuerySessionWithLiveAgents } from "./creditRiskQuerySession.js";
+import {
+  runCreditRiskQuerySessionWithLiveAgents,
+  type CreditRiskQuerySessionResponse
+} from "./creditRiskQuerySession.js";
 import {
   buildSourceHealthResultsFromSnapshots,
   type SourceHealthResult,
   type SourceHealthSnapshotStore
 } from "./sourceHealth.js";
 import { createSupabaseEvalsFinopsRepositoryFromEnv, type EvalsFinopsRepository } from "./evalsFinopsRepository.js";
-import { buildEvalFinopsCockpitModel } from "./evalsFinopsModel.js";
+import { buildEvalFinopsCockpitModel, buildPersonaFinopsCockpitModel } from "./evalsFinopsModel.js";
 import {
   createToolDataSchemaProbeLoader,
   startSourceHealthPoller,
@@ -248,6 +253,21 @@ const creditRiskQueryRequestSchema = z
     recordIds: z.array(z.string().trim().min(1)).min(1, "Credit risk query selected recordIds are required.")
   })
   .strict();
+const personaFinopsPeriodSchema = z
+  .object({
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true })
+  })
+  .superRefine((period, context) => {
+    const from = new Date(period.from).valueOf();
+    const to = new Date(period.to).valueOf();
+    if (from >= to) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Persona FinOps from must precede to.", path: ["from"] });
+    }
+    if (to - from > 366 * 24 * 60 * 60 * 1000) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Persona FinOps period cannot exceed 366 days.", path: ["to"] });
+    }
+  });
 const partialHoldSimulationCriterionSchema = z.enum([
   "orderValueVsExposure",
   "customerStrategicValue",
@@ -334,6 +354,7 @@ const cockpitApiRoutes = [
   "GET /agents",
   "GET /connectors",
   "GET /evals-finops",
+  "GET /persona-finops",
   "GET /sources/r1/:need",
   "GET /run",
   "POST /run",
@@ -891,6 +912,14 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         rows
       });
 
+      const correlationId = readRequestCorrelationId(request) ?? randomUUID();
+      await awaitBoundedDavidCreditQueryOptionalPersistence({
+        correlationId,
+        env: runtimeEnv,
+        memoryFetcher: options.memoryFetcher,
+        queryResponse
+      });
+
       response.setHeader("cache-control", "no-store");
       response.json(queryResponse);
     } catch {
@@ -1020,6 +1049,43 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         missingSource: "supabase-evals-finops"
       });
     }
+  });
+
+  app.get("/persona-finops", async (request, response) => {
+    const authenticated = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["maya", "david", "cfo"],
+      proxyPurpose: "read"
+    });
+    const role = authenticated.success ? cockpitDemoRoleForPrincipal(authenticated.principal) : undefined;
+    if (!authenticated.success) {
+      response.status(401).json({ error: authenticated.error });
+      return;
+    }
+    if (role !== "maya" && role !== "david" && role !== "cfo") {
+      response.status(403).json({ error: "Persona FinOps requires a Maya, David, or CFO principal." });
+      return;
+    }
+
+    const period = personaFinopsPeriodSchema.safeParse({ from: request.query["from"], to: request.query["to"] });
+    if (!period.success) {
+      response.status(400).json({ error: "Invalid persona FinOps period.", issues: period.error.issues });
+      return;
+    }
+
+    const repository = createSupabaseEvalsFinopsRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
+    if (repository === undefined) {
+      sendFailClosedJson(request, response, 503, {
+        error: "Persona FinOps requires configured Supabase usage and pricing sources.",
+        missingSource: "supabase-persona-finops"
+      });
+      return;
+    }
+    response.setHeader("cache-control", "no-store");
+    response.json(await buildPersonaFinopsCockpitModel({
+      period: { fromIso: period.data.from, toIso: period.data.to },
+      persona: role,
+      repository
+    }));
   });
 
   app.get("/sources/r1/:need", async (request, response) => {
@@ -2378,6 +2444,7 @@ function sendFailClosedJson(
 function createUnavailableEvalsFinopsRepository(): EvalsFinopsRepository {
   return {
     listActiveModelPricing: () => Promise.resolve([]),
+    listModelPricingForPeriod: () => Promise.resolve([]),
     listAgentUsageRuns: () => Promise.resolve([]),
     listDailyRollups: () => Promise.resolve([]),
     listEvalGateResults: () => Promise.resolve([]),
@@ -2472,6 +2539,7 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
               inputTokens: tokenUsageSnapshot.inputTokens ?? 0,
               modelExecutionMode: modelExecution.mode,
               modelId: runtimeModels.reasoning,
+              serviceTier: runtimeOpenAiServiceTier,
               outputTokens: tokenUsageSnapshot.outputTokens ?? 0,
               promptCacheKey: receiptPayload.promptCacheKey,
               promptPrefixVersion: receiptPayload.promptPrefixVersion,
@@ -2504,6 +2572,169 @@ async function persistForensicsQueryTokenUsageReceipt(input: {
       })
     );
     return;
+  }
+}
+
+async function persistDavidCreditQueryTokenUsageReceipt(input: {
+  correlationId: string;
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  queryResponse: CreditRiskQuerySessionResponse;
+}): Promise<void> {
+  try {
+    const repository = createSupabaseEvalsFinopsRepositoryFromEnv(input.env, input.memoryFetcher);
+    const memoryRepository = createSupabaseMemoryRepositoryFromEnv(input.env, input.memoryFetcher);
+    const modelExecution = input.queryResponse.modelExecution;
+    const deterministicBasis = input.queryResponse.deterministicBasis;
+    const usage = modelExecution?.mode === "live_openai_agents" ? modelExecution.tokenUsageSnapshot : undefined;
+    if (
+      repository === undefined ||
+      input.queryResponse.answer === undefined ||
+      deterministicBasis === undefined ||
+      modelExecution?.mode !== "live_openai_agents" ||
+      usage === undefined ||
+      !Number.isSafeInteger(usage.totalTokens) ||
+      usage.totalTokens <= 0
+    ) {
+      return;
+    }
+
+    const citedRecordIds = uniqueRecordIds(input.queryResponse.citations.map((citation) => citation.recordId));
+    const traceRecordIds = uniqueRecordIds(input.queryResponse.trace.flatMap((event) => event.recordIds));
+    const recordIds = uniqueRecordIds([...citedRecordIds, ...traceRecordIds]);
+    const completedToolNames = uniqueRecordIds(
+      input.queryResponse.trace
+        .filter((event) => event.hook === "agent_tool_end" && event.toolName !== undefined)
+        .map((event) => event.toolName as string)
+    );
+    const receiptPayload = buildOpenAiUsageReceiptPayload({
+      agentName: "David credit query workflow",
+      capability: "credit_risk",
+      correlationId: input.correlationId,
+      deterministicBasis,
+      modelExecutionMode: modelExecution.mode,
+      rawModelTextPolicy: modelExecution.rawModelTextPolicy,
+      recordIds,
+      usage
+    });
+    const receiptHash = sha256CanonicalJson({
+      ...receiptPayload,
+      citedRecordIds,
+      handoffCount: modelExecution.handoffCount,
+      toolCallCount: completedToolNames.length
+    });
+    const sourceReceiptId = `audit:credit-query-token-usage:${receiptHash}`;
+    const createdAt = new Date().toISOString();
+
+    const usageRun = {
+      agentName: "David credit query workflow",
+      cachedInputTokens: usage.cachedTokens ?? 0,
+      cacheCapability: "credit_risk",
+      citedRecordIds,
+      correlationId: input.correlationId,
+      createdAt,
+      deterministicBasis:
+        `${deterministicBasis} Token totals are the successful aggregate workflow snapshot; handoffs and tools are counted from the governed trace.`,
+      guardrailTripCount: 0,
+      guardrailTripCountStatus: "unavailable",
+      handoffCount: modelExecution.handoffCount,
+      inputTokens: usage.inputTokens ?? 0,
+      modelExecutionMode: modelExecution.mode,
+      modelId: runtimeModels.fast,
+      serviceTier: runtimeOpenAiServiceTier,
+      outputTokens: usage.outputTokens ?? 0,
+      participatingAgentNames: modelExecution.agentNames,
+      promptCacheKey: receiptPayload.promptCacheKey,
+      promptPrefixVersion: receiptPayload.promptPrefixVersion,
+      reasoningTokens: 0,
+      reasoningTokensStatus: "unavailable",
+      recordIds,
+      status: "succeeded",
+      toolCallCount: completedToolNames.length,
+      totalTokens: usage.totalTokens,
+      uncachedInputTokens:
+        usage.inputTokens === undefined ? 0 : Math.max(0, usage.inputTokens - (usage.cachedTokens ?? 0)),
+      usageRunId: `usage:david-credit-query:${receiptHash}`,
+      workflowName: "credit_risk"
+    } as const;
+    let durableSourceReceiptId: string | undefined;
+    if (memoryRepository !== undefined) {
+      try {
+        await memoryRepository.append({
+            category: "audit_refs",
+            createdAt,
+            id: sourceReceiptId,
+            payload: {
+              ...receiptPayload,
+              citedRecordIds,
+              handoffCount: modelExecution.handoffCount,
+              toolCallCount: completedToolNames.length,
+              workflowName: "credit_risk"
+            },
+            recordIds,
+            scope: "credit-query:workflow",
+            trustLevel: "trusted"
+          });
+        durableSourceReceiptId = sourceReceiptId;
+      } catch (error) {
+        console.warn(JSON.stringify({
+          correlationId: input.correlationId,
+          event: "david_credit_query_audit_receipt_write_failed",
+          reason: error instanceof Error ? error.message : "Unknown audit persistence failure."
+        }));
+      }
+    }
+    await repository.upsertAgentUsageRun({
+      ...usageRun,
+      ...(durableSourceReceiptId === undefined ? {} : { sourceReceiptId: durableSourceReceiptId })
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      correlationId: input.correlationId,
+      event: "david_credit_query_token_usage_receipt_write_failed",
+      reason: error instanceof Error ? error.message : "Unknown persistence failure."
+    }));
+  }
+}
+
+const davidCreditQueryOptionalPersistenceTimeoutMs = 2_000;
+
+async function awaitBoundedDavidCreditQueryOptionalPersistence(input: {
+  correlationId: string;
+  env: RuntimeEnv;
+  memoryFetcher: SupabaseMemoryFetch | undefined;
+  queryResponse: CreditRiskQuerySessionResponse;
+}): Promise<void> {
+  const controller = new AbortController();
+  const fetcher = input.memoryFetcher ?? fetch;
+  const signalAwareFetcher: SupabaseMemoryFetch = (url, init) =>
+    controller.signal.aborted
+      ? Promise.reject(new DOMException("Aborted", "AbortError"))
+      : fetcher(url, { ...init, signal: controller.signal });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    persistDavidCreditQueryTokenUsageReceipt({
+      correlationId: input.correlationId,
+      env: input.env,
+      memoryFetcher: signalAwareFetcher,
+      queryResponse: input.queryResponse
+    }).then(() => "completed" as const),
+    new Promise<"timed_out">((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve("timed_out");
+      }, davidCreditQueryOptionalPersistenceTimeoutMs);
+    })
+  ]);
+  if (timeout !== undefined) {
+    clearTimeout(timeout);
+  }
+  if (result === "timed_out") {
+    console.warn(JSON.stringify({
+      correlationId: input.correlationId,
+      event: "david_credit_query_optional_persistence_timeout",
+      timeoutMs: davidCreditQueryOptionalPersistenceTimeoutMs
+    }));
   }
 }
 
@@ -3228,6 +3459,12 @@ function verifyHumanCockpitAuth(
   }
 
   return { error: "Verified human cockpit auth required.", success: false };
+}
+
+function cockpitDemoRoleForPrincipal(principal: string): CockpitDemoRole | undefined {
+  return (Object.entries(cockpitHumanPrincipalByDemoRole) as Array<[CockpitDemoRole, string]>).find(
+    ([, configuredPrincipal]) => configuredPrincipal === principal
+  )?.[0];
 }
 
 function resolveCreditReadModelRefreshTimeoutMs(value: string | undefined): number {

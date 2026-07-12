@@ -356,8 +356,13 @@ export const stackCards = [
   },
   {
     Icon: ShieldCheck,
-    items: ["Vitest + Playwright + dependency-cruiser boundaries", "Eval false-positive gates fail the build", "Accuracy bars: validity >= 0.90, arbitration >= 0.85"],
-    title: "Quality gates"
+    items: [
+      "Codex executes scoped implementation goals under AGENTS.md",
+      "Goal-oriented implementer and reviewer subagents work in isolated worktrees",
+      "Tests-first delivery gates every change with lint, typecheck, Vitest, evals, and dependency boundaries",
+      "Senior critique and human approval precede merge and production deployment"
+    ],
+    title: "Codex build harness"
   }
 ] as const satisfies readonly StackCard[];
 

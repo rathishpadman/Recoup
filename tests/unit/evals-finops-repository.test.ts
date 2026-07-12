@@ -32,6 +32,7 @@ describe("evals FinOps Supabase repository", () => {
             prompt_prefix_version: "2026-06-30",
             reasoning_tokens: 50,
             record_ids_json: ["S3-L1", "PRICE-CLAUSE-1"],
+            service_tier: "default",
             source_receipt_id: "memory-usage-1",
             status: "succeeded",
             tool_call_count: 3,
@@ -92,8 +93,10 @@ describe("evals FinOps Supabase repository", () => {
             output_per_1m_tokens: "10.00",
             pricing_hash: "c".repeat(64),
             pricing_id: "pricing-1",
+            provider_source_url: "https://openai.com/api/pricing/",
             reasoning_per_1m_tokens: "0",
-            service_tier: "default"
+            service_tier: "default",
+            source_retrieved_at: "2026-06-30T00:00:00.000Z"
           }
         ]);
       }
@@ -188,6 +191,7 @@ describe("evals FinOps Supabase repository", () => {
         cachedInputTokens: 300,
         createdAt: "2026-06-30T00:00:00.000Z",
         recordIds: ["S3-L1", "PRICE-CLAUSE-1"],
+        serviceTier: "default",
         usageRunId: "usage-1"
       }
     ]);
@@ -207,9 +211,15 @@ describe("evals FinOps Supabase repository", () => {
       {
         cachedInputPer1mTokens: "0.125",
         inputPer1mTokens: "1.25",
-        pricingId: "pricing-1"
+        pricingId: "pricing-1",
+        providerSourceUrl: "https://openai.com/api/pricing/",
+        sourceRetrievedAt: "2026-06-30T00:00:00.000Z"
       }
     ]);
+    await expect(repository.listModelPricingForPeriod({
+      fromIso: "2026-06-01T00:00:00.000Z",
+      toIso: "2026-08-01T00:00:00.000Z"
+    })).resolves.toHaveLength(1);
     await expect(repository.listOpenAiCostBuckets()).resolves.toMatchObject([
       {
         amount: "2.75",
@@ -238,14 +248,18 @@ describe("evals FinOps Supabase repository", () => {
       "https://recoup.supabase.co/rest/v1/recoup_eval_gate_runs",
       "https://recoup.supabase.co/rest/v1/recoup_eval_gate_results",
       "https://recoup.supabase.co/rest/v1/recoup_model_pricing",
+      "https://recoup.supabase.co/rest/v1/recoup_model_pricing",
       "https://recoup.supabase.co/rest/v1/recoup_openai_cost_buckets",
       "https://recoup.supabase.co/rest/v1/recoup_finops_daily_rollups",
       "https://recoup.supabase.co/rest/v1/recoup_finops_recommendations"
     ]);
-    expect(new URL(calls[0]?.url ?? "").searchParams.get("order")).toBe("created_at.desc");
+    expect(new URL(calls[0]?.url ?? "").searchParams.get("order")).toBe("created_at.desc,usage_run_id.desc");
     expect(new URL(calls[1]?.url ?? "").searchParams.get("limit")).toBe("1");
     expect(new URL(calls[2]?.url ?? "").searchParams.get("eval_run_id")).toBe("eq.eval-run-1");
     expect(new URL(calls[3]?.url ?? "").searchParams.get("active")).toBe("eq.true");
+    expect(new URL(calls[4]?.url ?? "").searchParams.get("active")).toBeNull();
+    expect(new URL(calls[4]?.url ?? "").searchParams.get("effective_from")).toBe("lt.2026-08-01T00:00:00.000Z");
+    expect(new URL(calls[4]?.url ?? "").searchParams.get("or")).toBe("(effective_to.is.null,effective_to.gt.2026-06-01T00:00:00.000Z)");
     for (const call of calls) {
       expect(call.init.headers).toMatchObject({
         apikey: "supabase-service-secret",
@@ -286,6 +300,7 @@ describe("evals FinOps Supabase repository", () => {
       promptPrefixVersion: "2026-06-30",
       reasoningTokens: 0,
       recordIds: ["S3-L1", "PRICE-CLAUSE-1"],
+      serviceTier: "default",
       sourceReceiptId: "memory-receipt-1",
       status: "succeeded",
       toolCallCount: 2,
@@ -333,6 +348,7 @@ describe("evals FinOps Supabase repository", () => {
     expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({
       cited_record_ids_json: ["S3-L1"],
       record_ids_json: ["S3-L1", "PRICE-CLAUSE-1"],
+      service_tier: "default",
       usage_run_id: "usage-1"
     });
     expect(JSON.parse(calls[1]?.body ?? "{}")).toMatchObject({
@@ -347,6 +363,58 @@ describe("evals FinOps Supabase repository", () => {
       }
     ]);
     expect(JSON.stringify(calls.map((call) => call.body))).not.toContain("supabase-service-secret");
+  });
+
+  it("filters usage server-side and keyset-paginates tied timestamps without omissions", async () => {
+    const urls: string[] = [];
+    const rows = Array.from({ length: 1001 }, (_, index) => agentUsageRow(1000 - index));
+    const repository = createSupabaseEvalsFinopsRepository({
+      fetcher: (url) => {
+        urls.push(url);
+        return ok(urls.length === 1 ? rows.slice(0, 1000) : rows.slice(1000));
+      },
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    const result = await repository.listAgentUsageRuns({
+      fromIso: "2026-07-01T00:00:00.000Z",
+      toIso: "2026-07-12T00:00:00.000Z",
+      workflowNames: ["maya_forensics_query"]
+    });
+
+    expect(result).toHaveLength(1001);
+    expect(urls).toHaveLength(2);
+    expect(new URL(urls[0] ?? "").searchParams).toMatchObject(expect.any(URLSearchParams));
+    expect(new URL(urls[0] ?? "").searchParams.get("workflow_name")).toBe("in.(maya_forensics_query)");
+    expect(new URL(urls[0] ?? "").searchParams.getAll("created_at")).toEqual([
+      "gte.2026-07-01T00:00:00.000Z",
+      "lt.2026-07-12T00:00:00.000Z"
+    ]);
+    expect(new URL(urls[0] ?? "").searchParams.get("order")).toBe("created_at.desc,usage_run_id.desc");
+    expect(new URL(urls[0] ?? "").searchParams.has("offset")).toBe(false);
+    expect(new URL(urls[1] ?? "").searchParams.get("or")).toBe(
+      "(created_at.lt.2026-07-10T00:00:00.000Z,and(created_at.eq.2026-07-10T00:00:00.000Z,usage_run_id.lt.usage-0001))"
+    );
+    expect(new Set(result.map((run) => run.usageRunId)).size).toBe(1001);
+  });
+
+  it("captures one read upper bound when no to timestamp is supplied", async () => {
+    const urls: string[] = [];
+    const repository = createSupabaseEvalsFinopsRepository({
+      fetcher: (url) => {
+        urls.push(url);
+        return ok([]);
+      },
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await repository.listAgentUsageRuns();
+
+    const upperBounds = new URL(urls[0] ?? "").searchParams.getAll("created_at").filter((value) => value.startsWith("lt."));
+    expect(upperBounds).toHaveLength(1);
+    expect(Number.isNaN(new Date((upperBounds[0] ?? "").slice(3)).getTime())).toBe(false);
   });
 
   it("rejects secret-like values before persisting typed evals FinOps rows", async () => {
@@ -631,6 +699,37 @@ describe("evals FinOps Supabase repository", () => {
     );
   });
 
+  it("rejects non-HTTPS pricing provenance links", async () => {
+    const repository = createSupabaseEvalsFinopsRepository({
+      fetcher: () =>
+        ok([
+          {
+            active: true,
+            approved_by: "human:rathish-owner",
+            cached_input_per_1m_tokens: "0.125",
+            currency: "USD",
+            effective_from: "2026-06-30T00:00:00.000Z",
+            effective_to: null,
+            input_per_1m_tokens: "1.25",
+            model_id: "gpt-5-mini",
+            output_per_1m_tokens: "10.00",
+            pricing_hash: "c".repeat(64),
+            pricing_id: "pricing-1",
+            provider_source_url: "javascript:alert(1)",
+            reasoning_per_1m_tokens: "0",
+            service_tier: "default",
+            source_retrieved_at: "2026-06-30T00:00:00.000Z"
+          }
+        ]),
+      serviceRoleKey: "supabase-service-secret",
+      url: "https://recoup.supabase.co"
+    });
+
+    await expect(repository.listActiveModelPricing()).rejects.toThrow(
+      "Supabase Evals FinOps row contained an invalid HTTPS URL."
+    );
+  });
+
   it("constructs the repository only from server-side Supabase credentials", () => {
     expect(createSupabaseEvalsFinopsRepositoryFromEnv({})).toBeUndefined();
     expect(
@@ -656,4 +755,35 @@ describe("evals FinOps Supabase repository", () => {
 
 function ok(body: unknown): Promise<Response> {
   return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status: 200 }));
+}
+
+function agentUsageRow(index: number): Record<string, unknown> {
+  return {
+    agent_name: "Maya Forensics",
+    cached_input_tokens: 0,
+    cache_capability: "deduction_forensics",
+    cited_record_ids_json: [`record-${String(index)}`],
+    correlation_id: `corr-${String(index)}`,
+    created_at: "2026-07-10T00:00:00.000Z",
+    deterministic_basis: "pagination fixture",
+    guardrail_trip_count: 0,
+    handoff_count: 0,
+    input_tokens: 1,
+    latency_ms: null,
+    model_execution_mode: "live_openai_agents",
+    model_id: "gpt-5.4",
+    output_tokens: 1,
+    prompt_cache_key: null,
+    prompt_prefix_version: null,
+    reasoning_tokens: 0,
+    record_ids_json: [`record-${String(index)}`],
+    service_tier: "default",
+    source_receipt_id: null,
+    status: "succeeded",
+    tool_call_count: 0,
+    total_tokens: 2,
+    uncached_input_tokens: 1,
+    usage_run_id: `usage-${String(index).padStart(4, "0")}`,
+    workflow_name: "maya_forensics_query"
+  };
 }

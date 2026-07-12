@@ -18,16 +18,23 @@ export interface SupabaseEvalsFinopsRepositoryOptions {
 }
 
 export interface EvalsFinopsRepository {
-  listAgentUsageRuns(): Promise<AgentUsageRun[]>;
+  listAgentUsageRuns(filter?: AgentUsageRunFilter): Promise<AgentUsageRun[]>;
   loadLatestEvalRun(): Promise<EvalGateRun | undefined>;
   listEvalGateResults(evalRunId: string): Promise<EvalGateResult[]>;
   listActiveModelPricing(): Promise<ModelPricing[]>;
+  listModelPricingForPeriod(period: { fromIso: string; toIso: string }): Promise<ModelPricing[]>;
   listOpenAiCostBuckets(): Promise<OpenAiCostBucket[]>;
   listDailyRollups(): Promise<FinopsDailyRollup[]>;
   listOpenRecommendations(): Promise<FinopsRecommendation[]>;
   upsertAgentUsageRun(run: AgentUsageRun): Promise<void>;
   upsertEvalGateRun(run: EvalGateRun): Promise<void>;
   upsertEvalGateResults(results: EvalGateResult[]): Promise<void>;
+}
+
+export interface AgentUsageRunFilter {
+  workflowNames: string[];
+  fromIso: string;
+  toIso?: string;
 }
 
 interface AgentUsageRunRow {
@@ -39,15 +46,19 @@ interface AgentUsageRunRow {
   created_at: string;
   deterministic_basis: string;
   guardrail_trip_count: number;
+  guardrail_trip_count_status?: "observed" | "unavailable" | null;
   handoff_count: number;
   input_tokens: number;
   latency_ms: number | null;
   model_execution_mode: string;
   model_id: string;
+  service_tier?: "default" | "flex" | "priority" | null;
   output_tokens: number;
+  participating_agent_names_json?: string[] | string | null;
   prompt_cache_key: string | null;
   prompt_prefix_version: string | null;
   reasoning_tokens: number;
+  reasoning_tokens_status?: "observed" | "unavailable" | null;
   record_ids_json: string[] | string;
   source_receipt_id: string | null;
   status: "succeeded" | "blocked" | "failed";
@@ -104,8 +115,10 @@ interface ModelPricingRow {
   output_per_1m_tokens: string | number;
   pricing_hash: string;
   pricing_id: string;
+  provider_source_url?: string | null;
   reasoning_per_1m_tokens: string | number;
   service_tier: string;
+  source_retrieved_at?: string | null;
 }
 
 interface OpenAiCostBucketRow {
@@ -190,12 +203,45 @@ export function createSupabaseEvalsFinopsRepository(
   const fetcher = options.fetcher ?? fetch;
 
   return {
-    async listAgentUsageRuns() {
-      const url = new URL(`${baseUrl}/rest/v1/recoup_agent_usage_runs`);
-      url.searchParams.set("order", "created_at.desc");
-      return (await requestRows<AgentUsageRunRow>(fetcher, options.serviceRoleKey, url.href, "GET")).map(
-        parseAgentUsageRunRow
-      );
+    async listAgentUsageRuns(filter) {
+      const pageSize = 1000;
+      const rows: AgentUsageRunRow[] = [];
+      const readUpperBoundIso = filter?.toIso ?? new Date().toISOString();
+      let cursor: { createdAt: string; usageRunId: string } | undefined;
+      for (;;) {
+        const url = new URL(`${baseUrl}/rest/v1/recoup_agent_usage_runs`);
+        url.searchParams.set("order", "created_at.desc,usage_run_id.desc");
+        url.searchParams.set("limit", String(pageSize));
+        if (filter !== undefined) {
+          url.searchParams.set("workflow_name", `in.(${filter.workflowNames.join(",")})`);
+          url.searchParams.append("created_at", `gte.${filter.fromIso}`);
+        }
+        url.searchParams.append("created_at", `lt.${readUpperBoundIso}`);
+        if (cursor !== undefined) {
+          url.searchParams.set(
+            "or",
+            `(created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},usage_run_id.lt.${cursor.usageRunId}))`
+          );
+        }
+        const page = await requestRows<AgentUsageRunRow>(fetcher, options.serviceRoleKey, url.href, "GET");
+        rows.push(...page);
+        if (page.length < pageSize) {
+          break;
+        }
+        const last = page[page.length - 1];
+        if (last === undefined) {
+          break;
+        }
+        const nextCursor = {
+          createdAt: requireString(last.created_at, "created_at"),
+          usageRunId: requireString(last.usage_run_id, "usage_run_id")
+        };
+        if (cursor?.createdAt === nextCursor.createdAt && cursor.usageRunId === nextCursor.usageRunId) {
+          throw new Error("Supabase Evals FinOps pagination cursor did not advance.");
+        }
+        cursor = nextCursor;
+      }
+      return rows.map(parseAgentUsageRunRow);
     },
     async loadLatestEvalRun() {
       const url = new URL(`${baseUrl}/rest/v1/recoup_eval_gate_runs`);
@@ -215,6 +261,13 @@ export function createSupabaseEvalsFinopsRepository(
       const url = new URL(`${baseUrl}/rest/v1/recoup_model_pricing`);
       url.searchParams.set("active", "eq.true");
       url.searchParams.set("order", "model_id.asc,service_tier.asc,effective_from.desc");
+      return (await requestRows<ModelPricingRow>(fetcher, options.serviceRoleKey, url.href, "GET")).map(parseModelPricingRow);
+    },
+    async listModelPricingForPeriod(period) {
+      const url = new URL(`${baseUrl}/rest/v1/recoup_model_pricing`);
+      url.searchParams.set("effective_from", `lt.${period.toIso}`);
+      url.searchParams.set("or", `(effective_to.is.null,effective_to.gt.${period.fromIso})`);
+      url.searchParams.set("order", "model_id.asc,service_tier.asc,effective_from.asc");
       return (await requestRows<ModelPricingRow>(fetcher, options.serviceRoleKey, url.href, "GET")).map(parseModelPricingRow);
     },
     async listOpenAiCostBuckets() {
@@ -292,15 +345,27 @@ function parseAgentUsageRunRow(row: AgentUsageRunRow): AgentUsageRun {
     createdAt: toIsoString(requireString(row.created_at, "created_at")),
     deterministicBasis: requireString(row.deterministic_basis, "deterministic_basis"),
     guardrailTripCount: requireNonnegativeInteger(row.guardrail_trip_count, "guardrail_trip_count"),
+    guardrailTripCountStatus: row.guardrail_trip_count_status == null
+      ? "unavailable"
+      : parseEnum(row.guardrail_trip_count_status, ["observed", "unavailable"], "guardrail_trip_count_status"),
     handoffCount: requireNonnegativeInteger(row.handoff_count, "handoff_count"),
     inputTokens: requireNonnegativeInteger(row.input_tokens, "input_tokens"),
     ...(row.latency_ms === null ? {} : { latencyMs: requireNonnegativeInteger(row.latency_ms, "latency_ms") }),
     modelExecutionMode: requireString(row.model_execution_mode, "model_execution_mode"),
     modelId: requireString(row.model_id, "model_id"),
+    ...(row.service_tier == null
+      ? {}
+      : { serviceTier: parseEnum(row.service_tier, ["default", "flex", "priority"], "service_tier") }),
     outputTokens: requireNonnegativeInteger(row.output_tokens, "output_tokens"),
+    ...(row.participating_agent_names_json == null
+      ? {}
+      : { participatingAgentNames: parseStringArray(row.participating_agent_names_json) }),
     ...(row.prompt_cache_key === null ? {} : { promptCacheKey: row.prompt_cache_key }),
     ...(row.prompt_prefix_version === null ? {} : { promptPrefixVersion: row.prompt_prefix_version }),
     reasoningTokens: requireNonnegativeInteger(row.reasoning_tokens, "reasoning_tokens"),
+    reasoningTokensStatus: row.reasoning_tokens_status == null
+      ? "unavailable"
+      : parseEnum(row.reasoning_tokens_status, ["observed", "unavailable"], "reasoning_tokens_status"),
     recordIds: parseStringArray(row.record_ids_json),
     ...(row.source_receipt_id === null ? {} : { sourceReceiptId: row.source_receipt_id }),
     status: parseEnum(row.status, ["succeeded", "blocked", "failed"], "status"),
@@ -360,8 +425,14 @@ function parseModelPricingRow(row: ModelPricingRow): ModelPricing {
     outputPer1mTokens: requireNumericString(row.output_per_1m_tokens, "output_per_1m_tokens"),
     pricingHash: requireString(row.pricing_hash, "pricing_hash"),
     pricingId: requireString(row.pricing_id, "pricing_id"),
+    ...(row.provider_source_url === null || row.provider_source_url === undefined
+      ? {}
+      : { providerSourceUrl: requireHttpsUrl(row.provider_source_url) }),
     reasoningPer1mTokens: requireNumericString(row.reasoning_per_1m_tokens, "reasoning_per_1m_tokens"),
-    serviceTier: requireString(row.service_tier, "service_tier")
+    serviceTier: requireString(row.service_tier, "service_tier"),
+    ...(row.source_retrieved_at === null || row.source_retrieved_at === undefined
+      ? {}
+      : { sourceRetrievedAt: toIsoString(requireString(row.source_retrieved_at, "source_retrieved_at")) })
   };
 }
 
@@ -459,15 +530,19 @@ function toAgentUsageRunRow(run: AgentUsageRun): AgentUsageRunRow {
     created_at: run.createdAt,
     deterministic_basis: run.deterministicBasis,
     guardrail_trip_count: run.guardrailTripCount,
+    guardrail_trip_count_status: run.guardrailTripCountStatus ?? "unavailable",
     handoff_count: run.handoffCount,
     input_tokens: run.inputTokens,
     latency_ms: run.latencyMs ?? null,
     model_execution_mode: run.modelExecutionMode,
     model_id: run.modelId,
+    service_tier: run.serviceTier ?? null,
     output_tokens: run.outputTokens,
+    participating_agent_names_json: run.participatingAgentNames ?? null,
     prompt_cache_key: run.promptCacheKey ?? null,
     prompt_prefix_version: run.promptPrefixVersion ?? null,
     reasoning_tokens: run.reasoningTokens,
+    reasoning_tokens_status: run.reasoningTokensStatus ?? "unavailable",
     record_ids_json: run.recordIds,
     source_receipt_id: run.sourceReceiptId ?? null,
     status: run.status,
@@ -630,6 +705,19 @@ function requireString(value: unknown, fieldName: string): string {
   }
 
   return value;
+}
+
+function requireHttpsUrl(value: unknown): string {
+  const sourceUrl = requireString(value, "provider_source_url");
+  try {
+    if (new URL(sourceUrl).protocol === "https:") {
+      return sourceUrl;
+    }
+  } catch {
+    // Fall through to the governed validation error.
+  }
+
+  throw new Error("Supabase Evals FinOps row contained an invalid HTTPS URL.");
 }
 
 function requireBoolean(value: unknown, fieldName: string): boolean {

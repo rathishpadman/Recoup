@@ -29,6 +29,7 @@ interface SidebarModule {
   href?: string;
   icon: ReactNode;
   label: string;
+  sessionScoped?: boolean;
   state: "active" | "hot" | "quiet";
 }
 
@@ -51,6 +52,7 @@ const personaMaps: Record<DemoSession["role"], PersonaSidebarMap> = {
       { href: "/governance/agents", icon: <UsersThree size={15} />, label: "Agents", state: "quiet" },
       { href: "/governance/connectors", icon: <Circuitry size={15} />, label: "Connectors", state: "quiet" },
       { href: "/governance/evals-finops", icon: <Scales size={15} />, label: "Evals + FinOps", state: "quiet" },
+      { href: "/finops", icon: <Scales size={15} />, label: "Agent Cost Engineering", sessionScoped: true, state: "quiet" },
       { href: "/governance/memory", icon: <Database size={15} />, label: "Memory", state: "quiet" },
       { href: "/governance/trace", icon: <GitBranch size={15} />, label: "Trace", state: "quiet" },
       { icon: <Stack size={15} />, label: "What Changed", state: "quiet" },
@@ -125,7 +127,7 @@ export function CockpitShell({
 }>) {
   const personaMap = personaMaps[session.role];
   const visibleModules = personaMap.modules.filter(
-    (module) => module.href === undefined || session.allowedRoutes.includes(module.href)
+    (module) => module.href === undefined || module.sessionScoped === true || session.allowedRoutes.includes(module.href)
   );
 
   return (

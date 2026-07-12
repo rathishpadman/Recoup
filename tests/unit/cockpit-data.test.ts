@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchConnectorReadinessModel, fetchEvalFinopsModel } from "../../cockpit/app/cockpit-data.ts";
+import { fetchConnectorReadinessModel, fetchEvalFinopsModel, fetchPersonaFinopsModel } from "../../cockpit/app/cockpit-data.ts";
 
 describe("cockpit data client", () => {
   const originalPrincipal = process.env.RECOUP_COCKPIT_HUMAN_PRINCIPAL;
@@ -91,6 +91,23 @@ describe("cockpit data client", () => {
         "x-recoup-human-token": "test-token"
       }
     });
+  });
+
+  it("fetches persona FinOps with an explicit encoded period and caller-provided verified proxy headers", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json({
+      workflowMetrics: [], blockedInputs: [], captureCoverage: [], generatedAtIso: "2026-07-11T00:00:00.000Z", persona: "maya",
+      provenance: { deterministicBasis: "test", recordIds: [], sourceKind: "derived_backend", sourceName: "persona-finops-model" },
+      sourceStatus: { pricing: "available", usage: "available" }, surface: "persona-finops"
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const headers = { "x-recoup-demo-proof": "signed-proof" };
+
+    await fetchPersonaFinopsModel({ fromIso: "2026-07-01T00:00:00.000Z", toIso: "2026-07-11T00:00:00.000Z" }, headers);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4317/persona-finops?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-11T00%3A00%3A00.000Z"
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ cache: "no-store", headers });
   });
 
   it("falls back to local runtime env when Next dev does not expose server auth env", async () => {

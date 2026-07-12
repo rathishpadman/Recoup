@@ -31,6 +31,7 @@ export interface AgentUsageRun extends EvalFinopsProvenance {
   agentName: string;
   modelId: string;
   modelExecutionMode: string;
+  serviceTier?: "default" | "flex" | "priority";
   cacheCapability?: string;
   promptCacheKey?: string;
   promptPrefixVersion?: string;
@@ -40,11 +41,14 @@ export interface AgentUsageRun extends EvalFinopsProvenance {
   cachedInputTokens: number;
   uncachedInputTokens: number;
   reasoningTokens: number;
+  reasoningTokensStatus?: "observed" | "unavailable";
   totalTokens: number;
   latencyMs?: number;
   handoffCount: number;
   toolCallCount: number;
   guardrailTripCount: number;
+  guardrailTripCountStatus?: "observed" | "unavailable";
+  participatingAgentNames?: string[];
   citedRecordIds: string[];
   sourceReceiptId?: string;
   createdAt: string;
@@ -87,6 +91,8 @@ export interface ModelPricing {
   approvedBy: string;
   pricingHash: string;
   active: boolean;
+  providerSourceUrl?: string;
+  sourceRetrievedAt?: string;
 }
 
 export interface OpenAiCostBucket {
@@ -236,5 +242,114 @@ export interface EvalFinopsCockpitModel {
     inputId: string;
     reason: string;
     requiredFor: string[];
+  }>;
+}
+
+export type PersonaFinopsPersona = "maya" | "david" | "cfo";
+
+export interface PersonaFinopsCaptureCoverage {
+  workloadLabel: string;
+  workflowName?: string;
+  models: string[];
+  persona: "maya" | "david" | "shared";
+  captureStatus: "typed_receipts" | "not_captured";
+  note: string;
+}
+
+export interface PersonaFinopsCockpitModel {
+  surface: "persona-finops";
+  persona: PersonaFinopsPersona;
+  generatedAtIso: string;
+  period: { fromIso: string; toIso: string };
+  sourceAsOf: { usageIso?: string; pricingIso?: string; recommendationsIso?: string };
+  freshnessStatus: "fresh" | "stale" | "not_configured" | "unavailable";
+  provenance: EvalFinopsProvenance & {
+    sourceKind: "derived_backend";
+    sourceName: "persona-finops-model";
+  };
+  sourceStatus: {
+    usage: "available" | "unavailable";
+    pricing: "available" | "unavailable";
+    recommendations: "available" | "unavailable";
+  };
+  blockedInputs: Array<{
+    inputId: string;
+    reason: string;
+  }>;
+  captureCoverage: PersonaFinopsCaptureCoverage[];
+  summary: {
+    runCount: number;
+    tokensPerRunLabel: string;
+    cacheHitRateLabel: string;
+    latencyP95Label: string;
+    costPerOutcomeLabel: "Requires verified outcomes";
+    totalCostLabel?: string;
+    averageCostPerRunLabel?: string;
+    cacheSavingsLabel?: string;
+    costPerCitedAnswerLabel?: string;
+  };
+  dailyTrend: Array<{
+    date: string;
+    totalTokens: number;
+    cachedInputTokens: number;
+    uncachedInputTokens: number;
+    cacheSavingsLabel: string;
+    cacheSavingsStatus: PromptCacheSavingsStatus;
+    recordIds: string[];
+  }>;
+  recommendations: Array<{
+    recommendationId: string;
+    severity: "critical" | "important" | "advisory";
+    title: string;
+    recommendedAction: string;
+    requiresHumanApproval: boolean;
+    deterministicBasis: string;
+    recordIds: string[];
+  }>;
+  workflowMetrics: Array<{
+    workflowLabel: string;
+    workflowName: string;
+    participatingAgentNames?: string[];
+    modelId: string;
+    serviceTier?: "default" | "flex" | "priority";
+    runCount: number;
+    successRateLabel: string;
+    tokensPerRunLabel: string;
+    toolCallsPerRunLabel: string;
+    citedAnswerRateLabel: string;
+    humanReviewRateLabel: "Unavailable";
+    inputTokens: number;
+    cachedInputTokens: number;
+    uncachedInputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    reasoningTokensStatus: "observed" | "unavailable";
+    totalTokens: number;
+    guardrailTripCount: number;
+    guardrailTripCountStatus: "observed" | "unavailable";
+    costStatus: CostStatus;
+    computedCostAmount?: string;
+    computedCostCurrency?: string;
+    costCalculationBasis: string;
+    costUnavailableReason?: "non_live_execution" | "missing_service_tier" | "unknown_model" | "pricing_period_mismatch" | "ambiguous_pricing" | "pricing_provenance_incomplete";
+    pricingProvenance: Array<{
+      pricingId: string;
+      pricingHash: string;
+      serviceTier: "default" | "flex" | "priority";
+      inputPer1mTokens: string;
+      cachedInputPer1mTokens: string;
+      outputPer1mTokens: string;
+      reasoningPer1mTokens: string;
+      currency: string;
+      effectiveFrom: string;
+      effectiveTo?: string;
+      approvedBy: string;
+      providerSourceUrl: string;
+      sourceRetrievedAt: string;
+    }>;
+    usageRunIds: string[];
+    sourceReceiptIds: string[];
+    deterministicBasis: string;
+    recordIds: string[];
   }>;
 }

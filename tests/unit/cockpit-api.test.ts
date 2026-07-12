@@ -526,6 +526,113 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it.each([
+    { persona: "maya", principal: "human:maya-lead", workflow: "maya_forensics_query" },
+    { persona: "david", principal: "human:david-lead", workflow: "credit_risk" }
+  ] as const)("derives $persona persona FinOps scope from verified proxy auth", async ({ persona, principal, workflow }) => {
+    const calls: string[] = [];
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend", RECOUP_DEMO_SESSION_SECRET: demoProxySecret },
+      memoryFetcher: (url) => {
+        calls.push(url);
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+    });
+    const path = "/persona-finops?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-12T00%3A00%3A00.000Z";
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        headers: signedDemoProxyHeaders({ body: "", method: "GET", path: "/persona-finops", principal, purpose: "read", role: persona, secret: demoProxySecret })
+      });
+      const body = (await response.json()) as { persona?: string; surface?: string };
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ persona, surface: "persona-finops" });
+      const usageRead = calls.find((url) => url.includes("/rest/v1/recoup_agent_usage_runs"));
+      expect(usageRead).toContain(encodeURIComponent(workflow));
+      expect(usageRead).not.toContain(encodeURIComponent(persona === "maya" ? "credit_risk" : "maya_forensics_query"));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("serves CFO a consolidated persona FinOps scope and denies unsigned requests", async () => {
+    const calls: string[] = [];
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend", RECOUP_DEMO_SESSION_SECRET: demoProxySecret },
+      memoryFetcher: (url) => {
+        calls.push(url);
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+    });
+    const suffix = "?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-12T00%3A00%3A00.000Z";
+    try {
+      const unsigned = await fetch(`${baseUrl}/persona-finops${suffix}`);
+      const cfo = await fetch(`${baseUrl}/persona-finops${suffix}`, {
+        headers: signedDemoProxyHeaders({ body: "", method: "GET", path: "/persona-finops", principal: "human:cfo-lead", purpose: "read", role: "cfo", secret: demoProxySecret })
+      });
+      const body = (await cfo.json()) as { captureCoverage?: unknown; persona?: string; surface?: string };
+      expect(unsigned.status).toBe(401);
+      expect(cfo.status).toBe(200);
+      expect(body).toMatchObject({ persona: "cfo", surface: "persona-finops" });
+      expect(Array.isArray(body.captureCoverage)).toBe(true);
+      const usageRead = calls.find((url) => url.includes("/rest/v1/recoup_agent_usage_runs"));
+      expect(usageRead).toContain(encodeURIComponent("credit_risk"));
+      expect(usageRead).toContain(encodeURIComponent("maya_forensics_query"));
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("rejects missing, reversed, and unbounded persona FinOps periods", async () => {
+    const { baseUrl, server } = await listen({ env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend", RECOUP_DEMO_SESSION_SECRET: demoProxySecret } });
+    const headers = (path: string) => signedDemoProxyHeaders({ body: "", method: "GET", path, principal: "human:maya-lead", purpose: "read", role: "maya", secret: demoProxySecret });
+    try {
+      for (const query of ["", "?from=2026-07-12T00%3A00%3A00.000Z&to=2026-07-01T00%3A00%3A00.000Z", "?from=2020-01-01T00%3A00%3A00.000Z&to=2026-07-12T00%3A00%3A00.000Z"]) {
+        const response = await fetch(`${baseUrl}/persona-finops${query}`, { headers: headers("/persona-finops") });
+        expect(response.status).toBe(400);
+      }
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("surfaces persona FinOps source read failures without falling back to another persona", async () => {
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend", RECOUP_DEMO_SESSION_SECRET: demoProxySecret },
+      memoryFetcher: () => Promise.reject(new TypeError("source unavailable"))
+    });
+    try {
+      const response = await fetch(`${baseUrl}/persona-finops?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-12T00%3A00%3A00.000Z`, {
+        headers: signedDemoProxyHeaders({ body: "", method: "GET", path: "/persona-finops", principal: "human:david-lead", purpose: "read", role: "david", secret: demoProxySecret })
+      });
+      const body = (await response.json()) as { persona?: string; sourceStatus?: { pricing: string; usage: string } };
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({ persona: "david", sourceStatus: { pricing: "unavailable", usage: "unavailable" } });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("fails closed when persona FinOps Supabase configuration is missing", async () => {
+    const { baseUrl, server } = await listenWithoutGovernedConfig({
+      env: { ...cockpitAuthEnv, RECOUP_DATA_MODE: "real-backend", RECOUP_DEMO_SESSION_SECRET: demoProxySecret }
+    });
+    try {
+      const response = await fetch(`${baseUrl}/persona-finops?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-12T00%3A00%3A00.000Z`, {
+        headers: signedDemoProxyHeaders({ body: "", method: "GET", path: "/persona-finops", principal: "human:maya-lead", purpose: "read", role: "maya", secret: demoProxySecret })
+      });
+      const body = (await response.json()) as { error?: string; missingSource?: string };
+
+      expect(response.status).toBe(503);
+      expect(body).toMatchObject({
+        error: "Persona FinOps requires configured Supabase usage and pricing sources.",
+        missingSource: "supabase-persona-finops"
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
   it("accepts a signed CFO server-proxy read for connector readiness", async () => {
     const { baseUrl, server } = await listen({
       env: {
@@ -1658,6 +1765,7 @@ describe("S5 cockpit API", () => {
         promptCacheKey: "recoup:v2:deduction-forensics:v1",
         promptPrefixVersion: "v1",
         receiptType: "openai_agent_usage",
+        serviceTier: "default",
         selectedLineId: "S6-L1",
         submittedRecordIds: ["S6-L1", "INV-S6-1", "SAP-INV-S6-1", "PRICE-CLAUSE-1"],
         totalTokens: 1842,
@@ -1675,6 +1783,7 @@ describe("S5 cockpit API", () => {
         output_tokens: 242,
         prompt_cache_key: "recoup:v2:deduction-forensics:v1",
         prompt_prefix_version: "v1",
+        service_tier: "default",
         status: "succeeded",
         total_tokens: 1842,
         uncached_input_tokens: 400,
