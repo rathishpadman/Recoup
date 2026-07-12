@@ -11,11 +11,14 @@ import {
   type SourceHealthSnapshotStore
 } from "./sourceHealth.js";
 import { probeMcpReadiness, type McpReadinessStatus } from "./mcpHealth.js";
+import { probeOpenAiEvidenceVectorReadiness } from "./openAiEvidenceVectorReadiness.js";
 
 export interface SourceHealthPollerOptions extends SourceHealthOptions {
   intervalMs?: number;
   mcpHealthFetcher?: typeof fetch;
   mcpHealthProbeTimeoutMs?: number;
+  openAiEvidenceVectorFetcher?: typeof fetch;
+  openAiEvidenceVectorProbeTimeoutMs?: number;
   onError?: (error: unknown) => void;
   snapshotStore: SourceHealthSnapshotStore;
   toolDataSchemaProbeLoader?: () => Promise<SupabaseToolDataSchemaProbe | undefined>;
@@ -28,7 +31,7 @@ export interface SourceHealthPollerHandle {
 
 export async function pollAndPersistSourceHealth(options: SourceHealthPollerOptions): Promise<SourceHealthResult[]> {
   const toolDataSchemaProbe = options.toolDataSchemaProbe ?? (await options.toolDataSchemaProbeLoader?.());
-  const [sourceResults, mcpReadiness] = await Promise.all([
+  const [sourceResults, mcpReadiness, openAiEvidenceVectorReadiness] = await Promise.all([
     buildSourceHealthResults({ ...options, toolDataSchemaProbe }),
     probeMcpReadiness({
       ...(options.env === undefined ? {} : { env: options.env }),
@@ -36,9 +39,17 @@ export async function pollAndPersistSourceHealth(options: SourceHealthPollerOpti
       ...(options.now === undefined ? {} : { now: options.now }),
       ...(options.timeoutAfter === undefined ? {} : { timeoutAfter: options.timeoutAfter }),
       ...(options.mcpHealthProbeTimeoutMs === undefined ? {} : { timeoutMs: options.mcpHealthProbeTimeoutMs })
+    }),
+    probeOpenAiEvidenceVectorReadiness({
+      ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.openAiEvidenceVectorFetcher === undefined ? {} : { fetcher: options.openAiEvidenceVectorFetcher }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.openAiEvidenceVectorProbeTimeoutMs === undefined
+        ? {}
+        : { timeoutMs: options.openAiEvidenceVectorProbeTimeoutMs })
     })
   ]);
-  const results = [...sourceResults, sourceHealthFromMcpReadiness(mcpReadiness)];
+  const results = [...sourceResults, openAiEvidenceVectorReadiness, sourceHealthFromMcpReadiness(mcpReadiness)];
   await options.snapshotStore.upsert(results);
   return results;
 }

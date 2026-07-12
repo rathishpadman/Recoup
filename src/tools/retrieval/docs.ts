@@ -17,7 +17,6 @@ export interface EvidenceDocumentRetrievalMetadata {
   mode: "semantic-vector";
   provenance: "openai-vector-store";
   score: number;
-  vectorStoreId: string;
 }
 
 export interface EvidenceDocument {

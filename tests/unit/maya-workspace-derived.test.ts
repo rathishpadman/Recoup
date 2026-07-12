@@ -999,11 +999,11 @@ describe("Maya workspace derived helpers", () => {
 
   it("shows semantic retrieval scores only for vector-store evidence with a score in deterministic provenance", () => {
     const vectorDocument = evidenceDocument({
-      documentId: "file-vector-runtime-contract",
+      documentId: "VECTOR-EVIDENCE-S6-L1",
       provenance: {
         deterministicBasis:
-          "evidence document file-vector-runtime-contract returned by OpenAI vector store semantic retrieval; vectorStoreId vs_evidence_test; file pricing-clause.pdf; score 0.910",
-        recordIds: ["file-vector-runtime-contract"],
+          "evidence document VECTOR-EVIDENCE-S6-L1 returned by OpenAI vector store semantic retrieval; file pricing-clause.pdf; score 0.910",
+        recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
         sourceKind: "derived_backend",
         sourceName: "OpenAI vector store semantic retrieval"
       },
@@ -1011,8 +1011,7 @@ describe("Maya workspace derived helpers", () => {
         fileName: "pricing-clause.pdf",
         mode: "semantic-vector",
         provenance: "openai-vector-store",
-        score: 0.91,
-        vectorStoreId: "vs_evidence_test"
+        score: 0.91
       },
       sourceLabel: "OpenAI vector store"
     });
@@ -1024,7 +1023,7 @@ describe("Maya workspace derived helpers", () => {
         evidenceDocument({
           provenance: {
             deterministicBasis: "OpenAI vector store semantic retrieval without a score",
-            recordIds: ["file-vector-runtime-contract"],
+            recordIds: ["S6-L1", "PRICE-CLAUSE-1"],
             sourceKind: "derived_backend",
             sourceName: "OpenAI vector store semantic retrieval"
           },
@@ -1032,8 +1031,7 @@ describe("Maya workspace derived helpers", () => {
             fileName: "pricing-clause.pdf",
             mode: "semantic-vector",
             provenance: "openai-vector-store",
-            score: 0.91,
-            vectorStoreId: "vs_evidence_test"
+            score: 0.91
           }
         })
       )

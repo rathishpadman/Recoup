@@ -111,7 +111,6 @@ interface EvidenceDocumentModel {
     mode: "semantic-vector";
     provenance: "openai-vector-store";
     score: number;
-    vectorStoreId: string;
   };
   sourceFreshness?: string;
   sourceLabel: string;

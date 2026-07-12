@@ -7,6 +7,7 @@ import {
   type SupabaseToolDataSchemaProbe
 } from "../adapters/connectorRegistry.js";
 import type { SourceHealthResult } from "./sourceHealth.js";
+import { openAiEvidenceVectorSourceName } from "./openAiEvidenceVectorReadiness.js";
 import type { SourcePort } from "../adapters/source.js";
 import { recoupAgentRoster } from "../agents/agentRuntime.js";
 import { assessCrestlineM6Containment, type CrestlineM6ContainmentAssessment } from "../agents/containment.js";
@@ -133,7 +134,6 @@ export interface ForensicsCockpitModel {
           mode: "semantic-vector";
           provenance: "openai-vector-store";
           score: number;
-          vectorStoreId: string;
         };
         sourceFreshness?: string;
         sourceLabel: string;
@@ -2861,7 +2861,7 @@ function evidenceDocumentSourceName(document: DeductionDecision["evidenceDocumen
 
 function evidenceDocumentDeterministicBasis(document: DeductionDecision["evidenceDocuments"][number]): string {
   if (document.retrieval?.provenance === "openai-vector-store") {
-    return `evidence document ${document.documentId} returned by OpenAI vector store semantic retrieval; vectorStoreId ${document.retrieval.vectorStoreId}; file ${document.retrieval.fileName}; score ${document.retrieval.score.toFixed(3)}`;
+    return `evidence document ${document.documentId} returned by OpenAI vector store semantic retrieval; file ${document.retrieval.fileName}; score ${document.retrieval.score.toFixed(3)}`;
   }
 
   return `evidence document ${document.documentId} returned by ${document.source} retrieval source`;
@@ -3006,6 +3006,7 @@ function buildSourceReadinessTiles(
       requiredSourceHealth(healthBySourceName, edi.name)
     ),
     sourceTileFromConnector(docs, requiredSourceHealth(healthBySourceName, docs.name)),
+    openAiEvidenceVectorSourceTile(checkedAtIso, healthBySourceName.get(openAiEvidenceVectorSourceName)),
     mcpSourceTile(checkedAtIso, mcpReadiness, healthBySourceName.get("mcp"))
   ];
 
@@ -3013,6 +3014,64 @@ function buildSourceReadinessTiles(
 }
 
 const mcpGatewaySourceLabel = "MCP Gateway";
+
+function openAiEvidenceVectorSourceTile(
+  sourceCheckedAtIso: string,
+  health: SourceHealthResult | undefined
+): SourceReadinessTile {
+  const label = "OpenAI Vector Store";
+  if (health === undefined) {
+    return {
+      checkedAtIso: sourceCheckedAtIso,
+      detail: "OpenAI evidence vector-store status is unavailable until the background health probe stores a snapshot.",
+      key: "openai-vector-store",
+      label,
+      mark: "V",
+      modeLabel: "Semantic retrieval",
+      proofItems: ["source-health status unavailable", "semantic retrieval index", "external writes blocked"],
+      provenance: businessProvenance("sourceTiles.openai-vector-store", {
+        sourceKind: "derived_backend",
+        sourceName: "OpenAI vector-store readiness",
+        recordIds: [openAiEvidenceVectorSourceName],
+        deterministicBasis:
+          "OpenAI Vector Store SourceReadinessTile fails closed until a saved read-only provider health probe is available"
+      }),
+      stateLabel: "Status unavailable",
+      statusTone: "blocked",
+      summary: "Status unavailable"
+    };
+  }
+
+  const isConnected = health.status === "connected" && !health.proofItems.includes("source-health refresh overdue");
+  const isDegraded = health.status === "degraded" && !health.proofItems.includes("source-health refresh overdue");
+  return {
+    checkedAtIso: health.checkedAtIso,
+    detail: health.lastError ?? "OpenAI evidence vector store is available for read-only semantic retrieval.",
+    key: "openai-vector-store",
+    label,
+    mark: "V",
+    modeLabel: "Semantic retrieval",
+    proofItems: health.proofItems,
+    provenance: openAiEvidenceVectorSourceHealthProvenance(health),
+    stateLabel: isConnected ? "Connected" : isDegraded ? "Indexing" : sourceHealthStateLabel(health),
+    statusTone: isConnected ? "ready" : "blocked",
+    summary: isConnected ? "Semantic index ready" : isDegraded ? "Indexing incomplete" : sourceHealthSummary(health)
+  };
+}
+
+function openAiEvidenceVectorSourceHealthProvenance(health: SourceHealthResult): MayaFieldProvenance {
+  const snapshotBasis = health.proofItems.includes("supabase source-health snapshot")
+    ? " with a saved Supabase source-health snapshot"
+    : "";
+  return businessProvenance("sourceTiles.openai-vector-store", {
+    checkedAtIso: health.checkedAtIso,
+    deterministicBasis:
+      `SourceHealthResult status ${health.status} from OpenAI read-only provider health probe and governed manifest/file-count validation${snapshotBasis}; sourceMode ${health.sourceMode}`,
+    recordIds: health.recordIds,
+    sourceKind: "derived_backend",
+    sourceName: "OpenAI evidence vector-store source health"
+  });
+}
 
 function mcpSourceTile(
   sourceCheckedAtIso: string,

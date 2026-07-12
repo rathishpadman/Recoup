@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  findOpenAiEvidenceVectorDocument,
+  sameRecordIdSet
+} from "../../config/openAiEvidenceVectorManifest.js";
 import type { DeductionLine } from "../types/entities.js";
 
 export type OpenAiVectorStoreFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -36,6 +40,7 @@ export interface OpenAiVectorStoreEvidenceReaderOptions {
 
 const defaultMaxResults = 5;
 const maxAllowedResults = 10;
+const expectedSourceTable = "synthetic_deduction_lines";
 
 const searchContentChunkSchema = z.object({
   text: z.string().min(1),
@@ -100,24 +105,34 @@ export function createOpenAiVectorStoreEvidenceReader(
 }
 
 function mapSearchResults(line: DeductionLine, results: readonly SearchResult[]): OpenAiVectorStoreEvidence[] {
-  const seenFileIds = new Set<string>();
-  const lineRecordIds = new Set([line.lineId, ...line.recordIds]);
+  const seenDocumentIds = new Set<string>();
+  const governedDocument = findOpenAiEvidenceVectorDocument(line.lineId);
+  if (governedDocument === undefined) {
+    return [];
+  }
   const evidence: OpenAiVectorStoreEvidence[] = [];
 
   for (const result of results) {
     const resultRecordIds = dedupeRecordIds([...result.attributes.recordIds, result.attributes.record_id]);
+    const documentId = `VECTOR-EVIDENCE-${line.lineId}`;
     if (
-      seenFileIds.has(result.file_id) ||
+      seenDocumentIds.has(documentId) ||
       result.attributes.customer_id !== line.customerId ||
+      result.attributes.customer_id !== governedDocument.customerId ||
       result.attributes.scenario_type !== line.scenarioType ||
-      !resultRecordIds.some((recordId) => lineRecordIds.has(recordId))
+      result.attributes.scenario_type !== governedDocument.scenarioType ||
+      result.attributes.source_table !== expectedSourceTable ||
+      result.attributes.record_id !== line.lineId ||
+      result.attributes.documentType !== governedDocument.documentType ||
+      !result.attributes.recordIds.includes(result.attributes.record_id) ||
+      !sameRecordIdSet(resultRecordIds, governedDocument.recordIds)
     ) {
       continue;
     }
 
-    seenFileIds.add(result.file_id);
+    seenDocumentIds.add(documentId);
     evidence.push({
-      documentId: result.file_id,
+      documentId,
       documentType: result.attributes.documentType,
       fileName: result.filename,
       provenance: "openai-vector-store",

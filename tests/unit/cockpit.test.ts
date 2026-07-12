@@ -1546,8 +1546,14 @@ describe("S5 Forensics cockpit model", () => {
       "Bureau",
       "Remittance / EDI",
       "Contract Repo",
+      "OpenAI Vector Store",
       "MCP Gateway"
     ]);
+    expect(model.sourceTiles.find((source) => source.label === "OpenAI Vector Store")).toMatchObject({
+      stateLabel: "Status unavailable",
+      statusTone: "blocked",
+      summary: "Status unavailable"
+    });
     expect(model.sourceTiles.find((source) => source.label === "3PL POD")).toMatchObject({
       stateLabel: "Status unavailable",
       statusTone: "blocked"
@@ -1595,6 +1601,36 @@ describe("S5 Forensics cockpit model", () => {
       summary: "Read-only tools gated"
     });
     expect(mcp?.proofItems).toEqual(expect.arrayContaining(["mcp healthz reachable", "auth configured", "no ERP write-back"]));
+  });
+
+  it("uses saved OpenAI evidence vector readiness for the eighth source tile", () => {
+    const availableEnvNames = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const sourceHealth = [
+      ...sourceHealthForConnectorModel(availableEnvNames),
+      {
+        checkedAtIso: "2026-06-24T10:31:00.000Z",
+        latencyMs: 24,
+        proofItems: ["read-only vector-store probe", "4 files indexed", "semantic retrieval index"],
+        recordIds: ["openai-evidence-vector-store"],
+        sourceMode: "live" as const,
+        sourceName: "openai-evidence-vector-store",
+        status: "connected" as const
+      }
+    ];
+    const model = buildConnectorReadinessModel(availableEnvNames, undefined, sourceHealth);
+    const vectorStore = model.sourceTiles.find((sourceTile) => sourceTile.label === "OpenAI Vector Store");
+
+    expect(vectorStore).toMatchObject({
+      checkedAtIso: "2026-06-24T10:31:00.000Z",
+      detail: "OpenAI evidence vector store is available for read-only semantic retrieval.",
+      modeLabel: "Semantic retrieval",
+      stateLabel: "Connected",
+      statusTone: "ready",
+      summary: "Semantic index ready"
+    });
+    expect(vectorStore?.provenance.deterministicBasis).toContain("OpenAI read-only provider health probe");
+    expect(vectorStore?.provenance.deterministicBasis).not.toContain("credential/schema probe");
+    expect(JSON.stringify(vectorStore)).not.toContain("vs_");
   });
 
   it("requires backend source health when building connector readiness tiles", () => {
