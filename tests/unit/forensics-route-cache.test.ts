@@ -41,8 +41,8 @@ describe("Forensics route read-model cache", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps scheduled read models usable for one hour when the refresh schedule slips", () => {
-    expect(scheduledReadModelMaxAgeMs).toBe(60 * 60 * 1_000);
+  it("keeps scheduled read models usable for one hackathon demo day when the refresh schedule slips", () => {
+    expect(scheduledReadModelMaxAgeMs).toBe(24 * 60 * 60 * 1_000);
   });
 
   it("serves the cached Maya forensics model without contending with the scheduled refresh", async () => {

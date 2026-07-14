@@ -40,7 +40,7 @@ export const mayaForensicsReadModelKey = "maya:forensics:v1";
 export const mayaConnectorsReadModelKey = "maya:connectors:v1";
 export const davidCreditRiskReadModelKey = "david:credit-risk-review:v1";
 // Demo resilience allowance; the scheduled job still attempts a refresh every 10 minutes.
-export const scheduledReadModelMaxAgeMs = 60 * 60 * 1_000;
+export const scheduledReadModelMaxAgeMs = 24 * 60 * 60 * 1_000;
 export const davidCreditRiskReadModelMaxAgeMs = scheduledReadModelMaxAgeMs;
 const readModelFutureSkewMs = 30_000;
 export const readModelCacheHeader = "x-recoup-read-model-cache";

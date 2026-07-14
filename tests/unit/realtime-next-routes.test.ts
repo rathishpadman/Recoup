@@ -65,6 +65,10 @@ describe("Realtime Next proxy routes", () => {
     expect(mayaForensicsWorkItemReadModelKey("S6-L1")).toBe("maya:forensics:work-item:S6-L1:v3");
   });
 
+  it("keeps scheduled read-model cache entries fresh for one hackathon demo day", () => {
+    expect(scheduledReadModelMaxAgeMs).toBe(24 * 60 * 60 * 1_000);
+  });
+
   it("serves a Maya top-level cache hit without starting another Render refresh", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedAt = new Date().toISOString();
