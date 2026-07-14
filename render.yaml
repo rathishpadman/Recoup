@@ -107,3 +107,16 @@ services:
         sync: false
       - key: SAP_ODATA_CLIENT_SECRET
         sync: false
+  - type: cron
+    name: recoup-vercel-warm-backend
+    runtime: node
+    schedule: "*/10 * * * *"
+    buildCommand: npm ci --include=dev && npm run build:api
+    startCommand: npm run warm:backend
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: RECOUP_WARM_BACKEND_URL
+        value: https://recoup-self-eta.vercel.app/api/cron/warm-backend
+      - key: RECOUP_WARM_BACKEND_SECRET
+        sync: false

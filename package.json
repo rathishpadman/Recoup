@@ -43,6 +43,7 @@
     "plan:reconciliation-cutover-approval": "tsx scripts/planReconciliationCutoverApprovalPacket.ts",
     "provision:openai-evidence-vector-store": "tsx scripts/provisionOpenAiEvidenceVectorStore.ts",
     "refresh:source-health": "tsx scripts/refreshSourceHealthSnapshots.ts",
+    "warm:backend": "tsx scripts/warmBackendViaVercel.ts",
     "build": "npm run build:api && npm run build:cockpit",
     "build:api": "npm run typecheck",
     "build:cockpit": "next build cockpit",

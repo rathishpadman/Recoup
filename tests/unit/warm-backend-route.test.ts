@@ -15,13 +15,16 @@ describe("Warm backend cron route", () => {
     vi.unstubAllEnvs();
   });
 
-  it("refreshes both governed Supabase read models without a separate health wait", async () => {
+  it("refreshes all first-paint governed read models without a separate health wait", async () => {
     stubRouteEnv(envPatch);
     const urls: string[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = fetchInputUrl(input);
       urls.push(url);
-      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      expect(init).toMatchObject({
+        cache: "no-store",
+        method: url.endsWith("/connectors") ? "GET" : "POST"
+      });
       expect(new Headers(init?.headers).get("x-recoup-human-principal")).toBe("human:maya-lead");
       expect(new Headers(init?.headers).get("x-recoup-human-token")).toBe("test-human-token");
       return Promise.resolve(Response.json({ surface: url.includes("credit") ? "credit-risk-review" : "forensics-analyst" }));
@@ -35,8 +38,35 @@ describe("Warm backend cron route", () => {
     await expect(response.json()).resolves.toEqual({ ok: true });
     expect(urls).toEqual([
       "http://recoup-api.test/forensics/refresh",
+      "http://recoup-api.test/connectors",
       "http://recoup-api.test/credit/v2/refresh"
     ]);
+  });
+
+  it("uses a default warm timeout long enough for a free Render cold start", async () => {
+    vi.useFakeTimers();
+    stubRouteEnv(envPatch);
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let settled = false;
+    const responsePromise = getWarmBackend(warmRequest()).then((response) => {
+      settled = true;
+
+      return response;
+    });
+
+    await vi.advanceTimersByTimeAsync(45_001);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(75_000);
+    await Promise.resolve();
+    expect(settled).toBe(true);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(504);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("returns 401 without the scheduled-refresh bearer secret", async () => {
@@ -64,7 +94,18 @@ describe("Warm backend cron route", () => {
 
     expect(response.status).toBe(504);
     await expect(response.json()).resolves.toEqual({ ok: false });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("declares a Render cron that reliably invokes the Vercel warm endpoint", () => {
+    const renderYaml = readFileSync("render.yaml", "utf8");
+
+    expect(renderYaml).toMatch(/^\s*name:\s+recoup-vercel-warm-backend\s*$/mu);
+    expect(renderYaml).toMatch(/^\s*schedule:\s+"(?:\*\/10|0\/10) \* \* \* \*"\s*$/mu);
+    expect(renderYaml).toContain("RECOUP_WARM_BACKEND_URL");
+    expect(renderYaml).toContain("https://recoup-self-eta.vercel.app/api/cron/warm-backend");
+    expect(renderYaml).toContain("RECOUP_WARM_BACKEND_SECRET");
+    expect(renderYaml).toContain("npm run warm:backend");
   });
 
   it("keeps the ten-minute GitHub Action authenticated and gated on a completed cache refresh", () => {

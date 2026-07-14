@@ -522,8 +522,11 @@ describe("Realtime Next proxy routes", () => {
       RECOUP_WARM_BACKEND_TIMEOUT_MS: "25"
     });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      expect(["http://recoup-api.test/forensics/refresh", "http://recoup-api.test/credit/v2/refresh"]).toContain(input);
-      expect(init).toMatchObject({ cache: "no-store", method: "POST" });
+      expect(["http://recoup-api.test/forensics/refresh", "http://recoup-api.test/connectors", "http://recoup-api.test/credit/v2/refresh"]).toContain(input);
+      expect(init).toMatchObject({
+        cache: "no-store",
+        method: input === "http://recoup-api.test/connectors" ? "GET" : "POST"
+      });
 
       return new Promise<Response>(() => {});
     });
@@ -548,7 +551,7 @@ describe("Realtime Next proxy routes", () => {
     expect(response.status).toBe(504);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.ok).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects Forensics work-item proxy requests without request-bound human auth", async () => {

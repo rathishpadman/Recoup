@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { loadLocalRuntimeEnvFiles } from "../../../../../config/localRuntimeEnv.ts";
 
-const defaultWarmBackendTimeoutMs = 45_000;
+const defaultWarmBackendTimeoutMs = 120_000;
 
 export async function GET(request: Request): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
@@ -21,6 +21,11 @@ export async function GET(request: Request): Promise<Response> {
       fetchWithTimeout(
         `${apiBaseUrl}/forensics/refresh`,
         { cache: "no-store", headers: authHeaders, method: "POST" },
+        timeoutMs
+      ),
+      fetchWithTimeout(
+        `${apiBaseUrl}/connectors`,
+        { cache: "no-store", headers: authHeaders, method: "GET" },
         timeoutMs
       ),
       fetchWithTimeout(
