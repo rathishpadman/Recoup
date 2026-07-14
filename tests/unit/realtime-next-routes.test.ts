@@ -330,7 +330,7 @@ describe("Realtime Next proxy routes", () => {
     });
   });
 
-  it("refreshes stale cached connector readiness when source-health snapshots are newer", async () => {
+  it("serves stale cached connector readiness while refreshing after source-health snapshots move ahead", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const staleCachedModel = {
       checkedAtIso: "2026-06-29T07:29:24.995Z",
@@ -410,12 +410,12 @@ describe("Realtime Next proxy routes", () => {
         method: "GET"
       })
     );
-    const body = (await response.json()) as typeof freshBackendModel;
+    const body = (await response.json()) as typeof staleCachedModel;
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("x-recoup-read-model-cache")).toBe("refresh");
-    expect(body.checkedAtIso).toBe("2026-07-01T01:12:16.319Z");
-    expect(body).toEqual(freshBackendModel);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("stale");
+    expect(body.checkedAtIso).toBe("2026-06-29T07:29:24.995Z");
+    expect(body).toEqual(staleCachedModel);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchInputUrl(fetchMock.mock.calls[0]?.[0])).toContain("recoup_cockpit_read_models");
     expect(fetchInputUrl(fetchMock.mock.calls[1]?.[0])).toContain("recoup_source_health_snapshots");

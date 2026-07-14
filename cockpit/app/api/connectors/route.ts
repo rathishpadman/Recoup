@@ -23,10 +23,9 @@ export async function GET(request: Request): Promise<Response> {
   const cached = await readCachedReadModelPayload(runtimeEnv, mayaConnectorsReadModelKey, "connector-readiness");
   if (cached !== undefined) {
     const latestSourceHealthCheckedAt = await readLatestSourceHealthSnapshotCheckedAt(runtimeEnv);
-    if (isConnectorReadModelFreshForSourceHealth(cached.payload, latestSourceHealthCheckedAt)) {
-      refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "GET", path: "/connectors" });
-      return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
-    }
+    const cacheStatus = isConnectorReadModelFreshForSourceHealth(cached.payload, latestSourceHealthCheckedAt) ? "hit" : "stale";
+    refreshReadModelAfterResponse(runtimeEnv, authHeaders, { method: "GET", path: "/connectors" });
+    return readModelJsonResponse(cached.payload, cacheStatus, { sourceRefreshedAt: cached.sourceRefreshedAt });
   }
 
   try {
@@ -36,7 +35,7 @@ export async function GET(request: Request): Promise<Response> {
       method: "GET"
     });
 
-    return proxyJsonResponse(upstream, await upstream.text(), cached === undefined ? "miss" : "refresh");
+    return proxyJsonResponse(upstream, await upstream.text(), "miss");
   } catch {
     return Response.json({ error: "Connector readiness service unavailable." }, { headers: noStoreHeaders(), status: 502 });
   }
