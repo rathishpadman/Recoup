@@ -983,6 +983,17 @@ describe("S5 cockpit business-logic boundary", () => {
     expect(styles).toContain("font-family: var(--font-mono);");
   });
 
+  it("mounts privacy-friendly Vercel Web Analytics once at the application root", () => {
+    const layout = readFileSync("cockpit/app/layout.tsx", "utf8");
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(packageJson.dependencies?.["@vercel/analytics"]).toBeDefined();
+    expect(layout).toContain('import { Analytics } from "@vercel/analytics/next";');
+    expect(layout.match(/<Analytics \/>/gu)).toHaveLength(1);
+  });
+
   it("keeps operational surfaces restrained instead of over-framed demo cards", () => {
     const styles = normalizeNewlines(readFileSync("cockpit/app/styles.css", "utf8"));
     const cockpitSources = normalizeNewlines(readTree("cockpit/app", [".css", ".ts", ".tsx"], ["cockpit/app/page.tsx"]));
