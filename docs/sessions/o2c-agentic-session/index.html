@@ -1,0 +1,1425 @@
+<title>Recoup — Agentic O2C Recovery</title>
+
+<style>
+/* ============================================================
+   Recoup session deck
+   Palette, spacing and type roles inherited from /tokens.css
+   ("O2C Collections Design System v3.1 — Editorial Enterprise")
+   ============================================================ */
+
+:root {
+  --ink:        #18181B;
+  --ink-2:      #52525B;
+  --ink-3:      #71717A;
+  --canvas:     #FAFAFA;
+  --surface:    #FFFFFF;
+  --subtle:     #F4F4F5;
+  --line:       #D4D4D8;
+  --line-soft:  #E4E4E7;
+
+  --leak:       #C2410C;   /* risk / leakage emphasis */
+  --leak-soft:  #FFEDD5;
+  --govern:     #0c6e6b;   /* governed / recovered / verified */
+  --govern-soft:#BFE3DE;
+  --ok:         #166534;
+  --bad:        #991B1B;
+  --dispute:    #7C3AED;
+  --focus:      #2563EB;
+
+  --serif: Georgia, 'Newsreader', 'Iowan Old Style', serif;
+  --sans:  system-ui, -apple-system, 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --mono:  ui-monospace, 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+
+  --gutter: clamp(28px, 5vw, 96px);
+  --pace:   700ms;
+  --ease:   cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #71717A;
+    --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
+    --line: #3F3F46; --line-soft: #27272A;
+    --leak: #FB923C; --leak-soft: #431407;
+    --govern: #5EEAD4; --govern-soft: #042F2E;
+    --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD;
+    --focus: #60A5FA;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #71717A;
+  --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
+  --line: #3F3F46; --line-soft: #27272A;
+  --leak: #FB923C; --leak-soft: #431407;
+  --govern: #5EEAD4; --govern-soft: #042F2E;
+  --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD;
+  --focus: #60A5FA;
+}
+:root[data-theme="light"] {
+  --ink: #18181B; --ink-2: #52525B; --ink-3: #71717A;
+  --canvas: #FAFAFA; --surface: #FFFFFF; --subtle: #F4F4F5;
+  --line: #D4D4D8; --line-soft: #E4E4E7;
+  --leak: #C2410C; --leak-soft: #FFEDD5;
+  --govern: #0c6e6b; --govern-soft: #BFE3DE;
+  --ok: #166534; --bad: #991B1B; --dispute: #7C3AED;
+  --focus: #2563EB;
+}
+
+* { box-sizing: border-box; }
+
+.deck {
+  height: 100dvh;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--sans);
+  /* Slides are height-constrained, so type tracks the shorter axis. Width-only
+     sizing overflows on wide-but-short projectors (e.g. 1920x900). */
+  font-size: clamp(13px, min(1.05vw, 1.95vh), 18px);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.slide {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-height: 100dvh;
+  padding: clamp(34px, 5vh, 72px) var(--gutter) clamp(44px, 6.5vh, 84px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(13px, 1.8vh, 26px);
+  border-bottom: 1px solid var(--line-soft);
+  position: relative;
+  /* Safety net for short or unusual projector aspect ratios: a slide that
+     doesn't fit scrolls internally rather than clipping its last rows. */
+  overflow-y: auto;
+}
+
+/* ---- shared type roles ---- */
+.eyebrow {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.95em;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+.title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(26px, min(3.9vw, 6.1vh), 58px);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  margin: 0;
+  max-width: 22ch;
+}
+.title--wide { max-width: 32ch; }
+.lede {
+  font-size: clamp(14px, min(1.35vw, 2.4vh), 21px);
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 62ch;
+  margin: 0;
+  text-wrap: pretty;
+}
+.kicker {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-3);
+  font-weight: 600;
+  margin: 0;
+}
+.path {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  color: var(--ink-3);
+  word-break: break-word;
+}
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+strong { font-weight: 650; color: var(--ink); }
+em.q { font-family: var(--serif); font-style: italic; color: var(--ink); }
+
+.slide__body { display: flex; flex-direction: column; gap: clamp(12px, 1.7vh, 24px); flex: 1; min-height: 0; }
+.scroll-x { overflow-x: auto; }
+
+/* ---- title slide ---- */
+.hero { justify-content: center; gap: clamp(22px, 3vh, 40px); }
+.hero__split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: clamp(28px, 5vw, 80px); align-items: start; }
+@media (max-width: 1099px) { .hero__split { grid-template-columns: minmax(0, 1fr); } }
+.hero__title {
+  font-family: var(--serif);
+  font-size: clamp(40px, min(7.5vw, 13vh), 118px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  margin: 0;
+  font-weight: 400;
+}
+.hero__rule { width: 96px; height: 3px; background: var(--leak); border: 0; margin: 0; }
+.hero__rule--grow { width: 0; animation: grow-rule var(--pace) var(--ease) 240ms forwards; }
+@keyframes grow-rule { to { width: 96px; } }
+.hero__creed {
+  font-family: var(--serif);
+  font-size: clamp(17px, min(2.1vw, 3.4vh), 30px);
+  line-height: 1.4;
+  max-width: 26ch;
+  margin: 0;
+  color: var(--ink);
+}
+.hero__creed span { color: var(--leak); }
+.hero__meta {
+  display: flex; flex-wrap: wrap; gap: 8px 28px;
+  font-size: 0.9em; color: var(--ink-3);
+  border-top: 1px solid var(--line-soft); padding-top: 18px; margin-top: 6px;
+}
+
+/* ---- reveal machinery ---- */
+.r { opacity: 0; transform: translateY(14px); transition: opacity var(--pace) var(--ease), transform var(--pace) var(--ease); }
+.is-live .r { opacity: 1; transform: none; }
+.is-live .r--1 { transition-delay: 90ms; }
+.is-live .r--2 { transition-delay: 190ms; }
+.is-live .r--3 { transition-delay: 300ms; }
+.is-live .r--4 { transition-delay: 420ms; }
+
+/* ---- generic column/grid helpers ---- */
+.cols { display: grid; gap: clamp(14px, 1.6vw, 28px); }
+.cols--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cols--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cols--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cols--split { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) {
+  .cols--2, .cols--3, .cols--4, .cols--split { grid-template-columns: minmax(0, 1fr); }
+}
+
+.panel {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: clamp(14px, 1.5vw, 22px);
+  background: var(--surface);
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 0;
+}
+.panel__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.panel__title { font-weight: 650; font-size: 1.02em; margin: 0; }
+.panel__note { font-size: 0.9em; color: var(--ink-2); margin: 0; }
+.panel--leak { border-color: var(--leak); }
+.panel--govern { border-color: var(--govern); }
+
+.stack { display: flex; flex-direction: column; gap: clamp(9px, 1.2vh, 17px); }
+.row { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: baseline; }
+
+/* ---- list styling ---- */
+.ticks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 9px; }
+/* Marker is absolutely positioned, not a grid/flex child — otherwise every
+   inline text node in the item becomes its own track and the copy shreds. */
+.ticks li { position: relative; padding-left: 19px; font-size: 0.97em; }
+.ticks li::before {
+  content: ""; position: absolute; left: 0; top: 0.55em;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--govern);
+}
+.ticks--leak li::before { background: var(--leak); }
+.ticks--sq li::before { border-radius: 1px; }
+
+/* ---- stat meters (slide 3) ---- */
+.stat { display: flex; flex-direction: column; gap: 12px; }
+.stat__value {
+  font-family: var(--mono);
+  font-size: clamp(32px, min(5.4vw, 8.5vh), 76px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--leak);
+  font-variant-numeric: tabular-nums;
+}
+.stat__label { font-size: 1em; color: var(--ink-2); max-width: 26ch; margin: 0; }
+.stat__src { font-size: 0.82em; color: var(--ink-3); font-style: italic; font-family: var(--serif); margin: 0; }
+.meter { height: 8px; background: var(--subtle); border-radius: 99px; position: relative; overflow: hidden; }
+.meter__band {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--leak); border-radius: 99px;
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform 900ms var(--ease) 260ms;
+}
+.is-live .meter__band { transform: scaleX(1); }
+.meter__scale { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.74em; color: var(--ink-3); }
+
+/* ---- figures / diagrams ---- */
+.figure { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Cap wide diagrams so they don't grow taller than the slide on wide-but-short
+   displays — the SVG scales with width, and height follows. */
+.figure--cap { max-width: 1180px; align-self: center; width: 100%; }
+.figure svg { width: 100%; height: auto; display: block; overflow: visible; }
+.figure__cap { font-size: 0.86em; color: var(--ink-3); margin: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 0.85em; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; display: inline-block; }
+
+/* value-chain animation */
+.vc-flow { stroke-dasharray: 26 34; stroke-dashoffset: 240; }
+.is-live .vc-flow { animation: vc-run 2.4s linear 300ms infinite; }
+@keyframes vc-run { to { stroke-dashoffset: 0; } }
+.vc-leak { stroke-dasharray: 130; stroke-dashoffset: 130; transition: stroke-dashoffset 900ms var(--ease); }
+.is-live .vc-leak { stroke-dashoffset: 0; }
+.is-live .vc-leak--b { transition-delay: 200ms; }
+.is-live .vc-leak--c { transition-delay: 400ms; }
+.vc-pool { opacity: 0; transition: opacity 600ms var(--ease) 900ms; }
+.is-live .vc-pool { opacity: 1; }
+.vc-node { fill: var(--surface); stroke: var(--line); stroke-width: 2; }
+.vc-node--key { stroke: var(--leak); stroke-width: 3.5; }
+.vc-label { font-family: var(--sans); font-size: 15px; fill: var(--ink-2); }
+.vc-label--key { fill: var(--ink); font-weight: 650; }
+.vc-amt { font-family: var(--mono); font-size: 14px; fill: var(--leak); }
+
+/* sankey */
+.sk-wipe { transform: scaleX(0); transform-origin: left center; transition: transform 1100ms var(--ease) 200ms; }
+.is-live .sk-wipe { transform: scaleX(1); }
+.sk-label { font-family: var(--mono); font-size: 30px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.sk-sub { font-family: var(--sans); font-size: 19px; fill: var(--ink-3); }
+
+/* handoff graph */
+.hg-node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; rx: 6; }
+.hg-node--hero { stroke: var(--govern); stroke-width: 2.5; }
+.hg-text { font-family: var(--sans); font-size: 14px; fill: var(--ink); font-weight: 600; }
+.hg-edge { fill: none; stroke-width: 2; stroke-dasharray: 620; stroke-dashoffset: 620; transition: stroke-dashoffset 850ms var(--ease); }
+.is-live .hg-edge--1 { stroke-dashoffset: 0; transition-delay: 200ms; }
+.is-live .hg-edge--2 { stroke-dashoffset: 0; transition-delay: 400ms; }
+.is-live .hg-edge--3 { stroke-dashoffset: 0; transition-delay: 600ms; }
+.is-live .hg-edge--4 { stroke-dashoffset: 0; transition-delay: 780ms; }
+.is-live .hg-edge--5 { stroke-dashoffset: 0; transition-delay: 960ms; }
+.hg-tag { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-3); }
+
+/* ---- planes ---- */
+.plane {
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--ink-3);
+  border-radius: 6px; padding: 14px 18px; background: var(--surface);
+  display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr) minmax(0, 1fr); gap: 10px 24px; align-items: start;
+}
+.plane--reason { border-left-color: var(--dispute); }
+.plane--data   { border-left-color: var(--govern); }
+.plane--control{ border-left-color: var(--leak); }
+.plane__name { font-weight: 650; margin: 0; }
+.plane__owns, .plane__not { font-size: 0.93em; margin: 0; color: var(--ink-2); }
+.plane__not { color: var(--ink-3); }
+@media (max-width: 900px) { .plane { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- tables ---- */
+/* The published wrapper supplies the doctype, but this file is also opened
+   straight off disk — which is quirks mode, where tables do NOT inherit colour
+   or font from their ancestors. Inherit explicitly so dark mode holds up in both. */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.92em; color: inherit; font-family: inherit; }
+.tbl th, .tbl td { text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: inherit; font-family: inherit; }
+.tbl th { font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+.tbl tbody th { text-transform: none; letter-spacing: 0; font-size: 0.92em; }
+.tbl td code, .tbl th code { font-family: var(--mono); font-size: 0.92em; }
+.tbl tr:last-child td { border-bottom: 0; }
+
+.chip {
+  display: inline-block; font-family: var(--mono); font-size: 0.8em;
+  padding: 2px 8px; border-radius: 4px; border: 1px solid var(--line);
+  color: var(--ink-2); white-space: nowrap;
+}
+.chip--deny   { border-color: var(--bad); color: var(--bad); }
+.chip--gate   { border-color: var(--leak); color: var(--leak); }
+.chip--allow  { border-color: var(--ok); color: var(--ok); }
+
+/* ---- verified orchestration steps ---- */
+.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.steps li {
+  counter-increment: s; position: relative;
+  padding: 11px 0 11px 48px; border-bottom: 1px solid var(--line-soft);
+}
+.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: 12px; width: 24px;
+  font-family: var(--mono); font-size: 0.86em;
+  color: var(--govern); border: 1px solid var(--govern); border-radius: 4px;
+  text-align: center; padding: 1px 0;
+}
+.steps li:last-child { border-bottom: 0; }
+
+/* ---- scorecard ---- */
+.score { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(14px, 1.6vw, 28px); align-items: start; }
+@media (max-width: 900px) { .score { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- demo running order ---- */
+.beat { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.beat:last-child { border-bottom: 0; }
+.beat__t { font-family: var(--mono); font-size: 0.88em; color: var(--leak); font-variant-numeric: tabular-nums; }
+.beat__who { font-weight: 650; margin: 0 0 3px; }
+.beat__path { font-family: var(--mono); font-size: 0.85em; color: var(--ink-3); margin: 0 0 5px; }
+.beat__do { margin: 0; font-size: 0.95em; color: var(--ink-2); }
+
+/* ---- chrome ---- */
+.rail { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: var(--line-soft); z-index: 50; }
+.rail__fill { height: 100%; width: 0; background: var(--leak); transition: width 220ms var(--ease); }
+.hud {
+  position: fixed; right: var(--gutter); bottom: 20px; z-index: 50;
+  display: flex; align-items: center; gap: 14px;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  background: color-mix(in srgb, var(--canvas) 86%, transparent);
+  padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line-soft);
+  backdrop-filter: blur(6px);
+}
+.hud__act { color: var(--ink-2); }
+.hud button {
+  font: inherit; color: var(--ink-3); background: none;
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px; cursor: pointer;
+}
+.hud button:hover { color: var(--ink); border-color: var(--ink-3); }
+.hud button:focus-visible, .deck :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.notes {
+  display: none;
+  border-left: 3px solid var(--dispute); background: var(--subtle);
+  padding: 12px 16px; border-radius: 0 6px 6px 0; font-size: 0.92em; color: var(--ink-2);
+  margin-top: auto;
+}
+.notes p { margin: 0 0 7px; }
+.notes p:last-child { margin-bottom: 0; }
+.notes b { color: var(--ink); }
+.show-notes .notes { display: block; }
+
+/* backup section */
+.backup { background: var(--subtle); }
+
+/* flat view for printing / handout: ?print */
+.is-flat { scroll-snap-type: none; height: auto; overflow: visible; }
+.is-flat .slide { min-height: auto; page-break-after: always; }
+.is-flat .r { opacity: 1; transform: none; }
+.is-flat .notes { display: block; }
+
+@media print {
+  .deck { height: auto; overflow: visible; scroll-snap-type: none; }
+  .slide { min-height: auto; page-break-after: always; }
+  .rail, .hud { display: none; }
+  .r { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck { scroll-behavior: auto; }
+  .r, .meter__band, .sk-wipe, .hg-edge, .vc-leak, .vc-pool, .hero__rule--grow {
+    transition: none !important; animation: none !important;
+  }
+  .r { opacity: 1; transform: none; }
+  .meter__band, .sk-wipe { transform: scaleX(1); }
+  .hg-edge, .vc-leak { stroke-dashoffset: 0; }
+  .vc-pool { opacity: 1; }
+  .vc-flow { animation: none; stroke-dashoffset: 0; }
+  .hero__rule--grow { width: 96px; }
+}
+</style>
+
+<div class="rail"><div class="rail__fill" id="railFill"></div></div>
+
+<main class="deck" id="deck" tabindex="-1">
+
+<!-- ══════════════ 1 · TITLE ══════════════ -->
+<section class="slide hero" id="s1" data-act="Open">
+  <div class="hero__split">
+    <div class="stack">
+      <p class="eyebrow r r--1">Internal session · Automation Solutions · 60 minutes</p>
+      <h1 class="hero__title r r--1">Recoup</h1>
+      <hr class="hero__rule hero__rule--grow">
+      <p class="lede r r--2" style="max-width:40ch">An agentic Order-to-Cash recovery cockpit — and a working answer to the question <em class="q">how do you let a language model near money?</em></p>
+    </div>
+    <p class="hero__creed r r--3">The model decides what to compute and what to do.<br><span>Code computes every dollar.</span><br>Every decision cites its evidence.<br>A human approves every external action.</p>
+  </div>
+  <div class="hero__meta r r--4">
+    <span>Node 22 · TypeScript · OpenAI Agents SDK · MCP</span>
+    <span class="path">AGENTS.md line 3</span>
+  </div>
+</section>
+
+<!-- ══════════════ 2 · VALUE CHAIN ══════════════ -->
+<section class="slide" id="s2" data-act="I · The lifeline">
+  <div class="stack">
+    <p class="kicker r r--1">Act I — Order-to-Cash as the enterprise lifeline</p>
+    <h2 class="title title--wide r r--1">O2C is the only process that turns revenue into cash. Every leak in it is permanent.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="figure figure--cap r r--2">
+      <svg viewBox="0 0 1200 330" role="img" aria-label="The seven-stage Order-to-Cash value chain with cash leaking at the credit decision, deduction and collections stages.">
+        <!-- pipe -->
+        <line x1="86" y1="120" x2="1114" y2="120" stroke="var(--line-soft)" stroke-width="26" stroke-linecap="round"></line>
+        <line x1="86" y1="120" x2="1114" y2="120" stroke="var(--govern)" stroke-width="26" stroke-linecap="round" opacity="0.16"></line>
+        <line class="vc-flow" x1="86" y1="120" x2="1114" y2="120" stroke="var(--govern)" stroke-width="13" stroke-linecap="round" opacity="0.9"></line>
+
+        <!-- leaks -->
+        <path class="vc-leak" d="M 257 133 C 257 190, 240 210, 236 262" fill="none" stroke="var(--leak)" stroke-width="7" stroke-linecap="round"></path>
+        <path class="vc-leak vc-leak--b" d="M 771 133 C 771 190, 788 210, 792 262" fill="none" stroke="var(--leak)" stroke-width="11" stroke-linecap="round"></path>
+        <path class="vc-leak vc-leak--c" d="M 943 133 C 943 190, 930 210, 926 262" fill="none" stroke="var(--leak)" stroke-width="6" stroke-linecap="round"></path>
+        <g class="vc-pool">
+          <ellipse cx="236" cy="272" rx="30" ry="7" fill="var(--leak)" opacity="0.30"></ellipse>
+          <ellipse cx="792" cy="272" rx="52" ry="9" fill="var(--leak)" opacity="0.42"></ellipse>
+          <ellipse cx="926" cy="272" rx="26" ry="6" fill="var(--leak)" opacity="0.26"></ellipse>
+          <text class="vc-amt" x="236" y="300" text-anchor="middle">bad exposure</text>
+          <text class="vc-amt" x="792" y="300" text-anchor="middle">invalid deductions</text>
+          <text class="vc-amt" x="926" y="300" text-anchor="middle">write-offs</text>
+        </g>
+
+        <!-- nodes -->
+        <circle class="vc-node" cx="86"   cy="120" r="11"></circle>
+        <circle class="vc-node vc-node--key" cx="257"  cy="120" r="13"></circle>
+        <circle class="vc-node" cx="429"  cy="120" r="11"></circle>
+        <circle class="vc-node" cx="600"  cy="120" r="11"></circle>
+        <circle class="vc-node vc-node--key" cx="771"  cy="120" r="13"></circle>
+        <circle class="vc-node" cx="943"  cy="120" r="11"></circle>
+        <circle class="vc-node" cx="1114" cy="120" r="11"></circle>
+
+        <text class="vc-label"           x="86"   y="78" text-anchor="middle">Order</text>
+        <text class="vc-label vc-label--key" x="257"  y="78" text-anchor="middle">Credit decision</text>
+        <text class="vc-label"           x="429"  y="78" text-anchor="middle">Fulfil</text>
+        <text class="vc-label"           x="600"  y="78" text-anchor="middle">Invoice</text>
+        <text class="vc-label vc-label--key" x="771"  y="78" text-anchor="middle">Deduction / dispute</text>
+        <text class="vc-label"           x="943"  y="78" text-anchor="middle">Collections</text>
+        <text class="vc-label"           x="1114" y="78" text-anchor="middle">Cash</text>
+      </svg>
+      <p class="figure__cap">The two ringed stages are the control points. Everything else is throughput.</p>
+    </div>
+    <div class="cols cols--3 r r--3">
+      <div class="panel"><p class="panel__title">Upstream leak</p><p class="panel__note">Credit exposure you should never have carried. Prevention.</p></div>
+      <div class="panel panel--leak"><p class="panel__title">Midstream leak</p><p class="panel__note">Money already taken off your invoice by the customer. Recovery.</p></div>
+      <div class="panel"><p class="panel__title">Downstream leak</p><p class="panel__note">Aged balances written off because nobody could prove the claim. Loss.</p></div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Open here.</b> Most of the room automates process steps. Frame O2C differently: it is the only end-to-end process whose output is cash, so a leak anywhere is not a delay — it is a permanent loss booked against margin.</p>
+    <p>Point at the two ringed stages and say you'll come back to them. Don't explain them yet.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 3 · THE NUMBERS ══════════════ -->
+<section class="slide" id="s3" data-act="I · The lifeline">
+  <div class="stack">
+    <p class="kicker r r--1">Act I — the size of the hole</p>
+    <h2 class="title title--wide r r--1">For a CPG manufacturer, deductions are not an edge case. They are a line item.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--3 r r--2">
+      <div class="stat">
+        <div class="stat__value">2–5%</div>
+        <div class="meter"><div class="meter__band" style="left:2%;width:3%"></div></div>
+        <div class="meter__scale"><span>0%</span><span>100% of gross revenue</span></div>
+        <p class="stat__label">of gross revenue lost to deductions annually</p>
+        <p class="stat__src">Industry estimate</p>
+      </div>
+      <div class="stat">
+        <div class="stat__value">65–80%</div>
+        <div class="meter"><div class="meter__band" style="left:65%;width:15%"></div></div>
+        <div class="meter__scale"><span>0%</span><span>all shortage claims</span></div>
+        <p class="stat__label">of shortage claims may be invalid</p>
+        <p class="stat__src">Retail claims benchmark</p>
+      </div>
+      <div class="stat">
+        <div class="stat__value">60%</div>
+        <div class="meter"><div class="meter__band" style="left:0;width:60%"></div></div>
+        <div class="meter__scale"><span>0%</span><span>all brands</span></div>
+        <p class="stat__label">of brands recover less than half of disputed deductions</p>
+        <p class="stat__src">Industry recovery estimate</p>
+      </div>
+    </div>
+    <p class="lede r r--3">Read those together and the shape of the problem appears: <strong>most of what is taken is arguable, and most of it is never argued.</strong> Not because the case is weak — because assembling the proof costs more analyst hours than the line is worth.</p>
+    <p class="path r r--4">cockpit/components/landing/landing-content.ts · docs/Agentic_O2C_Persona_Journey_v1_2.md §2</p>
+  </div>
+  <aside class="notes">
+    <p><b>The pivot sentence</b> is the lede: most of what is taken is arguable, and most of it is never argued. That reframes the problem from "collections" to "cost of proof" — which is an automation problem, and that's your bridge to Act II.</p>
+    <p>If asked about sourcing: these are the repo's own landing-page figures, industry estimates rather than independently audited numbers. Say so plainly.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 4 · TWO CONTROL POINTS ══════════════ -->
+<section class="slide" id="s4" data-act="I · The lifeline">
+  <div class="stack">
+    <p class="kicker r r--1">Act I — why these two disciplines</p>
+    <h2 class="title title--wide r r--1">Deduction management and credit management are the same signal read at two different times.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--2 r r--2">
+      <div class="panel panel--leak">
+        <div class="panel__head"><p class="panel__title">Deduction management</p><span class="chip">after the sale</span></div>
+        <p class="panel__note">The money is already gone. You are reconstructing what should have been paid from a POD, a contract clause, a promo accrual — and then proving it well enough to ask for it back.</p>
+        <ul class="ticks ticks--leak">
+          <li>Recovers cash that has already left</li>
+          <li>Produces the evidence a customer will accept</li>
+          <li>Feeds root cause back to Billing so it stops recurring</li>
+        </ul>
+      </div>
+      <div class="panel panel--govern">
+        <div class="panel__head"><p class="panel__title">Credit management</p><span class="chip">before the sale</span></div>
+        <p class="panel__note">The money hasn't gone yet. You are deciding how much exposure this customer earns, from payment drift, dispute behaviour and external signals.</p>
+        <ul class="ticks">
+          <li>Prevents exposure you'd later write off</li>
+          <li>Prices risk into terms rather than blocking orders outright</li>
+          <li>Turns a blunt credit hold into a graduated response</li>
+        </ul>
+      </div>
+    </div>
+    <div class="panel r r--3">
+      <p class="panel__title">The link is the reason this is one product and not two</p>
+      <p class="panel__note">A customer filing repeated invalid shortage claims is not only a deduction problem — that behaviour <em class="q">is</em> a credit signal, and the strongest one you have, because it is first-party and current where a bureau score is third-party and stale. Recoup's <strong>Closed-Loop Risk Mesh</strong> exists to arbitrate exactly that: when forensics says <span class="chip chip--deny">gaming</span> and the credit file says <span class="chip chip--allow">healthy payer</span>, something has to weigh the two and record why it landed where it did.</p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>This is the slide that earns the architecture.</b> If they accept that deduction behaviour is a credit signal, they will accept why a supervisory agent arbitrating conflicting positions is the right shape — rather than two independent workflows.</p>
+    <p>Crestline Grocery is the live example: ~$48M/yr, a healthy payer on paper, and repeatedly filing invalid shortage and pricing claims.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 5 · SANKEY ══════════════ -->
+<section class="slide" id="s5" data-act="I · The lifeline">
+  <div class="stack">
+    <p class="kicker r r--1">Act I — one Monday at NorthBay Brands</p>
+    <h2 class="title title--wide r r--1">Twenty deduction lines. One settlement run. Two very different piles.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+    <div class="figure r r--2">
+      <svg viewBox="0 0 1180 400" role="img" aria-label="Sankey diagram: 20 deduction lines totalling 112,400 dollars split into 7 valid lines worth 32,600 dollars routed to billing, and 13 lines worth 79,800 dollars pursued for recovery.">
+        <defs>
+          <clipPath id="skClip"><rect class="sk-wipe" x="0" y="0" width="1180" height="400"></rect></clipPath>
+        </defs>
+        <g clip-path="url(#skClip)">
+          <path d="M 150 60 C 400 60, 530 40, 780 40 L 780 127 C 530 127, 400 147, 150 147 Z" fill="var(--govern)" opacity="0.30"></path>
+          <path d="M 150 147 C 400 147, 530 157, 780 157 L 780 370 C 530 370, 400 360, 150 360 Z" fill="var(--leak)" opacity="0.30"></path>
+        </g>
+        <rect x="60" y="60" width="90" height="300" fill="var(--ink)" opacity="0.82" rx="2"></rect>
+        <rect x="780" y="40"  width="90" height="87"  fill="var(--govern)" rx="2"></rect>
+        <rect x="780" y="157" width="90" height="213" fill="var(--leak)" rx="2"></rect>
+
+        <text class="sk-label" x="60" y="34">$112,400</text>
+        <text class="sk-sub"   x="60" y="392">20 lines · 4 customers</text>
+
+        <text class="sk-label" x="885" y="72">$32,600</text>
+        <text class="sk-sub"   x="885" y="97">7 lines · valid → Billing</text>
+        <text class="sk-label" x="885" y="258">$79,800</text>
+        <text class="sk-sub"   x="885" y="283">13 lines · recovery pursued</text>
+      </svg>
+      <p class="figure__cap">RECONCILIATION_LEDGER.md §4 — the canonical gold set.</p>
+      <div class="panel">
+        <p class="panel__title">S7 is the one to understand</p>
+        <p class="panel__note">Semantically <em class="q">partial</em> — the broader claim was partly legitimate — but the $15,900 is the overclaim <strong>above</strong> the approved TPM accrual, pursued in full. The within-accrual portion was correctly deducted and needs no credit, so nothing routes to Billing. Locked as Option 1 in §4.1; the alternative split was rejected because it breaks all three headline totals.</p>
+      </div>
+    </div>
+    <div class="scroll-x r r--3">
+      <table class="tbl">
+        <thead><tr><th></th><th>Customer</th><th>Scenario</th><th>Lines</th><th>Amount</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td><code>S1</code></td><td>Greenleaf</td><td>Damaged product, photos + carrier report</td><td class="num">3</td><td class="num">$8,200</td><td><span class="chip chip--allow">valid</span></td></tr>
+          <tr><td><code>S2</code></td><td>Crestline</td><td>Valid promo, invoice billed at list</td><td class="num">2</td><td class="num">$14,600</td><td><span class="chip chip--allow">valid</span></td></tr>
+          <tr><td><code>S3</code></td><td>Crestline</td><td>Shortage claim — POD shows full signed delivery</td><td class="num">4</td><td class="num">$21,300</td><td><span class="chip chip--deny">invalid</span></td></tr>
+          <tr><td><code>S4</code></td><td>ValuMart</td><td>OTIF fine valid per contract SLA</td><td class="num">2</td><td class="num">$9,800</td><td><span class="chip chip--allow">valid</span></td></tr>
+          <tr><td><code>S5</code></td><td>ValuMart</td><td>OTIF fine — delivered on time per 3PL timestamp</td><td class="num">3</td><td class="num">$12,700</td><td><span class="chip chip--deny">invalid</span></td></tr>
+          <tr><td><code>S6</code></td><td>Crestline</td><td>Pricing chargeback below contracted price</td><td class="num">2</td><td class="num">$18,400</td><td><span class="chip chip--deny">invalid</span></td></tr>
+          <tr><td><code>S7</code></td><td>Harbor</td><td>Promo overclaim above approved TPM accrual</td><td class="num">2</td><td class="num">$15,900</td><td><span class="chip chip--gate">partial</span></td></tr>
+          <tr><td><code>S8</code></td><td>Harbor</td><td>Duplicate / already-credited deduction</td><td class="num">2</td><td class="num">$11,500</td><td><span class="chip chip--deny">invalid</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+    <p class="path r r--4">Locked as invariant I-27 and asserted by tests/evals/gold-set-parity.test.ts. The build fails if these totals move.</p>
+  </div>
+  <aside class="notes">
+    <p><b>Say the last line out loud.</b> These aren't slideware numbers — they are a checked-in gold set, and a release blocker. The same figures appear in the live demo in twenty minutes. That link between the deck and the running app is worth making explicit.</p>
+    <p>If asked about S7: the $15,900 is the overclaim above the approved accrual, pursued in full; the within-accrual portion was correctly deducted and needs no credit. Locked as Option 1 in §4.1.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 6 · WHY IT RESISTS AUTOMATION ══════════════ -->
+<section class="slide" id="s6" data-act="I · The lifeline">
+  <div class="stack">
+    <p class="kicker r r--1">Act I — the handover to Act II</p>
+    <h2 class="title title--wide r r--1">Proving one $21,300 line means assembling evidence from six systems that were never designed to agree.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--3 r r--2">
+      <div class="panel"><p class="panel__title">SAP S/4HANA</p><p class="panel__note">Billing document, sales order, pricing conditions, AR sub-ledger.</p></div>
+      <div class="panel"><p class="panel__title">3PL / WMS</p><p class="panel__note">Proof of delivery — signature, timestamp, piece count.</p></div>
+      <div class="panel"><p class="panel__title">TPM</p><p class="panel__note">The approved promotional accrual the claim is measured against.</p></div>
+      <div class="panel"><p class="panel__title">Document repository</p><p class="panel__note">Contract clauses, damage photos, carrier reports.</p></div>
+      <div class="panel"><p class="panel__title">Remittance / EDI</p><p class="panel__note">What the customer said they were deducting, and why.</p></div>
+      <div class="panel"><p class="panel__title">Credit bureau</p><p class="panel__note">External risk signal, third-party and lagging.</p></div>
+    </div>
+    <div class="cols cols--2 r r--3">
+      <div class="panel">
+        <p class="panel__title">Why RPA stalls here</p>
+        <p class="panel__note">There is no fixed path. Which evidence settles the question depends on what the claim asserts — a shortage needs a POD, a pricing chargeback needs a contract clause, a promo overclaim needs an accrual. You cannot enumerate the branches in advance, and the documents are half unstructured.</p>
+      </div>
+      <div class="panel panel--leak">
+        <p class="panel__title">Why unconstrained LLMs are worse</p>
+        <p class="panel__note">The output of this process is a dollar figure sent to a customer who will contest it. A model that is confidently wrong about $21,300 does more damage than the analyst backlog it replaced — and cannot be audited afterwards.</p>
+      </div>
+    </div>
+    <p class="lede r r--4">So the interesting question is not <em class="q">can an agent do this</em>. It is <strong>what has to be true before you'd let one.</strong></p>
+  </div>
+  <aside class="notes">
+    <p><b>Land the closing line and pause.</b> This is the hinge of the whole session. Everything in Act II is an answer to "what has to be true before you'd let one".</p>
+    <p>Check the clock here: you should be at roughly 10 minutes.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 7 · RPA vs WORKFLOW vs AGENTIC ══════════════ -->
+<section class="slide" id="s7" data-act="II · Why agentic">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — picking the right tool</p>
+    <h2 class="title title--wide r r--1">Three automation shapes, and the one property that decides between them.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="scroll-x r r--2">
+      <table class="tbl">
+        <thead><tr><th></th><th>RPA</th><th>Workflow / BPM</th><th>Agentic</th></tr></thead>
+        <tbody>
+          <tr><th>Needs</th><td>A stable UI and a fixed path</td><td>Every branch enumerated up front</td><td>A goal, tools, and a stopping condition</td></tr>
+          <tr><th>Handles new evidence types</th><td>No — rebuild the bot</td><td>Only if a branch exists</td><td>Yes — it selects the retrieval itself</td></tr>
+          <tr><th>Handles unstructured docs</th><td>Brittle OCR</td><td>Out of band</td><td>Native</td></tr>
+          <tr><th>Explains its reasoning</th><td>Nothing to explain</td><td>The path taken</td><td>Narrative — <strong>which is the danger</strong></td></tr>
+          <tr><th>Safe to point at money</th><td>Yes, and useless here</td><td>Yes, and too rigid here</td><td><strong>Only under constraint</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols cols--split r r--3">
+      <div class="panel panel--govern">
+        <p class="panel__title">Recoup's position</p>
+        <p class="panel__note">Agentic for the open-ended part — deciding <em class="q">what evidence would settle this claim</em> and going to get it. Deterministic for everything that touches a number, a verdict, or the outside world. The split is not a compromise; it is the design.</p>
+      </div>
+      <div class="stack">
+        <p class="lede">The failure mode to design against is not a model that can't reason. It's a model whose reasoning <strong>reads convincingly and cites nothing</strong> — and an operator who ships it because it sounded right.</p>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The row that matters</b> is "explains its reasoning". For RPA that's a gap. For an agent it's a hazard — fluent narrative is exactly what makes an unverified answer dangerous. Everything in the next ten slides is machinery for not trusting the narrative.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 8 · THE LOAD-BEARING RULE ══════════════ -->
+<section class="slide" id="s8" data-act="II · Why agentic">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — the contract</p>
+    <h2 class="title title--wide r r--1">Four constraints. Each one has a test that fails the build.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--2 r r--2">
+      <div class="panel">
+        <div class="panel__head"><p class="panel__title">No model asserts a dollar</p><span class="chip">I-1</span></div>
+        <p class="panel__note">Every <code>expected</code>, <code>actual</code>, <code>delta</code>, recovery, term and partial-hold amount is produced by <code>src/core/</code>. Agents contain zero arithmetic. Money is <code>decimal.js</code>; a JS <code>number</code> may never hold a monetary value (I-3).</p>
+        <p class="path">tests/invariants/no-llm-dollar.test.ts · no-float-money.test.ts</p>
+      </div>
+      <div class="panel">
+        <div class="panel__head"><p class="panel__title">Every decision cites evidence</p><span class="chip">I-17</span></div>
+        <p class="panel__note">No verdict, intent label, arbitration outcome or term proposal is emitted without cited <code>recordIds</code> <em class="q">and</em> its deterministic basis. Missing either, the guardrail blocks it rather than degrading it.</p>
+        <p class="path">tests/invariants/explainability-tripwire.test.ts</p>
+      </div>
+      <div class="panel">
+        <div class="panel__head"><p class="panel__title">A human approves every external action</p><span class="chip">I-7 / I-20</span></div>
+        <p class="panel__note">Recovery drafts, outreach, term changes, holds and Billing routing all halt at the approval gate. The approver must be a <code>human:</code> principal, and never the proposer (I-8).</p>
+        <p class="path">tests/invariants/action-hitl-all-capabilities.test.ts · sod.test.ts</p>
+      </div>
+      <div class="panel panel--govern">
+        <div class="panel__head"><p class="panel__title">No ERP write path exists</p><span class="chip">I-26</span></div>
+        <p class="panel__note">Not "is disabled" — <strong>does not exist</strong>. A static check asserts no write-capable ERP client is ever constructed, backed by a dependency-cruiser rule on the module graph. SAP is read-only by construction.</p>
+        <p class="path">tests/invariants/no-erp-writeback.test.ts · dependency-cruiser.config.cjs</p>
+      </div>
+    </div>
+    <p class="lede r r--3"><strong>28 active invariants (I-1 … I-30, two formally retired), each naming its enforcement point and its test.</strong> They may be added to, never weakened or silently deleted — retirement requires an explicit human instruction and leaves a marker preserving the original text.</p>
+    <p class="path r r--4">INVARIANTS.md</p>
+  </div>
+  <aside class="notes">
+    <p><b>Dwell on I-26.</b> "The write path does not exist" is a categorically different claim from "writes are turned off", and it's the one that gets a security architect's attention. It's enforced twice — a static test and a module-graph rule.</p>
+    <p>Expect a challenge on I-1: <i>surely the model sees the numbers?</i> Yes — it reads them and narrates them. It never produces one that reaches a finding or a decision.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 9 · THREE PLANES ══════════════ -->
+<section class="slide" id="s9" data-act="II · Architecture">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — the architecture in one idea</p>
+    <h2 class="title title--wide r r--1">Three planes, and a strict rule about what each is allowed to own.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="stack r r--2">
+      <div class="plane plane--reason">
+        <p class="plane__name">Reasoning plane<br><span class="path">src/agents/</span></p>
+        <p class="plane__owns"><strong>Owns</strong> — planning, retrieval intent, explanation, handoff narrative.</p>
+        <p class="plane__not"><strong>Never owns</strong> — dollar math, verdicts, ERP credentials, approvals.</p>
+      </div>
+      <div class="plane plane--data">
+        <p class="plane__name">Data plane<br><span class="path">src/mcp/ · src/adapters/</span></p>
+        <p class="plane__owns"><strong>Owns</strong> — governed source access behind typed ports; credentials.</p>
+        <p class="plane__not"><strong>Never owns</strong> — autonomous decisions.</p>
+      </div>
+      <div class="plane plane--control">
+        <p class="plane__name">Control plane<br><span class="path">src/core/ · src/services/ · src/audit/</span></p>
+        <p class="plane__owns"><strong>Owns</strong> — rules, amounts, routing, approval state, hash-chained audit.</p>
+        <p class="plane__not"><strong>Never owns</strong> — free-form model judgment.</p>
+      </div>
+    </div>
+    <div class="cols cols--2 r r--3">
+      <div class="panel">
+        <p class="panel__title">The boundary is compiled, not documented</p>
+        <p class="panel__note"><code>dependency-cruiser</code> enforces port purity: <code>src/core/</code> has zero imports from SAP, synthetic sources or adapters, and the runtime cannot import <code>datagen/</code>. Adapters return canonical entities only. A violating import fails <code>npm run verify</code> — you cannot merge the shortcut.</p>
+        <p class="path">dependency-cruiser.config.cjs · invariant I-12</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">Detection and routing are services, not agents</p>
+        <p class="panel__note">One rule, one module under <code>src/core/rules/</code> — eight of them, from <code>shortage-pod-mismatch</code> to <code>duplicate-credit</code>. One capability, one traceable specialist. Every claim in the README greps to a named function and its test.</p>
+        <p class="path">AGENTS.md §4 · src/core/rules/index.ts</p>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The transferable idea for this audience</b> is the middle panel: the plane boundary is a build gate, not a diagram. Any team here can adopt that in an afternoon with dependency-cruiser or an eslint boundaries rule, whatever their stack.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 10 · HANDOFF GRAPH ══════════════ -->
+<section class="slide" id="s10" data-act="II · Architecture">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — the agent roster</p>
+    <h2 class="title title--wide r r--1">Eight agents, four wiring modes, and an edge list you cannot go around.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+      <div class="figure r r--2">
+        <svg viewBox="0 0 800 470" role="img" aria-label="Agent handoff graph showing Forensics Investigator handing off to Recovery Drafter and Containment, Risk-Mesh Supervisor calling Sentinel and Containment as tools, and Conversational Query calling Audit Read as a tool.">
+          <path class="hg-edge hg-edge--1" d="M 285 82 C 380 82, 400 52, 495 52"  stroke="var(--govern)"></path>
+          <path class="hg-edge hg-edge--2" d="M 285 82 C 380 82, 400 172, 495 172" stroke="var(--dispute)" stroke-dasharray="8 6"></path>
+          <path class="hg-edge hg-edge--3" d="M 285 242 C 380 242, 400 172, 495 172" stroke="var(--leak)" stroke-dasharray="2 6" stroke-linecap="round"></path>
+          <path class="hg-edge hg-edge--4" d="M 285 242 C 380 242, 400 292, 495 292" stroke="var(--leak)" stroke-dasharray="2 6" stroke-linecap="round"></path>
+          <path class="hg-edge hg-edge--5" d="M 285 402 C 380 402, 400 402, 495 402" stroke="var(--ink-3)" stroke-width="1.2"></path>
+
+          <rect class="hg-node hg-node--hero" x="55"  y="60"  width="230" height="44"></rect>
+          <rect class="hg-node"               x="55"  y="220" width="230" height="44"></rect>
+          <rect class="hg-node"               x="55"  y="380" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="30"  width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="150" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="270" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="380" width="230" height="44"></rect>
+
+          <text class="hg-text" x="170" y="87"  text-anchor="middle">Forensics Investigator</text>
+          <text class="hg-text" x="170" y="247" text-anchor="middle">Risk-Mesh Supervisor</text>
+          <text class="hg-text" x="170" y="407" text-anchor="middle">Conversational Query</text>
+          <text class="hg-text" x="610" y="57"  text-anchor="middle">Recovery Drafter</text>
+          <text class="hg-text" x="610" y="177" text-anchor="middle">Containment / Intent</text>
+          <text class="hg-text" x="610" y="297" text-anchor="middle">Sentinel</text>
+          <text class="hg-text" x="610" y="407" text-anchor="middle">Audit Read</text>
+
+          <text class="hg-tag" x="170" y="120" text-anchor="middle">capability B · gpt-5.4 · effort high</text>
+          <text class="hg-tag" x="170" y="280" text-anchor="middle">capability A · effort low</text>
+          <text class="hg-tag" x="170" y="440" text-anchor="middle">gpt-realtime-2 · voice + text</text>
+        </svg>
+        <div class="legend">
+          <span><i style="border-color:var(--govern)"></i>SDK handoff</span>
+          <span><i style="border-color:var(--dispute);border-top-style:dashed"></i>deterministic service</span>
+          <span><i style="border-color:var(--leak);border-top-style:dotted"></i>agents-as-tools</span>
+          <span><i style="border-color:var(--ink-3)"></i>tool</span>
+        </div>
+      </div>
+      <div class="stack r r--3">
+        <div class="panel panel--govern">
+          <p class="panel__title">The graph is executable</p>
+          <p class="panel__note">This isn't a drawing of the system — it's <code>recoupHandoffGraph</code>, a typed const. <code>createAgentHandoffPacket()</code> validates every packet against it and throws <em class="q">"Agent handoff edge is not declared"</em> on anything not on the diagram. Agent-to-agent communication off this graph is impossible, not merely discouraged.</p>
+          <p class="panel__note">The two agents not drawn are David's credit pair — <code>Credit Sentinel</code> and <code>Action Packet Drafter</code>. That handoff is declared on the agent itself rather than in the packet-validated graph, which is an inconsistency worth fixing.</p>
+          <p class="path">src/agents/handoffGraph.ts · src/agents/messages.ts · agentRuntime.ts</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Packets are typed and must cite</p>
+          <p class="panel__note">Zod schema requires <code>packetId</code>, <code>fromAgent</code>, <code>toAgent</code>, <code>capability</code>, <code>caseId</code>, <code>deterministicBasis</code>, <code>intent</code>, <code>status</code> — and <code>recordIds</code> with a minimum length of one. A handoff that cites nothing cannot be constructed.</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Agents-as-tools are advisory only</p>
+          <p class="panel__note">Sentinel and Containment are exposed to the supervisor via <code>.asTool()</code>, and their tool descriptions say so explicitly: <em class="q">returns narrative context only; deterministic Recoup services compute scores, amounts, decisions and actions.</em></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Photograph moment.</b> Expect phones. Give them a beat before moving on.</p>
+    <p>The line to land: most multi-agent systems document the topology and hope. Here the topology is a value the runtime validates against, so drift between diagram and behaviour is a thrown error rather than a slow divergence.</p>
+    <p>This exact graph is rendered live at <code>/governance/agents</code> — call it forward, then pay it off in the demo.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 11 · TOOL REGISTRY ══════════════ -->
+<section class="slide" id="s11" data-act="II · Tools">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — tools</p>
+    <h2 class="title title--wide r r--1">23 tools in one registry, each classified before it can be called.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+      <div class="scroll-x r r--2">
+        <table class="tbl">
+          <thead><tr><th>Tool</th><th>Risk</th><th>Side effect</th><th>MCP</th></tr></thead>
+          <tbody>
+            <tr><td><code>retrieval.sap</code> <code>.docs</code> <code>.tpm</code> <code>.bureau</code></td><td>read</td><td><code>none</code></td><td><span class="chip chip--allow">visible</span></td></tr>
+            <tr><td><code>query.answer</code> · <code>query.workspace</code></td><td>read</td><td><code>none</code></td><td><span class="chip chip--allow">visible</span></td></tr>
+            <tr><td><code>audit.read</code> · <code>sources.r1Read</code></td><td>read</td><td><code>none</code></td><td><span class="chip chip--allow">visible</span></td></tr>
+            <tr><td><code>actions.draftRebill</code> · <code>draftOutreach</code></td><td>financial</td><td><code>draft_only</code></td><td><span class="chip chip--gate">gated</span></td></tr>
+            <tr><td><code>actions.proposeHold</code> · <code>proposeTerms</code></td><td>financial</td><td><code>draft_only</code></td><td><span class="chip chip--gate">gated</span></td></tr>
+            <tr><td><code>actions.routeBilling</code></td><td>financial</td><td><code>draft_only</code></td><td><span class="chip chip--gate">gated</span></td></tr>
+            <tr><td><code>email.sendApproved</code></td><td>correspondence</td><td><code>external</code></td><td><span class="chip chip--gate">human only</span></td></tr>
+            <tr><td><code>core.evaluateRule</code> · <code>riskMeshClosedLoop</code></td><td>compute</td><td><code>compute_only</code></td><td><span class="chip chip--deny">internal</span></td></tr>
+            <tr><td><code>decisions.deductionVerdict</code></td><td>decision</td><td><code>write_local</code></td><td><span class="chip chip--deny">internal</span></td></tr>
+            <tr><td><code>approvals.decide</code></td><td>approval</td><td><code>approval_gate</code></td><td><span class="chip chip--deny">internal</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="stack r r--3">
+        <div class="panel panel--govern">
+          <p class="panel__title">One entry point, parse then dispatch</p>
+          <p class="panel__note"><code>invokeServiceTool(name, input, ctx)</code> rejects anything not in the whitelist, Zod-parses the input against that tool's schema, and only then calls the handler. There is no free-form tool-execution path anywhere in the codebase (I-15).</p>
+          <p class="path">src/services/serviceLayer.ts</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Permission is separate from availability</p>
+          <p class="panel__note"><code>evaluateToolPermission()</code> returns <span class="chip chip--allow">allow</span> <span class="chip chip--gate">approval_required</span> <span class="chip chip--deny">deny</span>. <code>external_correspondence</code> denies outright unless the actor is a <code>human:</code> principal holding the <code>send_email</code> capability. Every <code>draft_only</code> and <code>financial</code> call returns <em class="q">approval_required</em> by classification, not by remembering to check.</p>
+          <p class="path">src/services/permissionEngine.ts</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Amounts are clamped at the tool boundary</p>
+          <p class="panel__note"><code>draftRebill</code> forces its amount through <code>clampToComputedDelta()</code> — a recovery can never exceed the computed delta (I-6). <code>proposeHold</code> goes further: it re-runs <code>computePartialHoldAmountSplit()</code> and <strong>throws</strong> if the caller's numbers disagree with the core.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The design idea worth stealing:</b> classify tools by risk and side-effect class as metadata, then derive permission and exposure from the classification. Adding a tool without a class is a type error; you can't forget to secure it.</p>
+    <p><code>proposeHold</code> throwing on a mismatch is the sharpest example of "code computes every dollar" — the model may propose a split, but the core recomputes it and rejects disagreement.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 12 · MCP ══════════════ -->
+<section class="slide" id="s12" data-act="II · Tools">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — the data plane</p>
+    <h2 class="title title--wide r r--1">MCP used as least privilege, not as a plugin bus.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--2 r r--2">
+      <div class="panel panel--govern">
+        <div class="panel__head"><p class="panel__title">Maya's agent sees three tools</p><span class="chip">forensics</span></div>
+        <p class="panel__note"><code>audit.read</code> · <code>query.answer</code> · <code>query.workspace</code></p>
+      </div>
+      <div class="panel panel--govern">
+        <div class="panel__head"><p class="panel__title">David's agent sees three tools</p><span class="chip">credit</span></div>
+        <p class="panel__note"><code>audit.read</code> · <code>credit_risk.answer</code> · <code>credit_negotiation.draft_structures</code></p>
+      </div>
+    </div>
+    <p class="lede r r--3">Not <code>sap.query</code>. The agent never gets a general-purpose door into the ERP — it gets scoped questions it is allowed to ask.</p>
+    <div class="cols cols--3 r r--3">
+      <div class="panel">
+        <p class="panel__title">Client-side filter</p>
+        <p class="panel__note"><code>createMCPToolStaticFilter</code> trims <code>tools/list</code> before the model ever sees it. Tools outside the allowlist are not hidden — they are absent from the context.</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">Server-side visibility</p>
+        <p class="panel__note">The facade re-checks <code>visibility === "mcp"</code> on every call, then re-runs the permission engine. A client that forges a call to an internal tool is refused at the handler boundary.</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">Per-request evidence scope</p>
+        <p class="panel__note">Headers <code>x-recoup-query-answer-scope</code> and <code>x-recoup-credit-risk-answer-scope</code> carry a base64url-encoded, Zod-parsed <code>{selectedLineId, recordIds}</code>. The <strong>request</strong> pins the allowed evidence — not the model's request.</p>
+      </div>
+    </div>
+    <div class="cols cols--2 r r--4">
+      <div class="panel">
+        <p class="panel__title">In production the MCP server never leaves the process</p>
+        <p class="panel__note"><code>RECOUP_MCP_URL</code> is deliberately unset, so <code>createMayaMcpGateway()</code> starts an ephemeral authenticated loopback server on port 0 with a generated per-run token, connects, and tears it down in a <code>finally</code>. Source credentials live in the gateway and never enter agent context.</p>
+        <p class="path">src/agents/mcpGateway.ts · src/mcp/server.ts</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">The transport is real MCP</p>
+        <p class="panel__note"><code>StreamableHTTPServerTransport</code>, stateful sessions, bearer auth compared with <code>timingSafeEqual</code>, JSON-RPC 2.0 error envelopes, a secret-free <code>/healthz</code>, and per-tool annotations (<code>destructiveHint: false</code>, <code>openWorldHint: false</code>). Missing token config fails closed.</p>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Anticipate the question:</b> "why MCP at all if it's in-process?" Two answers — the protocol gives you a real capability boundary with tool filtering and annotations for free, and the same surface can be exposed to an external client tomorrow without re-plumbing the permission model.</p>
+    <p>The evidence-scope header is the subtle one. The model can ask about any record; the request decides which records the tool is permitted to read. Worth saying twice.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 13 · MEMORY ══════════════ -->
+<section class="slide" id="s13" data-act="II · Memory">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — memory</p>
+    <h2 class="title title--wide r r--1">Memory as a typed, inspectable artifact — not hidden prompt state.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+      <div class="stack r r--2">
+        <div class="panel">
+          <p class="panel__title">Eleven categories, three trust levels</p>
+          <p class="panel__note"><code>session_state</code> · <code>workflow_state</code> · <code>case_state</code> · <code>transaction_state</code> · <code>evidence_refs</code> · <code>approval_records</code> · <code>audit_refs</code> · <code>connector_state</code> · <code>compaction_summaries</code> · <code>artifact_refs</code> · <code>agent_handoff_packets</code></p>
+          <p class="panel__note">Each record is <code>trusted</code>, <code>semi_trusted</code> or <code>untrusted</code>. Handoff packets arrive <code>semi_trusted</code> by default. Every record must carry at least one <code>recordId</code>.</p>
+          <p class="path">src/memory/schema.ts</p>
+        </div>
+        <div class="panel panel--govern">
+          <p class="panel__title">PII cannot be persisted — enforced at parse time</p>
+          <p class="panel__note">The Zod schema walks the payload and rejects emails, phone numbers, <code>sk-</code> keys and secret-shaped field names. This isn't a scrubber that runs before writing; a record containing PII <strong>fails validation</strong> and never becomes a record.</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Compaction is deterministic</p>
+          <p class="panel__note">No summarisation model call. <code>compactMemoryRecords()</code> preserves objective, category, next step and the deduped record IDs, and takes the <em class="q">worst</em> trust level of its inputs — compaction can never launder an untrusted record into a trusted summary.</p>
+          <p class="path">src/memory/compaction.ts</p>
+        </div>
+      </div>
+      <div class="stack r r--3">
+        <div class="panel">
+          <p class="panel__title">Two tiers, explicitly modelled</p>
+          <div class="scroll-x">
+            <table class="tbl">
+              <thead><tr><th></th><th>Short term</th><th>Long term</th></tr></thead>
+              <tbody>
+                <tr><th>Category</th><td><code>session_state</code></td><td><code>case_state</code></td></tr>
+                <tr><th>Scope</th><td><code>session:{id}</code></td><td><code>case:{id}</code></td></tr>
+                <tr><th>Holds</th><td>current query scope</td><td>episodic case recall</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel panel--leak">
+          <p class="panel__title">The recall path is treated as untrusted input</p>
+          <p class="panel__note">Recall is the classic injection vector: something written earlier gets replayed into a later prompt. <code>isTrustedMayaCaseRecallRecord()</code> gates every read on category, trust level, scope, ID shape and <code>status</code>, and rejects any record ID matching an unsafe pattern — <code>@</code>, <code>bearer</code>, <code>secret</code>, <code>token</code>, <code>sk-</code>, phone shapes.</p>
+          <p class="path">src/memory/session.ts</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Backends</p>
+          <p class="panel__note">Supabase/Postgres primary (<code>recoup_memory_records</code>, <code>REVOKE ALL</code> from <code>anon</code> and <code>authenticated</code>) · <code>node:sqlite</code> offline fallback, no native dependency · in-memory default. Memory is mutable current state; the hash-chained audit trail is the separate immutable record.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The two points to make</b> are schema-level PII rejection (validation, not sanitisation — the distinction matters) and treating the memory <i>read</i> path as an injection surface. Most teams guard the write and trust the read.</p>
+    <p>Memory is a visible page in the product at <code>/governance/memory</code>. Say that here — it's unusual, and it's in the demo.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 14 · RAG CITATION CONTRACT ══════════════ -->
+<section class="slide" id="s14" data-act="II · Memory">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — retrieval</p>
+    <h2 class="title title--wide r r--1">Semantic search is allowed to find evidence. It is not allowed to introduce it.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split r r--2">
+      <div class="panel">
+        <p class="panel__title">How the retrieval actually runs</p>
+        <p class="panel__note">An OpenAI vector store holds the POD, contract and promo dossiers. <code>buildEvidenceQuery()</code> composes a scoped query — <code>customer: … deduction: … scenario: … record: …</code> — and posts to <code>/v1/vector_stores/{id}/search</code>.</p>
+        <p class="panel__note">Then the interesting part. <code>mapSearchResults()</code> cross-checks every hit against a <strong>checked-in manifest</strong> and discards any result that doesn't match on all six of:</p>
+        <ul class="ticks ticks--sq">
+          <li><code>customer_id</code></li>
+          <li><code>scenario_type</code></li>
+          <li><code>source_table</code></li>
+          <li><code>record_id</code></li>
+          <li><code>documentType</code></li>
+          <li>the full record-ID set</li>
+        </ul>
+        <p class="path">src/adapters/openAiVectorStore.ts · config/openAiEvidenceVectorManifest.ts</p>
+      </div>
+      <div class="stack">
+        <div class="panel panel--govern">
+          <p class="panel__title">Why this matters more than retrieval quality</p>
+          <p class="panel__note">A hallucinated citation is worse than no citation, because it survives review. Pinning hits to a manifest means the failure mode of bad retrieval is <em class="q">we found nothing</em> rather than <em class="q">we cited something that doesn't exist</em>. Recall degrades; integrity doesn't.</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Retrieval is additive, never load-bearing</p>
+          <p class="panel__note">Vector search failures are caught per line and fall through to an empty set. The deterministic evidence path still produces the answer — semantic retrieval widens what the investigator can reach, it is never the thing the verdict rests on.</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Provisioned, versioned, verifiable</p>
+          <p class="panel__note">The seed-42 corpus is provisioned by script and validated by a readiness check, so the manifest and the store cannot silently drift apart.</p>
+          <p class="path">npm run provision:openai-evidence-vector-store</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Best single line of the session</b>, and worth delivering slowly: semantic search may find evidence, never introduce it. Most RAG discussions are about recall; this one is about integrity, and that's the conversation an audit function will care about.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 15 · GUARDRAILS ══════════════ -->
+<section class="slide" id="s15" data-act="II · Safety">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — guardrails</p>
+    <h2 class="title title--wide r r--1">Three tiers, because agent-level guards don't run where the risk is.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--3 r r--2">
+      <div class="panel">
+        <div class="panel__head"><p class="panel__title">Input</p><span class="chip">1 guard</span></div>
+        <p class="panel__note"><code>redactPiiForModelContext()</code> strips emails and phone numbers before anything reaches model context (I-14).</p>
+        <p class="path">src/guardrails/input/pii.ts</p>
+      </div>
+      <div class="panel panel--leak">
+        <div class="panel__head"><p class="panel__title">Tool</p><span class="chip">7 guards</span></div>
+        <p class="panel__note"><code>amountClamp</code> recovery ≤ computed delta · <code>evidencePack</code> no invalid/partial without documents · <code>explainability</code> no decision without cited basis · <code>intentEvidence</code> no gaming label without R-score components · <code>noWrongfulContainment</code> protects distressed-but-honest · <code>actionBoundary</code> · <code>actionProposal</code></p>
+      </div>
+      <div class="panel">
+        <div class="panel__head"><p class="panel__title">Output</p><span class="chip">1 guard</span></div>
+        <p class="panel__note"><code>assertFinalAgentOutput()</code> re-checks deduction, intent and containment decisions at the workflow edge.</p>
+        <p class="path">src/guardrails/output/final.ts</p>
+      </div>
+    </div>
+    <div class="cols cols--2 r r--3">
+      <div class="panel panel--govern">
+        <p class="panel__title">Why the middle tier exists at all</p>
+        <p class="panel__note">From the build protocol: <em class="q">agent-level input/output guardrails do not run at every handoff or agents-as-tools boundary.</em> Those gaps are exactly where a multi-agent system leaks. So: guard the tool, not the agent.</p>
+        <p class="path">AGENTS.md §2</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">Trips are typed, frozen and observable</p>
+        <p class="panel__note">Every guard throws a <code>GuardrailTripError</code> carrying a frozen <code>GuardrailTripEvent</code> naming which of the seven fired. Trip counts land in the FinOps run record, so "how often did guardrails fire this week" is a query, not an anecdote.</p>
+      </div>
+    </div>
+    <div class="panel panel--leak r r--4">
+      <p class="panel__title">And the bluntest control of all: the model's prose never reaches the user</p>
+      <p class="panel__note">In the live stream every <code>response.output_text.delta</code> is replaced with a fixed suppression string. What the analyst reads is assembled by code from cited records — the model drives the investigation, it does not narrate the finding.</p>
+      <p class="path">src/agents/liveForensicsStream.ts</p>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The last panel usually gets a reaction.</b> Suppressing model text outright is more aggressive than most teams would go, and it's a legitimate debate — invite it. The defence: in this domain the narrative adds risk without adding information, because everything true is already in the cited record.</p>
+    <p><code>noWrongfulContainment</code> is worth naming: Harbor Foods is distressed but honest, and the guard exists so the system can't punish financial stress as if it were fraud.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 16 · VERIFIED ORCHESTRATION ══════════════ -->
+<section class="slide" id="s16" data-act="II · Architecture">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — the pattern worth taking home</p>
+    <h2 class="title title--wide r r--1">Most agent systems trust the trace. This one audits it.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+      <div class="stack r r--2">
+        <p class="lede">The inversion: the deterministic answer is built <strong>first</strong>. The live agent run is not the source of the answer — it is a <strong>proof obligation</strong> the answer must discharge before it may be shown. When the trace can't prove itself, the answer is blocked.</p>
+        <ol class="steps">
+          <li>Build the deterministic answer from cited records. Can't build it → block.</li>
+          <li>Run the agent with a forced <code>toolChoice</code> and the evidence scope pinned in the request headers.</li>
+          <li>Inspect the trace for a successful MCP source-read proof. Missing → retry <strong>once</strong> with an explicit <code>validationRetryReason</code> injected, then merge the runs.</li>
+          <li>Assert a hook receipt showing the <code>Forensics Investigator → Recovery Drafter</code> handoff actually fired. Absent → block.</li>
+          <li>Return the deterministic answer, annotated with <code>modelExecution</code> metadata.</li>
+        </ol>
+        <p class="path">src/services/forensicsQuerySession.ts · creditRiskQuerySession.ts</p>
+      </div>
+      <div class="stack r r--3">
+        <div class="panel panel--govern">
+          <p class="panel__title">Failure is a named state, not a degraded answer</p>
+          <p class="panel__note"><code>live_openai_agents</code> · <code>blocked_live_agent_trace</code> · <code>blocked_missing_credentials</code>. There is no silent fallback to a worse answer — the surface tells you which one you got.</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Receipts are extracted off the wire</p>
+          <p class="panel__note"><code>registerRunHookAuditReceipts()</code> subscribes to all five SDK lifecycle hooks and pulls provenance out of the actual tool arguments and results — <code>toolInputSelectedLineId</code>, <code>toolOutputPrimarySourceSystem</code>, <code>toolOutputSapEvidenceRecordIds</code>, <code>toolOutputSourceFreshness</code>. Each receipt is Zod-validated and must cite at least one record.</p>
+          <p class="path">src/services/conductor.ts</p>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Run control fails closed</p>
+          <p class="panel__note"><code>maxTurns</code>, <code>retryCap</code> and per-phase token budgets are loaded from the database. Unset or invalid → the run is blocked and <code>/healthz</code> returns 503. There are no hard-coded defaults to quietly fall back to.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>If they remember one slide, make it this one.</b> The generalisable pattern for any regulated automation: compute the answer deterministically, run the agent for coverage and reach, then require the trace to prove specific things happened before the answer ships.</p>
+    <p>Step 4 is the sharp end — an assertion that a specific handoff fired. It means "the agent said it did the work" is never sufficient.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 17 · PRODUCTION SCORECARD ══════════════ -->
+<section class="slide" id="s17" data-act="II · Production">
+  <div class="stack">
+    <p class="kicker r r--1">Act II — production posture, honestly</p>
+    <h2 class="title title--wide r r--1">What's hardened, and what I'd fix first.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="score">
+      <div class="panel panel--govern r r--2">
+        <div class="panel__head"><p class="panel__title">Hardened</p><span class="chip chip--allow">evidence in-repo</span></div>
+        <ul class="ticks">
+          <li><strong>28 active invariants</strong> (I-1 … I-30, two retired), each naming its enforcement point and test</li>
+          <li><strong>172 test files</strong> — 51 invariant, 114 unit, 6 eval, 1 adapter, plus 8 Playwright journeys</li>
+          <li><code>decimal.js</code> money; JS <code>number</code> banned for currency by test</li>
+          <li>sha256 hash-chained audit, append-only, compare-and-swap on the tail hash</li>
+          <li>Port purity compiled in via dependency-cruiser</li>
+          <li>Zod at every boundary — tools, env, memory, receipts, read models</li>
+          <li>RLS enabled on all 39 tables, 39 policies, plus <code>REVOKE ALL</code> from <code>anon</code> / <code>authenticated</code></li>
+          <li>HITL with proposer ≠ approver, human principals only</li>
+          <li>Pinned models (I-25); no fine-tuned or ad-hoc model may be instantiated</li>
+          <li>Idempotent event IDs — <code>sha256(ruleId, sorted(recordIds), period)</code></li>
+          <li>Fail-closed on missing source: HTTP 503 with a <code>missingSource</code> label</li>
+          <li>Versioned prompt-cache keys per capability; per-agent reasoning effort</li>
+          <li>FinOps tables for tokens, cached tokens, eval gates and daily rollups</li>
+        </ul>
+      </div>
+      <div class="panel panel--leak r r--3">
+        <div class="panel__head"><p class="panel__title">Gaps I'd close first</p><span class="chip chip--gate">be ready for these</span></div>
+        <ul class="ticks ticks--leak">
+          <li><strong>No CI runs the tests.</strong> The only workflow is a 10-minute warm-up cron — <code>INVARIANTS.md</code> claims CI fails on a red invariant; it doesn't yet. Highest-value fix, and it's an afternoon.</li>
+          <li><strong>No timeouts</strong> on outbound Supabase, SAP, Resend or OpenAI calls. A hung upstream hangs the request.</li>
+          <li><strong>Rate limiting off by default</strong> — the cockpit limiter stays disabled unless two env vars are set, and neither appears in <code>.env.example</code>.</li>
+          <li><strong>Single-process state.</strong> Rate-limit buckets, the source-context cache and SSE subscriber sets all live in-process, so horizontal scaling breaks limiter accuracy and SSE fan-out.</li>
+          <li><strong>No OpenTelemetry or structured logging</strong> — correlation IDs and ~10 <code>console</code> calls. The audit chain is excellent; runtime observability is thin.</li>
+          <li><strong>Cost is measured but not priced</strong> — <code>costStatus</code> is hardcoded <code>pricing_not_configured_not_computed</code>.</li>
+          <li><strong>Single-tenant.</strong> No tenant ID anywhere; isolation is role and route based.</li>
+          <li><strong>No Dockerfile, no migration tooling</strong> — versioned SQL applied by hand, no rollback path.</li>
+          <li>Nonce is signed into the human-proxy header but never stored, so replay inside the 5-minute window is possible.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Do not soften this slide.</b> With this audience, volunteering the gap list buys more credibility than the hardened column does — and it pre-empts the sceptic who was going to find one of these anyway.</p>
+    <p>Framing: the governance spine is unusually mature and the operational plumbing is behind it. That's the opposite of the usual demo, where the plumbing is fine and the governance is a slide.</p>
+    <p>The README is already candid about deferred items — point at it if anyone doubts the self-assessment.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 18 · DEMO RUNNING ORDER ══════════════ -->
+<section class="slide" id="s18" data-act="III · Live demo">
+  <div class="stack">
+    <p class="kicker r r--1">Act III — live, against production</p>
+    <h2 class="title title--wide r r--1">Twenty-five minutes, three personas, one settlement run.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--split">
+      <div class="stack r r--2">
+        <div class="beat">
+          <div class="beat__t">00:00</div>
+          <div>
+            <p class="beat__who">Maya — deduction forensics</p>
+            <p class="beat__path">/forensics/shadcn → /run</p>
+            <p class="beat__do">Worklist → open <strong>S3 Crestline</strong>, the $21,300 shortage where the POD shows a full signed delivery → evidence dossier and cited record IDs → investigation timeline → live SSE agent stream with the tool status rail → copilot query <em class="q">"why is this invalid?"</em> → cited answer → approval gate → audit hash.</p>
+          </div>
+        </div>
+        <div class="beat">
+          <div class="beat__t">12:00</div>
+          <div>
+            <p class="beat__who">David — credit and containment</p>
+            <p class="beat__path">/credit → /credit/command</p>
+            <p class="beat__do">Harbor Foods, DSO drifting 32 → 51 days → six-criteria partial-hold score of <strong>51.25</strong> → band 40–60 → <strong>55% release: $352K ships, $288K back-orders</strong> on revised terms → negotiation workbench → draft-only terms packet → approval gate.</p>
+          </div>
+        </div>
+        <div class="beat">
+          <div class="beat__t">20:00</div>
+          <div>
+            <p class="beat__who">CFO — governance</p>
+            <p class="beat__path">/governance/agents → /memory → /trace → /evals-finops → /cfo</p>
+            <p class="beat__do">The handoff graph from slide 10, live. Then typed memory categories, the cited trace timeline, eval gates with token economics, and the executive readout.</p>
+          </div>
+        </div>
+      </div>
+      <div class="stack r r--3">
+        <div class="panel panel--govern">
+          <p class="panel__title">What to watch for</p>
+          <ul class="ticks">
+            <li>Every figure on screen traces to a record ID — including the ones from slide 5</li>
+            <li>Nothing dispatches. Every action stops at <code>pending_human</code></li>
+            <li>The trace shows tool calls and handoffs, not model prose</li>
+            <li><code>/governance/agents</code> renders the same edge list you saw on slide 10</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <p class="panel__title">Running against production</p>
+          <p class="panel__note">Cockpit on Vercel, API on Render, Supabase for governed config and memory, live OpenAI Agents SDK runs. Not a fixture harness — if a source is missing, you'll see a fail-closed 503 rather than a plausible number, and that is the correct behaviour to show.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>Before you switch to the browser:</b> API warmed, three windows already logged in as Maya / david / CFO, deck left on this slide so you can glance back at the running order.</p>
+    <p>If a route 503s, don't fight it — that <i>is</i> fail-closed behaviour under I-30 provenance honesty. Name it, then press <b>B</b> for the captured walkthrough.</p>
+    <p>Hard cut if you're behind: drop <code>/credit/command</code> and <code>/finops</code>. Never cut the approval gate or <code>/governance/trace</code> — they're the payoff for Act II.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ 19 · CLOSE ══════════════ -->
+<section class="slide" id="s19" data-act="Close">
+  <div class="stack">
+    <p class="kicker r r--1">Close — what to take back to your own builds</p>
+    <h2 class="title title--wide r r--1">Three patterns that transfer to any automation you'd trust with consequences.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--3 r r--2">
+      <div class="panel panel--govern">
+        <p class="panel__title">Code computes, the model decides</p>
+        <p class="panel__note">Split the work by consequence, not by capability. The model chooses what to look at and what to do next; deterministic code produces anything a human will act on. Then make that split a test, so it can't erode under delivery pressure.</p>
+      </div>
+      <div class="panel panel--govern">
+        <p class="panel__title">Tools are a permissioned registry, not a grab bag</p>
+        <p class="panel__note">Classify every tool by risk and side-effect class, derive exposure and permission from the classification, and route all calls through one parse-then-dispatch entry point. Adding a tool without a class should be a type error.</p>
+      </div>
+      <div class="panel panel--govern">
+        <p class="panel__title">Treat the trace as evidence, not narration</p>
+        <p class="panel__note">Don't ask whether the agent says it did the work. Assert that specific receipts exist — this handoff fired, this source was read — and block the output when they don't. A trace you never check is decoration.</p>
+      </div>
+    </div>
+    <div class="cols cols--2 r r--3">
+      <div class="panel">
+        <p class="panel__title">Where to read the code</p>
+        <ul class="ticks ticks--sq">
+          <li><code>INVARIANTS.md</code> — the contract, 30 entries, each with its test</li>
+          <li><code>src/services/serviceLayer.ts</code> — the tool registry</li>
+          <li><code>src/services/forensicsQuerySession.ts</code> — verified orchestration</li>
+          <li><code>src/agents/handoffGraph.ts</code> — the executable topology</li>
+          <li><code>src/memory/schema.ts</code> — typed memory and PII rejection</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <p class="panel__title">Open questions worth your input</p>
+        <ul class="ticks ticks--leak">
+          <li>Is suppressing model prose entirely the right call, or over-correction?</li>
+          <li>What would you require before pointing this at a live SAP write path — if ever?</li>
+          <li>Where would multi-tenancy have to land in this design?</li>
+        </ul>
+      </div>
+    </div>
+    <p class="lede r r--4">Questions.</p>
+  </div>
+  <aside class="notes">
+    <p><b>Open the floor with the middle question</b> if the room is quiet — "what would you need before you'd allow a write path" gets architects talking, and their answers are genuinely useful to the roadmap.</p>
+  </aside>
+</section>
+
+<!-- ══════════════ BACKUP ══════════════ -->
+<section class="slide backup" id="backup" data-act="Backup">
+  <div class="stack">
+    <p class="kicker r r--1">Backup — if the live demo can't reach a source</p>
+    <h2 class="title title--wide r r--1">Captured walkthrough and the route inventory.</h2>
+  </div>
+  <div class="slide__body">
+    <div class="cols cols--2 r r--2">
+      <div class="panel">
+        <p class="panel__title">Captured screenshots of every route</p>
+        <p class="panel__note">Full walkthroughs were captured during the real-evidence cutover audit. Open the folder locally and narrate the same click path.</p>
+        <p class="path">docs/audit/real-evidence-baseline/2026-07-01/screenshots/</p>
+        <p class="path">docs/audit/real-evidence-preview/2026-07-02-430565d/</p>
+      </div>
+      <div class="panel">
+        <p class="panel__title">If the API is cold rather than broken</p>
+        <p class="panel__note">Render spins down on idle. Hit <code>/healthz</code>, wait for 200, and reload. Two 10-minute crons exist to prevent this, but warm it manually before the session anyway.</p>
+        <p class="path">render.yaml · .github/workflows/warm-recoup-backend.yml</p>
+      </div>
+    </div>
+    <div class="scroll-x r r--3">
+      <table class="tbl">
+        <thead><tr><th>Route</th><th>Persona</th><th>What it shows</th></tr></thead>
+        <tbody>
+          <tr><td><code>/forensics/shadcn</code></td><td>Maya</td><td>Primary worklist and evidence dossier</td></tr>
+          <tr><td><code>/forensics</code></td><td>Maya</td><td>Classic forensics surface</td></tr>
+          <tr><td><code>/run</code></td><td>Maya</td><td>Live SSE agent run, trace visualiser, voice/text copilot</td></tr>
+          <tr><td><code>/credit</code></td><td>David</td><td>Risk Mesh, Sentinel, partial-hold scoring</td></tr>
+          <tr><td><code>/credit/command</code></td><td>David</td><td>Dark command centre — the only dark-mode surface</td></tr>
+          <tr><td><code>/governance/agents</code></td><td>CFO</td><td>Agent roster and handoff graph</td></tr>
+          <tr><td><code>/governance/memory</code></td><td>CFO</td><td>Typed memory categories</td></tr>
+          <tr><td><code>/governance/trace</code></td><td>CFO</td><td>Cited trace timeline</td></tr>
+          <tr><td><code>/governance/connectors</code></td><td>CFO</td><td>Source readiness and health</td></tr>
+          <tr><td><code>/governance/evals-finops</code></td><td>CFO</td><td>Eval gates and agent economics</td></tr>
+          <tr><td><code>/cfo</code></td><td>CFO</td><td>Executive readout</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="path r r--4">Route access is enforced per persona in config/cockpitDemoProfiles.ts — three sessions are needed to cover all of the above.</p>
+  </div>
+  <aside class="notes">
+    <p>Reachable at any time with <b>B</b>. Press <b>Home</b> or scroll back up to return to the deck.</p>
+  </aside>
+</section>
+
+</main>
+
+<div class="hud">
+  <span class="hud__act" id="hudAct">Open</span>
+  <span id="hudNum">1 / 20</span>
+  <button type="button" id="btnNotes" aria-pressed="false" title="Toggle speaker notes (S)">notes</button>
+  <button type="button" id="btnTheme" title="Toggle light/dark (T)">theme</button>
+</div>
+
+<script>
+(function () {
+  var deck   = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+  var fill   = document.getElementById('railFill');
+  var hudNum = document.getElementById('hudNum');
+  var hudAct = document.getElementById('hudAct');
+  var root   = document.documentElement;
+  var current = 0;
+
+  // Reveal + chrome update as each slide comes into view.
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('is-live');
+      current = slides.indexOf(e.target);
+      hudNum.textContent = (current + 1) + ' / ' + slides.length;
+      hudAct.textContent = e.target.getAttribute('data-act') || '';
+      fill.style.width = ((current + 1) / slides.length * 100) + '%';
+    });
+  }, { root: deck, threshold: 0.55 });
+  slides.forEach(function (s) { io.observe(s); });
+
+  function go(i) {
+    var n = Math.max(0, Math.min(slides.length - 1, i));
+    slides[n].scrollIntoView({ block: 'start' });
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    var t = ev.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+
+    switch (ev.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ':
+        ev.preventDefault(); go(current + 1); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+        ev.preventDefault(); go(current - 1); break;
+      case 'Home': ev.preventDefault(); go(0); break;
+      case 'End':  ev.preventDefault(); go(slides.length - 1); break;
+      case 's': case 'S': toggleNotes(); break;
+      case 't': case 'T': toggleTheme(); break;
+      case 'b': case 'B':
+        ev.preventDefault();
+        document.getElementById('backup').scrollIntoView({ block: 'start' });
+        break;
+    }
+  });
+
+  function toggleNotes() {
+    var on = deck.classList.toggle('show-notes');
+    document.getElementById('btnNotes').setAttribute('aria-pressed', String(on));
+  }
+  function toggleTheme() {
+    var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var now  = root.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+    root.setAttribute('data-theme', now === 'dark' ? 'light' : 'dark');
+  }
+  document.getElementById('btnNotes').addEventListener('click', toggleNotes);
+  document.getElementById('btnTheme').addEventListener('click', toggleTheme);
+
+  // ?print — flat, all-slides, notes visible, for handout or PDF export.
+  var isPrint = window.location.search.indexOf('print') !== -1;
+  if (isPrint) {
+    deck.classList.add('is-flat', 'show-notes');
+    slides.forEach(function (s) { s.classList.add('is-live'); });
+  }
+
+  // #s7 deep-links to a slide. The deck is its own scroll container, so the
+  // browser's native hash scroll doesn't reach it — do it here.
+  function jumpToHash() {
+    var id = window.location.hash.slice(1);
+    if (!id) return false;
+    var target = document.getElementById(id);
+    if (!target || slides.indexOf(target) === -1) return false;
+    slides.forEach(function (s) { s.classList.add('is-live'); });
+    target.scrollIntoView({ block: 'start', behavior: 'auto' });
+    return true;
+  }
+  window.addEventListener('hashchange', jumpToHash);
+
+  deck.focus({ preventScroll: true });
+  if (!isPrint) jumpToHash();
+}());
+</script>
