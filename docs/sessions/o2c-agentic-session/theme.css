@@ -7,90 +7,121 @@
    ========================================================================== */
 
 :root {
-  --ink:       #18181B;
-  --ink-2:     #52525B;
-  --ink-3:     #71717A;
-  --canvas:    #FAFAFA;
+  /* --- HCLTech core palette ------------------------------------------------
+     Purple and blue only, per the brand system. Teals, greens, yellows and
+     corals are off-palette and are not used, including for status. Semantic
+     distinctions are carried by weight, fill and label rather than by hue. */
+  --hcl-purple:      #5F1EBE;
+  --hcl-purple-deep: #411482;
+  --hcl-purple-lt:   #8C69F0;
+  --hcl-purple-pale: #B9C8FF;
+  --hcl-blue:        #0F5FDC;
+  --hcl-blue-lt:     #3C91FF;
+  --hcl-blue-pale:   #8CC8FA;
+  --hcl-blue-wash:   #DCE6F0;
+  --hcl-grey:        #8291A0;
+  --hcl-grey-pale:   #E6EBF5;
+
+  --ink:       #14161C;
+  --ink-2:     #4A5563;
+  --ink-3:     var(--hcl-grey);
+  --canvas:    #FFFFFF;
   --surface:   #FFFFFF;
-  --subtle:    #F4F4F5;
-  --line:      #D4D4D8;
-  --line-soft: #E4E4E7;
+  --subtle:    #F5F7FC;
+  --line:      var(--hcl-blue-wash);
+  --line-soft: var(--hcl-grey-pale);
 
-  --leak:    #C2410C;   /* risk, leakage, external consequence */
-  --govern:  #0c6e6b;   /* governed, deterministic, verified */
-  --ok:      #166534;
-  --bad:     #991B1B;
-  --dispute: #7C3AED;
-  --focus:   #2563EB;
+  /* Role tokens the diagrams and components read through */
+  --govern:  var(--hcl-blue);         /* governed, deterministic, verified */
+  --leak:    var(--hcl-purple);       /* risk, attention, consequence */
+  --ok:      var(--hcl-blue);
+  --bad:     var(--hcl-purple-deep);
+  --dispute: var(--hcl-purple-lt);
+  --focus:   var(--hcl-blue-lt);
 
-  --serif: Georgia, "Newsreader", "Iowan Old Style", serif;
-  --sans:  system-ui, -apple-system, "IBM Plex Sans", "Segoe UI", sans-serif;
-  --mono:  ui-monospace, "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --grad-brand: linear-gradient(115deg, var(--hcl-purple) 0%, var(--hcl-blue) 100%);
+  --grad-soft:  linear-gradient(115deg, rgba(95,30,190,0.10) 0%, rgba(15,95,220,0.10) 100%);
+
+  /* Aptos is the brand face. It ships with current Office, so it resolves on
+     most presenting machines; the stack degrades cleanly where it does not. */
+  --sans: Aptos, "Aptos Display", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: var(--sans);
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, monospace;
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
-    --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
-    --line: #3F3F46; --line-soft: #27272A;
-    --leak: #FB923C; --govern: #5EEAD4;
-    --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+    --ink: #F2F4F9; --ink-2: #C3CBD8; --ink-3: #97A3B4;
+    --canvas: #0B0D14; --surface: #16192440; --subtle: #1A1E2B;
+    --line: #2E3444; --line-soft: #232838;
+    --govern: var(--hcl-blue-lt); --leak: var(--hcl-purple-lt);
+    --ok: var(--hcl-blue-pale); --bad: var(--hcl-purple-lt);
+    --dispute: var(--hcl-purple-pale); --focus: var(--hcl-blue-lt);
+    --surface: #161924;
   }
 }
 :root[data-theme="dark"] {
-  --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
-  --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
-  --line: #3F3F46; --line-soft: #27272A;
-  --leak: #FB923C; --govern: #5EEAD4;
-  --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+  --ink: #F2F4F9; --ink-2: #C3CBD8; --ink-3: #97A3B4;
+  --canvas: #0B0D14; --surface: #161924; --subtle: #1A1E2B;
+  --line: #2E3444; --line-soft: #232838;
+  --govern: var(--hcl-blue-lt); --leak: var(--hcl-purple-lt);
+  --ok: var(--hcl-blue-pale); --bad: var(--hcl-purple-lt);
+  --dispute: var(--hcl-purple-pale); --focus: var(--hcl-blue-lt);
 }
 :root[data-theme="light"] {
-  --ink: #18181B; --ink-2: #52525B; --ink-3: #71717A;
-  --canvas: #FAFAFA; --surface: #FFFFFF; --subtle: #F4F4F5;
-  --line: #D4D4D8; --line-soft: #E4E4E7;
-  --leak: #C2410C; --govern: #0c6e6b;
-  --ok: #166534; --bad: #991B1B; --dispute: #7C3AED; --focus: #2563EB;
+  --ink: #14161C; --ink-2: #4A5563; --ink-3: var(--hcl-grey);
+  --canvas: #FFFFFF; --surface: #FFFFFF; --subtle: #F5F7FC;
+  --line: var(--hcl-blue-wash); --line-soft: var(--hcl-grey-pale);
+  --govern: var(--hcl-blue); --leak: var(--hcl-purple);
+  --ok: var(--hcl-blue); --bad: var(--hcl-purple-deep);
+  --dispute: var(--hcl-purple-lt); --focus: var(--hcl-blue-lt);
 }
 
-/* --- Reveal shell ---------------------------------------------------------
-   The artifact wrapper owns <html>/<body>, so the deck pins its own height
-   rather than inheriting a percentage chain that may not exist. */
+/* --- Reveal shell --------------------------------------------------------- */
 html, body { margin: 0; padding: 0; background: var(--canvas); }
 .reveal { height: 100vh; font-family: var(--sans); color: var(--ink); font-weight: 400; }
 .reveal .slides { text-align: left; }
 .reveal .slides section { padding: 0; height: 100%; }
-.reveal ::selection { background: var(--govern); color: var(--canvas); }
+.reveal ::selection { background: var(--hcl-purple); color: #fff; }
 .reveal :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* A brand gradient hairline anchors every slide without a decorative bar. */
+.reveal .slides section::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; background: var(--grad-brand); opacity: 0.9;
+}
 
 /* --- Type ----------------------------------------------------------------- */
 .reveal h1, .reveal h2, .reveal h3 {
-  font-family: var(--serif); font-weight: 400; color: var(--ink);
-  text-transform: none; letter-spacing: -0.015em; line-height: 1.08;
+  font-family: var(--sans); font-weight: 700; color: var(--ink);
+  text-transform: none; letter-spacing: -0.018em; line-height: 1.12;
   margin: 0; text-wrap: balance; text-shadow: none;
 }
-.reveal h1 { font-size: 2.6em; letter-spacing: -0.03em; }
-.reveal h2 { font-size: 1.55em; max-width: 34ch; }
-.reveal h3 { font-size: 1.05em; font-family: var(--sans); font-weight: 650; }
+.reveal h1 { font-size: 2.6em; letter-spacing: -0.035em; font-weight: 700; }
+.reveal h2 { font-size: 1.42em; max-width: 34ch; }
+.reveal h3 { font-size: 1.05em; font-weight: 700; }
 .reveal p  { margin: 0; line-height: 1.5; }
-.reveal strong { font-weight: 650; color: var(--ink); }
+.reveal strong, .reveal b { font-weight: 700; color: var(--ink); }
 .reveal em { font-style: italic; }
 .reveal code { font-family: var(--mono); font-size: 0.92em; }
-.reveal a { color: var(--govern); }
+.reveal a { color: var(--hcl-blue); }
 
-.eyebrow {
-  font-family: var(--serif); font-style: italic;
-  font-size: 0.62em; color: var(--ink-3); margin: 0;
+.gradient-text {
+  background: var(--grad-brand);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+
+.eyebrow { font-size: 0.6em; color: var(--ink-3); margin: 0; letter-spacing: 0.01em; }
 .kicker {
-  font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.09em;
-  color: var(--ink-3); font-weight: 600; margin: 0;
+  font-size: 0.48em; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--hcl-purple); font-weight: 700; margin: 0;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
-.lede { font-size: 0.72em; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
-.tiny { font-size: 0.56em; color: var(--ink-3); }
-.q { font-family: var(--serif); font-style: italic; color: var(--ink); }
+.lede { font-size: 0.7em; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.tiny { font-size: 0.54em; color: var(--ink-3); }
+.q { font-style: italic; color: var(--ink); }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* --- Slide scaffold ------------------------------------------------------- */
@@ -170,7 +201,7 @@ html, body { margin: 0; padding: 0; background: var(--canvas); }
 /* --- Seven-layer architecture map ----------------------------------------- */
 .stack7 { display: flex; flex-direction: column; gap: 6px; }
 .layer {
-  display: grid; grid-template-columns: 3.2em minmax(0, 15em) minmax(0, 1fr) auto;
+  display: grid; grid-template-columns: 2.6em minmax(0, 12.5em) minmax(0, 1fr) auto;
   align-items: center; gap: 0 19px;
   border: 1px solid var(--line-soft); border-left: 3px solid var(--line);
   border-radius: 6px; background: var(--surface); padding: 10px 16px;
@@ -179,7 +210,7 @@ html, body { margin: 0; padding: 0; background: var(--canvas); }
 }
 .layer__n    { font-family: var(--mono); font-size: 0.55em; color: var(--ink-3); }
 .layer__name { font-size: 0.66em; font-weight: 650; }
-.layer__role { font-size: 0.56em; color: var(--ink-2); }
+.layer__role { font-size: 0.53em; color: var(--ink-2); }
 .layer--l1 { border-left-color: var(--ink-3); }
 .layer--l2 { border-left-color: var(--dispute); }
 .layer--l3 { border-left-color: var(--dispute); }
@@ -270,4 +301,198 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
 @media (prefers-reduced-motion: reduce) {
   .reveal .slides section { transition: none !important; }
   .layer { transition: none !important; }
+}
+
+/* --- Diagrams ported from the previous deck -------------------------------
+   Reveal marks the current slide .present; that is what starts the motion.
+   The stage is a fixed 1600x900 space, so the original px sizes carry over. */
+/* value-chain animation */
+.vc-flow { stroke-dasharray: 26 34; stroke-dashoffset: 240; }
+.reveal .present .vc-flow { animation: vc-run 2.4s linear 300ms infinite; }
+@keyframes vc-run { to { stroke-dashoffset: 0; } }
+.vc-leak { stroke-dasharray: 130; stroke-dashoffset: 130; transition: stroke-dashoffset 900ms var(--ease); }
+.reveal .present .vc-leak { stroke-dashoffset: 0; }
+.reveal .present .vc-leak--b { transition-delay: 200ms; }
+.reveal .present .vc-leak--c { transition-delay: 400ms; }
+.vc-pool { opacity: 0; transition: opacity 600ms var(--ease) 900ms; }
+.reveal .present .vc-pool { opacity: 1; }
+.vc-node { fill: var(--surface); stroke: var(--line); stroke-width: 2; }
+.vc-node--key { stroke: var(--leak); stroke-width: 3.5; }
+.vc-label { font-family: var(--sans); font-size: 15px; fill: var(--ink-2); }
+.vc-label--key { fill: var(--ink); font-weight: 650; }
+.vc-amt { font-family: var(--mono); font-size: 14px; fill: var(--leak); }
+
+/* sankey */
+.sk-wipe { transform: scaleX(0); transform-origin: left center; transition: transform 1100ms var(--ease) 200ms; }
+.reveal .present .sk-wipe { transform: scaleX(1); }
+.sk-label { font-family: var(--mono); font-size: 30px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.sk-sub { font-family: var(--sans); font-size: 19px; fill: var(--ink-3); }
+
+/* handoff graph */
+.hg-node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; rx: 6; }
+.hg-node--hero { stroke: var(--govern); stroke-width: 2.5; }
+.hg-text { font-family: var(--sans); font-size: 14px; fill: var(--ink); font-weight: 600; }
+.hg-edge { fill: none; stroke-width: 2; stroke-dasharray: 620; stroke-dashoffset: 620; transition: stroke-dashoffset 850ms var(--ease); }
+.reveal .present .hg-edge--1 { stroke-dashoffset: 0; transition-delay: 200ms; }
+.reveal .present .hg-edge--2 { stroke-dashoffset: 0; transition-delay: 400ms; }
+.reveal .present .hg-edge--3 { stroke-dashoffset: 0; transition-delay: 600ms; }
+.reveal .present .hg-edge--4 { stroke-dashoffset: 0; transition-delay: 780ms; }
+.reveal .present .hg-edge--5 { stroke-dashoffset: 0; transition-delay: 960ms; }
+.hg-tag { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-3); }
+
+.figure { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.figure svg { width:100%; height:auto; display:block; overflow:visible; }
+.figure--cap { max-width:1180px; align-self:center; width:100%; }
+.figure--tight { max-width:980px; align-self:center; }
+.figure--graph { max-width:660px; }
+.figure__cap { font-size:0.5em; color:var(--ink-3); margin:0; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 20px; font-size:0.5em; color:var(--ink-2); }
+.legend span { display:inline-flex; align-items:center; gap:7px; }
+.legend i { width:18px; height:0; border-top-width:2px; border-top-style:solid; display:inline-block; }
+
+/* ============================================================================
+   Motion - every slide has an entrance
+   Inverted on purpose: the resting state is VISIBLE, and only off-screen
+   slides (.past / .future, which Reveal already display:none) are pre-staged
+   at zero. Entering a slide removes that class and the element transitions in.
+   The reason for the inversion is failure behaviour - if a transition never
+   runs, content is simply visible. The obvious construction (hide by default,
+   reveal on .present) leaves a blank slide in front of an audience whenever
+   the transition does not fire.
+   Fragments are excluded; Reveal owns their opacity.
+   ========================================================================== */
+.reveal .slides section .wrap > *,
+.reveal .slides section .wrap > .body > *:not(.fragment),
+.reveal .slides section .grid > *,
+.reveal .slides section .stack7 .layer,
+.reveal .slides section .journey .step,
+.reveal .slides section .tbl tbody tr {
+  opacity: 1;
+  transform: none;
+  transition: opacity 460ms var(--ease), transform 460ms var(--ease);
+}
+
+.reveal .slides section.past .wrap > *,
+.reveal .slides section.future .wrap > *,
+.reveal .slides section.past .wrap > .body > *:not(.fragment),
+.reveal .slides section.future .wrap > .body > *:not(.fragment),
+.reveal .slides section.past .grid > *,
+.reveal .slides section.future .grid > *,
+.reveal .slides section.past .stack7 .layer,
+.reveal .slides section.future .stack7 .layer,
+.reveal .slides section.past .journey .step,
+.reveal .slides section.future .journey .step {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.reveal .slides section.past .tbl tbody tr,
+.reveal .slides section.future .tbl tbody tr { opacity: 0; }
+
+/* Stagger applies as the slide becomes present. */
+.reveal .present .wrap > *:nth-child(1) { transition-delay: 30ms; }
+.reveal .present .wrap > *:nth-child(2) { transition-delay: 90ms; }
+.reveal .present .wrap > .body > *:nth-child(1) { transition-delay: 150ms; }
+.reveal .present .wrap > .body > *:nth-child(2) { transition-delay: 215ms; }
+.reveal .present .wrap > .body > *:nth-child(3) { transition-delay: 280ms; }
+.reveal .present .wrap > .body > *:nth-child(4) { transition-delay: 345ms; }
+.reveal .present .wrap > .body > *:nth-child(5) { transition-delay: 410ms; }
+
+.reveal .present .grid > *:nth-child(1) { transition-delay: 210ms; }
+.reveal .present .grid > *:nth-child(2) { transition-delay: 265ms; }
+.reveal .present .grid > *:nth-child(3) { transition-delay: 320ms; }
+.reveal .present .grid > *:nth-child(4) { transition-delay: 375ms; }
+.reveal .present .grid > *:nth-child(5) { transition-delay: 430ms; }
+.reveal .present .grid > *:nth-child(6) { transition-delay: 485ms; }
+.reveal .present .grid > *:nth-child(7) { transition-delay: 540ms; }
+
+/* The map builds from the sources upward - the direction evidence travels. */
+.reveal .present .stack7 .layer:nth-child(7) { transition-delay: 180ms; }
+.reveal .present .stack7 .layer:nth-child(6) { transition-delay: 250ms; }
+.reveal .present .stack7 .layer:nth-child(5) { transition-delay: 320ms; }
+.reveal .present .stack7 .layer:nth-child(4) { transition-delay: 390ms; }
+.reveal .present .stack7 .layer:nth-child(3) { transition-delay: 460ms; }
+.reveal .present .stack7 .layer:nth-child(2) { transition-delay: 530ms; }
+.reveal .present .stack7 .layer:nth-child(1) { transition-delay: 600ms; }
+
+.reveal .present .tbl tbody tr:nth-child(1) { transition-delay: 240ms; }
+.reveal .present .tbl tbody tr:nth-child(2) { transition-delay: 285ms; }
+.reveal .present .tbl tbody tr:nth-child(3) { transition-delay: 330ms; }
+.reveal .present .tbl tbody tr:nth-child(4) { transition-delay: 375ms; }
+.reveal .present .tbl tbody tr:nth-child(5) { transition-delay: 420ms; }
+.reveal .present .tbl tbody tr:nth-child(6) { transition-delay: 465ms; }
+.reveal .present .tbl tbody tr:nth-child(7) { transition-delay: 510ms; }
+.reveal .present .tbl tbody tr:nth-child(8) { transition-delay: 555ms; }
+
+/* ============================================================================
+   Gradient accents - used where they carry meaning, not as decoration
+   ========================================================================== */
+.reveal .progress { background: var(--line-soft); height: 4px; }
+.reveal .progress span { background: var(--grad-brand); }
+
+/* The brand mark on the opening slide */
+.hero-rule {
+  height: 5px; width: 132px; border: 0; border-radius: 99px; margin: 0;
+  background: var(--grad-brand);
+  transform-origin: left center;
+}
+.hero-rule { transform: scaleX(1); transition: transform 620ms var(--ease) 180ms; }
+.reveal .future .hero-rule, .reveal .past .hero-rule { transform: scaleX(0); }
+
+/* The canonical contract is the one structural boundary in the deck, so it is
+   the one element that carries the full gradient. */
+.contract {
+  border: 0; border-radius: 10px; padding: 3px;
+  background: var(--grad-brand);
+}
+.contract > .contract__in {
+  background: var(--surface); border-radius: 8px; padding: 15px 19px; text-align: center;
+}
+.contract h3 { font-size: 0.66em; color: var(--hcl-purple); }
+.contract p  { font-size: 0.52em; color: var(--ink-2); }
+
+/* Layer accents run purple at the top of the stack to blue at the source end,
+   so the map reads as one system rather than seven unrelated bands. */
+.layer--l1 { border-left-color: var(--hcl-purple); }
+.layer--l2 { border-left-color: #6E2FC6; }
+.layer--l3 { border-left-color: #7C40CE; }
+.layer--l4 { border-left-color: #5A56D6; }
+.layer--l5 { border-left-color: #386CDE; }
+.layer--l6 { border-left-color: var(--hcl-blue); }
+.layer--l7 { border-left-color: var(--hcl-blue-lt); }
+.layer.is-on { background: var(--grad-soft); }
+
+.panel--govern { border-color: var(--hcl-blue); }
+.panel--leak   { border-color: var(--hcl-purple); }
+.srcbox--live  { border-color: var(--hcl-blue); }
+.srcbox--synth { border-color: var(--hcl-purple-lt); }
+.caseid { border-color: var(--hcl-purple); }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal .present .wrap > *,
+  .reveal .present .wrap > .body > *,
+  .reveal .present .grid > *,
+  .reveal .present .stack7 .layer,
+  .reveal .present .tbl tbody tr,
+  .reveal .present .journey .step,
+  .reveal .present .hero-rule {
+    animation: none !important; opacity: 1 !important; transform: none !important;
+  }
+}
+html.print-pdf .wrap > *, html.print-pdf .grid > *, html.print-pdf .layer,
+html.print-pdf .tbl tbody tr, html.print-pdf .step {
+  animation: none !important; opacity: 1 !important; transform: none !important;
+}
+
+/* Safety net. If a slide is shown by any path that does not set .present -
+   export, overview, a future Reveal change - content must still be visible. */
+html.print-pdf .wrap > *, html.print-pdf .wrap > .body > *,
+html.print-pdf .grid > *, html.print-pdf .layer,
+html.print-pdf .tbl tbody tr, html.print-pdf .step,
+html.reveal-print .wrap > *, html.reveal-print .wrap > .body > *,
+html.reveal-print .grid > *, html.reveal-print .layer,
+html.reveal-print .tbl tbody tr, html.reveal-print .step,
+.reveal.overview .wrap > *, .reveal.overview .wrap > .body > *,
+.reveal.overview .grid > *, .reveal.overview .layer,
+.reveal.overview .tbl tbody tr, .reveal.overview .step {
+  opacity: 1 !important; transform: none !important; transition: none !important;
 }

@@ -14,90 +14,121 @@ html,body,div,span,applet,object,iframe,h1,h2,h3,h4,h5,h6,p,blockquote,pre,a,abb
    ========================================================================== */
 
 :root {
-  --ink:       #18181B;
-  --ink-2:     #52525B;
-  --ink-3:     #71717A;
-  --canvas:    #FAFAFA;
+  /* --- HCLTech core palette ------------------------------------------------
+     Purple and blue only, per the brand system. Teals, greens, yellows and
+     corals are off-palette and are not used, including for status. Semantic
+     distinctions are carried by weight, fill and label rather than by hue. */
+  --hcl-purple:      #5F1EBE;
+  --hcl-purple-deep: #411482;
+  --hcl-purple-lt:   #8C69F0;
+  --hcl-purple-pale: #B9C8FF;
+  --hcl-blue:        #0F5FDC;
+  --hcl-blue-lt:     #3C91FF;
+  --hcl-blue-pale:   #8CC8FA;
+  --hcl-blue-wash:   #DCE6F0;
+  --hcl-grey:        #8291A0;
+  --hcl-grey-pale:   #E6EBF5;
+
+  --ink:       #14161C;
+  --ink-2:     #4A5563;
+  --ink-3:     var(--hcl-grey);
+  --canvas:    #FFFFFF;
   --surface:   #FFFFFF;
-  --subtle:    #F4F4F5;
-  --line:      #D4D4D8;
-  --line-soft: #E4E4E7;
+  --subtle:    #F5F7FC;
+  --line:      var(--hcl-blue-wash);
+  --line-soft: var(--hcl-grey-pale);
 
-  --leak:    #C2410C;   /* risk, leakage, external consequence */
-  --govern:  #0c6e6b;   /* governed, deterministic, verified */
-  --ok:      #166534;
-  --bad:     #991B1B;
-  --dispute: #7C3AED;
-  --focus:   #2563EB;
+  /* Role tokens the diagrams and components read through */
+  --govern:  var(--hcl-blue);         /* governed, deterministic, verified */
+  --leak:    var(--hcl-purple);       /* risk, attention, consequence */
+  --ok:      var(--hcl-blue);
+  --bad:     var(--hcl-purple-deep);
+  --dispute: var(--hcl-purple-lt);
+  --focus:   var(--hcl-blue-lt);
 
-  --serif: Georgia, "Newsreader", "Iowan Old Style", serif;
-  --sans:  system-ui, -apple-system, "IBM Plex Sans", "Segoe UI", sans-serif;
-  --mono:  ui-monospace, "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --grad-brand: linear-gradient(115deg, var(--hcl-purple) 0%, var(--hcl-blue) 100%);
+  --grad-soft:  linear-gradient(115deg, rgba(95,30,190,0.10) 0%, rgba(15,95,220,0.10) 100%);
+
+  /* Aptos is the brand face. It ships with current Office, so it resolves on
+     most presenting machines; the stack degrades cleanly where it does not. */
+  --sans: Aptos, "Aptos Display", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: var(--sans);
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, monospace;
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
-    --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
-    --line: #3F3F46; --line-soft: #27272A;
-    --leak: #FB923C; --govern: #5EEAD4;
-    --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+    --ink: #F2F4F9; --ink-2: #C3CBD8; --ink-3: #97A3B4;
+    --canvas: #0B0D14; --surface: #16192440; --subtle: #1A1E2B;
+    --line: #2E3444; --line-soft: #232838;
+    --govern: var(--hcl-blue-lt); --leak: var(--hcl-purple-lt);
+    --ok: var(--hcl-blue-pale); --bad: var(--hcl-purple-lt);
+    --dispute: var(--hcl-purple-pale); --focus: var(--hcl-blue-lt);
+    --surface: #161924;
   }
 }
 :root[data-theme="dark"] {
-  --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
-  --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
-  --line: #3F3F46; --line-soft: #27272A;
-  --leak: #FB923C; --govern: #5EEAD4;
-  --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+  --ink: #F2F4F9; --ink-2: #C3CBD8; --ink-3: #97A3B4;
+  --canvas: #0B0D14; --surface: #161924; --subtle: #1A1E2B;
+  --line: #2E3444; --line-soft: #232838;
+  --govern: var(--hcl-blue-lt); --leak: var(--hcl-purple-lt);
+  --ok: var(--hcl-blue-pale); --bad: var(--hcl-purple-lt);
+  --dispute: var(--hcl-purple-pale); --focus: var(--hcl-blue-lt);
 }
 :root[data-theme="light"] {
-  --ink: #18181B; --ink-2: #52525B; --ink-3: #71717A;
-  --canvas: #FAFAFA; --surface: #FFFFFF; --subtle: #F4F4F5;
-  --line: #D4D4D8; --line-soft: #E4E4E7;
-  --leak: #C2410C; --govern: #0c6e6b;
-  --ok: #166534; --bad: #991B1B; --dispute: #7C3AED; --focus: #2563EB;
+  --ink: #14161C; --ink-2: #4A5563; --ink-3: var(--hcl-grey);
+  --canvas: #FFFFFF; --surface: #FFFFFF; --subtle: #F5F7FC;
+  --line: var(--hcl-blue-wash); --line-soft: var(--hcl-grey-pale);
+  --govern: var(--hcl-blue); --leak: var(--hcl-purple);
+  --ok: var(--hcl-blue); --bad: var(--hcl-purple-deep);
+  --dispute: var(--hcl-purple-lt); --focus: var(--hcl-blue-lt);
 }
 
-/* --- Reveal shell ---------------------------------------------------------
-   The artifact wrapper owns <html>/<body>, so the deck pins its own height
-   rather than inheriting a percentage chain that may not exist. */
+/* --- Reveal shell --------------------------------------------------------- */
 html, body { margin: 0; padding: 0; background: var(--canvas); }
 .reveal { height: 100vh; font-family: var(--sans); color: var(--ink); font-weight: 400; }
 .reveal .slides { text-align: left; }
 .reveal .slides section { padding: 0; height: 100%; }
-.reveal ::selection { background: var(--govern); color: var(--canvas); }
+.reveal ::selection { background: var(--hcl-purple); color: #fff; }
 .reveal :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* A brand gradient hairline anchors every slide without a decorative bar. */
+.reveal .slides section::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px; background: var(--grad-brand); opacity: 0.9;
+}
 
 /* --- Type ----------------------------------------------------------------- */
 .reveal h1, .reveal h2, .reveal h3 {
-  font-family: var(--serif); font-weight: 400; color: var(--ink);
-  text-transform: none; letter-spacing: -0.015em; line-height: 1.08;
+  font-family: var(--sans); font-weight: 700; color: var(--ink);
+  text-transform: none; letter-spacing: -0.018em; line-height: 1.12;
   margin: 0; text-wrap: balance; text-shadow: none;
 }
-.reveal h1 { font-size: 2.6em; letter-spacing: -0.03em; }
-.reveal h2 { font-size: 1.55em; max-width: 34ch; }
-.reveal h3 { font-size: 1.05em; font-family: var(--sans); font-weight: 650; }
+.reveal h1 { font-size: 2.6em; letter-spacing: -0.035em; font-weight: 700; }
+.reveal h2 { font-size: 1.42em; max-width: 34ch; }
+.reveal h3 { font-size: 1.05em; font-weight: 700; }
 .reveal p  { margin: 0; line-height: 1.5; }
-.reveal strong { font-weight: 650; color: var(--ink); }
+.reveal strong, .reveal b { font-weight: 700; color: var(--ink); }
 .reveal em { font-style: italic; }
 .reveal code { font-family: var(--mono); font-size: 0.92em; }
-.reveal a { color: var(--govern); }
+.reveal a { color: var(--hcl-blue); }
 
-.eyebrow {
-  font-family: var(--serif); font-style: italic;
-  font-size: 0.62em; color: var(--ink-3); margin: 0;
+.gradient-text {
+  background: var(--grad-brand);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+
+.eyebrow { font-size: 0.6em; color: var(--ink-3); margin: 0; letter-spacing: 0.01em; }
 .kicker {
-  font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.09em;
-  color: var(--ink-3); font-weight: 600; margin: 0;
+  font-size: 0.48em; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--hcl-purple); font-weight: 700; margin: 0;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
-.lede { font-size: 0.72em; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
-.tiny { font-size: 0.56em; color: var(--ink-3); }
-.q { font-family: var(--serif); font-style: italic; color: var(--ink); }
+.lede { font-size: 0.7em; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.tiny { font-size: 0.54em; color: var(--ink-3); }
+.q { font-style: italic; color: var(--ink); }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* --- Slide scaffold ------------------------------------------------------- */
@@ -177,7 +208,7 @@ html, body { margin: 0; padding: 0; background: var(--canvas); }
 /* --- Seven-layer architecture map ----------------------------------------- */
 .stack7 { display: flex; flex-direction: column; gap: 6px; }
 .layer {
-  display: grid; grid-template-columns: 3.2em minmax(0, 15em) minmax(0, 1fr) auto;
+  display: grid; grid-template-columns: 2.6em minmax(0, 12.5em) minmax(0, 1fr) auto;
   align-items: center; gap: 0 19px;
   border: 1px solid var(--line-soft); border-left: 3px solid var(--line);
   border-radius: 6px; background: var(--surface); padding: 10px 16px;
@@ -186,7 +217,7 @@ html, body { margin: 0; padding: 0; background: var(--canvas); }
 }
 .layer__n    { font-family: var(--mono); font-size: 0.55em; color: var(--ink-3); }
 .layer__name { font-size: 0.66em; font-weight: 650; }
-.layer__role { font-size: 0.56em; color: var(--ink-2); }
+.layer__role { font-size: 0.53em; color: var(--ink-2); }
 .layer--l1 { border-left-color: var(--ink-3); }
 .layer--l2 { border-left-color: var(--dispute); }
 .layer--l3 { border-left-color: var(--dispute); }
@@ -279,6 +310,200 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
   .layer { transition: none !important; }
 }
 
+/* --- Diagrams ported from the previous deck -------------------------------
+   Reveal marks the current slide .present; that is what starts the motion.
+   The stage is a fixed 1600x900 space, so the original px sizes carry over. */
+/* value-chain animation */
+.vc-flow { stroke-dasharray: 26 34; stroke-dashoffset: 240; }
+.reveal .present .vc-flow { animation: vc-run 2.4s linear 300ms infinite; }
+@keyframes vc-run { to { stroke-dashoffset: 0; } }
+.vc-leak { stroke-dasharray: 130; stroke-dashoffset: 130; transition: stroke-dashoffset 900ms var(--ease); }
+.reveal .present .vc-leak { stroke-dashoffset: 0; }
+.reveal .present .vc-leak--b { transition-delay: 200ms; }
+.reveal .present .vc-leak--c { transition-delay: 400ms; }
+.vc-pool { opacity: 0; transition: opacity 600ms var(--ease) 900ms; }
+.reveal .present .vc-pool { opacity: 1; }
+.vc-node { fill: var(--surface); stroke: var(--line); stroke-width: 2; }
+.vc-node--key { stroke: var(--leak); stroke-width: 3.5; }
+.vc-label { font-family: var(--sans); font-size: 15px; fill: var(--ink-2); }
+.vc-label--key { fill: var(--ink); font-weight: 650; }
+.vc-amt { font-family: var(--mono); font-size: 14px; fill: var(--leak); }
+
+/* sankey */
+.sk-wipe { transform: scaleX(0); transform-origin: left center; transition: transform 1100ms var(--ease) 200ms; }
+.reveal .present .sk-wipe { transform: scaleX(1); }
+.sk-label { font-family: var(--mono); font-size: 30px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.sk-sub { font-family: var(--sans); font-size: 19px; fill: var(--ink-3); }
+
+/* handoff graph */
+.hg-node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; rx: 6; }
+.hg-node--hero { stroke: var(--govern); stroke-width: 2.5; }
+.hg-text { font-family: var(--sans); font-size: 14px; fill: var(--ink); font-weight: 600; }
+.hg-edge { fill: none; stroke-width: 2; stroke-dasharray: 620; stroke-dashoffset: 620; transition: stroke-dashoffset 850ms var(--ease); }
+.reveal .present .hg-edge--1 { stroke-dashoffset: 0; transition-delay: 200ms; }
+.reveal .present .hg-edge--2 { stroke-dashoffset: 0; transition-delay: 400ms; }
+.reveal .present .hg-edge--3 { stroke-dashoffset: 0; transition-delay: 600ms; }
+.reveal .present .hg-edge--4 { stroke-dashoffset: 0; transition-delay: 780ms; }
+.reveal .present .hg-edge--5 { stroke-dashoffset: 0; transition-delay: 960ms; }
+.hg-tag { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-3); }
+
+.figure { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.figure svg { width:100%; height:auto; display:block; overflow:visible; }
+.figure--cap { max-width:1180px; align-self:center; width:100%; }
+.figure--tight { max-width:980px; align-self:center; }
+.figure--graph { max-width:660px; }
+.figure__cap { font-size:0.5em; color:var(--ink-3); margin:0; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 20px; font-size:0.5em; color:var(--ink-2); }
+.legend span { display:inline-flex; align-items:center; gap:7px; }
+.legend i { width:18px; height:0; border-top-width:2px; border-top-style:solid; display:inline-block; }
+
+/* ============================================================================
+   Motion - every slide has an entrance
+   Inverted on purpose: the resting state is VISIBLE, and only off-screen
+   slides (.past / .future, which Reveal already display:none) are pre-staged
+   at zero. Entering a slide removes that class and the element transitions in.
+   The reason for the inversion is failure behaviour - if a transition never
+   runs, content is simply visible. The obvious construction (hide by default,
+   reveal on .present) leaves a blank slide in front of an audience whenever
+   the transition does not fire.
+   Fragments are excluded; Reveal owns their opacity.
+   ========================================================================== */
+.reveal .slides section .wrap > *,
+.reveal .slides section .wrap > .body > *:not(.fragment),
+.reveal .slides section .grid > *,
+.reveal .slides section .stack7 .layer,
+.reveal .slides section .journey .step,
+.reveal .slides section .tbl tbody tr {
+  opacity: 1;
+  transform: none;
+  transition: opacity 460ms var(--ease), transform 460ms var(--ease);
+}
+
+.reveal .slides section.past .wrap > *,
+.reveal .slides section.future .wrap > *,
+.reveal .slides section.past .wrap > .body > *:not(.fragment),
+.reveal .slides section.future .wrap > .body > *:not(.fragment),
+.reveal .slides section.past .grid > *,
+.reveal .slides section.future .grid > *,
+.reveal .slides section.past .stack7 .layer,
+.reveal .slides section.future .stack7 .layer,
+.reveal .slides section.past .journey .step,
+.reveal .slides section.future .journey .step {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.reveal .slides section.past .tbl tbody tr,
+.reveal .slides section.future .tbl tbody tr { opacity: 0; }
+
+/* Stagger applies as the slide becomes present. */
+.reveal .present .wrap > *:nth-child(1) { transition-delay: 30ms; }
+.reveal .present .wrap > *:nth-child(2) { transition-delay: 90ms; }
+.reveal .present .wrap > .body > *:nth-child(1) { transition-delay: 150ms; }
+.reveal .present .wrap > .body > *:nth-child(2) { transition-delay: 215ms; }
+.reveal .present .wrap > .body > *:nth-child(3) { transition-delay: 280ms; }
+.reveal .present .wrap > .body > *:nth-child(4) { transition-delay: 345ms; }
+.reveal .present .wrap > .body > *:nth-child(5) { transition-delay: 410ms; }
+
+.reveal .present .grid > *:nth-child(1) { transition-delay: 210ms; }
+.reveal .present .grid > *:nth-child(2) { transition-delay: 265ms; }
+.reveal .present .grid > *:nth-child(3) { transition-delay: 320ms; }
+.reveal .present .grid > *:nth-child(4) { transition-delay: 375ms; }
+.reveal .present .grid > *:nth-child(5) { transition-delay: 430ms; }
+.reveal .present .grid > *:nth-child(6) { transition-delay: 485ms; }
+.reveal .present .grid > *:nth-child(7) { transition-delay: 540ms; }
+
+/* The map builds from the sources upward - the direction evidence travels. */
+.reveal .present .stack7 .layer:nth-child(7) { transition-delay: 180ms; }
+.reveal .present .stack7 .layer:nth-child(6) { transition-delay: 250ms; }
+.reveal .present .stack7 .layer:nth-child(5) { transition-delay: 320ms; }
+.reveal .present .stack7 .layer:nth-child(4) { transition-delay: 390ms; }
+.reveal .present .stack7 .layer:nth-child(3) { transition-delay: 460ms; }
+.reveal .present .stack7 .layer:nth-child(2) { transition-delay: 530ms; }
+.reveal .present .stack7 .layer:nth-child(1) { transition-delay: 600ms; }
+
+.reveal .present .tbl tbody tr:nth-child(1) { transition-delay: 240ms; }
+.reveal .present .tbl tbody tr:nth-child(2) { transition-delay: 285ms; }
+.reveal .present .tbl tbody tr:nth-child(3) { transition-delay: 330ms; }
+.reveal .present .tbl tbody tr:nth-child(4) { transition-delay: 375ms; }
+.reveal .present .tbl tbody tr:nth-child(5) { transition-delay: 420ms; }
+.reveal .present .tbl tbody tr:nth-child(6) { transition-delay: 465ms; }
+.reveal .present .tbl tbody tr:nth-child(7) { transition-delay: 510ms; }
+.reveal .present .tbl tbody tr:nth-child(8) { transition-delay: 555ms; }
+
+/* ============================================================================
+   Gradient accents - used where they carry meaning, not as decoration
+   ========================================================================== */
+.reveal .progress { background: var(--line-soft); height: 4px; }
+.reveal .progress span { background: var(--grad-brand); }
+
+/* The brand mark on the opening slide */
+.hero-rule {
+  height: 5px; width: 132px; border: 0; border-radius: 99px; margin: 0;
+  background: var(--grad-brand);
+  transform-origin: left center;
+}
+.hero-rule { transform: scaleX(1); transition: transform 620ms var(--ease) 180ms; }
+.reveal .future .hero-rule, .reveal .past .hero-rule { transform: scaleX(0); }
+
+/* The canonical contract is the one structural boundary in the deck, so it is
+   the one element that carries the full gradient. */
+.contract {
+  border: 0; border-radius: 10px; padding: 3px;
+  background: var(--grad-brand);
+}
+.contract > .contract__in {
+  background: var(--surface); border-radius: 8px; padding: 15px 19px; text-align: center;
+}
+.contract h3 { font-size: 0.66em; color: var(--hcl-purple); }
+.contract p  { font-size: 0.52em; color: var(--ink-2); }
+
+/* Layer accents run purple at the top of the stack to blue at the source end,
+   so the map reads as one system rather than seven unrelated bands. */
+.layer--l1 { border-left-color: var(--hcl-purple); }
+.layer--l2 { border-left-color: #6E2FC6; }
+.layer--l3 { border-left-color: #7C40CE; }
+.layer--l4 { border-left-color: #5A56D6; }
+.layer--l5 { border-left-color: #386CDE; }
+.layer--l6 { border-left-color: var(--hcl-blue); }
+.layer--l7 { border-left-color: var(--hcl-blue-lt); }
+.layer.is-on { background: var(--grad-soft); }
+
+.panel--govern { border-color: var(--hcl-blue); }
+.panel--leak   { border-color: var(--hcl-purple); }
+.srcbox--live  { border-color: var(--hcl-blue); }
+.srcbox--synth { border-color: var(--hcl-purple-lt); }
+.caseid { border-color: var(--hcl-purple); }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal .present .wrap > *,
+  .reveal .present .wrap > .body > *,
+  .reveal .present .grid > *,
+  .reveal .present .stack7 .layer,
+  .reveal .present .tbl tbody tr,
+  .reveal .present .journey .step,
+  .reveal .present .hero-rule {
+    animation: none !important; opacity: 1 !important; transform: none !important;
+  }
+}
+html.print-pdf .wrap > *, html.print-pdf .grid > *, html.print-pdf .layer,
+html.print-pdf .tbl tbody tr, html.print-pdf .step {
+  animation: none !important; opacity: 1 !important; transform: none !important;
+}
+
+/* Safety net. If a slide is shown by any path that does not set .present -
+   export, overview, a future Reveal change - content must still be visible. */
+html.print-pdf .wrap > *, html.print-pdf .wrap > .body > *,
+html.print-pdf .grid > *, html.print-pdf .layer,
+html.print-pdf .tbl tbody tr, html.print-pdf .step,
+html.reveal-print .wrap > *, html.reveal-print .wrap > .body > *,
+html.reveal-print .grid > *, html.reveal-print .layer,
+html.reveal-print .tbl tbody tr, html.reveal-print .step,
+.reveal.overview .wrap > *, .reveal.overview .wrap > .body > *,
+.reveal.overview .grid > *, .reveal.overview .layer,
+.reveal.overview .tbl tbody tr, .reveal.overview .step {
+  opacity: 1 !important; transform: none !important; transition: none !important;
+}
+
 </style>
 <div class="reveal"><div class="slides">
 <!-- ===========================================================================
@@ -295,8 +520,9 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
 <section data-auto-animate>
   <div class="wrap center">
     <p class="eyebrow">Architecture walkthrough &middot; Automation Solutions &middot; 90 minutes</p>
-    <h1 data-id="title">Recoup</h1>
-    <div class="grid split" style="margin-top:1vh">
+    <h1 data-id="title" class="gradient-text">Recoup</h1>
+    <hr class="hero-rule">
+    <div class="grid split" style="margin-top:9px">
       <p class="lede">An agentic Order-to-Cash recovery system &mdash; and a working answer to
         the question <span class="q">how do you let a language model near money?</span></p>
       <p style="font-family:var(--serif);font-size:0.86em;line-height:1.45">
@@ -328,14 +554,44 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
     <h2>Order-to-Cash is the only process whose output is cash. Recoup intervenes at two points in it.</h2>
     <div class="body">
 
-      <div class="grid" style="grid-template-columns:repeat(7,minmax(0,1fr));gap:0.6vw">
-        <div class="panel panel--govern"><h3>Credit decision</h3><p>Exposure granted</p></div>
-        <div class="panel"><h3>Order</h3><p>Commitment made</p></div>
-        <div class="panel"><h3>Delivery</h3><p>POD captured</p></div>
-        <div class="panel"><h3>Invoice</h3><p>Price applied</p></div>
-        <div class="panel panel--leak"><h3>Remittance</h3><p>Deduction taken</p></div>
-        <div class="panel panel--leak"><h3>Dispute</h3><p>Recovery pursued</p></div>
-        <div class="panel"><h3>Cash</h3><p>Applied</p></div>
+      <div class="figure figure--cap">
+        <svg viewBox="0 0 1200 330" role="img" aria-label="The seven-stage Order-to-Cash value chain with cash leaking at the credit decision, deduction and collections stages.">
+        <!-- pipe -->
+        <line x1="86" y1="120" x2="1114" y2="120" stroke="var(--line-soft)" stroke-width="26" stroke-linecap="round"></line>
+        <line x1="86" y1="120" x2="1114" y2="120" stroke="var(--govern)" stroke-width="26" stroke-linecap="round" opacity="0.16"></line>
+        <line class="vc-flow" x1="86" y1="120" x2="1114" y2="120" stroke="var(--govern)" stroke-width="13" stroke-linecap="round" opacity="0.9"></line>
+        
+        <!-- leaks -->
+        <path class="vc-leak" d="M 257 133 C 257 190, 240 210, 236 262" fill="none" stroke="var(--leak)" stroke-width="7" stroke-linecap="round"></path>
+        <path class="vc-leak vc-leak--b" d="M 771 133 C 771 190, 788 210, 792 262" fill="none" stroke="var(--leak)" stroke-width="11" stroke-linecap="round"></path>
+        <path class="vc-leak vc-leak--c" d="M 943 133 C 943 190, 930 210, 926 262" fill="none" stroke="var(--leak)" stroke-width="6" stroke-linecap="round"></path>
+        <g class="vc-pool">
+        <ellipse cx="236" cy="272" rx="30" ry="7" fill="var(--leak)" opacity="0.30"></ellipse>
+        <ellipse cx="792" cy="272" rx="52" ry="9" fill="var(--leak)" opacity="0.42"></ellipse>
+        <ellipse cx="926" cy="272" rx="26" ry="6" fill="var(--leak)" opacity="0.26"></ellipse>
+        <text class="vc-amt" x="236" y="300" text-anchor="middle">bad exposure</text>
+        <text class="vc-amt" x="792" y="300" text-anchor="middle">invalid deductions</text>
+        <text class="vc-amt" x="926" y="300" text-anchor="middle">write-offs</text>
+        </g>
+        
+        <!-- nodes -->
+        <circle class="vc-node" cx="86"   cy="120" r="11"></circle>
+        <circle class="vc-node vc-node--key" cx="257"  cy="120" r="13"></circle>
+        <circle class="vc-node" cx="429"  cy="120" r="11"></circle>
+        <circle class="vc-node" cx="600"  cy="120" r="11"></circle>
+        <circle class="vc-node vc-node--key" cx="771"  cy="120" r="13"></circle>
+        <circle class="vc-node" cx="943"  cy="120" r="11"></circle>
+        <circle class="vc-node" cx="1114" cy="120" r="11"></circle>
+        
+        <text class="vc-label"           x="86"   y="78" text-anchor="middle">Order</text>
+        <text class="vc-label vc-label--key" x="257"  y="78" text-anchor="middle">Credit decision</text>
+        <text class="vc-label"           x="429"  y="78" text-anchor="middle">Fulfil</text>
+        <text class="vc-label"           x="600"  y="78" text-anchor="middle">Invoice</text>
+        <text class="vc-label vc-label--key" x="771"  y="78" text-anchor="middle">Deduction / dispute</text>
+        <text class="vc-label"           x="943"  y="78" text-anchor="middle">Collections</text>
+        <text class="vc-label"           x="1114" y="78" text-anchor="middle">Cash</text>
+        </svg>
+        <p class="figure__cap">The two ringed stages are where Recoup intervenes. Everything else is throughput.</p>
       </div>
 
       <div class="fragment grid g3">
@@ -439,11 +695,33 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
     <div class="body">
       <div class="grid split">
 
-        <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div style="display:flex;flex-direction:column;gap:13px">
           <div class="grid g3">
             <div class="panel"><h3 class="num">$112,400</h3><p>20 lines, 4 customers</p></div>
             <div class="panel panel--govern"><h3 class="num">$32,600</h3><p>7 lines valid, routed to Billing</p></div>
             <div class="panel panel--leak"><h3 class="num">$79,800</h3><p>13 lines pursued for recovery</p></div>
+          </div>
+          <div class="figure">
+            <svg viewBox="0 0 1180 400" role="img" aria-label="Sankey diagram: 20 deduction lines totalling 112,400 dollars split into 7 valid lines worth 32,600 dollars routed to billing, and 13 lines worth 79,800 dollars pursued for recovery.">
+            <defs>
+            <clipPath id="skClip"><rect class="sk-wipe" x="0" y="0" width="1180" height="400"></rect></clipPath>
+            </defs>
+            <g clip-path="url(#skClip)">
+            <path d="M 150 60 C 400 60, 530 40, 780 40 L 780 127 C 530 127, 400 147, 150 147 Z" fill="var(--govern)" opacity="0.30"></path>
+            <path d="M 150 147 C 400 147, 530 157, 780 157 L 780 370 C 530 370, 400 360, 150 360 Z" fill="var(--leak)" opacity="0.30"></path>
+            </g>
+            <rect x="60" y="60" width="90" height="300" fill="var(--ink)" opacity="0.82" rx="2"></rect>
+            <rect x="780" y="40"  width="90" height="87"  fill="var(--govern)" rx="2"></rect>
+            <rect x="780" y="157" width="90" height="213" fill="var(--leak)" rx="2"></rect>
+            
+            <text class="sk-label" x="60" y="34">$112,400</text>
+            <text class="sk-sub"   x="60" y="392">20 lines &middot; 4 customers</text>
+            
+            <text class="sk-label" x="885" y="72">$32,600</text>
+            <text class="sk-sub"   x="885" y="97">7 lines &middot; valid &rarr; Billing</text>
+            <text class="sk-label" x="885" y="258">$79,800</text>
+            <text class="sk-sub"   x="885" y="283">13 lines &middot; recovery pursued</text>
+            </svg>
           </div>
           <p class="lede">These are not illustrative numbers. They are a checked-in labelled
             set, and the build fails if the totals move. Every figure in the demo traces back
@@ -555,6 +833,102 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
 </section>
 
 
+<section data-auto-animate data-auto-animate-id="arch">
+  <div class="wrap">
+    <p class="kicker">The same seven layers, physically</p>
+    <h2 data-id="arch-h">Where each layer runs, and which boundary it sits behind.</h2>
+    <div class="body">
+      <div class="figure figure--tight">
+        <svg viewBox="0 0 1180 420" role="img" aria-label="Deployment topology: browser to Vercel-hosted Next.js cockpit, to a Node API on Render, which reaches Supabase, OpenAI and SAP OData read-only. Trust boundaries are marked at each hop.">
+          <!-- trust boundary bands -->
+          <rect x="8"   y="54" width="250" height="330" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="5 5"></rect>
+          <rect x="278" y="54" width="250" height="330" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="5 5"></rect>
+          <rect x="548" y="54" width="270" height="330" rx="10" fill="none" stroke="var(--govern)" stroke-dasharray="5 5"></rect>
+          <rect x="838" y="54" width="334" height="330" rx="10" fill="none" stroke="var(--leak)" stroke-dasharray="5 5"></rect>
+          <text class="tp-zone" x="133" y="42" text-anchor="middle">Untrusted client</text>
+          <text class="tp-zone" x="403" y="42" text-anchor="middle">Vercel &middot; edge</text>
+          <text class="tp-zone tp-zone--g" x="683" y="42" text-anchor="middle">Render &middot; trusted compute</text>
+          <text class="tp-zone tp-zone--l" x="1005" y="42" text-anchor="middle">External systems</text>
+          
+          <!-- nodes -->
+          <rect class="tp-box" x="38"  y="150" width="180" height="52"></rect>
+          <text class="tp-t" x="128" y="172" text-anchor="middle">Browser</text>
+          <text class="tp-s" x="128" y="190" text-anchor="middle">3 persona sessions</text>
+          
+          <rect class="tp-box" x="298" y="120" width="210" height="52"></rect>
+          <text class="tp-t" x="403" y="142" text-anchor="middle">Next.js cockpit</text>
+          <text class="tp-s" x="403" y="160" text-anchor="middle">App Router &middot; BFF routes</text>
+          <rect class="tp-box" x="298" y="220" width="210" height="42"></rect>
+          <text class="tp-s" x="403" y="246" text-anchor="middle">HMAC session cookie</text>
+          
+          <rect class="tp-box tp-box--g" x="568" y="100" width="230" height="52"></rect>
+          <text class="tp-t" x="683" y="122" text-anchor="middle">Node 22 API</text>
+          <text class="tp-s" x="683" y="140" text-anchor="middle">Express 5 &middot; REST + SSE</text>
+          <rect class="tp-box tp-box--g" x="568" y="180" width="230" height="46"></rect>
+          <text class="tp-t" x="683" y="200" text-anchor="middle">MCP loopback</text>
+          <text class="tp-s" x="683" y="216" text-anchor="middle">ephemeral, in-process</text>
+          <rect class="tp-box tp-box--g" x="568" y="254" width="230" height="46"></rect>
+          <text class="tp-t" x="683" y="274" text-anchor="middle">Deterministic core</text>
+          <text class="tp-s" x="683" y="290" text-anchor="middle">rules &middot; Decimal &middot; audit</text>
+          <rect class="tp-box" x="568" y="326" width="230" height="40"></rect>
+          <text class="tp-s" x="683" y="351" text-anchor="middle">2 crons &middot; every 10 min</text>
+          
+          <rect class="tp-box tp-box--l" x="868" y="96"  width="274" height="56"></rect>
+          <text class="tp-t" x="1005" y="118" text-anchor="middle">Supabase / Postgres</text>
+          <text class="tp-s" x="1005" y="136" text-anchor="middle">config &middot; read models &middot; memory &middot; audit</text>
+          <rect class="tp-box tp-box--l" x="868" y="180" width="274" height="56"></rect>
+          <text class="tp-t" x="1005" y="202" text-anchor="middle">OpenAI</text>
+          <text class="tp-s" x="1005" y="220" text-anchor="middle">Agents SDK &middot; Realtime &middot; vector store</text>
+          <rect class="tp-box tp-box--l" x="868" y="264" width="274" height="56"></rect>
+          <text class="tp-t" x="1005" y="286" text-anchor="middle">SAP S/4HANA OData</text>
+          <text class="tp-s" x="1005" y="304" text-anchor="middle">read-only &middot; no write client exists</text>
+          
+          <!-- edges -->
+          <path class="tp-e" d="M 218 176 L 298 146"></path>
+          <path class="tp-e" d="M 508 146 L 568 126"></path>
+          <path class="tp-e" d="M 798 126 L 868 124"></path>
+          <path class="tp-e" d="M 798 203 L 868 208"></path>
+          <path class="tp-e" d="M 798 277 L 868 292"></path>
+          <!-- Hop credentials are enumerated in the panel below rather than inline:
+          the inter-zone gap is too narrow to set them legibly at this scale. -->
+          </svg>
+      </div>
+      <div class="grid g3 fragment">
+        <div class="panel">
+          <h3>Four authorisation hops</h3>
+          <p>Signed session cookie, then a signed proxy header bound to the request body, then a
+            bearer on the API, then a separate bearer and principal on the capability boundary.
+            Source credentials never leave the trusted compute zone.</p>
+        </div>
+        <div class="panel panel--leak">
+          <h3>What holds state</h3>
+          <p>Rate limiting, the source cache and event fan-out are <b>in-process</b>. Everything
+            durable is in the governed database. This is the constraint that blocks horizontal
+            scaling today.</p>
+        </div>
+        <div class="panel panel--govern">
+          <h3>Where it fails closed</h3>
+          <p>Missing governed config, missing source rows, unset run budgets or absent
+            credentials each stop the request rather than degrade it. There are no silent
+            defaults to fall back on.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <p><b>The logical map answers "who owns what". This answers "where does it run".</b> Architects
+    will want both, and they will scan this one for trust boundaries first.</p>
+    <p>The point to make: source credentials sit in exactly one zone, and the capability boundary
+    never leaves that process in the deployed topology.</p>
+    <p>Own the in-process state honestly &mdash; it is the single biggest scaling constraint and it
+    comes back on the register at slide 15.</p>
+    <p>Expect: <span class="q">why two hosting platforms?</span> Honest answer &mdash; the cockpit is a
+    Next.js app hosted natively, and the API needs a long-lived process for streaming. Pragmatic,
+    not designed.</p>
+  </aside>
+</section>
+
+
 <!-- 6 ................................. JOURNEY THROUGH THE LAYERS ......... -->
 <section data-auto-animate>
   <div class="wrap">
@@ -568,7 +942,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
         <span>verdict <b>invalid</b></span>
         <span>action <b>pending human approval</b></span>
       </div>
-      <div class="grid g3" style="margin-top:1vh">
+      <div class="grid g3" style="margin-top:9px">
         <div class="panel panel--govern"><h3>The finding</h3><p>The customer deducted for a
           shortage. Delivery evidence shows the consignment signed for in full. The claim does
           not survive its own paperwork.</p></div>
@@ -577,7 +951,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
         <div class="panel panel--leak"><h3>The stop</h3><p>A recovery draft exists. Nothing has
           been sent. It waits for a human who is not the proposer.</p></div>
       </div>
-      <p class="lede" style="margin-top:1vh">That result took nine seconds. The rest of this
+      <p class="lede" style="margin-top:9px">That result took nine seconds. The rest of this
         session is about why you should believe it.</p>
     </div>
   </div>
@@ -638,7 +1012,47 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
     <div class="body">
       <div class="grid split">
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+        <div class="figure figure--graph">
+          <svg viewBox="0 0 800 470" role="img" aria-label="Agent handoff graph. Forensics Investigator hands off to Recovery Drafter and to Containment. Risk-Mesh Supervisor calls Sentinel and Containment as tools. Conversational Query calls Audit Read as a tool. A separate credit pair, Credit Sentinel to Action Packet Drafter, sits outside the declared graph.">
+          <path class="hg-edge hg-edge--1" d="M 285 82 C 380 82, 400 52, 495 52"  stroke="var(--govern)"></path>
+          <path class="hg-edge hg-edge--2" d="M 285 82 C 380 82, 400 172, 495 172" stroke="var(--dispute)" stroke-dasharray="8 6"></path>
+          <path class="hg-edge hg-edge--3" d="M 285 242 C 380 242, 400 172, 495 172" stroke="var(--leak)" stroke-dasharray="2 6" stroke-linecap="round"></path>
+          <path class="hg-edge hg-edge--4" d="M 285 242 C 380 242, 400 292, 495 292" stroke="var(--leak)" stroke-dasharray="2 6" stroke-linecap="round"></path>
+          <path class="hg-edge hg-edge--5" d="M 285 380 C 380 380, 400 380, 495 380" stroke="var(--ink-3)" stroke-width="1.2"></path>
+          
+          <rect class="hg-node hg-node--hero" x="55"  y="60"  width="230" height="44"></rect>
+          <rect class="hg-node"               x="55"  y="220" width="230" height="44"></rect>
+          <rect class="hg-node"               x="55"  y="358" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="30"  width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="150" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="270" width="230" height="44"></rect>
+          <rect class="hg-node"               x="495" y="358" width="230" height="44"></rect>
+          
+          <text class="hg-text" x="170" y="87"  text-anchor="middle">Forensics Investigator</text>
+          <text class="hg-text" x="170" y="247" text-anchor="middle">Risk-Mesh Supervisor</text>
+          <text class="hg-text" x="170" y="385" text-anchor="middle">Conversational Query</text>
+          <text class="hg-text" x="610" y="57"  text-anchor="middle">Recovery Drafter</text>
+          <text class="hg-text" x="610" y="177" text-anchor="middle">Containment / Intent</text>
+          <text class="hg-text" x="610" y="297" text-anchor="middle">Sentinel</text>
+          <text class="hg-text" x="610" y="385" text-anchor="middle">Audit Read</text>
+          
+          <text class="hg-tag" x="170" y="119" text-anchor="middle">capability B &middot; effort high</text>
+          <text class="hg-tag" x="170" y="279" text-anchor="middle">capability A &middot; effort low</text>
+          <text class="hg-tag" x="170" y="417" text-anchor="middle">gpt-realtime-2</text>
+          
+          <!-- the credit pair, outside the declared graph -->
+          <rect x="30" y="430" width="720" height="34" rx="6" fill="none" stroke="var(--leak)" stroke-dasharray="4 4"></rect>
+          <text class="hg-tag" x="390" y="452" text-anchor="middle" fill="var(--leak)">Credit Sentinel &rarr; Action Packet Drafter &mdash; not in the declared graph</text>
+          </svg>
+          <div class="legend">
+            <span><i style="border-color:var(--govern)"></i>SDK handoff</span>
+            <span><i style="border-color:var(--dispute);border-top-style:dashed"></i>deterministic service</span>
+            <span><i style="border-color:var(--leak);border-top-style:dotted"></i>agents-as-tools</span>
+            <span><i style="border-color:var(--ink-3)"></i>tool</span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:11px">
           <table class="tbl">
             <thead><tr><th>Role</th><th>Judgement it makes</th><th>What code takes back</th></tr></thead>
             <tbody>
@@ -650,11 +1064,13 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
               <tr><th>Credit Sentinel</th><td>Which credit evidence to inspect</td><td>Exposure and hold arithmetic</td></tr>
             </tbody>
           </table>
-          <p class="lede fragment">Agent count is not the achievement. <b>Narrow capability and a
+          <p class="lede">Agent count is not the achievement. <b>Narrow capability and a
             different consequence boundary per role</b> is the achievement.</p>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+      </div>
+
+      <div class="grid g2 fragment">
           <div class="panel panel--govern">
             <h3>Two ways a run is constrained</h3>
             <p><b>At design time</b> a handoff must be declared, or constructing it throws.
@@ -669,9 +1085,8 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
               defaulted. If they are absent the run is blocked rather than run unbounded.
               A failing tool emits a typed error event instead of crashing the run.</p>
           </div>
-        </div>
-
       </div>
+
     </div>
   </div>
   <aside class="notes">
@@ -732,7 +1147,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
     <div class="body">
       <div class="grid split">
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+        <div style="display:flex;flex-direction:column;gap:11px">
           <table class="tbl">
             <thead><tr><th>Class</th><th>Example</th><th>Exposure to a model</th></tr></thead>
             <tbody>
@@ -748,7 +1163,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
             not among them.</b></p>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+        <div style="display:flex;flex-direction:column;gap:11px">
           <div class="panel panel--govern">
             <h3>Three enforcement points, not one</h3>
             <p>The capability list is filtered before the model sees it; the server re-checks
@@ -761,7 +1176,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
               agent may ask for. Adapters govern how a source is reached.</b> There is no
               general-purpose ERP query door &mdash; an agent gets scoped questions, never a
               connection.</p>
-            <p class="tiny" style="margin-top:0.4vh">agent &rarr; scoped capability &rarr; service tool
+            <p class="tiny" style="margin-top:4px">agent &rarr; scoped capability &rarr; service tool
               &rarr; canonical evidence request &rarr; adapter &rarr; source</p>
           </div>
         </div>
@@ -848,11 +1263,11 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
         <div class="panel panel--muted"><h3>Deterministic core</h3><p>Compute the value</p></div>
       </div>
 
-      <div class="contract" data-id="ad-contract">
+      <div class="contract" data-id="ad-contract"><div class="contract__in">
         <h3>Canonical evidence contract</h3>
         <p>Typed entities, cited record IDs, provenance and freshness &mdash; the same shape whatever
           produced it. Everything above this line is written once.</p>
-      </div>
+      </div></div>
 
       <div class="seam" data-id="ad-seam">the replaceable boundary</div>
 
@@ -902,11 +1317,11 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
         <div class="panel panel--muted"><h3>Deterministic core</h3><p>Compute the value</p></div>
       </div>
 
-      <div class="contract" data-id="ad-contract">
+      <div class="contract" data-id="ad-contract"><div class="contract__in">
         <h3>Canonical evidence contract</h3>
         <p>Typed entities, cited record IDs, provenance and freshness &mdash; the same shape whatever
           produced it. Everything above this line is written once.</p>
-      </div>
+      </div></div>
 
       <div class="seam" data-id="ad-seam">the replaceable boundary &mdash; only this moves</div>
 
@@ -979,12 +1394,12 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
               <tr><th>Cited source records and audit chain</th><td>Decision history and basis</td><td><b>yes</b></td></tr>
             </tbody>
           </table>
-          <p class="lede fragment" style="margin-top:1vh">Memory makes a workflow continuous.
+          <p class="lede fragment" style="margin-top:9px">Memory makes a workflow continuous.
             <b>It never becomes the source of financial truth</b>, and it cannot substitute for a
             cited record.</p>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+        <div style="display:flex;flex-direction:column;gap:11px">
           <div class="panel">
             <h3>Memory is typed and refuses what it should not hold</h3>
             <p>Eleven categories, three trust levels, and a schema that <b>rejects personal data
@@ -1044,12 +1459,12 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
               <tr><th>External action</th><td>Correspondence, hold, ERP write</td><td><b>Human approval; no ERP write path exists</b></td></tr>
             </tbody>
           </table>
-          <p class="lede fragment" style="margin-top:1vh">Human approval here is an
+          <p class="lede fragment" style="margin-top:9px">Human approval here is an
             <b>architectural boundary, not a confirmation dialog</b>. The approver must be a
             human principal and can never be the proposer.</p>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:1.2vh">
+        <div style="display:flex;flex-direction:column;gap:11px">
           <div class="panel">
             <h3>Guardrails sit at three boundaries</h3>
             <p>Before anything reaches the model, around every decision-producing tool, and at
@@ -1101,7 +1516,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
             <li><b>Agent-path evaluation</b> &mdash; required tool calls, handoffs, receipts, budgets, guardrail trips</li>
             <li><b>Production monitoring</b> &mdash; source health, latency, tokens, cache, approval behaviour</li>
           </ul>
-          <p style="margin-top:0.6vh"><b>Offline gates are code-graded, not model-judged.</b> The
+          <p style="margin-top:5px"><b>Offline gates are code-graded, not model-judged.</b> The
             gap: these run on demand, not on every push &mdash; so treat them as a discipline, not
             yet as an automated release control.</p>
         </div>
@@ -1114,7 +1529,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
             <li><b>Model and cost</b> &mdash; tokens including cached, latency, model, cache key</li>
             <li><b>Platform</b> &mdash; source health, dependency errors, correlation IDs</li>
           </ul>
-          <p style="margin-top:0.6vh">All four carry the <b>same correlation identifier</b>, so one
+          <p style="margin-top:5px">All four carry the <b>same correlation identifier</b>, so one
             request can be followed from business outcome to token spend.</p>
         </div>
 
@@ -1238,7 +1653,7 @@ html.reveal-print .layer.is-dim { opacity: 1 !important; }
             different source system becoming a re-platforming project.</p></div>
       </div>
 
-      <div class="panel panel--muted fragment" style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1.4vh">
+      <div class="panel panel--muted fragment" style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:13px">
         <h3 style="font-size:0.9em">Live demo &mdash; 25 minutes</h3>
         <p style="font-size:0.62em;max-width:52ch;text-align:center">Same case, same record IDs,
           same layers. Maya works the deduction to approval, David takes credit and containment,
