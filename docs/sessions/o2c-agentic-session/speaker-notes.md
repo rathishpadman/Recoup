@@ -1,31 +1,32 @@
 # Speaker notes — Recoup architecture walkthrough
 
-Audience: internal automation solutions team — engineers and solution architects.
-Session: **90 minutes.** 12 problem / 40 architecture / 25 demo / 13 discussion.
+Audience: automation solution architects. Session: **90 minutes.**
+16 slides, ~60 presenter beats.
 
-Per-slide notes are embedded in the deck — press <kbd>S</kbd> to toggle, or open
-`index.html?print` for a flat view with every note visible. This document holds what doesn't
-belong on a slide: the clock, the Q&A bank, and the framing rules.
+Per-slide notes live in the deck — press <kbd>S</kbd> for speaker view, or open
+`index.html?print-pdf` for a flat export with every fragment and note visible. This file
+holds the clock, the framing rules, the Q&A bank, and the evidence appendix.
 
 ---
 
 ## Framing rules
 
-**This is a walkthrough, not a readiness review.** Say so in the first thirty seconds. You
-are showing how a system is built and where its edges are — you are not asserting that it
-is production-grade, and you are not presenting evidence for a decision.
+**It is a walkthrough, not a readiness review.** Say so in the first thirty seconds. You are
+showing how the system is built and where its edges are.
 
-**"Deployed" and "in production" are different claims.** The cockpit and API are deployed
-and running against live Supabase, live SAP reads and live Agents SDK runs. They carry
-synthetic seed-42 data, and the repository's own real-evidence release gate is blocked.
-Never let those two collapse into one another — this audience will notice.
+**"Deployed" and "in production" are different claims.** The system runs against live
+services carrying synthetic data, and the release gate for real evidence is still closed.
+Never let those collapse into one another — this room will notice.
 
-**Keep the product's own vocabulary.** "Evidence pack", "evidence dossier", "cited
-evidence", `evidence_refs` are real concepts in the system and should stay. The rule is
-about the *session*: the system cites evidence; the deck does not present evidence.
+**Every architecture slide carries a maturity chip.** If someone asks about an unlabelled
+claim, that is a gap in the deck, not a question to improvise around.
 
-**Every architecture slide carries a maturity chip** — `live`, `offline`, `pending`,
-`target`. If someone asks about an unchipped claim, treat that as a gap in the deck.
+**Say "swap-ready" or "contract-first", never "plug-and-play".** A live connector still needs
+credentials, a schema probe and a readiness promotion.
+
+**Keep the product's own vocabulary.** "Evidence pack", "cited evidence", "evidence scope" are
+real concepts in the system. The rule is about the session: the system cites evidence; the
+deck does not present evidence.
 
 ---
 
@@ -33,15 +34,20 @@ about the *session*: the system cites evidence; the deck does not present eviden
 
 | Key | Action |
 |---|---|
-| <kbd>→</kbd> <kbd>↓</kbd> <kbd>Space</kbd> | Next slide |
-| <kbd>←</kbd> <kbd>↑</kbd> | Previous |
-| <kbd>Home</kbd> / <kbd>End</kbd> | First / last |
-| <kbd>S</kbd> | Speaker notes |
+| <kbd>→</kbd> <kbd>Space</kbd> | Next fragment, then next slide |
+| <kbd>←</kbd> | Back |
+| <kbd>S</kbd> | Speaker view — notes, timer, next slide |
+| <kbd>O</kbd> | Overview grid |
 | <kbd>T</kbd> | Light / dark |
-| <kbd>B</kbd> | Backup section |
+| <kbd>L</kbd> | Jump to the seven-layer map |
+| <kbd>D</kbd> | Jump to the demo stage |
+| <kbd>Alt</kbd>+click | Zoom into a diagram region; click again to return |
+| <kbd>Esc</kbd> | Exit overview or zoom |
 
-`index.html#s10` deep-links to a slide. `index.html?print` gives a flat scroll view with all
-notes shown — use it for a PDF export or a handout.
+`index.html#/12` deep-links to a slide, `#/12/2` to a fragment.
+`index.html?print-pdf` then print-to-PDF gives a handout with fragments expanded.
+
+**Speaker view needs a popup**: allow it once on the presenting machine before the session.
 
 ---
 
@@ -50,125 +56,155 @@ notes shown — use it for a PDF export or a handout.
 | Elapsed | Slides | Section |
 |---|---|---|
 | 0:00 | 1 | Title and framing |
-| 0:01 | 2–6 | O2C as a lifeline, and where it leaks |
-| 0:12 | 7–9 | Why agentic; the four constraints; three planes |
-| 0:20 | **10** | **End-to-end runtime sequence** — the centrepiece |
-| 0:25 | 11–12 | Topology and trust boundaries; multi-agent coordination |
-| 0:32 | 13–14 | Tool registry; MCP as least privilege |
-| 0:38 | 15 | The deterministic financial spine |
-| 0:42 | 16–17 | Memory; retrieval and the citation contract |
-| 0:47 | 18 | Model routing, prompts and caching |
-| 0:51 | 19–20 | Guardrails; verified orchestration |
-| 0:56 | 21 | Observability, four layers |
-| 0:60 | 22 | Demo running order — then switch to the browser |
-| 0:62 | — | **Live demo** (see `demo-runbook.md`) |
-| 0:87 | 23–25 | Risk register; maturity map; three patterns |
-| — | | Discussion runs into whatever remains |
+| 0:02 | 2–3 | Where deductions and credit sit; the CPG operating problem |
+| 0:10 | 4 | The settlement run everything is measured against |
+| 0:14 | **5** | **Seven-layer map** — the anchor |
+| 0:20 | **6** | **Journey: one case through all seven layers** |
+| 0:28 | 7–8 | Agents and orchestration; pattern selection and restraint |
+| 0:36 | 9–10 | Capability boundary; deterministic decision spine |
+| 0:44 | **11** | **Adapter and evidence fabric** — the source swap |
+| 0:52 | 12–13 | State and models; safety, HITL and consequence |
+| 0:60 | 14 | Evaluation and observability |
+| 0:64 | 15 | Production truth |
+| 0:68 | 16 | Transferable patterns, then switch to the demo |
+| 0:70 | — | **Live demo** — see `demo-runbook.md` |
+| 0:88 | — | Close and discussion |
 
-**Checkpoints.** Slide 6 by 0:12. Slide 10 by 0:20 — if you are late here, you are late for
-the whole session. Slide 22 by 0:60.
+**Checkpoints.** Slide 5 by 0:14. Slide 11 by 0:44. Browser open by 0:70.
 
-If you fall behind, compress 16–17 (memory and retrieval) into a single pass. Do **not**
-compress 10, 15 or 20 — those three carry the argument.
+If you are behind, compress 12–14 into a single pass — say the headline of each and move.
+Do not compress 5, 6, 10 or 11; those four carry the argument.
 
 ---
 
-## Four lines worth landing cleanly
+## Five lines worth landing cleanly
 
-1. **Slide 3** — *most of what is taken is arguable, and most of it is never argued.*
-   Reframes the problem from collections to cost of proof, which is what makes it an
-   automation problem at all.
-2. **Slide 10** — *the model occupies steps 4 and 5 only.* Say it after walking the sequence.
-3. **Slide 17** — *semantic search is allowed to find evidence, never to introduce it.*
-4. **Slide 20** — *most agent systems trust the trace; this one audits it.*
+1. **Slide 2** — O2C failures either delay cash, consume working capital, or permanently erode
+   margin. Deductions are mostly the third.
+2. **Slide 3** — the strongest credit signal a manufacturer owns is the customer's own
+   deduction behaviour: first-party and current, where a bureau score is neither.
+3. **Slide 6** — the model occupies two of the ten steps.
+4. **Slide 10** — deterministic controls bound the *class* of failure, not its existence.
+5. **Slide 11** — replacing a source changes the boundary implementation. Agents, tools and the
+   decision spine do not move.
 
 ---
 
 ## Q&A bank
 
-**"Which topology is authoritative — you showed one graph and mentioned agents outside it."**
-Both, at different times. Packet validation (`createAgentHandoffPacket`) prevents an
-undeclared edge being constructed; it currently covers one edge, `forensics.ts:381`. Trace
-assertion proves a declared edge actually fired; it covers both journeys. So runtime
-behaviour is constrained everywhere, and the design-time contract is incomplete. That is on
-the risk register.
+**"Which orchestration patterns are you actually using?"**
+Single agent with tools, sequential, and supervisor with agents-as-tools. Not concurrent
+fan-out, not group chat, not maker-checker agents, not adaptive planning. The SDK handoff
+mechanism exists but the next agent is prescribed and then asserted, so it is not open
+dynamic routing. Slide 8 has the full table.
 
-**"Can topology drift from runtime behaviour?"**
-On any edge not covered by packet validation — currently all but one. Trace assertion is
-what stops that mattering in practice today. Completing packet coverage is the fix.
+**"Is the adapter layer real or is it a diagram?"**
+Real, with a readiness model in code: each connector reports ready, ready_synthetic,
+blocked_credentials_required or blocked_schema_required, and a source is not promoted until a
+credential check and a schema probe pass. There are invariant tests asserting the honest split
+between live SAP and synthetic non-SAP.
 
-**"Why GPT-5.4 rather than mini or nano?"**
-There is no tier routing. `reasoning` and `fast` both resolve to `gpt-5.4`; the only
-differentiation is `reasoning.effort` and verbosity. `mini` does one job — strict-JSON
-counter-offer extraction. `nano` is declared and never referenced. Dead config.
+**"So are the non-SAP connectors live?"**
+No. Bureau, TPM, documents and remittance are served from governed source tables today. That
+proves the contract, the canonical mapping, provenance and service behaviour. It does not
+prove connectivity to a third-party platform. Live execution is deferred.
 
-**"Can an agent pick a different model at runtime?"**
-No. Models bind per agent at construction from `config/models.ts`, and invariant I-25 forbids
-instantiating a non-pinned or fine-tuned model anywhere in the runtime graph.
+**"What does it cost to swap a source?"**
+The boundary implementation plus its readiness checks. The canonical contract, the tools, the
+deterministic core and the agents are untouched — that is the whole point of the layer.
 
-**"What's the cost lever you haven't pulled?"**
-Effort-based routing means you pay 5.4 rates for every agent including the low-effort ones.
-Moving those to `mini` is the obvious next optimisation and nobody has done it. Also: cost is
-measured but not priced — `costStatus` is hardcoded `pricing_not_configured_not_computed`.
+**"Why is MCP not your integration layer?"**
+MCP governs what an agent may ask for. Adapters govern how a source is reached. An agent gets
+scoped questions, never a connection — there is no general-purpose ERP query door.
+
+**"The model still sees numbers. What does determinism actually buy?"**
+It bounds the failure class. The model cannot assert a consequential amount or dispatch an
+action. It does not make agent judgement harmless — a poor tool choice still costs coverage
+and latency.
+
+**"Can an agent change its own model?"**
+No. Models bind per agent at construction, and an invariant forbids instantiating a non-pinned
+model anywhere in the runtime graph. Routing today is by reasoning effort, not model tier, and
+one declared tier is unused — moving low-effort agents to a smaller model is the obvious next
+cost lever and has not been pulled.
 
 **"How do you know prompt caching isn't leaking evidence between cases?"**
-Caching applies to the prefix only, and the prefix is three static layers — governance,
-capability, agent prompt. Case and evidence arrive in the suffix. Two cases in the same
-capability share governance text and nothing else.
+Only the prefix is cached, and the prefix is static governance and capability text. Case
+evidence sits after the cache boundary by construction.
 
-**"How would you debug a slow request in this system?"**
-Honestly: with difficulty. There is a correlation ID threaded from the HTTP middleware into
-`recoup_agent_usage_runs`, so you can join a business outcome to its agent run, tokens and
-latency — but you run that query by hand. No OTel, no structured logging, no trace backend.
-Auditability is strong; runtime observability is not, and those are different properties.
-
-**"Isn't this just a workflow with an LLM bolted on?"**
-No, and slide 10 is the evidence. The agent decides which evidence would settle a claim and
-goes to get it; that branch structure isn't enumerated anywhere. What is fixed is the tool
-set and the assertions the output must satisfy.
-
-**"The model still sees the numbers. How is I-1 meaningful?"**
-It reads them and reasons about them; it never produces one that reaches a finding.
-`proposeHold` lets the model propose a split, then re-runs
-`computePartialHoldAmountSplit()` and throws if the numbers disagree.
-
-**"Suppressing all model prose seems extreme."**
-It is, and it's a fair debate. In this domain everything true is already in the cited record,
-so the narrative adds risk without adding information. In a domain where the prose is the
-product you'd make the opposite call.
-
-**"Why MCP if the server runs in-process?"**
-The protocol gives a real capability boundary — tool filtering, annotations, per-request
-scoping — without hand-rolling it, and the same surface can be exposed externally later
-without re-plumbing permissions. `RECOUP_MCP_URL` unset is a deployment choice.
+**"How would you debug a slow request?"**
+With difficulty. A correlation identifier threads from the request into the run record, so the
+join exists — but you run the query by hand. No distributed tracing, no structured logging.
+Auditability is strong; runtime observability is not.
 
 **"Is it production ready?"**
-No, and slides 23 and 24 say which parts. The governance spine is mature; the operational
-plumbing is behind it. That answer holds up better than a qualified yes.
+No, and slide 15 says which parts. The governance spine is mature; the operational plumbing is
+behind it. Highest-value fix is putting the existing gates into CI.
 
-**"Could we reuse this?"**
-The three patterns on slide 25 transfer to anything. The domain logic doesn't. Cheapest thing
-to adopt tomorrow is the dependency-cruiser boundary rule; highest-value is invariants with
-named tests.
+**"What would we reuse?"**
+The four patterns on slide 16. Cheapest to adopt is the module-boundary rule; highest value is
+invariants with named tests; most transferable to an integration-heavy programme is the
+canonical evidence contract with readiness states.
 
 ---
 
 ## Be careful about
 
-**Slide 3 statistics.** 2–5% / 65–80% / 60% are the repo's own landing-page figures, labelled
-on-slide as unverified. I did not find primary sources. If pressed, say exactly that.
+**Slide 4 statistics.** The industry ranges are illustrative and unsourced, and are labelled
+that way on the slide. The business case rests on the settlement run, not on them. If pressed,
+say exactly that.
 
-**The gold set.** `$112,400` / 20 lines is synthetic seed-42 data for a fictional
-manufacturer, NorthBay Brands. Don't let it be heard as a customer case study.
+**The gold set** is synthetic seed-42 data for a fictional manufacturer. Not a customer case
+study.
 
-**Demo credentials.** Committed to the repo in nine places. Don't read the password aloud,
-and raise it yourself if a security person is in the room.
+**Demo credentials** are committed to the repository in nine places. Do not read the password
+aloud; raise it yourself if a security person is in the room.
 
-**Backup screenshots** are from 1–2 July 2026 and may lag the live UI. Check them before the
-session rather than discovering a mismatch live.
+**Handoff coverage.** If asked, be straight: the declared-topology check guards one edge today,
+runtime trace assertion guards both journeys. Behaviour is constrained everywhere; the
+design-time contract is incomplete. It is on the register.
 
-**Don't oversell memory.** Typed, scoped, PII-rejecting and inspectable — genuinely good. It
-is not learned or self-improving, and nobody should leave thinking it is.
+**Do not claim** a custom graph engine, loop engineering, agent debate, maker-checker agents,
+concurrent agents, adaptive planning, live non-SAP connectors, distributed tracing, or
+zero-code integration. None of those exist here.
 
-**Don't claim "an edge list you cannot go around."** That overstates packet validation, and
-an architect who opens `messages.ts` will find one call site.
+---
+
+## Evidence appendix
+
+Module paths were deliberately kept off the slides — they compete with the architecture for
+attention. Use these when a claim is challenged.
+
+| Claim | Where it lives |
+|---|---|
+| Seven layers map to directories | `cockpit/`, `src/agents/`, `src/services/conductor.ts`, `src/services/serviceLayer.ts` + `src/mcp/`, `src/core/`, `src/adapters/`, SAP + Supabase |
+| Agent roster and model binding | `src/agents/agentRuntime.ts`, `config/models.ts` |
+| Declared handoff topology | `src/agents/handoffGraph.ts`, `src/agents/messages.ts` |
+| Trace assertion and run budgets | `src/services/conductor.ts`, `forensicsQuerySession.ts`, `creditRiskQuerySession.ts` |
+| Capability registry and classes | `src/services/serviceLayer.ts`, `src/services/permissionEngine.ts` |
+| Scoped capability boundary | `src/mcp/server.ts`, `src/agents/mcpGateway.ts` |
+| Money type and rules | `src/types/money.ts`, `src/core/rules/`, `src/types/variance.ts` |
+| Hold recomputation and clamp | `src/core/partialHold.ts`, `src/guardrails/tool/amountClamp.ts` |
+| **Adapter fabric and readiness** | `src/adapters/connectorRegistry.ts`, `enterpriseReadOnly.ts`, `sapOData.ts` |
+| **Readiness is tested** | `tests/invariants/connector-readiness.test.ts` |
+| Memory taxonomy and compaction | `src/memory/schema.ts`, `src/memory/compaction.ts` |
+| Prompt assembly and caching | `src/agents/promptAssembly.ts`, `config/openaiPromptCache.ts` |
+| Guardrails at three boundaries | `src/guardrails/input/`, `tool/`, `output/` |
+| Approval and segregation of duties | `src/services/approvals.ts` |
+| Audit chain | `src/audit/trail.ts` |
+| No ERP write path | `tests/invariants/no-erp-writeback.test.ts` + module-graph rule |
+| Gold set totals | `RECONCILIATION_LEDGER.md` §4, `tests/evals/gold-set-parity.test.ts` |
+| The 28 active invariants | `INVARIANTS.md` |
+
+---
+
+## Rebuilding the deck
+
+`slides.html` is the only file worth editing. Then:
+
+```bash
+node build.mjs      # inlines reveal + theme into index.html
+```
+
+The build fails if the output contains non-ASCII characters or external references — both are
+regressions that only show up on someone else's machine.

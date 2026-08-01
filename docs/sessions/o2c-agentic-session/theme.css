@@ -1,0 +1,273 @@
+/* ============================================================================
+   Recoup session theme for reveal.js
+   Palette, type roles and spacing derived from /tokens.css
+   ("O2C Collections Design System v3.1 - Editorial Enterprise")
+   Reveal's stock themes are deliberately not used - the deck should look like
+   the product it describes.
+   ========================================================================== */
+
+:root {
+  --ink:       #18181B;
+  --ink-2:     #52525B;
+  --ink-3:     #71717A;
+  --canvas:    #FAFAFA;
+  --surface:   #FFFFFF;
+  --subtle:    #F4F4F5;
+  --line:      #D4D4D8;
+  --line-soft: #E4E4E7;
+
+  --leak:    #C2410C;   /* risk, leakage, external consequence */
+  --govern:  #0c6e6b;   /* governed, deterministic, verified */
+  --ok:      #166534;
+  --bad:     #991B1B;
+  --dispute: #7C3AED;
+  --focus:   #2563EB;
+
+  --serif: Georgia, "Newsreader", "Iowan Old Style", serif;
+  --sans:  system-ui, -apple-system, "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono:  ui-monospace, "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
+    --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
+    --line: #3F3F46; --line-soft: #27272A;
+    --leak: #FB923C; --govern: #5EEAD4;
+    --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #E4E4E7; --ink-2: #A1A1AA; --ink-3: #8A8A93;
+  --canvas: #09090B; --surface: #18181B; --subtle: #27272A;
+  --line: #3F3F46; --line-soft: #27272A;
+  --leak: #FB923C; --govern: #5EEAD4;
+  --ok: #4ADE80; --bad: #F87171; --dispute: #C4B5FD; --focus: #60A5FA;
+}
+:root[data-theme="light"] {
+  --ink: #18181B; --ink-2: #52525B; --ink-3: #71717A;
+  --canvas: #FAFAFA; --surface: #FFFFFF; --subtle: #F4F4F5;
+  --line: #D4D4D8; --line-soft: #E4E4E7;
+  --leak: #C2410C; --govern: #0c6e6b;
+  --ok: #166534; --bad: #991B1B; --dispute: #7C3AED; --focus: #2563EB;
+}
+
+/* --- Reveal shell ---------------------------------------------------------
+   The artifact wrapper owns <html>/<body>, so the deck pins its own height
+   rather than inheriting a percentage chain that may not exist. */
+html, body { margin: 0; padding: 0; background: var(--canvas); }
+.reveal { height: 100vh; font-family: var(--sans); color: var(--ink); font-weight: 400; }
+.reveal .slides { text-align: left; }
+.reveal .slides section { padding: 0; height: 100%; }
+.reveal ::selection { background: var(--govern); color: var(--canvas); }
+.reveal :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* --- Type ----------------------------------------------------------------- */
+.reveal h1, .reveal h2, .reveal h3 {
+  font-family: var(--serif); font-weight: 400; color: var(--ink);
+  text-transform: none; letter-spacing: -0.015em; line-height: 1.08;
+  margin: 0; text-wrap: balance; text-shadow: none;
+}
+.reveal h1 { font-size: 2.6em; letter-spacing: -0.03em; }
+.reveal h2 { font-size: 1.55em; max-width: 34ch; }
+.reveal h3 { font-size: 1.05em; font-family: var(--sans); font-weight: 650; }
+.reveal p  { margin: 0; line-height: 1.5; }
+.reveal strong { font-weight: 650; color: var(--ink); }
+.reveal em { font-style: italic; }
+.reveal code { font-family: var(--mono); font-size: 0.92em; }
+.reveal a { color: var(--govern); }
+
+.eyebrow {
+  font-family: var(--serif); font-style: italic;
+  font-size: 0.62em; color: var(--ink-3); margin: 0;
+}
+.kicker {
+  font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--ink-3); font-weight: 600; margin: 0;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.lede { font-size: 0.72em; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.tiny { font-size: 0.56em; color: var(--ink-3); }
+.q { font-family: var(--serif); font-style: italic; color: var(--ink); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* --- Slide scaffold ------------------------------------------------------- */
+.wrap {
+  height: 100%; display: flex; flex-direction: column;
+  gap: 20px; padding: 45px 80px 54px;
+  box-sizing: border-box; font-size: 31px;
+}
+.wrap > .body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+.center { justify-content: center; }
+
+/* --- Maturity chips ------------------------------------------------------- */
+.mat {
+  font-family: var(--mono); font-size: 0.75em; letter-spacing: 0.02em;
+  padding: 1px 7px; border-radius: 3px; border: 1px solid currentColor;
+  text-transform: none; white-space: nowrap;
+}
+.mat--live    { color: var(--ok); }
+.mat--synth   { color: var(--dispute); }
+.mat--offline { color: var(--ink-3); }
+.mat--partial { color: var(--leak); }
+.mat--target  { color: var(--ink-3); opacity: 0.85; }
+
+/* --- Panels and grids ----------------------------------------------------- */
+.grid { display: grid; gap: 14px 22px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.split { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
+
+.panel {
+  border: 1px solid var(--line-soft); border-radius: 8px;
+  background: var(--surface); padding: 14px 19px;
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.panel h3 { font-size: 0.66em; }
+.panel p  { font-size: 0.62em; color: var(--ink-2); line-height: 1.45; }
+.panel--leak   { border-color: var(--leak); }
+.panel--govern { border-color: var(--govern); }
+.panel--muted  { background: var(--subtle); }
+
+/* --- Lists ---------------------------------------------------------------- */
+.ticks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 7px; }
+.ticks li { position: relative; padding-left: 17px; font-size: 0.62em; line-height: 1.45; color: var(--ink-2); }
+.ticks li::before {
+  content: ""; position: absolute; left: 0; top: 0.55em;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--govern);
+}
+.ticks--leak li::before { background: var(--leak); }
+.ticks--sq li::before { border-radius: 1px; }
+
+/* --- Tables --------------------------------------------------------------- */
+/* Explicit inheritance: without a doctype of our own the page can parse in
+   quirks mode, where tables inherit neither colour nor font. */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.6em; color: inherit; font-family: inherit; }
+.tbl th, .tbl td {
+  text-align: left; padding: 6px 16px 6px 0;
+  border-bottom: 1px solid var(--line-soft); vertical-align: top;
+  color: inherit; font-family: inherit;
+}
+.tbl thead th {
+  font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-3); font-weight: 600; white-space: nowrap;
+}
+.tbl tbody th { font-weight: 650; color: var(--ink); }
+.tbl tr:last-child td, .tbl tr:last-child th { border-bottom: 0; }
+
+.chip {
+  display: inline-block; font-family: var(--mono); font-size: 0.9em;
+  padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line);
+  color: var(--ink-2); white-space: nowrap;
+}
+.chip--deny  { border-color: var(--bad); color: var(--bad); }
+.chip--gate  { border-color: var(--leak); color: var(--leak); }
+.chip--allow { border-color: var(--ok); color: var(--ok); }
+
+/* --- Seven-layer architecture map ----------------------------------------- */
+.stack7 { display: flex; flex-direction: column; gap: 6px; }
+.layer {
+  display: grid; grid-template-columns: 3.2em minmax(0, 15em) minmax(0, 1fr) auto;
+  align-items: center; gap: 0 19px;
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--line);
+  border-radius: 6px; background: var(--surface); padding: 10px 16px;
+  transition: opacity 400ms var(--ease), border-color 400ms var(--ease),
+              background 400ms var(--ease);
+}
+.layer__n    { font-family: var(--mono); font-size: 0.55em; color: var(--ink-3); }
+.layer__name { font-size: 0.66em; font-weight: 650; }
+.layer__role { font-size: 0.56em; color: var(--ink-2); }
+.layer--l1 { border-left-color: var(--ink-3); }
+.layer--l2 { border-left-color: var(--dispute); }
+.layer--l3 { border-left-color: var(--dispute); }
+.layer--l4 { border-left-color: var(--focus); }
+.layer--l5 { border-left-color: var(--leak); }
+.layer--l6 { border-left-color: var(--govern); }
+.layer--l7 { border-left-color: var(--ink-3); }
+/* focus one layer, recede the rest */
+.layer.is-dim { opacity: 0.28; }
+.layer.is-on  { background: var(--subtle); }
+
+.rails { display: flex; flex-wrap: wrap; gap: 5px 13px; }
+.rail {
+  font-family: var(--mono); font-size: 0.5em; color: var(--ink-2);
+  border: 1px dashed var(--line); border-radius: 99px; padding: 2px 10px;
+}
+
+/* --- Journey -------------------------------------------------------------- */
+.journey { display: flex; flex-direction: column; gap: 5px; }
+.step {
+  display: grid; grid-template-columns: 2.4em 5.2em minmax(0, 1fr);
+  align-items: baseline; gap: 0 16px;
+  padding: 7px 0; border-bottom: 1px solid var(--line-soft);
+}
+.step:last-child { border-bottom: 0; }
+.step__n { font-family: var(--mono); font-size: 0.5em; color: var(--govern); }
+.step__l { font-family: var(--mono); font-size: 0.5em; color: var(--ink-3); }
+.step__t { font-size: 0.62em; color: var(--ink-2); }
+.step__t b { color: var(--ink); font-weight: 650; }
+
+.caseid {
+  font-family: var(--mono); font-size: 0.52em; color: var(--ink-2);
+  border: 1px solid var(--govern); border-radius: 6px;
+  padding: 6px 16px; background: var(--surface);
+  display: inline-flex; gap: 19px; flex-wrap: wrap;
+}
+.caseid b { color: var(--ink); }
+
+/* --- Adapter swap --------------------------------------------------------- */
+.contract {
+  border: 2px solid var(--govern); border-radius: 8px;
+  background: var(--surface); padding: 13px 19px; text-align: center;
+}
+.contract h3 { font-size: 0.66em; color: var(--govern); }
+.contract p  { font-size: 0.52em; color: var(--ink-2); }
+.srcbox {
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); padding: 11px 16px;
+  display: flex; flex-direction: column; gap: 5px; align-items: center; text-align: center;
+}
+.srcbox h3 { font-size: 0.6em; }
+.srcbox p  { font-size: 0.5em; color: var(--ink-3); }
+.srcbox--live  { border-color: var(--ok); }
+.srcbox--synth { border-color: var(--dispute); }
+.srcbox--target{ border-style: dashed; border-color: var(--ink-3); }
+.seam {
+  text-align: center; font-family: var(--mono); font-size: 0.5em;
+  color: var(--ink-3); padding: 4px 0;
+}
+
+/* --- Fragments ------------------------------------------------------------ */
+/* Reveal hides un-shown fragments; keep them out of the flow so a slide is
+   composed for its final state rather than reserving space from the start. */
+.reveal .slides section .fragment.fade-in-then-semi-out.visible { opacity: 1; }
+
+/* --- Chrome --------------------------------------------------------------- */
+.reveal .progress { color: var(--leak); height: 3px; }
+.reveal .slide-number {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  background: none; right: 12px; bottom: 8px;
+}
+.reveal .controls { color: var(--ink-3); }
+
+/* --- Print / export -------------------------------------------------------
+   Every fragment must be visible in the PDF; a handout that hides half the
+   content is worse than no handout. */
+/* Reveal 6 sets these on <html>, not on body or .reveal. Targeting the wrong
+   element silently produces a handout with every fragment missing. */
+html.print-pdf .fragment,
+html.reveal-print .fragment {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+}
+html.print-pdf .layer.is-dim,
+html.reveal-print .layer.is-dim { opacity: 1 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal .slides section { transition: none !important; }
+  .layer { transition: none !important; }
+}

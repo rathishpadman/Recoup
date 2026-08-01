@@ -1,14 +1,32 @@
-# Demo runbook — Recoup session, Act III
+# Demo runbook — Recoup, 25 minutes
 
-Live demo against the **deployed environment**. 25 minutes, three personas, one settlement run — running at roughly the 62-minute mark of a 90-minute session.
-
-> **Deployed is not production.** It runs against live Supabase, live SAP reads and live Agents SDK
-> runs, carrying synthetic seed-42 data. The repository's own real-evidence release gate is blocked.
-> Keep that distinction crisp; slide 24 sets it out.
+Runs at roughly the **70-minute mark** of a 90-minute session, straight off slide 16.
 
 - Cockpit: `https://recoup-self-eta.vercel.app`
 - API: `https://recoup-api.onrender.com`
-- Deck: `docs/sessions/o2c-agentic-session/index.html` — leave it open on slide 22 (the running order) so you can glance back.
+- Return to the deck with <kbd>D</kbd> (demo stage) or <kbd>L</kbd> (architecture map)
+
+> **Deployed is not production.** Live services, live agent runs, synthetic seed-42 data, and
+> the release gate for real evidence still closed. Slide 15 sets this out — do not blur it here.
+
+---
+
+## Why the demo is not embedded in the deck
+
+It was asked for, and it cannot work. Two independent reasons:
+
+1. **The session cookie is `SameSite=Lax`.** A cross-site iframe does not receive it, so every
+   persona route would redirect and the frame would show a login wall rather than the product.
+   Making it work needs `SameSite=None; Secure`, which is a runtime change and out of scope here.
+2. **The published deck runs under a strict CSP** that blocks external hosts, so an embedded
+   frame is dead there regardless.
+
+The app itself is not the obstacle — it sets no frame-blocking headers. If a genuinely embedded
+demo becomes important, the clean route is serving the deck from the cockpit's own origin so it
+is same-site. That is a change under `cockpit/` and a separate decision.
+
+**What to do instead:** present from a second window. Slide 16 is the stage; you switch to a
+browser that is already open and logged in, and come back with <kbd>D</kbd>.
 
 ---
 
@@ -16,28 +34,25 @@ Live demo against the **deployed environment**. 25 minutes, three personas, one 
 
 ### T-30 — credentials
 
-The three demo logins are `Maya`, `david` and `CFO`. The shared password is **not repeated in this
-runbook on purpose** — it is already committed at `docs/supabase-demo-login-schema.sql` (search for
-`recoup_demo_users`). Read it from there before the session.
+Logins are `Maya`, `david` and `CFO`. The shared password is **deliberately not repeated here** —
+it is committed at `docs/supabase-demo-login-schema.sql`. Read it from there.
 
-> Worth raising if a security-minded person is in the room: those credentials are checked into the
-> repository in nine places. It is fine for a synthetic demo tenant and it would not be fine for
-> anything else. Better to say it yourself than be asked.
+> If a security-minded person is in the room, raise it before they do: those credentials are in
+> the repository in nine places. Fine for a synthetic demo tenant, not fine for anything else.
 
 ### T-15 — warm the backend
 
-Render spins the API down when idle, and a cold start will eat the first two minutes of your demo.
+Render spins down when idle and a cold start will eat the first two minutes.
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" https://recoup-api.onrender.com/healthz   # want 200
 ```
 
-A `503` here is not necessarily a cold start — `/healthz` returns 503 when run-control config is
-missing from Supabase, which is deliberate fail-closed behaviour. Retry a few times; if it stays
-503 with a fast response, that is a config problem, not a warm-up problem, and you should plan on
-the backup path.
+A `503` is not necessarily a cold start — `/healthz` returns 503 when governed config is missing,
+which is deliberate fail-closed behaviour. If it stays 503 and responds fast, that is a config
+problem and you should plan on the backup path.
 
-Then load each demo route once so the read-model caches are warm:
+Then load each route once so the read models are warm:
 
 ```
 /forensics/shadcn   /run   /credit   /credit/command
@@ -45,83 +60,62 @@ Then load each demo route once so the read-model caches are warm:
 /governance/evals-finops  /cfo
 ```
 
-### T-5 — browser setup
+### T-5 — windows
 
-Three windows, already logged in, so you never burn a minute re-authenticating mid-flow. Route
-access is enforced per persona in `config/cockpitDemoProfiles.ts` — one session cannot cover all
-three journeys.
+Route access is enforced per persona, so one session cannot cover all three journeys.
 
-| Window | Login | Routes it can reach |
+| Window | Login | Reaches |
 |---|---|---|
 | 1 | `Maya` | `/forensics`, `/forensics/shadcn`, `/run` |
 | 2 | `david` | `/credit`, `/credit/command` |
 | 3 | `CFO` | `/cfo`, all `/governance/*` |
 
-Also: zoom to ~90% on a 1080p projector so tables don't wrap · close notification surfaces ·
-have the backup screenshot folder open in a fourth tab.
+Also: zoom to ~90% on a 1080p projector so tables do not wrap · silence notifications · have the
+captured walkthrough open in a fourth tab · allow the speaker-view popup once.
 
 ---
 
 ## The click path
 
-### Beat 1 — Maya, deduction forensics · 12 min
+Every step carries the architecture layer it exercises. Say the layer out loud — that is what
+turns the demo into proof of the map rather than a product tour.
 
-**`/forensics/shadcn`**
+### Maya — deduction forensics · 11 min
 
-1. **The worklist.** Land here and stay for a moment. Point out that the totals match slide 5 —
-   20 lines, `$112,400`, split 7 / 13. Say plainly: *these are the same numbers from the deck,
-   because they come from the same checked-in gold set the build asserts against.*
-2. **Open S3 — Crestline, `$21,300` shortage.** The one where the POD shows a full signed delivery.
-   This is the hero case; it is unambiguous and it has real documents behind it.
-3. **The evidence dossier.** Walk the cited record IDs. The point to make: every figure on screen
-   has a record ID next to it, and the verdict names the rule that produced it. Nothing here is a
-   model assertion.
-4. **The investigation timeline.** Show the tool calls and the handoff. Note what is *absent* —
-   there is no model prose, because the output guard replaces it.
+| | Step | Layer |
+|---|---|---|
+| 1 | **The worklist.** Totals match slide 4 — 20 lines, `$112,400`, split 7 / 13. Say plainly: same checked-in set the build asserts against. | `L1` |
+| 2 | **Open S3** — Crestline, `$21,300`, the shortage where delivery was signed in full. The case from slide 6. | `L1` |
+| 3 | **Evidence dossier.** Walk the cited record IDs. Every figure has an ID beside it and the verdict names the rule that produced it. | `L6` |
+| 4 | **Investigation timeline.** Tool calls and the handoff. Note what is absent — no model prose. | `L2` `L3` |
+| 5 | **Live run** on `/run`. Narrate the phases while the stream arrives. | `L3` |
+| 6 | **Copilot query** — "why is this invalid?" Show the cited answer, then say the answer rendered only because the trace evidenced a source read and the required handoff. | `L3` `L4` |
+| 7 | **Approval gate.** Approve. The action is now approved, not sent. The proposer could not have approved it. | `HITL` |
+| 8 | **Audit record.** Cited IDs and deterministic basis, appended. | `L5` |
 
-**`/run`**
+### David — credit and containment · 8 min
 
-5. **Trigger a live run.** The SSE stream, the tool status rail, the trace visualiser. Let it run;
-   narrate the phases (`supervisor → query → retrieval → decision`) while it streams.
-6. **Ask the copilot** *"why is this deduction invalid?"* Then show the cited answer card. Say:
-   the answer was built deterministically first, and it only rendered because the trace proved a
-   successful MCP source read and the Forensics → Recovery Drafter handoff. That is slide 20,
-   running.
+| | Step | Layer |
+|---|---|---|
+| 1 | **Harbor Foods.** DSO drifting 32 to 51 days. Name the guard that stops distress being treated as gaming. | `L6` |
+| 2 | **Sentinel and Containment positions** — advisory, narrative only. | `L2` |
+| 3 | **Risk-Mesh arbitration.** The supervisor gathered positions; deterministic code arbitrated. | `L5` |
+| 4 | **Partial release.** Composite `51.25`, band 40–60, `55%` release: `$352K` ships, `$288K` back-orders. Recomputed and rejected if a caller disagrees. | `L5` |
+| 5 | **Draft-only terms packet**, then the approval gate. Draft, not dispatch. | `HITL` |
 
-**Back to the worklist**
+### CFO — governance · 6 min
 
-7. **The approval gate.** Open it, approve, show the audit hash. Emphasise: the action is now
-   `approved`, not `sent`. Nothing left the building. The proposer could not have approved this.
+| | Step | Layer |
+|---|---|---|
+| 1 | **`/governance/agents`** — the topology, live. Note it renders the *declared* graph; the credit pair sits outside it, as on slide 7. | `L2` `L3` |
+| 2 | **`/governance/connectors`** — readiness states per source. This is slide 11 in the running system. | `L6` |
+| 3 | **`/governance/memory`** — typed categories as an inspectable surface. | `L2` |
+| 4 | **`/governance/trace`** — cited trace timeline, record counts per event. | `L3` |
+| 5 | **`/governance/evals-finops`** — gates and token economics. Cost is measured, not priced. | cross-cutting |
+| 6 | **`/cfo`** — exposure, projected recovery, supervised autonomy. | `L1` |
 
-### Beat 2 — David, credit and containment · 8 min
-
-**`/credit`**
-
-1. **Harbor Foods.** DSO drifting 32 → 51 days. Distressed but honest — and name the guard that
-   protects exactly this customer from being treated as a gamer: `noWrongfulContainment`.
-2. **The partial-hold score.** Six criteria, composite **51.25**, band 40–60. Walk two or three
-   criteria and their weights. The point: the weights are config, the score is code, and an agent
-   may *propose* a weight change but it is clamped to governance bands and routed to a human.
-3. **The split.** 55% release — **`$352K` ships now, `$288K` back-orders** on revised terms.
-   Deterministic, reproducible, and `proposeHold` throws if a caller's numbers disagree with the core.
-4. **The negotiation workbench**, then the **draft-only terms packet** and the approval gate.
-   Again: draft, not dispatch.
-
-**`/credit/command`** — 60 seconds on the dark command centre, then move on. It is the one dark
-surface in the product and it photographs well, but it is not load-bearing for the argument.
-
-### Beat 3 — CFO, governance · 5 min
-
-This is the payoff for Act II. Move briskly; each screen needs about a minute.
-
-1. **`/governance/agents`** — the handoff graph from slide 12, rendered live from
-   `src/agents/handoffGraph.ts`. Put the slide back up beside it if you can. Note aloud that
-   this renders the *declared* graph and the credit pair sits outside it — the nuance from slide 12.
-2. **`/governance/memory`** — the eleven typed categories as an inspectable surface.
-3. **`/governance/trace`** — the cited trace timeline; point at the cited-record counts per event.
-4. **`/governance/evals-finops`** — eval gates and token economics. Mention that cost is measured
-   but not yet priced, matching what you said on slide 21.
-5. **`/cfo`** — close on exposure, projected recovery, and supervised autonomy.
+`/governance/connectors` is new to this run order and worth the minute — it is the only place
+the adapter readiness model is visible in the running product.
 
 ---
 
@@ -129,43 +123,42 @@ This is the payoff for Act II. Move briskly; each screen needs about a minute.
 
 | Symptom | What it means | What to do |
 |---|---|---|
-| Route returns **503** with a `missingSource` label | Fail-closed on missing Supabase config or source rows. **This is correct behaviour**, not a crash. | Name it as designed behaviour under I-30 provenance honesty — the system refuses to show a plausible number it cannot source. Then move on or go to backup. |
-| First page load hangs ~30–60s | Render cold start | Keep talking; it will come up. If it doesn't, go to backup. |
-| Copilot answer is blocked | `blocked_live_agent_trace` or `blocked_missing_credentials` | This is slide 20 happening in front of them. Read the state name off the screen and explain which proof was missing. An honest block demonstrates the argument better than a smooth answer. |
-| A page paints stale data | 24h stale-serve allowance in the read-model cache | Acknowledge it as a demo allowance and carry on. |
-| Login fails | Supabase-backed login is down | Backup path — there is no offline login mode. |
+| **503 with a `missingSource` label** | Fail-closed on missing config or source rows. Correct behaviour, not a crash. | Name it as designed. The system refuses to show a number it cannot source. Then continue or go to backup. |
+| **First load hangs 30–60s** | Render cold start | Keep talking. If it does not come up, go to backup. |
+| **Copilot answer blocked** | `blocked_live_agent_trace` or `blocked_missing_credentials` | This is slide 6 step 9 happening live. Read the state off the screen and say which proof was missing. An honest block argues the design better than a smooth answer. |
+| **SAP source health red** | Upstream sandbox unavailable | Show `/governance/connectors` — the readiness model reporting a real failure is itself the demo. |
+| **SSE stream stalls** | Connection dropped mid-run | Reload `/run`. The deterministic result is unaffected; say so. |
+| **Login fails** | Supabase-backed auth down | Backup path. There is no offline login mode. |
+| **Page paints stale data** | 24h stale-serve allowance in the read-model cache | Acknowledge as a demo allowance and continue. |
 
-**Backup path** — press <kbd>B</kbd> in the deck for the route inventory, then narrate the same
-click path over the captured screenshots:
+**Backup path** — narrate the same click path over the captured walkthrough:
 
 - `docs/audit/real-evidence-baseline/2026-07-01/screenshots/` — 19 captures, one per route
 - `docs/audit/real-evidence-preview/2026-07-02-430565d/` — 2 captures
 
-**These are from 1–2 July 2026 and may lag the live UI.** Open them during pre-flight and compare
-against the running app; discovering a mismatch mid-demo is worse than not having a fallback. If
-they have drifted, recapture the Maya and governance routes before the session.
+**These are from 1–2 July 2026 and may lag the live UI.** Open them during pre-flight and
+compare. If they have drifted, recapture the Maya and governance routes before the session.
+
+**Keep the same case.** If you fall back, stay on S3 with the same record IDs. Switching
+scenario breaks the continuity that makes the demo evidence rather than a tour.
 
 ---
 
 ## Cut list, in order
 
-At 90 minutes the demo is no longer the squeeze point. If you are still behind at the 20-minute
-mark of the demo, cut in this order:
+1. `/credit/command` — the dark command centre. Photogenic, not structural.
+2. `/governance/evals-finops` — state the numbers instead of showing them.
+3. The negotiation workbench — go from the score straight to the terms packet.
+4. `/forensics` classic surface, if you were going to show it alongside the primary one.
 
-1. `/credit/command` — the dark command centre. Pretty, not structural.
-2. `/governance/evals-finops` — mention the numbers instead of showing them.
-3. `/credit` negotiation workbench — go straight from the score to the terms packet.
-4. `/forensics` classic surface, if you were planning to show it alongside the shadcn one.
-
-**Never cut:** the approval gate (Beat 1 step 7), `/governance/agents`, or `/governance/trace`.
-Those three are the payoff for the entire architecture section — without them Act II was theory.
+**Never cut:** the approval gate, `/governance/agents`, `/governance/connectors`, or
+`/governance/trace`. Those four are the payoff for slides 5 through 11.
 
 ---
 
-## After the session
+## After
 
-- The three open questions on slide 25 are genuinely open. Capture the answers.
-- If anyone asks for the code walkthrough, the five files listed on slide 25 are the right entry
-  points, in that order.
-- Anything raised that belongs on the risk register (slide 23) should go there rather than into a
-  side channel — the register is meant to be a working document.
+- The demo is the proof of the map. If someone asks a layer question afterwards, press
+  <kbd>L</kbd> and answer against the diagram rather than from memory.
+- Anything raised that belongs on the risk register (slide 15) goes there — it is meant to be a
+  working document.
