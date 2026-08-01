@@ -1,10 +1,14 @@
 # Demo runbook — Recoup session, Act III
 
-Live demo against production. **25 minutes, three personas, one settlement run.**
+Live demo against the **deployed environment**. 25 minutes, three personas, one settlement run — running at roughly the 62-minute mark of a 90-minute session.
+
+> **Deployed is not production.** It runs against live Supabase, live SAP reads and live Agents SDK
+> runs, carrying synthetic seed-42 data. The repository's own real-evidence release gate is blocked.
+> Keep that distinction crisp; slide 24 sets it out.
 
 - Cockpit: `https://recoup-self-eta.vercel.app`
 - API: `https://recoup-api.onrender.com`
-- Deck: `docs/sessions/o2c-agentic-session/index.html` — leave it open on slide 18 (the running order) so you can glance back.
+- Deck: `docs/sessions/o2c-agentic-session/index.html` — leave it open on slide 22 (the running order) so you can glance back.
 
 ---
 
@@ -81,7 +85,7 @@ have the backup screenshot folder open in a fourth tab.
    narrate the phases (`supervisor → query → retrieval → decision`) while it streams.
 6. **Ask the copilot** *"why is this deduction invalid?"* Then show the cited answer card. Say:
    the answer was built deterministically first, and it only rendered because the trace proved a
-   successful MCP source read and the Forensics → Recovery Drafter handoff. That is slide 16,
+   successful MCP source read and the Forensics → Recovery Drafter handoff. That is slide 20,
    running.
 
 **Back to the worklist**
@@ -110,13 +114,13 @@ surface in the product and it photographs well, but it is not load-bearing for t
 
 This is the payoff for Act II. Move briskly; each screen needs about a minute.
 
-1. **`/governance/agents`** — the handoff graph from slide 10, rendered live from
-   `src/agents/handoffGraph.ts`. Put the slide back up beside it if you can. This is the moment
-   where "the diagram is the runtime" stops being a claim.
+1. **`/governance/agents`** — the handoff graph from slide 12, rendered live from
+   `src/agents/handoffGraph.ts`. Put the slide back up beside it if you can. Note aloud that
+   this renders the *declared* graph and the credit pair sits outside it — the nuance from slide 12.
 2. **`/governance/memory`** — the eleven typed categories as an inspectable surface.
 3. **`/governance/trace`** — the cited trace timeline; point at the cited-record counts per event.
 4. **`/governance/evals-finops`** — eval gates and token economics. Mention that cost is measured
-   but not yet priced, matching what you said on slide 17.
+   but not yet priced, matching what you said on slide 21.
 5. **`/cfo`** — close on exposure, projected recovery, and supervised autonomy.
 
 ---
@@ -127,21 +131,26 @@ This is the payoff for Act II. Move briskly; each screen needs about a minute.
 |---|---|---|
 | Route returns **503** with a `missingSource` label | Fail-closed on missing Supabase config or source rows. **This is correct behaviour**, not a crash. | Name it as designed behaviour under I-30 provenance honesty — the system refuses to show a plausible number it cannot source. Then move on or go to backup. |
 | First page load hangs ~30–60s | Render cold start | Keep talking; it will come up. If it doesn't, go to backup. |
-| Copilot answer is blocked | `blocked_live_agent_trace` or `blocked_missing_credentials` | This is slide 16 happening in front of them. Read the state name off the screen and explain which proof was missing. An honest block demonstrates the argument better than a smooth answer. |
+| Copilot answer is blocked | `blocked_live_agent_trace` or `blocked_missing_credentials` | This is slide 20 happening in front of them. Read the state name off the screen and explain which proof was missing. An honest block demonstrates the argument better than a smooth answer. |
 | A page paints stale data | 24h stale-serve allowance in the read-model cache | Acknowledge it as a demo allowance and carry on. |
 | Login fails | Supabase-backed login is down | Backup path — there is no offline login mode. |
 
 **Backup path** — press <kbd>B</kbd> in the deck for the route inventory, then narrate the same
 click path over the captured screenshots:
 
-- `docs/audit/real-evidence-baseline/2026-07-01/screenshots/`
-- `docs/audit/real-evidence-preview/2026-07-02-430565d/`
+- `docs/audit/real-evidence-baseline/2026-07-01/screenshots/` — 19 captures, one per route
+- `docs/audit/real-evidence-preview/2026-07-02-430565d/` — 2 captures
+
+**These are from 1–2 July 2026 and may lag the live UI.** Open them during pre-flight and compare
+against the running app; discovering a mismatch mid-demo is worse than not having a fallback. If
+they have drifted, recapture the Maya and governance routes before the session.
 
 ---
 
 ## Cut list, in order
 
-If you are behind at the 20-minute mark of the demo, cut in this order:
+At 90 minutes the demo is no longer the squeeze point. If you are still behind at the 20-minute
+mark of the demo, cut in this order:
 
 1. `/credit/command` — the dark command centre. Pretty, not structural.
 2. `/governance/evals-finops` — mention the numbers instead of showing them.
@@ -155,6 +164,8 @@ Those three are the payoff for the entire architecture section — without them 
 
 ## After the session
 
-- The three open questions on slide 19 are genuinely open. Capture the answers.
-- If anyone asks for the code walkthrough, the five files listed on slide 19 are the right entry
+- The three open questions on slide 25 are genuinely open. Capture the answers.
+- If anyone asks for the code walkthrough, the five files listed on slide 25 are the right entry
   points, in that order.
+- Anything raised that belongs on the risk register (slide 23) should go there rather than into a
+  side channel — the register is meant to be a working document.
