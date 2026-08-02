@@ -54,12 +54,11 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --ink: #F2F4F9; --ink-2: #C3CBD8; --ink-3: #97A3B4;
-    --canvas: #0B0D14; --surface: #16192440; --subtle: #1A1E2B;
+    --canvas: #0B0D14; --surface: #161924; --subtle: #1A1E2B;
     --line: #2E3444; --line-soft: #232838;
     --govern: var(--hcl-blue-lt); --leak: var(--hcl-purple-lt);
     --ok: var(--hcl-blue-pale); --bad: var(--hcl-purple-lt);
     --dispute: var(--hcl-purple-pale); --focus: var(--hcl-blue-lt);
-    --surface: #161924;
   }
 }
 :root[data-theme="dark"] {
@@ -80,7 +79,11 @@
 }
 
 /* --- Reveal shell --------------------------------------------------------- */
-html, body { margin: 0; padding: 0; background: var(--canvas); }
+/* Reveal puts .reveal-viewport on <body> and paints a background there. A bare
+   body selector loses to that class, which leaves dark-mode text on a white
+   page - invisible. Match the class so the ground follows the tokens. */
+html, body, body.reveal-viewport { margin: 0; padding: 0; background: var(--canvas); }
+.reveal, .reveal .slides, .reveal .slides section { background: transparent; }
 .reveal { height: 100vh; font-family: var(--sans); color: var(--ink); font-weight: 400; }
 .reveal .slides { text-align: left; }
 .reveal .slides section { padding: 0; height: 100%; }
@@ -108,9 +111,16 @@ html, body { margin: 0; padding: 0; background: var(--canvas); }
 .reveal code { font-family: var(--mono); font-size: 0.92em; }
 .reveal a { color: var(--hcl-blue); }
 
-.gradient-text {
-  background: var(--grad-brand);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+/* Needs to out-specify '.reveal h1', which sets colour. */
+.reveal .gradient-text, .reveal h1.gradient-text {
+  background-image: var(--grad-brand);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+/* If background-clip:text is unsupported the title would vanish, so give it a
+   solid ground to fall back to. */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .reveal .gradient-text { color: var(--hcl-purple); -webkit-text-fill-color: var(--hcl-purple); }
 }
 
 .eyebrow { font-size: 0.6em; color: var(--ink-3); margin: 0; letter-spacing: 0.01em; }
