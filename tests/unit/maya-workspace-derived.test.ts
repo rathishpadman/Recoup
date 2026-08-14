@@ -13,6 +13,7 @@ import {
   buildDraftLetterPreview,
   buildEmailDraft,
   buildEvidenceFactCard,
+  groupEvidenceFactCardsByLine,
   buildEvidencePacketAvailabilityLabel,
   buildQueryEvidenceSnapshot,
   countEvidenceSourceLabels,
@@ -948,6 +949,33 @@ describe("Maya workspace derived helpers", () => {
     expect(card.rows.map((row) => row.value)).not.toContain("A sentence summary that must not render inside the fact rows.");
     expect(card.rows.map((row) => row.value).join(" ")).not.toContain("canonical evidence document comparison");
     expect(card.title).not.toMatch(/retrieved through|#/iu);
+  });
+
+  it("carries the deduction line on each evidence fact card so identical documents stay distinguishable", () => {
+    const card = buildEvidenceFactCard(
+      evidenceDocument({ documentId: "EVD-POD-S3-L2", evidenceId: "EVD-POD-S3-L2", lineId: "S3-L2" })
+    );
+
+    expect(card.lineId).toBe("S3-L2");
+    expect(card.provenanceRows).toEqual(expect.arrayContaining([{ label: "Deduction line", value: "S3-L2" }]));
+  });
+
+  it("groups evidence fact cards by deduction line and keeps case-scoped documents in their own group", () => {
+    const groups = groupEvidenceFactCardsByLine([
+      evidenceDocument({ documentId: "EVD-POD-S3-L1", evidenceId: "EVD-POD-S3-L1", lineId: "S3-L1" }),
+      evidenceDocument({ documentId: "EVD-REMIT-S3-L2", evidenceId: "EVD-REMIT-S3-L2", lineId: "S3-L2" }),
+      evidenceDocument({ documentId: "EVD-POD-S3-L2", evidenceId: "EVD-POD-S3-L2", lineId: "S3-L2" }),
+      // Vector-store hits are case-scoped, not line-scoped, so they must not invent a line group.
+      evidenceDocument({ citationId: "V4", documentId: "VECTOR-EVIDENCE-S3-L1" })
+    ]);
+
+    expect(groups.map((group) => group.lineId)).toEqual(["S3-L1", "S3-L2", undefined]);
+    expect(groups.map((group) => group.cards.length)).toEqual([1, 2, 1]);
+    expect(groups[0]?.label).toBe("S3-L1");
+    expect(groups[2]?.label).toBe("Case-wide evidence");
+    expect(groups[0]?.countLabel).toBe("1 document");
+    expect(groups[1]?.countLabel).toBe("2 documents");
+    expect(groups[1]?.cards.map((card) => card.documentId)).toEqual(["EVD-REMIT-S3-L2", "EVD-POD-S3-L2"]);
   });
 
   it("does not infer hash verification from hash fields alone", () => {

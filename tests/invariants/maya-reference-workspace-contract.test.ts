@@ -119,7 +119,7 @@ describe("Maya reference workspace contract", () => {
     expect(derived).toContain("export function buildEvidenceFactCard(");
     expect(derived).toContain("export function semanticRetrievalBadgeFromDocument(");
     expect(derived).toContain("export function buildEvidencePacketAvailabilityLabel(");
-    expect(workspace).toContain("buildEvidenceFactCard(document)");
+    expect(workspace).toContain("groupEvidenceFactCardsByLine(evidencePack.documents)");
     expect(workspace).toContain("buildEvidencePacketAvailabilityLabel(selected.evidencePack)");
     expect(workspace).toContain('data-testid="maya-evidence-fact-card"');
     expect(workspace).toContain('data-testid="maya-evidence-fact-row"');

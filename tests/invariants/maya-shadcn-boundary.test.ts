@@ -873,8 +873,8 @@ describe("Maya shadcn cockpit boundary", () => {
     expect(workspace).toContain("<Collapsible");
     expect(workspace).toContain("countEvidenceSourceLabels(evidencePack.documents)");
     for (const requiredPropRead of [
-      "buildEvidenceFactCard(document)",
-      "evidencePack.documents.map",
+      "groupEvidenceFactCardsByLine(evidencePack.documents)",
+      "group.cards.map",
       "card.rows.map",
       "card.provenanceRows.map",
       "card.documentId",

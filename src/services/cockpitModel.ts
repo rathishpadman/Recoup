@@ -124,6 +124,7 @@ export interface ForensicsCockpitModel {
         deterministicComparisonBasis?: string;
         evidenceId?: string;
         evidenceProvenance?: string;
+        lineId?: string;
         provenance: MayaFieldProvenance;
         receiptContentHash?: string;
         receiptId?: string;
@@ -2444,6 +2445,7 @@ function canonicalEvidenceDocumentView(
   const comparisonBasis = `canonical evidence document comparison via receipt ${receipt.receiptId}; evidence ${document.evidenceId}; contentHash ${document.contentHash}`;
   const storageUri = canonicalEvidenceStorageUri(document);
   const storageHref = canonicalEvidenceStorageHref(document, storageUri);
+  const documentLineId = evidenceDocumentLineId(document);
 
   return {
     citationId: canonicalEvidenceCitationId(document, index),
@@ -2454,6 +2456,9 @@ function canonicalEvidenceDocumentView(
     documentType: document.documentType,
     evidenceId: document.evidenceId,
     evidenceProvenance: document.provenance,
+    // Grouping key for the dossier: without it, several lines' identical document types are
+    // indistinguishable once the pack is expanded.
+    ...(documentLineId === undefined ? {} : { lineId: documentLineId }),
     provenance: businessProvenance(`selected.evidencePack.documents.${document.evidenceId}`, {
       sourceKind: canonicalEvidenceSourceKind(document),
       sourceName,

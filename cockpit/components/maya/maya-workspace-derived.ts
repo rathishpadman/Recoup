@@ -77,6 +77,7 @@ export interface MayaEvidenceFactCard {
   documentType: string;
   documentHref?: string;
   documentSummary?: string;
+  lineId?: string;
   provenanceRows: MayaEvidenceFactRow[];
   rows: MayaEvidenceFactRow[];
   semanticRetrievalBadge?: string;
@@ -440,6 +441,62 @@ export function buildAgentInvestigationTimelineSteps(
   });
 }
 
+export interface MayaEvidenceFactCardGroup {
+  cards: MayaEvidenceFactCard[];
+  countLabel: string;
+  label: string;
+  lineId?: string;
+}
+
+/**
+ * Partitions evidence cards by deduction line so a work item covering several lines does not
+ * render a run of identically titled documents. Documents with no line — governed vector-store
+ * hits are case-scoped rather than line-scoped — collect into a trailing case-wide group.
+ */
+export function groupEvidenceFactCardsByLine(
+  documents: readonly MayaEvidenceDocument[]
+): MayaEvidenceFactCardGroup[] {
+  const groupsByLineId = new Map<string, MayaEvidenceFactCard[]>();
+  const caseWideCards: MayaEvidenceFactCard[] = [];
+
+  for (const document of documents) {
+    const card = buildEvidenceFactCard(document);
+    if (card.lineId === undefined) {
+      caseWideCards.push(card);
+      continue;
+    }
+
+    const existing = groupsByLineId.get(card.lineId);
+    if (existing === undefined) {
+      groupsByLineId.set(card.lineId, [card]);
+      continue;
+    }
+    existing.push(card);
+  }
+
+  const lineGroups = [...groupsByLineId.entries()].map(([lineId, cards]) => ({
+    cards,
+    countLabel: evidenceDocumentCountLabel(cards.length),
+    label: lineId,
+    lineId
+  }));
+
+  return caseWideCards.length === 0
+    ? lineGroups
+    : [
+        ...lineGroups,
+        {
+          cards: caseWideCards,
+          countLabel: evidenceDocumentCountLabel(caseWideCards.length),
+          label: "Case-wide evidence"
+        }
+      ];
+}
+
+function evidenceDocumentCountLabel(count: number): string {
+  return count === 1 ? "1 document" : `${count.toString()} documents`;
+}
+
 export function buildEvidenceFactCard(document: MayaEvidenceDocument): MayaEvidenceFactCard {
   const rows = compactEvidenceFactRows([
     { label: "Document", value: buildEvidenceDocumentBusinessLabel(document) },
@@ -450,6 +507,7 @@ export function buildEvidenceFactCard(document: MayaEvidenceDocument): MayaEvide
     { label: "Summary", value: document.summary },
     { label: "Document ID", value: document.documentId },
     { label: "Type", value: evidenceDocumentTypeLabel(document.documentType) },
+    { label: "Deduction line", value: document.lineId },
     { label: "Source record", value: document.sourceRecordId },
     { label: "Citation", value: document.citationId },
     { label: "Evidence record", value: document.evidenceId },
@@ -467,6 +525,7 @@ export function buildEvidenceFactCard(document: MayaEvidenceDocument): MayaEvide
     documentType: document.documentType,
     ...(document.summary.trim().length === 0 ? {} : { documentSummary: document.summary }),
     ...(document.storageHref === undefined ? {} : { documentHref: document.storageHref }),
+    ...(document.lineId === undefined ? {} : { lineId: document.lineId }),
     provenanceRows,
     rows,
     ...(semanticRetrievalBadge === undefined ? {} : { semanticRetrievalBadge }),

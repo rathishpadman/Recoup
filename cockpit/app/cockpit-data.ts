@@ -346,6 +346,7 @@ export interface ForensicsCockpitModel {
         documentType: string;
         evidenceId?: string;
         evidenceProvenance?: string;
+        lineId?: string;
         provenance: MayaFieldProvenance;
         receiptContentHash?: string;
         receiptId?: string;
