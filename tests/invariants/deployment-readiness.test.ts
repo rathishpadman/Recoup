@@ -49,6 +49,9 @@ const requiredRenderPromptedEnvKeys = [
 const requiredRenderValueEnvKeys = {
   RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead",
   RECOUP_DATA_MODE: "real-backend",
+  // Pinned in the manifest so recreating the service from the blueprint cannot silently
+  // fall back to the `legacy` default, which drops canonical evidence from Maya.
+  RECOUP_RECONCILIATION_MODE: "shadow",
   RECOUP_MCP_CLIENT_CAPABILITIES: "read",
   RECOUP_MCP_CLIENT_PRINCIPAL: "human:maya-lead",
   RECOUP_MEMORY_BACKEND: "supabase",

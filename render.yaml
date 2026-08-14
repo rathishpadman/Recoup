@@ -24,6 +24,8 @@ services:
         value: recoup_memory_records
       - key: RECOUP_DATA_MODE
         value: real-backend
+      - key: RECOUP_RECONCILIATION_MODE
+        value: shadow
       - key: RECOUP_COCKPIT_ALLOWED_ORIGINS
         sync: false
       - key: RECOUP_COCKPIT_AUTH_TOKEN
@@ -77,6 +79,8 @@ services:
         value: recoup_memory_records
       - key: RECOUP_DATA_MODE
         value: real-backend
+      - key: RECOUP_RECONCILIATION_MODE
+        value: shadow
       - key: RECOUP_COCKPIT_ALLOWED_ORIGINS
         sync: false
       - key: RECOUP_COCKPIT_AUTH_TOKEN
