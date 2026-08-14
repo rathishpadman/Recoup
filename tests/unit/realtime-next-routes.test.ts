@@ -740,6 +740,66 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("keeps caching Maya work-item detail when a POD points at a published storage object", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
+    const cachedDetail = {
+      lineId: "S5-L1",
+      recoveryDraft: { actionId: "ACT-S5-L1" },
+      selected: {
+        evidencePack: {
+          documents: [
+            {
+              contentHash: "e".repeat(64),
+              documentType: "pod",
+              evidenceId: "EVD-POD-S5-L1",
+              receiptId: "RECON-S5-L1",
+              storageHref: "/api/forensics/evidence-documents/EVD-POD-S5-L1",
+              // Published artifact: points at the stored object rather than the evidence row.
+              storageUri: "supabase://storage/recoup-evidence/pod/EVD-POD-S5-L1.pdf"
+            }
+          ]
+        },
+        lineId: "S5-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S5-L1", lineIds: ["S5-L1"], workItemId: "S5-L1" }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([{
+          generated_at: cachedAt,
+          model_key: mayaForensicsWorkItemReadModelKey("S5-L1"),
+          payload_hash: "e".repeat(64),
+          payload_json: cachedDetail,
+          persona: "maya",
+          source_record_ids_json: ["S5-L1", "EVD-POD-S5-L1"],
+          source_refreshed_at: cachedAt,
+          surface: "forensics-analyst"
+        }]));
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S5-L1", {
+        headers: { cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}` },
+        method: "GET"
+      }),
+      { params: { lineId: "S5-L1" } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("hit");
+    expect(await response.json()).toEqual(cachedDetail);
+  });
+
   it("refuses to serve a fresh Maya work-item detail cache whose evidence pack lost canonical and vector proof", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const cachedAt = new Date().toISOString();
