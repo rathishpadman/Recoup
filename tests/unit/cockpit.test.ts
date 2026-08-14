@@ -249,7 +249,7 @@ describe("S5 Forensics cockpit model", () => {
       sourceRecordId: `POD-${model.selected.lineId}`,
       sourceSystem: "three_pl",
       storageHref: `/api/forensics/evidence-documents/EVD-POD-${model.selected.lineId}`,
-      storageUri: `supabase://recoup_evidence_documents/EVD-POD-${model.selected.lineId}`
+      storageUri: `supabase://storage/recoup-evidence/pod/EVD-POD-${model.selected.lineId}.pdf`
     });
     expect(JSON.stringify(model.selected)).not.toContain("rule_input_json");
   });

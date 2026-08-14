@@ -1,4 +1,5 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../../../config/localRuntimeEnv.ts";
+import { parseEvidenceStorageUri } from "../../../../../../src/services/evidenceStorage.ts";
 import { buildVerifiedHumanAuthHeaders } from "../../../human-auth.ts";
 
 interface EvidenceDocumentRouteContext {
@@ -59,7 +60,47 @@ export async function GET(request: Request, context: EvidenceDocumentRouteContex
     return Response.json({ error: "Evidence document not found." }, { headers: noStoreHeaders(), status: 404 });
   }
 
+  // Documents published as real stored artifacts stream from Supabase Storage; everything else
+  // falls back to the artifact rendered from the evidence row itself.
+  const storedObject = await readStoredEvidenceObject(runtimeEnv.SUPABASE_URL, runtimeEnv.SUPABASE_SERVICE_ROLE_KEY, row);
+  if (storedObject !== undefined) {
+    return storedObject;
+  }
+
   return buildEvidenceDocumentResponse(row);
+}
+
+async function readStoredEvidenceObject(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  row: EvidenceDocumentRow
+): Promise<Response | undefined> {
+  const location = parseEvidenceStorageUri(row.storage_uri);
+  if (location === undefined) {
+    return undefined;
+  }
+
+  const objectUrl = `${supabaseUrl.replace(/\/+$/u, "")}/storage/v1/object/${location.bucket}/${location.objectPath}`;
+  const response = await fetch(objectUrl, {
+    cache: "no-store",
+    headers: { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}` },
+    method: "GET"
+  }).catch(() => undefined);
+  if (response === undefined || !response.ok) {
+    return undefined;
+  }
+
+  return new Response(await response.arrayBuffer(), {
+    headers: {
+      "cache-control": "no-store",
+      "content-disposition": `inline; filename="${row.evidence_id}.pdf"`,
+      "content-type": response.headers.get("content-type") ?? "application/pdf",
+      "x-content-type-options": "nosniff",
+      "x-recoup-evidence-provenance": row.provenance,
+      "x-recoup-evidence-storage": "supabase-storage"
+    },
+    status: 200
+  });
 }
 
 function buildEvidenceDocumentUrl(supabaseUrl: string, evidenceId: string): string {

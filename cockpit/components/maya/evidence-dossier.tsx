@@ -304,19 +304,23 @@ function EvidenceDocumentProvenance({ document }: { document: EvidenceDocument }
 }
 
 function EvidenceStorageLink({ document }: { document: EvidenceDocument }) {
-  if (document.storageUri === undefined || document.storageUri.trim().length === 0) {
-    return null;
-  }
-
+  // Availability tracks whether the document can be served, not whether a storage URI was
+  // recorded: most canonical evidence types carry no stored object but still render from
+  // their evidence row, and gating on storageUri hid those behind no link at all.
   const safeHref = document.storageHref?.trim();
   const isPodDocument = document.documentType.trim().toLowerCase() === "pod";
   if (safeHref === undefined || safeHref.length === 0) {
+    const storageUri = document.storageUri?.trim();
+    if (storageUri === undefined || storageUri.length === 0) {
+      return null;
+    }
+
     return (
       <span
         className="break-all font-mono text-[11px] text-muted-foreground"
         data-testid={isPodDocument ? "pod-document-preview" : "evidence-document-preview"}
       >
-        {document.storageUri}
+        {storageUri}
       </span>
     );
   }
