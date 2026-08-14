@@ -399,31 +399,12 @@ function cachedWorkItemDetailHasCanonicalEvidenceProof(
 
   return documents.every((document) => {
     const record = readRecord(document);
-    const provenance = readRecord(record?.provenance);
-    const hasCockpitEvidenceProof =
-      readNonEmptyString(record?.citationId) !== undefined &&
-      readNonEmptyString(record?.description) !== undefined &&
-      readNonEmptyString(record?.documentId) !== undefined &&
-      readNonEmptyString(record?.documentType) !== undefined &&
-      readNonEmptyString(record?.relevance) !== undefined &&
-      readNonEmptyString(record?.sourceLabel) !== undefined &&
-      readNonEmptyString(record?.summary) !== undefined &&
-      readNonEmptyString(record?.verifiedLabel) !== undefined &&
-      readNonEmptyString(provenance?.deterministicBasis) !== undefined &&
-      readNonEmptyStringArray(provenance?.recordIds).length > 0 &&
-      readNonEmptyString(provenance?.sourceKind) !== undefined &&
-      readNonEmptyString(provenance?.sourceName) !== undefined;
-    if (record !== undefined && hasCockpitEvidenceProof) {
-      return true;
-    }
-
     const evidenceId = readNonEmptyString(record?.evidenceId);
     const receiptId = readNonEmptyString(record?.receiptId);
     const contentHash = readNonEmptyString(record?.contentHash);
     const storageUri = readNonEmptyString(record?.storageUri);
     const storageHref = readNonEmptyString(record?.storageHref);
-
-    return (
+    const hasCanonicalEvidenceProof =
       record !== undefined &&
       evidenceId !== undefined &&
       receiptId !== undefined &&
@@ -431,9 +412,18 @@ function cachedWorkItemDetailHasCanonicalEvidenceProof(
       isContentHash(contentHash) &&
       storageHref !== undefined &&
       (storageUri === undefined || storageUri === buildCanonicalEvidenceDocumentStorageUri(evidenceId)) &&
-      isSupportedEvidenceHref(storageHref, evidenceId)
-    );
+      isSupportedEvidenceHref(storageHref, evidenceId);
+
+    // Governed vector-store hits are real retrieved evidence but carry no reconciliation
+    // receipt, so they prove themselves through their retrieval provenance instead.
+    return hasCanonicalEvidenceProof || isVectorStoreRetrievedEvidence(record);
   });
+}
+
+function isVectorStoreRetrievedEvidence(record: Record<string, unknown> | undefined): boolean {
+  const retrieval = readRecord(record?.retrieval);
+
+  return readNonEmptyString(retrieval?.provenance) === "openai-vector-store";
 }
 
 function buildCanonicalEvidenceDocumentHref(evidenceId: string): string {

@@ -740,6 +740,91 @@ describe("Realtime Next proxy routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("refuses to serve a fresh Maya work-item detail cache whose evidence pack lost canonical and vector proof", async () => {
+    stubRouteEnv(mayaSupabaseEnvPatch);
+    const cachedAt = new Date().toISOString();
+    const syntheticFallbackDocument = {
+      citationId: "D1",
+      description: "Shortage claim proof anchored to POD-SIGNED-1.",
+      documentId: "POD-SIGNED-1",
+      documentType: "POD",
+      provenance: {
+        deterministicBasis: "evidence document POD-SIGNED-1 returned by docs retrieval source",
+        recordIds: ["S3-L1", "POD-SIGNED-1"],
+        sourceKind: "derived_backend",
+        sourceName: "Document repository"
+      },
+      relevance: "Primary",
+      sourceLabel: "Document repository",
+      summary: "Shortage claim proof anchored to POD-SIGNED-1.",
+      verifiedLabel: "Verified"
+    };
+    const cachedDetail = {
+      lineId: "S3-L1",
+      recoveryDraft: { actionId: "ACT-S3-L1" },
+      selected: {
+        evidencePack: { documents: [syntheticFallbackDocument] },
+        lineId: "S3-L1"
+      },
+      surface: "forensics-work-item-detail",
+      workItem: { lineId: "S3-L1", lineIds: ["S3-L1"], workItemId: "S3-L1" }
+    };
+    const backendDetail = {
+      ...cachedDetail,
+      selected: {
+        ...cachedDetail.selected,
+        evidencePack: {
+          documents: [{
+            contentHash: "d".repeat(64),
+            documentType: "pod",
+            evidenceId: "EVD-POD-S3-L1",
+            receiptId: "RECON-S3-L1",
+            storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L1",
+            storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+          }]
+        }
+      }
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchInputUrl(input);
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "GET") {
+        return Promise.resolve(Response.json([{
+          generated_at: cachedAt,
+          model_key: mayaForensicsWorkItemReadModelKey("S3-L1"),
+          payload_hash: "d".repeat(64),
+          payload_json: cachedDetail,
+          persona: "maya",
+          source_record_ids_json: ["S3-L1", "POD-SIGNED-1"],
+          source_refreshed_at: cachedAt,
+          surface: "forensics-analyst"
+        }]));
+      }
+      if (url.includes("recoup_memory_records")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url === "http://recoup-api.test/forensics/work-items/S3-L1") {
+        return Promise.resolve(Response.json(backendDetail));
+      }
+      if (url.includes("recoup_cockpit_read_models") && init?.method === "POST") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getForensicsWorkItem(
+      new Request("http://localhost/api/forensics/work-items/S3-L1", {
+        headers: { cookie: `${demoSessionCookieName}=${createMayaSessionCookie()}` },
+        method: "GET"
+      }),
+      { params: { lineId: "S3-L1" } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-recoup-read-model-cache")).toBe("miss");
+    expect(await response.json()).toEqual(backendDetail);
+  });
+
   it("accepts grouped sibling-line Maya work-item detail when the work item stays anchored to the group root", async () => {
     stubRouteEnv(mayaSupabaseEnvPatch);
     const freshBackendDetail = {
