@@ -10,6 +10,7 @@ import {
   buildConductorRunningLine,
   buildConductorSummary,
   buildCopilotVerdictBand,
+  buildCopilotQuerySequenceSteps,
   buildDraftLetterPreview,
   buildEmailDraft,
   buildEvidenceFactCard,
@@ -951,6 +952,34 @@ describe("Maya workspace derived helpers", () => {
     expect(card.title).not.toMatch(/retrieved through|#/iu);
   });
 
+  it("labels the copilot verdict band as standing case state so it is not read as the answer", () => {
+    const band = buildCopilotVerdictBand({
+      basis: "The signed proof of delivery shows full delivery for the claimed shortage.",
+      workItem: workItem({ recommendedActionLabel: "Recovery draft staged", verdict: "recovery" })
+    });
+
+    expect(band.captionLabel).toBe("Current case state");
+  });
+
+  it("describes the query response as a short sequence Maya can follow", () => {
+    const steps = buildCopilotQuerySequenceSteps();
+
+    expect(steps.length).toBeLessThanOrEqual(5);
+    expect(steps.map((step) => step.actor)).toEqual([
+      "Maya",
+      "Conductor",
+      "Specialists",
+      "Evidence",
+      "Conductor"
+    ]);
+    expect(steps[0]?.detail).toContain("question");
+    expect(steps[steps.length - 1]?.detail).toContain("cited");
+    for (const step of steps) {
+      // Kept short on purpose: this is a business-user summary, not a trace dump.
+      expect(step.detail.length).toBeLessThanOrEqual(70);
+    }
+  });
+
   it("carries the deduction line on each evidence fact card so identical documents stay distinguishable", () => {
     const card = buildEvidenceFactCard(
       evidenceDocument({ documentId: "EVD-POD-S3-L2", evidenceId: "EVD-POD-S3-L2", lineId: "S3-L2" })
@@ -1576,6 +1605,7 @@ describe("Maya workspace derived helpers", () => {
       actionLabel: "Recovery draft staged",
       amountLabel: "$21,300.00",
       basis: "POD shows full signed delivery.",
+      captionLabel: "Current case state",
       routeLabel: "Recovery",
       tone: "invalid",
       verdictLabel: "Invalid"

@@ -27,6 +27,7 @@ import {
   buildCopilotDrawerTrigger,
   buildQueryEvidenceSnapshot,
   buildCopilotVerdictBand,
+  buildCopilotQuerySequenceSteps,
   resolveMayaWorklistReason,
   countEvidenceSourceLabels,
   resolveCopilotPromptCaseFocus,
@@ -1055,12 +1056,15 @@ function CopilotStoryPanel({
         testId="maya-copilot-trace-drawer"
         value={`${snapshot.trace.length.toString()} steps`}
       >
-        <AgentTracePanel
-          evidencePack={evidencePack}
-          recordIds={snapshot.recordIds}
-          response={snapshot}
-          selectedLine={selectedLine ?? "workspace"}
-        />
+        <div className="grid min-w-0 gap-3">
+          <CopilotQuerySequence />
+          <AgentTracePanel
+            evidencePack={evidencePack}
+            recordIds={snapshot.recordIds}
+            response={snapshot}
+            selectedLine={selectedLine ?? "workspace"}
+          />
+        </div>
       </CopilotDepthDrawer>
       <CopilotDepthDrawer
         label="Model execution"
@@ -1073,6 +1077,31 @@ function CopilotStoryPanel({
   );
 }
 
+function CopilotQuerySequence() {
+  const steps = buildCopilotQuerySequenceSteps();
+
+  return (
+    <ol
+      aria-label="How this answer was produced"
+      className={cn("grid min-w-0 gap-0 rounded-lg border p-3", COPILOT_SOFT_PANEL_CLASS)}
+      data-testid="maya-copilot-query-sequence"
+    >
+      <span className="mb-2 text-xs font-semibold text-muted-foreground">How this answer was produced</span>
+      {steps.map((step, index) => (
+        <li className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-start gap-2 py-1" data-testid="maya-copilot-query-sequence-step" key={`${step.actor}-${index.toString()}`}>
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold">
+              {index + 1}
+            </span>
+            <span className="truncate text-xs font-medium">{step.actor}</span>
+          </span>
+          <span className="min-w-0 text-xs text-muted-foreground">{step.detail}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function CopilotVerdictBandPanel({
   band,
   citedRecordCount
@@ -1082,6 +1111,9 @@ function CopilotVerdictBandPanel({
 }) {
   return (
     <div className={cn("grid gap-1 rounded-lg border p-3 text-sm", copilotVerdictBandClass(band.tone))} data-testid="maya-copilot-verdict-band">
+      <span className="text-xs font-medium uppercase tracking-wide opacity-80" data-testid="maya-copilot-verdict-caption">
+        {band.captionLabel}
+      </span>
       <span className="font-semibold">{band.verdictLabel}</span>
       <span className="text-xs font-medium" data-testid="maya-copilot-verdict-cited-count">
         Verified against {citedRecordCount.toString()} cited records
