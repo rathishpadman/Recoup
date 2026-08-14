@@ -35,6 +35,7 @@
     "verify:real-evidence-hardening": "npm run test:reconciliation:matrix && npm run test:e2e:forensics-sse-live-update && npm run test:e2e:maya-stale-state && npm run test:e2e:shared-surfaces && npm run verify:real-evidence-visual && npm run verify:real-evidence-a11y && npm run check:real-evidence-proof",
     "capture:real-evidence-audit": "tsx scripts/captureRealEvidenceAudit.ts",
     "refresh:real-evidence": "tsx scripts/refreshRealEvidencePipeline.ts",
+    "publish:evidence-storage": "tsx scripts/publishEvidenceStorageObjects.ts",
     "check:reconciliation-cutover-env": "tsx scripts/checkReconciliationCutoverEnvironmentReadiness.ts",
     "preflight:reconciliation-cutover": "tsx scripts/preflightReconciliationCutover.ts",
     "check:credit-negotiation-live-email": "tsx scripts/checkCreditNegotiationLiveEmailReadiness.ts",

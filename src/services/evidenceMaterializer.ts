@@ -1,4 +1,5 @@
 import { buildSyntheticDataset } from "../adapters/syntheticData.js";
+import { evidenceStorageUri } from "./evidenceStorage.js";
 import { DeductionClaimSchema, type DeductionClaim } from "../types/claims.js";
 import {
   CanonicalEvidenceDocumentSchema,
@@ -343,7 +344,9 @@ function podDocument(
     provenance: "source_generated",
     sourceRecordId: `POD-${input.lineId}`,
     sourceSystem: "three_pl",
-    storageUri: generatedEvidenceStorageUri(`EVD-POD-${input.lineId}`)
+    // PODs are published as real stored artifacts, so they point at the storage object
+    // rather than back at their own evidence row.
+    storageUri: evidenceStorageUri("pod", `EVD-POD-${input.lineId}`)
   });
 }
 

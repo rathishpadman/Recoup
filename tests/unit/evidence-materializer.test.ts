@@ -55,7 +55,7 @@ describe("real evidence materializer", () => {
           evidenceId: "EVD-POD-S3-L1",
           provenance: "source_generated",
           sourceSystem: "three_pl",
-          storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+          storageUri: "supabase://storage/recoup-evidence/pod/EVD-POD-S3-L1.pdf"
         })
       ])
     );

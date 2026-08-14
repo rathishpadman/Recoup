@@ -48,7 +48,7 @@ describe("real evidence Supabase repository", () => {
       expect.objectContaining({
         document_type: "pod",
         evidence_id: "EVD-POD-S3-L1",
-        storage_uri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+        storage_uri: "supabase://storage/recoup-evidence/pod/EVD-POD-S3-L1.pdf"
       })
     );
     expect(linkRows).toContainEqual(

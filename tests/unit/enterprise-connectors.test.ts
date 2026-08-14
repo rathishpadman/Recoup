@@ -1037,6 +1037,43 @@ describe("enterprise read-only connector adapters", () => {
     expect(JSON.stringify({ calls, docs })).not.toContain("sk-live-secret");
   });
 
+  it("still returns governed vector-store evidence when the settlement reader labels the line with a claim reason code", async () => {
+    // The promoted (non-legacy) settlement reader derives scenarioType from claim.reasonCode,
+    // so line.scenarioType is a short code while the indexed document keeps the governed
+    // descriptive label. The governed manifest remains the authority for scenario_type.
+    const reasonCodeLine = { ...line, scenarioType: "DAMAGE" };
+    const reader = createOpenAiVectorStoreEvidenceReader({
+      apiKey: "sk-live-secret",
+      fetcher: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  attributes: vectorAttributes(),
+                  content: [{ text: "Carrier dossier confirms the damage claim.", type: "text" }],
+                  file_id: "file-carrier-1",
+                  filename: "greenleaf-carrier.pdf",
+                  score: 0.88
+                }
+              ]
+            }),
+            { status: 200 }
+          )
+        ),
+      vectorStoreId: "vs_recoup_evidence_123456"
+    });
+
+    const docs = await reader.searchEvidence(reasonCodeLine);
+
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({
+      documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+      documentType: "carrier-report",
+      provenance: "openai-vector-store"
+    });
+  });
+
   it("filters unrelated OpenAI vector-store hits and dedupes repeated files", async () => {
     const reader = createOpenAiVectorStoreEvidenceReader({
       apiKey: "sk-live-secret",

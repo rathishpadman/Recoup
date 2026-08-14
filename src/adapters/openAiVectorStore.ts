@@ -119,7 +119,9 @@ function mapSearchResults(line: DeductionLine, results: readonly SearchResult[])
       seenDocumentIds.has(documentId) ||
       result.attributes.customer_id !== line.customerId ||
       result.attributes.customer_id !== governedDocument.customerId ||
-      result.attributes.scenario_type !== line.scenarioType ||
+      // Scenario type is pinned to the governed manifest only. Settlement readers disagree on
+      // the vocabulary for line.scenarioType (descriptive text vs claim reason code), and
+      // record_id/customer_id already bind the hit to this exact line.
       result.attributes.scenario_type !== governedDocument.scenarioType ||
       result.attributes.source_table !== expectedSourceTable ||
       result.attributes.record_id !== line.lineId ||

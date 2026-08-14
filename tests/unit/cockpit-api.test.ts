@@ -798,7 +798,7 @@ describe("S5 cockpit API", () => {
         receiptId: "RECON-S3-L1",
         sourceSystem: "three_pl",
         storageHref: "/api/forensics/evidence-documents/EVD-POD-S3-L1",
-        storageUri: "supabase://recoup_evidence_documents/EVD-POD-S3-L1"
+        storageUri: "supabase://storage/recoup-evidence/pod/EVD-POD-S3-L1.pdf"
       });
       expect(podDocument?.deterministicComparisonBasis).toContain("canonical evidence document comparison");
       expect(podDocument?.sourceFreshness).toContain("retrieved at");
