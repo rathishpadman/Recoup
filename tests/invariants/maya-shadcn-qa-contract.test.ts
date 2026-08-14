@@ -3109,7 +3109,9 @@ describe("Maya shadcn human QA contract", () => {
     const e2e = read("tests/e2e/cockpit-premium-e2e.ts");
 
     expect({
-      businessDocumentLabelHelper: /\bbuildEvidenceFactCard\b/u.test(evidence),
+      // Cards must still come from a named derived helper; grouping wraps buildEvidenceFactCard
+      // so the workspace never assembles a card inline.
+      businessDocumentLabelHelper: /\bgroupEvidenceFactCardsByLine\b/u.test(evidence),
       businessFactsRendered:
         hasJsxDataTestId(evidence, "maya-evidence-fact-cards") &&
         hasJsxDataTestId(evidence, "maya-evidence-fact-row") &&

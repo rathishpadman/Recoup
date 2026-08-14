@@ -25,7 +25,7 @@ import { mayaAccent } from "./maya-accent.ts";
 import {
   buildCaseScopedQueryRecordIds,
   buildCitedRecordChips,
-  buildEvidenceFactCard,
+  groupEvidenceFactCardsByLine,
   buildEvidencePacketAvailabilityLabel,
   buildVerdictLead,
   countEvidenceSourceLabels,
@@ -477,9 +477,32 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="border-t p-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        {evidencePack.documents.map((document) => {
-          const card = buildEvidenceFactCard(document);
+      <div className="grid gap-3">
+        {groupEvidenceFactCardsByLine(evidencePack.documents).map((group) => (
+          <Collapsible
+            className="rounded-lg border bg-background/60"
+            data-line-id={group.lineId}
+            data-testid="maya-evidence-line-group"
+            defaultOpen
+            key={group.label}
+          >
+            <CollapsibleTrigger asChild>
+              <Button
+                className="h-auto w-full justify-between gap-2 px-3 py-2 text-left"
+                data-testid="maya-evidence-line-group-trigger"
+                type="button"
+                variant="ghost"
+              >
+                <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="font-semibold">{group.label}</span>
+                  <Badge variant="outline">{group.countLabel}</Badge>
+                </span>
+                <ChevronDownIcon aria-hidden="true" className="size-4 shrink-0" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t p-3">
+            <div className="grid gap-3 md:grid-cols-2">
+        {group.cards.map((card) => {
           const hasDocumentContent = card.documentHref !== undefined;
 
           return (
@@ -487,7 +510,7 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
               className={cn("rounded-lg shadow-none", mayaAccent.subtleCard)}
               data-document-id={card.documentId}
               data-testid="maya-evidence-fact-card"
-              key={`${document.citationId}-${card.documentId}`}
+              key={card.documentId}
               size="sm"
             >
               <CardHeader className="gap-2">
@@ -589,6 +612,10 @@ function EvidenceFactCards({ evidencePack }: { evidencePack: MayaSelectedCase["e
             </Card>
           );
         })}
+            </div>
+            </CollapsibleContent>
+          </Collapsible>
+        ))}
       </div>
       </CollapsibleContent>
     </Collapsible>

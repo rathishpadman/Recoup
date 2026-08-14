@@ -397,7 +397,7 @@ describe("S5 cockpit business-logic boundary", () => {
       /\b(?:APPROVAL-HASH|audit-entry-demo|Alex Kim|akim@acmecorp\.com|2025-05-20|Case state updated|Recovery sent|ERP updated|Billing routed|Next Case)\b/u
     );
     expect(caseWorkspace).toContain("<EvidenceFactCards");
-    expect(caseWorkspace).toContain("buildEvidenceFactCard(document)");
+    expect(caseWorkspace).toContain("groupEvidenceFactCardsByLine(evidencePack.documents)");
     expect(caseWorkspace).toContain("card.rows.map");
     expect(caseWorkspace).toContain("card.provenanceRows.map");
     expect(caseWorkspace).toContain('data-testid="maya-evidence-fact-cards"');
