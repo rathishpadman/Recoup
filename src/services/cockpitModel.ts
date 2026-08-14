@@ -2303,6 +2303,7 @@ function buildSelectedEvidencePack(
   const receiptsByLineId = selectedEvidenceReceiptsByLineId(workItemDecisions, reconciliation);
   const canonicalDocuments = canonicalEvidenceDocumentsForWorkItem(reconciliation, receiptsByLineId);
   if (canonicalDocuments.length > 0) {
+    const vectorStoreDocuments = selectedVectorStoreEvidenceDocuments(workItemDecisions);
     const recordIds = uniqueStrings([
       ...workItemDecisions.flatMap((decision) => decision.recordIds),
       ...workItemDecisions.flatMap((decision) => decision.evidenceDocuments.flatMap((document) => document.recordIds)),
@@ -2310,24 +2311,35 @@ function buildSelectedEvidencePack(
       ...canonicalDocuments.flatMap((document) => [document.evidenceId, document.sourceRecordId])
     ]);
     const workItemLineIds = workItemDecisions.map((decision) => decision.lineId);
+    const canonicalDeterministicBasis = `work item lines ${workItemLineIds.join(", ")} joined to canonical evidence documents across ${String(receiptsByLineId.size)} reconciliation receipts`;
 
     return {
       provenance: businessProvenance("selected.evidencePack", {
         sourceKind: "derived_backend",
         sourceName: "Forensics selected work item canonical evidence pack",
         recordIds,
-        deterministicBasis: `work item lines ${workItemLineIds.join(", ")} joined to canonical evidence documents across ${String(receiptsByLineId.size)} reconciliation receipts`
+        deterministicBasis:
+          vectorStoreDocuments.length === 0
+            ? canonicalDeterministicBasis
+            : `${canonicalDeterministicBasis}; unioned with ${String(vectorStoreDocuments.length)} governed OpenAI vector-store retrieval documents`
       }),
       recordIds,
-      documents: canonicalDocuments.map((document, index) => {
-        const lineId = evidenceDocumentLineId(document);
-        const receipt = lineId === undefined ? undefined : receiptsByLineId.get(lineId);
-        if (receipt === undefined) {
-          throw new Error(`Missing reconciliation receipt for canonical evidence document ${document.evidenceId}.`);
-        }
+      documents: [
+        ...canonicalDocuments.map((document, index) => {
+          const lineId = evidenceDocumentLineId(document);
+          const receipt = lineId === undefined ? undefined : receiptsByLineId.get(lineId);
+          if (receipt === undefined) {
+            throw new Error(`Missing reconciliation receipt for canonical evidence document ${document.evidenceId}.`);
+          }
 
-        return canonicalEvidenceDocumentView(document, index, receipt);
-      })
+          return canonicalEvidenceDocumentView(document, index, receipt);
+        }),
+        // Governed vector-store hits are real retrieved evidence that carry no reconciliation
+        // receipt, so they are appended after the canonical documents rather than dropped.
+        ...vectorStoreDocuments.map((document, index) =>
+          evidenceDocumentView(document, canonicalDocuments.length + index)
+        )
+      ]
     };
   }
   const fallbackDocuments = mergedSelectedEvidenceDocuments(workItemDecisions);
@@ -2397,6 +2409,14 @@ function canonicalEvidenceDocumentsForWorkItem(
       return receipt !== undefined && receipt.evidenceIds.includes(document.evidenceId);
     })
     .sort((left, right) => canonicalEvidenceDocumentSortKey(left).localeCompare(canonicalEvidenceDocumentSortKey(right)));
+}
+
+function selectedVectorStoreEvidenceDocuments(
+  decisions: readonly DeductionDecision[]
+): DeductionDecision["evidenceDocuments"] {
+  return mergedSelectedEvidenceDocuments(decisions).filter(
+    (document) => document.retrieval?.provenance === "openai-vector-store"
+  );
 }
 
 function mergedSelectedEvidenceDocuments(
