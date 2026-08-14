@@ -1,4 +1,5 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../../../config/localRuntimeEnv.ts";
+import { parseEvidenceStorageUri } from "../../../../../../src/services/evidenceStorage.ts";
 import { buildVerifiedHumanAuthHeaders } from "../../../human-auth.ts";
 import {
   mayaForensicsWorkItemReadModelKey,
@@ -411,7 +412,7 @@ function cachedWorkItemDetailHasCanonicalEvidenceProof(
       contentHash !== undefined &&
       isContentHash(contentHash) &&
       storageHref !== undefined &&
-      (storageUri === undefined || storageUri === buildCanonicalEvidenceDocumentStorageUri(evidenceId)) &&
+      isSupportedEvidenceStorageUri(storageUri, evidenceId) &&
       isSupportedEvidenceHref(storageHref, evidenceId);
 
     // Governed vector-store hits are real retrieved evidence but carry no reconciliation
@@ -424,6 +425,18 @@ function isVectorStoreRetrievedEvidence(record: Record<string, unknown> | undefi
   const retrieval = readRecord(record?.retrieval);
 
   return readNonEmptyString(retrieval?.provenance) === "openai-vector-store";
+}
+
+/**
+ * A canonical document may carry no storage URI, the legacy pointer back at its own evidence
+ * row, or a stored-object URI once the artifact has been published to Supabase Storage.
+ */
+function isSupportedEvidenceStorageUri(storageUri: string | undefined, evidenceId: string): boolean {
+  return (
+    storageUri === undefined ||
+    storageUri === buildCanonicalEvidenceDocumentStorageUri(evidenceId) ||
+    parseEvidenceStorageUri(storageUri) !== undefined
+  );
 }
 
 function buildCanonicalEvidenceDocumentHref(evidenceId: string): string {
