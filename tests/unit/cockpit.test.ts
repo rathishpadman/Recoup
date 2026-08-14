@@ -32,7 +32,8 @@ import { buildSourceHealthFromConnectorReadiness } from "../../src/services/sour
 import type {
   ServiceInvocationContext,
   ServiceSapEvidenceSource,
-  ServiceSyntheticEvidenceSource
+  ServiceSyntheticEvidenceSource,
+  ServiceVectorStoreEvidenceSource
 } from "../../src/services/serviceLayer.js";
 import { runRiskMeshClosedLoop } from "../../src/agents/riskMesh.js";
 import type { MemoryRecord } from "../../src/memory/schema.js";
@@ -251,6 +252,49 @@ describe("S5 Forensics cockpit model", () => {
       storageUri: `supabase://recoup_evidence_documents/EVD-POD-${model.selected.lineId}`
     });
     expect(JSON.stringify(model.selected)).not.toContain("rule_input_json");
+  });
+
+  it("keeps governed vector-store evidence in the pack when canonical documents are present", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const vectorStoreEvidenceSource: ServiceVectorStoreEvidenceSource = {
+      readEvidence(line) {
+        return [
+          {
+            documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+            documentType: "carrier-report",
+            recordIds: [line.lineId],
+            retrieval: {
+              fileName: `${line.lineId}-carrier-dossier.md`,
+              mode: "semantic-vector",
+              provenance: "openai-vector-store",
+              score: 0.87
+            },
+            source: "docs",
+            summary: `Governed vector-store dossier for ${line.lineId}.`
+          }
+        ];
+      }
+    };
+    const model = buildForensicsCockpitModel({
+      governedConfig,
+      reconciliation: { evidenceDataset, mode: "authoritative", receipts },
+      ...sourceOptions,
+      serviceContext: { ...fixtureServiceContext, vectorStoreEvidenceSource }
+    });
+    const documents = model.selected.evidencePack.documents;
+    const canonicalDocuments = documents.filter((document) => document.evidenceId !== undefined);
+    const vectorDocuments = documents.filter((document) => document.retrieval?.provenance === "openai-vector-store");
+
+    expect(canonicalDocuments.length).toBeGreaterThan(0);
+    expect(vectorDocuments.length).toBeGreaterThan(0);
+    // Canonical receipt-backed documents keep the leading positions; vector hits are appended.
+    expect(documents.slice(0, canonicalDocuments.length).every((document) => document.evidenceId !== undefined)).toBe(true);
+    expect(vectorDocuments.every((document) => /^V\d+$/u.test(document.citationId))).toBe(true);
+    expect(new Set(documents.map((document) => document.citationId)).size).toBe(documents.length);
+    expect(model.selected.evidencePack.provenance.deterministicBasis).toContain("vector-store retrieval documents");
   });
 
   it("exposes a real evidence document URL for every authoritative Maya case evidence document", () => {
