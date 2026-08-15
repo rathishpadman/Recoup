@@ -295,6 +295,11 @@ describe("S5 Forensics cockpit model", () => {
     expect(vectorDocuments.every((document) => /^V\d+$/u.test(document.citationId))).toBe(true);
     expect(new Set(documents.map((document) => document.citationId)).size).toBe(documents.length);
     expect(model.selected.evidencePack.provenance.deterministicBasis).toContain("vector-store retrieval documents");
+    // Vector hits are bound to a single line by mapSearchResults, so they carry that line and
+    // group with it rather than falling into the case-wide bucket.
+    for (const document of vectorDocuments) {
+      expect(document.lineId).toBe(document.documentId.replace(/^VECTOR-EVIDENCE-/u, ""));
+    }
   });
 
   it("exposes a real evidence document URL for every authoritative Maya case evidence document", () => {

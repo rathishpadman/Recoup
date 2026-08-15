@@ -2868,6 +2868,29 @@ function evidenceDocumentSourceKind(document: DeductionDecision["evidenceDocumen
   return "supabase";
 }
 
+const vectorStoreEvidenceDocumentIdPrefix = "VECTOR-EVIDENCE-";
+
+/**
+ * Deduction line a governed vector-store hit belongs to.
+ *
+ * `mapSearchResults` only emits a hit when `record_id === line.lineId`, and mints the document
+ * id as `VECTOR-EVIDENCE-<lineId>`. These documents are therefore line-scoped, and without the
+ * line the dossier groups them as case-wide evidence rather than beside their own line.
+ */
+function vectorStoreEvidenceLineId(
+  document: DeductionDecision["evidenceDocuments"][number]
+): string | undefined {
+  if (document.retrieval?.provenance !== "openai-vector-store") {
+    return undefined;
+  }
+
+  const lineId = document.documentId.startsWith(vectorStoreEvidenceDocumentIdPrefix)
+    ? document.documentId.slice(vectorStoreEvidenceDocumentIdPrefix.length)
+    : "";
+
+  return lineId.length === 0 ? undefined : lineId;
+}
+
 function evidenceDocumentSourceLabel(document: DeductionDecision["evidenceDocuments"][number]): string {
   if (document.retrieval?.provenance === "openai-vector-store") {
     return "OpenAI vector store";
@@ -2905,7 +2928,9 @@ function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[]
 
 function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][number], index: number) {
   const sourceLabel = evidenceDocumentSourceLabel(document);
+  const documentLineId = vectorStoreEvidenceLineId(document);
   return {
+    ...(documentLineId === undefined ? {} : { lineId: documentLineId }),
     citationId: document.retrieval?.provenance === "openai-vector-store" ? `V${String(index + 1)}` : citationId(document.source, index),
     description: document.summary,
     documentId: document.documentId,
