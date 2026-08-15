@@ -1655,6 +1655,28 @@ describe("Maya credit recommendation cards", () => {
     expect(card?.isNoChange).toBe(false);
   });
 
+  it("marks a locally approved recommendation as sent so the approve control disappears", () => {
+    const [card] = buildCreditRecommendationCards([bandRecommendation], [bandRecommendation.actionId]);
+
+    expect(card?.isApproved).toBe(true);
+    expect(card?.statusLabel).toBe("Sent to David");
+  });
+
+  it("treats a recommendation already decided on the backend as sent", () => {
+    const [card] = buildCreditRecommendationCards([
+      { ...bandRecommendation, status: "human_decided", statusLabel: "Human decision recorded" }
+    ]);
+
+    expect(card?.isApproved).toBe(true);
+  });
+
+  it("leaves a pending recommendation approvable", () => {
+    const [card] = buildCreditRecommendationCards([bandRecommendation]);
+
+    expect(card?.isApproved).toBe(false);
+    expect(card?.statusLabel).toBe("Awaiting David approval");
+  });
+
   it("marks a recommendation that cannot move any further so it does not read as a change", () => {
     const [card] = buildCreditRecommendationCards([
       { ...bandRecommendation, currentLabel: "HIGH", proposedLabel: "HIGH" }

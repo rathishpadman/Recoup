@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { ArrowRightIcon, CheckCircle2Icon, FileSearchIcon, ShieldAlertIcon } from "lucide-react";
 import { Badge } from "../ui/badge.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card.tsx";
@@ -12,11 +13,15 @@ interface ContainmentBriefCardProps {
 
 type ContainmentTone = ForensicsCockpitModel["containmentPanel"]["methodologyReasons"][number]["tone"];
 
-const toneClassName: Record<ContainmentTone, string> = {
-  critical: "border-[color:var(--status-danger-border)] bg-[var(--status-danger-bg)] text-danger",
-  evidence: "border-[color:var(--status-info-border)] bg-[var(--status-info-bg)] text-info",
-  safe: "border-[color:var(--status-neutral-border)] bg-[var(--status-neutral-bg)] text-neutral-status",
-  warning: "border-[color:var(--status-warning-border)] bg-[var(--status-warning-bg)] text-warning"
+/**
+ * Tone is carried by the row's icon rather than by a filled panel behind every row: the reason
+ * list is scannable without turning each entry into its own coloured card.
+ */
+const toneIconClassName: Record<ContainmentTone, string> = {
+  critical: "text-danger",
+  evidence: "text-info",
+  safe: "text-neutral-status",
+  warning: "text-warning"
 };
 
 export function ContainmentBriefCard({ panel }: ContainmentBriefCardProps) {
@@ -75,48 +80,34 @@ export function ContainmentBriefCard({ panel }: ContainmentBriefCardProps) {
               Governed gaming methodology
             </Badge>
           </div>
-          <div className="grid min-w-0 gap-2 md:grid-cols-2">
-            {methodologyReasons.length > 0 ? (
-              methodologyReasons.map((reason) => (
-              <div
-                className={cn("grid min-w-0 gap-2 rounded-md border p-3", toneClassName[reason.tone])}
-                data-tone={reason.tone}
-                key={reason.label}
-              >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="grid min-w-0 gap-1">
-                    <p className="font-semibold">{methodologyReasonDisplayLabel(reason.label)}</p>
-                    <p className="text-sm">{reason.reason}</p>
-                  </div>
-                  {reason.tone === "safe" ? (
-                    <CheckCircle2Icon aria-hidden="true" className="size-4 shrink-0" />
-                  ) : (
-                    <ShieldAlertIcon aria-hidden="true" className="size-4 shrink-0" />
-                  )}
-                </div>
-                <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-medium">
-                  <span className="rounded-full bg-background/70 px-2 py-1">{reason.value}</span>
-                  <span className="rounded-full bg-background/70 px-2 py-1">{reason.thresholdLabel}</span>
-                </div>
-              </div>
-              ))
-            ) : (
-              <div
-                className={cn("grid min-w-0 gap-2 rounded-md border p-3 md:col-span-2", toneClassName.safe)}
-                data-tone="safe"
-              >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="grid min-w-0 gap-1">
-                    <p className="font-semibold">Legacy read-model compatibility</p>
-                    <p className="text-sm">
-                      The containment candidate remains review-only while the latest governed methodology details warm in the read model cache.
+          {methodologyReasons.length > 0 ? (
+            <div className="grid min-w-0 divide-y divide-border/60 rounded-md border">
+              {methodologyReasons.map((reason) => (
+                <div className="grid min-w-0 gap-1 px-3 py-2.5" data-tone={reason.tone} key={reason.label}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {reason.tone === "safe" ? (
+                      <CheckCircle2Icon aria-hidden="true" className={cn("size-4 shrink-0", toneIconClassName[reason.tone])} />
+                    ) : (
+                      <ShieldAlertIcon aria-hidden="true" className={cn("size-4 shrink-0", toneIconClassName[reason.tone])} />
+                    )}
+                    <p className="min-w-0 flex-1 text-sm font-medium text-foreground">
+                      {methodologyReasonDisplayLabel(reason.label)}
                     </p>
+                    <span className="shrink-0 text-sm tabular-nums text-foreground">{reason.value}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{reason.thresholdLabel}</span>
                   </div>
-                  <CheckCircle2Icon aria-hidden="true" className="size-4 shrink-0" />
+                  <p className="text-sm text-muted-foreground">{reason.reason}</p>
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid min-w-0 gap-1 rounded-md border px-3 py-2.5" data-tone="safe">
+              <p className="text-sm font-medium text-foreground">Legacy read-model compatibility</p>
+              <p className="text-sm text-muted-foreground">
+                The containment candidate remains review-only while the latest governed methodology details warm in the read model cache.
+              </p>
+            </div>
+          )}
         </section>
         <div className="grid min-w-0 gap-2 rounded-md border border-border/70 bg-background/80 p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div className="grid min-w-0 gap-1">
@@ -128,25 +119,29 @@ export function ContainmentBriefCard({ panel }: ContainmentBriefCardProps) {
             <span>{panel.handoff.status}</span>
           </div>
         </div>
-        <div className="grid min-w-0 gap-2">
-          {panel.basisRows.map((row) => (
-            <div
-              className="grid min-w-0 gap-1 rounded-md border border-border/60 bg-background/70 px-3 py-2 md:grid-cols-[180px_minmax(0,1fr)] md:items-center"
-              key={row.label}
-            >
-              <span className="text-xs font-medium text-muted-foreground">{row.label}</span>
-              <span className="break-words text-sm font-medium text-foreground">{row.value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="grid min-w-0 gap-2 rounded-md border border-dashed border-border/70 bg-background/70 p-3">
-          <p className="text-sm font-semibold text-foreground">Why Maya sees this</p>
-          <p className="text-sm text-foreground">{panel.componentReadoutLabel}</p>
-          <p className="text-sm text-foreground">{actionBasisLabel}</p>
+        <div className="grid min-w-0 gap-1">
+          <p className="text-sm font-medium text-foreground">Why Maya sees this</p>
+          <p className="text-sm text-muted-foreground">{panel.componentReadoutLabel}</p>
+          <p className="text-sm text-muted-foreground">{actionBasisLabel}</p>
           <p className="text-sm text-muted-foreground">{panel.actionPostureLabel}</p>
         </div>
         <EvidenceLinkGrid links={evidenceLinks} />
-        <RecordBadgeRow label={panel.recordStripLabel} values={panel.recordIds} />
+        <details className="group/provenance rounded-md border" data-testid="maya-containment-provenance">
+          <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-foreground marker:content-none">
+            Governed basis and cited record IDs
+          </summary>
+          <div className="grid min-w-0 gap-4 border-t px-3 py-3">
+            <dl className="grid min-w-0 gap-x-4 gap-y-2 md:grid-cols-[200px_minmax(0,1fr)]">
+              {panel.basisRows.map((row) => (
+                <Fragment key={row.label}>
+                  <dt className="text-sm text-muted-foreground">{row.label}</dt>
+                  <dd className="m-0 break-words text-sm text-foreground">{row.value}</dd>
+                </Fragment>
+              ))}
+            </dl>
+            <RecordBadgeRow label={panel.recordStripLabel} values={panel.recordIds} />
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
@@ -170,48 +165,33 @@ interface EvidenceLinkGridProps {
   links: ForensicsCockpitModel["containmentPanel"]["evidenceLinks"];
 }
 
+/**
+ * One row per cited record. This previously rendered every link twice - as a clickable card and
+ * again as its own anchor target - so the reader scrolled a few pixels to a near-identical box.
+ */
 function EvidenceLinkGrid({ links }: EvidenceLinkGridProps) {
   return (
-    <section className="grid min-w-0 gap-2" aria-label="Clickable containment evidence">
+    <section className="grid min-w-0 gap-2" aria-label="Cited containment evidence">
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Clickable evidence</p>
+        <p className="text-sm font-medium text-foreground">Cited evidence</p>
         <Badge variant="outline">{links.length.toString()} cited records</Badge>
       </div>
-      <div className="grid min-w-0 gap-2 md:grid-cols-2">
-        {links.map((link) => {
-          const evidenceId = containmentEvidenceAnchorId(link.recordId);
-
-          return (
-            <a
-              aria-label={`Open containment evidence ${link.recordId}`}
-              className={cn(
-                "grid min-w-0 gap-1 rounded-md border p-3 no-underline transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                toneClassName[link.tone]
-              )}
-              data-tone={link.tone}
-              href={`#${evidenceId}`}
-              key={link.recordId}
-            >
-              <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-                <FileSearchIcon aria-hidden="true" className="size-4 shrink-0" />
-                <span className="truncate">{link.label}</span>
-              </span>
-              <code className="break-all rounded bg-background/70 px-2 py-1 text-xs">{link.recordId}</code>
-              <span className="text-xs leading-5">{link.reason}</span>
-            </a>
-          );
-        })}
-      </div>
-      <div className="grid min-w-0 gap-2">
+      <div className="grid min-w-0 divide-y divide-border/60 rounded-md border">
         {links.map((link) => (
           <div
-            className="grid min-w-0 gap-1 rounded-md border border-border/70 bg-background/75 p-3"
+            className="grid min-w-0 gap-1 px-3 py-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-baseline md:gap-4"
+            data-tone={link.tone}
             id={containmentEvidenceAnchorId(link.recordId)}
-            key={`${link.recordId}-detail`}
+            key={link.recordId}
           >
-            <p className="text-sm font-semibold text-foreground">{link.label}</p>
-            <p className="text-sm text-muted-foreground">{link.reason}</p>
-            <code className="w-fit rounded bg-muted px-2 py-1 text-xs text-foreground">{link.recordId}</code>
+            <div className="grid min-w-0 gap-1">
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                <FileSearchIcon aria-hidden="true" className={cn("size-4 shrink-0", toneIconClassName[link.tone])} />
+                <span className="truncate">{link.label}</span>
+              </span>
+              <span className="text-sm text-muted-foreground">{link.reason}</span>
+            </div>
+            <code className="text-xs text-muted-foreground md:text-right">{link.recordId}</code>
           </div>
         ))}
       </div>

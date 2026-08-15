@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
+import { CreditRecommendationApproval } from "./credit-recommendation-approval.tsx";
 import { EmailDraftDialog } from "./email-draft-dialog.tsx";
 import { mayaAccent } from "./maya-accent.ts";
 import {
@@ -99,6 +100,7 @@ export function RecoveryDraftReview({
   const [emailStatusLoading, setEmailStatusLoading] = React.useState(false);
   const [localApprovalResponse, setLocalApprovalResponse] = React.useState<ApprovalGateResponse | undefined>();
   const [evidenceReviewed, setEvidenceReviewed] = React.useState(false);
+  const [approvedCreditRecommendationIds, setApprovedCreditRecommendationIds] = React.useState<string[]>([]);
   const committedApproval = localApprovalResponse ?? approvalReceipt;
   const canSendEmail =
     committedApproval?.status === "human_decided" &&
@@ -121,7 +123,10 @@ export function RecoveryDraftReview({
     draft,
     selectedLineId
   });
-  const creditRecommendationCards = buildCreditRecommendationCards(creditRecommendations ?? []);
+  const creditRecommendationCards = buildCreditRecommendationCards(
+    creditRecommendations ?? [],
+    approvedCreditRecommendationIds
+  );
   const recommendedActionVerdictLabel = routingBanner?.verdictLabel ?? selectedWorklistItem?.verdictLabel;
   const recommendedActionSummary = routingBanner?.routeLine ?? draft.actionLabel;
   const draftPreviews =
@@ -155,6 +160,7 @@ export function RecoveryDraftReview({
     setEmailStatusLoading(false);
     setLocalApprovalResponse(undefined);
     setEvidenceReviewed(false);
+    setApprovedCreditRecommendationIds([]);
   }, [draft.actionId, selectedLineId]);
 
   return (
@@ -270,7 +276,22 @@ export function RecoveryDraftReview({
                       </div>
                       <p className="text-sm text-muted-foreground">{card.basis}</p>
                     </div>
-                    <strong className="self-start text-right tabular-nums">{card.amount}</strong>
+                    <div className="grid justify-items-end gap-2 self-start">
+                      <strong className="text-right tabular-nums">{card.amount}</strong>
+                      {card.isApproved ? null : (
+                        <CreditRecommendationApproval
+                          actionId={card.key}
+                          basis={card.basis}
+                          changeLabel={card.changeLabel}
+                          onApproved={(response) => {
+                            setApprovedCreditRecommendationIds((current) =>
+                              current.includes(response.actionId) ? current : [...current, response.actionId]
+                            );
+                          }}
+                          title={card.title}
+                        />
+                      )}
+                    </div>
                   </div>
                 ))}
               </section>

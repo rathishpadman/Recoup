@@ -32,8 +32,8 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{signal.scenarioId}</Badge>
-              <Badge variant={davidBadgeVariantByTone[signal.tone]}>{signal.verdict}</Badge>
+              <Badge variant="outline">{signal.label ?? signal.scenarioId}</Badge>
+              <Badge variant={davidBadgeVariantByTone[signal.tone]}>{signal.verdictLabel ?? signal.verdict}</Badge>
               <Badge variant="outline">{signal.meshPosition}</Badge>
               {signal.gamingFlag ? <Badge variant="destructive">Flag [D]</Badge> : null}
             </div>

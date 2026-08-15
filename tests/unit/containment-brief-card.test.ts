@@ -153,10 +153,32 @@ describe("ContainmentBriefCard", () => {
     expect(markup).toContain("Containment review record IDs");
     expect(markup).toContain("TPM-CONTRACT-1");
     expect(markup).toContain("PRICE-CLAUSE-1");
-    expect(markup).toContain("href=\"#maya-containment-evidence-POD-SIGNED-1\"");
-    expect(markup).toContain("aria-label=\"Open containment evidence POD-SIGNED-1\"");
     expect(markup).toContain("Signed POD evidence");
     expect(markup).not.toContain("<button");
+  });
+
+  it("renders each cited evidence item once", () => {
+    const markup = renderToStaticMarkup(createElement(ContainmentBriefCard, { panel: panelFixture }));
+    const occurrences = (phrase: string): number => markup.split(phrase).length - 1;
+
+    // Every link used to render twice - once as a clickable card and again as its own anchor
+    // target - so a four-link panel showed eight boxes saying the same thing.
+    for (const link of panelFixture.evidenceLinks) {
+      expect(occurrences(link.reason), `${link.recordId} reason repeated`).toBe(1);
+    }
+  });
+
+  it("keeps provenance detail out of the top level of the brief", () => {
+    const markup = renderToStaticMarkup(createElement(ContainmentBriefCard, { panel: panelFixture }));
+
+    // Basis rows and record IDs are provenance, not the brief; they belong behind a disclosure.
+    // The evidence anchors this test used to assert existed only to scroll to the duplicate
+    // detail box; with one row per record there is nothing left to jump to, so the row keeps its
+    // id as a link target but is no longer wrapped in an anchor.
+    expect(markup).toContain("<summary");
+    expect(markup.indexOf("<summary")).toBeLessThan(markup.indexOf("Containment review record IDs"));
+    expect(markup).toContain('id="maya-containment-evidence-POD-SIGNED-1"');
+    expect(markup).not.toContain('href="#maya-containment-evidence-POD-SIGNED-1"');
   });
 
   it("renders nothing when the panel is unavailable", () => {

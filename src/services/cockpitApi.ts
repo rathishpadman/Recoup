@@ -3053,6 +3053,7 @@ function buildApprovedCreditRecommendationRows(
       actionId: core.actionId,
       amount: core.amount,
       basis: core.basis,
+      caseLabel: parsed.lineId,
       currentLabel: core.currentLabel,
       kind: core.kind,
       proposedLabel: core.proposedLabel,

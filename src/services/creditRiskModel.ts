@@ -156,6 +156,8 @@ export interface ApprovedCreditRecommendationRow {
   actionId: string;
   amount: string;
   basis: string;
+  /** The case this came from, shown instead of the action ID. */
+  caseLabel: string;
   currentLabel: string;
   kind: CreditRecommendationKind;
   proposedLabel: string;
@@ -264,6 +266,10 @@ export interface CreditNegotiationSelectedDealCandidate {
 export interface CreditSignalModel {
   amount?: string | undefined;
   basis: string;
+  /** Badge text when the scenario ID is not what a reviewer should read. */
+  label?: string | undefined;
+  /** Verdict badge text when the signal is not itself a deduction verdict. */
+  verdictLabel?: string | undefined;
   feedsMesh: string;
   gamingFlag: boolean;
   meshPosition: string;
@@ -1052,14 +1058,18 @@ function buildSignals(
     basis: recommendation.basis,
     feedsMesh: "Credit",
     gamingFlag: false,
+    label: recommendation.caseLabel,
     meshPosition: "Credit",
     note: `${creditRecommendationSignalTitles[recommendation.kind]}: ${recommendation.currentLabel} -> ${recommendation.proposedLabel}`,
     recordIds: dedupe([...recommendation.recordIds]),
     routeLabel: "Maya recommendation",
     scenarioId: recommendation.actionId,
-    // A recommendation asks for attention; it is not itself a deduction risk verdict.
+    // A recommendation asks for attention; it is not itself a deduction risk verdict. The
+    // originating verdict stays on the record, but the badge must not read as though the advisory
+    // itself were found invalid.
     tone: "elevated" as const,
-    verdict: deductions.find((deduction) => deduction.scenarioId === recommendation.scenarioId)?.verdict ?? "INVALID"
+    verdict: deductions.find((deduction) => deduction.scenarioId === recommendation.scenarioId)?.verdict ?? "INVALID",
+    verdictLabel: "Advisory"
   }));
 
   return [...deductionSignals, ...recommendationSignals];

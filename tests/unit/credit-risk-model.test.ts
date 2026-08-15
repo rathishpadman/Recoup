@@ -458,6 +458,7 @@ describe("credit risk review model", () => {
           basis: "Recommended by Maya on 2026-01-26; case S5-L1 routed to Recovery for $12,700.00.",
           currentLabel: "WATCH",
           kind: "band-downgrade",
+          caseLabel: "S5-L1",
           proposedLabel: "ELEVATED",
           recordIds: ["ACC-VAL", "S5-L1"],
           scenarioId: "S5"
@@ -474,6 +475,10 @@ describe("credit risk review model", () => {
       meshPosition: "Credit",
       note: "Downgrade risk band: WATCH -> ELEVATED"
     });
+    // The badge must read as a case, not as a raw action ID, and an advisory must not wear the
+    // originating deduction's INVALID verdict as though the recommendation itself were invalid.
+    expect(signal?.label).toBe("S5-L1");
+    expect(signal?.verdictLabel).toBe("Advisory");
     expect(signal?.basis).toContain("Maya");
     expect(signal?.recordIds).toEqual(expect.arrayContaining(["ACC-VAL", "S5-L1"]));
     // The recommendation is scoped to its own account.
