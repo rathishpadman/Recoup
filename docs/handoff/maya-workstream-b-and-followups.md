@@ -3,6 +3,34 @@
 Written 2026-08-15. Pick this up cold: every file path and line reference below was verified
 against `main` at the time of writing.
 
+## Status — all three delivered on `claude/workstream-b-implementation-8ecd2d`
+
+| Item | Commit | Notes |
+|---|---|---|
+| Finding 1 — vector evidence line grouping | `9e4f06a` | `evidenceDocumentView` now derives `lineId` from the `VECTOR-EVIDENCE-<lineId>` documentId |
+| Workstream B — credit actions on Recovery | `d522979` | Derivation shared by the read model and the approval resolver via `src/services/creditRecommendation.ts` |
+| Finding 2 — trace process-map prose | `d57f372` | Per-node citation scoping plus one explanation per kind |
+
+The three defaults were answered by the requester: **downgrade one band** (capped at HIGH) with the
+recommendation dated from the credit snapshot's `asOfDate`; **every Recovery case**, no amount
+threshold; **account-level terms**, tightened one rung down the governed ladder `60/45/30/15`
+(floor Net 15) — that ladder is expert-owned and was supplied by the requester, and it lives beside
+`verdictByRank` in `creditRiskModel.ts` so the governed config hash is untouched.
+
+Verified against the real backend: all four manifest lines (`S1-L1`, `S3-L1`, `S6-L1`, `S8-L1`)
+carry `lineId` on their vector document; `S5-L1` yields `WATCH -> ELEVATED` and `Net 45 -> Net 30`
+both `pending_human`; `S1-L1` yields none; `S3-L1` holds at `HIGH`. Full suite green (174 files,
+1603 tests) with no contract assertion edited.
+
+**Still open — pre-existing, not from this work:** `npm run test:e2e:maya-real` fails at the first
+work item because `assertCanonicalEvidenceMetadata` applies canonical receipt assertions to every
+document in the pack, including vector-store hits that have no `EVD-` id or `RECON-` receipt:
+`Maya detail S1-L1 evidence document VECTOR-EVIDENCE-S1-L1 omitted canonical evidenceId.` This
+reproduces on `eeca343` (main) with the changes absent.
+
+**Deploy:** Workstream B and Finding 1 both change read-model/evidence-pack shape, so the
+`recoup_cockpit_read_models` purge below is required. Finding 2 is presentation-only.
+
 Standing instructions from the requester: **goal-based, TDD (failing test first, red/green
 proof on every one), surgical changes, full regression plus browser/E2E verification, and no
 silent rewriting of contract assertions.**
