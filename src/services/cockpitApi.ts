@@ -126,9 +126,18 @@ import {
 } from "./cockpitModel.js";
 import {
   buildCreditRiskReviewModel,
+  type ApprovedCreditRecommendationRow,
   type CreditNegotiationApprovalAction,
-  type CreditRiskApprovalReceipt
+  type CreditRiskApprovalReceipt,
+  type CreditRiskRows
 } from "./creditRiskModel.js";
+import {
+  buildCreditRecommendationCores,
+  creditRecommendationActionIdPrefix,
+  creditRecommendationScenarioId,
+  findCreditAccountForLine,
+  parseCreditRecommendationActionId
+} from "./creditRecommendation.js";
 import {
   runCreditRiskQuerySessionWithLiveAgents,
   type CreditRiskQuerySessionResponse
@@ -591,6 +600,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     if (approvalRecordsSnapshot === undefined) {
       return;
     }
+    const creditRiskRows = await loadOptionalCreditRiskRows();
 
     try {
       response.json(
@@ -598,6 +608,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           {
             approvalRecordSource: approvalRecordsSnapshot.source,
             approvalRecords: approvalRecordsSnapshot.records,
+            ...(creditRiskRows === undefined ? {} : { creditRiskRows }),
             governedConfig,
             reconciliation,
             serviceContext,
@@ -875,6 +886,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       const model = buildCreditRiskReviewModel({
         ...rows,
         approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+        approvedCreditRecommendations: buildApprovedCreditRecommendationRows(approvalRecordsSnapshot.records, rows),
         ...(dealOptimizerRows === undefined
           ? {}
           : {
@@ -1349,6 +1361,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return buildCreditRiskReviewModel({
         ...rows,
         approvalReceipts: buildCreditRiskApprovalReceipts(approvalRecordsSnapshot.records),
+        approvedCreditRecommendations: buildApprovedCreditRecommendationRows(approvalRecordsSnapshot.records, rows),
         ...(dealOptimizerRows === undefined
           ? {}
           : {
@@ -1412,6 +1425,16 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         error: "David deal optimizer is unavailable from governed backend sources.",
         missingSource: "credit-negotiation-source"
       });
+      return undefined;
+    }
+  }
+
+  // Credit rows only add advisory recommendations to a Maya case, so an unavailable credit source
+  // must not fail the case detail closed the way it does on David's own surface.
+  async function loadOptionalCreditRiskRows() {
+    try {
+      return await loadCreditRiskRows(runtimeEnv, options.memoryFetcher);
+    } catch {
       return undefined;
     }
   }
@@ -2972,6 +2995,73 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
   }
 
   return receipts;
+}
+
+/**
+ * Approved Maya recovery recommendations, rebuilt from the governed credit rows so David's signal
+ * carries the values that were approved rather than anything a client supplied. Rejected and
+ * modified decisions never become signals.
+ */
+function buildApprovedCreditRecommendationRows(
+  records: readonly MemoryRecord[],
+  rows: CreditRiskRows
+): ApprovedCreditRecommendationRow[] {
+  const approved: ApprovedCreditRecommendationRow[] = [];
+
+  for (const record of records) {
+    if (record.category !== "approval_records" || record.trustLevel !== "trusted") {
+      continue;
+    }
+
+    const actionId = readApprovalPayloadString(record, "actionId");
+    if (actionId === undefined || !actionId.startsWith(creditRecommendationActionIdPrefix)) {
+      continue;
+    }
+
+    const approverId = readApprovalPayloadString(record, "approverId");
+    const expectedScope = `approval:${actionId}`;
+    if (
+      record.id !== expectedScope ||
+      record.scope !== expectedScope ||
+      approverId?.startsWith("human:") !== true ||
+      readApprovalPayloadString(record, "status") !== "human_decided" ||
+      readApprovalPayloadString(record, "decision") !== "approve" ||
+      !record.recordIds.includes(actionId)
+    ) {
+      continue;
+    }
+
+    const parsed = parseCreditRecommendationActionId(actionId);
+    const account = parsed === undefined ? undefined : findCreditAccountForLine(rows, parsed.lineId);
+    if (parsed === undefined || account === undefined) {
+      continue;
+    }
+
+    const core = buildCreditRecommendationCores({
+      account,
+      asOfDate: rows.snapshot.asOfDate,
+      lineId: parsed.lineId,
+      recordIds: record.recordIds.filter((recordId) => recordId !== actionId)
+    }).find((candidate) => candidate.actionId === actionId);
+    if (core === undefined) {
+      continue;
+    }
+
+    const scenarioId = creditRecommendationScenarioId(parsed.lineId);
+    approved.push({
+      accountId: core.accountId,
+      actionId: core.actionId,
+      amount: core.amount,
+      basis: core.basis,
+      currentLabel: core.currentLabel,
+      kind: core.kind,
+      proposedLabel: core.proposedLabel,
+      recordIds: core.recordIds,
+      scenarioId: scenarioId ?? parsed.lineId
+    });
+  }
+
+  return approved;
 }
 
 function looksLikeCreditRiskApprovalRecord(record: MemoryRecord, actionId: string | undefined): boolean {

@@ -44,8 +44,15 @@ import {
   buildCreditRiskReviewModel,
   type CreditNegotiationOrderModel,
   type CreditNegotiationSelectedDealCandidate,
+  type CreditRiskApprovalAction,
   type CreditRiskRows
 } from "./creditRiskModel.js";
+import {
+  buildCreditRecommendationCores,
+  creditRecommendationActionIdPrefix,
+  findCreditAccountForLine,
+  parseCreditRecommendationActionId
+} from "./creditRecommendation.js";
 import {
   parseCreditNegotiationDraftStructures,
   priceAgentDraftedDealStructures
@@ -716,6 +723,10 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
     throw new Error("Action not found.");
   }
 
+  if (actionId.startsWith(creditRecommendationActionIdPrefix)) {
+    return findCreditRecommendationAction(actionId, context);
+  }
+
   const governedConfig = readGovernedConfig(context);
   const source = readSourcePort(context);
   const forensicsRun = runForensicsInvestigation({
@@ -744,6 +755,66 @@ function findPendingAction(actionId: string, context: ServiceInvocationContext):
   }
 
   throw new Error("Action not found.");
+}
+
+/**
+ * Rebuilds a Maya recovery credit recommendation from the governed sources so approval commits the
+ * same values the card showed. The recommendation only exists while its line still routes to
+ * recovery.
+ */
+function findCreditRecommendationAction(actionId: string, context: ServiceInvocationContext): CreditRiskApprovalAction {
+  const parsed = parseCreditRecommendationActionId(actionId);
+  if (parsed === undefined) {
+    throw new Error("Action not found.");
+  }
+
+  const rows = readCreditRiskRows(context);
+  const account = findCreditAccountForLine(rows, parsed.lineId);
+  if (account === undefined) {
+    throw new Error("Action not found.");
+  }
+
+  const governedConfig = readGovernedConfig(context);
+  const source = readSourcePort(context);
+  const decision = runForensicsInvestigation({
+    ...(context.decisionConfidenceThreshold === undefined
+      ? {}
+      : { decisionConfidenceThreshold: context.decisionConfidenceThreshold }),
+    governedConfig,
+    ...(context.reconciliation === undefined ? {} : { reconciliation: context.reconciliation }),
+    serviceContext: context,
+    source
+  }).decisions.find((candidate) => candidate.lineId === parsed.lineId);
+  if (decision === undefined || decision.routing !== "recovery") {
+    throw new Error("Action not found.");
+  }
+
+  const core = buildCreditRecommendationCores({
+    account,
+    asOfDate: rows.snapshot.asOfDate,
+    lineId: parsed.lineId,
+    recordIds: decision.recordIds
+  }).find((candidate) => candidate.actionId === actionId);
+  if (core === undefined) {
+    throw new Error("Action not found.");
+  }
+
+  return {
+    actionId: core.actionId,
+    basis: core.basis,
+    deterministicBasis: {
+      accountId: core.accountId,
+      currentLabel: core.currentLabel,
+      kind: core.kind,
+      lineId: parsed.lineId,
+      proposedLabel: core.proposedLabel
+    },
+    detail: `${core.title}: ${core.currentLabel} -> ${core.proposedLabel}`,
+    dispatchedExternally: false,
+    proposedBy: "agent:credit-risk-review",
+    recordIds: [...core.recordIds],
+    requiresHumanApproval: true
+  };
 }
 
 function selectNegotiationApprovalCandidate(

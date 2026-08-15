@@ -13,6 +13,7 @@ import {
   buildCopilotQuerySequenceSteps,
   buildDraftLetterPreview,
   buildEmailDraft,
+  buildCreditRecommendationCards,
   buildEvidenceFactCard,
   groupEvidenceFactCardsByLine,
   buildEvidencePacketAvailabilityLabel,
@@ -1619,3 +1620,47 @@ describe("Maya workspace derived helpers", () => {
 
 });
 
+
+describe("Maya credit recommendation cards", () => {
+  const bandRecommendation = {
+    accountId: "ACC-VAL",
+    actionId: "credit-recommendation:S5-L1:band-downgrade",
+    amount: "$12,700",
+    basis: "Recommended by Maya on 2026-01-26; case S5-L1 routed to Recovery.",
+    currentLabel: "WATCH",
+    kind: "band-downgrade" as const,
+    proposedBy: "agent:credit-risk-review" as const,
+    proposedLabel: "ELEVATED",
+    provenance: {
+      deterministicBasis: "test fixture",
+      recordIds: ["ACC-VAL", "S5-L1"],
+      sourceKind: "derived_backend" as const,
+      sourceName: "unit test"
+    },
+    recordIds: ["ACC-VAL", "S5-L1"],
+    status: "pending_human" as const,
+    statusLabel: "Awaiting David approval",
+    title: "Downgrade risk band"
+  };
+
+  it("renders the label, the current to proposed move, and the gate state", () => {
+    const [card] = buildCreditRecommendationCards([bandRecommendation]);
+
+    expect(card).toMatchObject({
+      changeLabel: "WATCH -> ELEVATED",
+      key: "credit-recommendation:S5-L1:band-downgrade",
+      statusLabel: "Awaiting David approval",
+      title: "Downgrade risk band"
+    });
+    expect(card?.isNoChange).toBe(false);
+  });
+
+  it("marks a recommendation that cannot move any further so it does not read as a change", () => {
+    const [card] = buildCreditRecommendationCards([
+      { ...bandRecommendation, currentLabel: "HIGH", proposedLabel: "HIGH" }
+    ]);
+
+    expect(card?.isNoChange).toBe(true);
+    expect(card?.changeLabel).toBe("HIGH (no further change)");
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCreditRiskReviewModel } from "../../src/services/creditRiskModel.js";
+import { buildCreditRiskReviewModel, nextTermsNetDays, nextVerdictBand } from "../../src/services/creditRiskModel.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
 
 describe("credit risk review model", () => {
@@ -445,6 +445,69 @@ describe("credit risk review model", () => {
       contractGapReason: "Missing seeded interpretation.",
       deterministicBasis: null
     });
+  });
+  it("surfaces an approved Maya credit recommendation as a cited signal for David", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const model = buildCreditRiskReviewModel({
+      ...rows,
+      approvedCreditRecommendations: [
+        {
+          accountId: "ACC-VAL",
+          actionId: "credit-recommendation:S5-L1:band-downgrade",
+          amount: "$12,700.00",
+          basis: "Recommended by Maya on 2026-01-26; case S5-L1 routed to Recovery for $12,700.00.",
+          currentLabel: "WATCH",
+          kind: "band-downgrade",
+          proposedLabel: "ELEVATED",
+          recordIds: ["ACC-VAL", "S5-L1"],
+          scenarioId: "S5"
+        }
+      ]
+    });
+    const signal = byId(model, "ACC-VAL").signals.find(
+      (candidate) => candidate.scenarioId === "credit-recommendation:S5-L1:band-downgrade"
+    );
+
+    expect(signal).toBeDefined();
+    expect(signal).toMatchObject({
+      amount: "$12,700.00",
+      meshPosition: "Credit",
+      note: "Downgrade risk band: WATCH -> ELEVATED"
+    });
+    expect(signal?.basis).toContain("Maya");
+    expect(signal?.recordIds).toEqual(expect.arrayContaining(["ACC-VAL", "S5-L1"]));
+    // The recommendation is scoped to its own account.
+    expect(byId(model, "ACC-CRE").signals.some((candidate) => candidate.scenarioId.startsWith("credit-recommendation:"))).toBe(
+      false
+    );
+  });
+
+  it("leaves every account's signals unchanged when no credit recommendation is approved", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const withEmpty = buildCreditRiskReviewModel({ ...rows, approvedCreditRecommendations: [] });
+    const baseline = buildCreditRiskReviewModel(rows);
+
+    expect(withEmpty.accounts.map((account) => account.signals)).toEqual(
+      baseline.accounts.map((account) => account.signals)
+    );
+  });
+
+  it("steps the risk band exactly one rank and stops at the ceiling", () => {
+    expect(nextVerdictBand("CLEAR")).toBe("WATCH");
+    expect(nextVerdictBand("WATCH")).toBe("ELEVATED");
+    expect(nextVerdictBand("ELEVATED")).toBe("HIGH");
+    // Already at the ceiling: a recovery case must not invent a band beyond HIGH.
+    expect(nextVerdictBand("HIGH")).toBe("HIGH");
+  });
+
+  it("tightens payment terms one governed step and stops at the floor", () => {
+    expect(nextTermsNetDays(60)).toBe(45);
+    expect(nextTermsNetDays(45)).toBe(30);
+    expect(nextTermsNetDays(30)).toBe(15);
+    // Already at the floor: the ladder never proposes terms tighter than Net 15.
+    expect(nextTermsNetDays(15)).toBe(15);
+    // Terms that are not on the ladder drop to the next rung below them.
+    expect(nextTermsNetDays(50)).toBe(45);
   });
 });
 

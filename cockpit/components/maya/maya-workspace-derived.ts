@@ -498,6 +498,41 @@ function evidenceDocumentCountLabel(count: number): string {
   return count === 1 ? "1 document" : `${count.toString()} documents`;
 }
 
+export interface MayaCreditRecommendationCard {
+  amount: string;
+  basis: string;
+  changeLabel: string;
+  isNoChange: boolean;
+  key: string;
+  statusLabel: string;
+  title: string;
+}
+
+/**
+ * Presents each advisory credit move as current -> proposed with its approval gate. A move that
+ * cannot go further reads as a hold rather than a change, so an unchanged band is not mistaken
+ * for a downgrade.
+ */
+export function buildCreditRecommendationCards(
+  recommendations: readonly MayaWorkItemDetail["creditRecommendations"][number][]
+): MayaCreditRecommendationCard[] {
+  return recommendations.map((recommendation) => {
+    const isNoChange = recommendation.currentLabel === recommendation.proposedLabel;
+
+    return {
+      amount: recommendation.amount,
+      basis: recommendation.basis,
+      changeLabel: isNoChange
+        ? `${recommendation.currentLabel} (no further change)`
+        : `${recommendation.currentLabel} -> ${recommendation.proposedLabel}`,
+      isNoChange,
+      key: recommendation.actionId,
+      statusLabel: recommendation.statusLabel,
+      title: recommendation.title
+    };
+  });
+}
+
 export function buildEvidenceFactCard(document: MayaEvidenceDocument): MayaEvidenceFactCard {
   const rows = compactEvidenceFactRows([
     { label: "Document", value: buildEvidenceDocumentBusinessLabel(document) },
