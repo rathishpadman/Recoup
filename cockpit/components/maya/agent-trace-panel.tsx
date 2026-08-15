@@ -56,6 +56,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
   const isBlocked = response?.status === "blocked";
   const isError = response?.status === "error";
   const processNodes = buildAgentProcessNodes({ evidencePack, recordIds, response, selectedLine });
+  const explainedProcessNodeKeys = firstProcessNodeKeyPerKind(processNodes);
 
   return (
     <Card className={mayaAccent.subtleCard} data-testid="maya-agent-trace" size="sm">
@@ -182,13 +183,9 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                       {formatPrimaryProcessNodePhaseLabel(node)}
                     </Badge>
                   </div>
-                  <div className="grid min-w-0 gap-1">
-                    <span className="truncate text-sm font-medium" title={formatPrimaryProcessNodeLabel(node)}>
-                      {formatPrimaryProcessNodeLabel(node)}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{formatPrimaryProcessNodeCaption(node)}</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{formatPrimaryProcessNodeMessage(node)}</p>
+                  {explainedProcessNodeKeys.has(node.key) ? (
+                    <p className="text-sm text-muted-foreground">{formatPrimaryProcessNodeMessage(node)}</p>
+                  ) : null}
                   <div className="flex flex-wrap gap-1.5" aria-label={`${formatPrimaryProcessNodeLabel(node)} trace summary`}>
                     <Badge variant="outline">{formatPrimaryEvidenceSummary(node)}</Badge>
                   </div>
@@ -404,7 +401,9 @@ function traceEventToProcessNode(
   return {
     agentName: event.agentName,
     backendTraceEvent: event,
-    citations: citations.map((citation) => citation.recordId),
+    // Only the citations this step actually touched. Carrying every answer citation made each
+    // card claim the whole answer's evidence count as its own.
+    citations: citations.filter((citation) => event.recordIds.includes(citation.recordId)).map((citation) => citation.recordId),
     deterministicBasis: event.deterministicBasis,
     hook: event.hook,
     key: `trace-${index.toString()}-${event.phase}-${event.label}`,
@@ -565,24 +564,23 @@ function formatPrimaryProcessNodeLabel(node: AgentProcessNode): string {
   return formatPrimaryProcessNodePhaseLabel(node);
 }
 
-function formatPrimaryProcessNodeCaption(node: AgentProcessNode): string {
-  if (node.nodeKind === "selected-evidence") {
-    return "Question scope is tied to selected evidence.";
-  }
-  if (node.nodeKind === "retrieval-source") {
-    return "Source evidence checked.";
-  }
-  if (node.nodeKind === "handoff") {
-    return "Work prepared for the next review step.";
-  }
-  if (node.nodeKind === "citation-guard") {
-    return "Answer citations checked.";
-  }
-  if (node.nodeKind === "basis") {
-    return "Deterministic basis checked.";
+/**
+ * The explanatory sentence is per-kind, so repeating it on every card of that kind adds nothing
+ * once it has been read. Only the first node of each kind carries it; the rest stand on their
+ * step label and their own evidence count.
+ */
+function firstProcessNodeKeyPerKind(nodes: readonly AgentProcessNode[]): Set<string> {
+  const seenKinds = new Set<AgentProcessNode["nodeKind"]>();
+  const keys = new Set<string>();
+
+  for (const node of nodes) {
+    if (!seenKinds.has(node.nodeKind)) {
+      seenKinds.add(node.nodeKind);
+      keys.add(node.key);
+    }
   }
 
-  return "Evidence reasoning step completed.";
+  return keys;
 }
 
 function formatPrimaryProcessNodeMessage(node: AgentProcessNode): string {
