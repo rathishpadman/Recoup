@@ -241,18 +241,12 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                           </div>
                           <Badge className={mayaAccent.pill} variant="secondary">{isBackendTrace ? node.hook : formatProcessNodeKind(node.nodeKind)}</Badge>
                         </div>
+                        {/* Source trust and transport only: agent, tool, source-kind and retrieval-source
+                            badges repeat what the trace table already lists row by row. */}
                         <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} source and supporting record details`}>
                           <Badge variant="outline">{node.sourceLabel}</Badge>
                           {sourceTrustLabel === undefined ? null : <Badge variant="outline">{sourceTrustLabel}</Badge>}
                           {sourceTransportLabel === undefined ? null : <Badge variant="outline">{sourceTransportLabel}</Badge>}
-                          {isBackendTrace ? <Badge variant="outline">{node.agentName}</Badge> : null}
-                          {isBackendTrace && node.toolName !== undefined ? <Badge variant="outline">{node.toolName}</Badge> : null}
-                          {isBackendTrace && node.sourceKind !== undefined ? (
-                            <Badge variant="outline">{formatTraceSourceKindLabel(node.sourceKind)}</Badge>
-                          ) : null}
-                          {isBackendTrace && node.retrievalSource !== undefined ? (
-                            <Badge variant="outline">{formatTraceRetrievalSourceValueLabel(node.retrievalSource)}</Badge>
-                          ) : null}
                         </div>
                         {node.detailMessage === undefined ? null : (
                           <p className="text-sm leading-5 text-muted-foreground">{node.detailMessage}</p>
@@ -268,17 +262,8 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
                             ))
                           )}
                         </div>
-                        <div className="flex flex-wrap gap-1.5" aria-label={`${node.label} citation details`}>
-                          {node.citations.length === 0 ? (
-                            <Badge variant="outline">cited records pending</Badge>
-                          ) : (
-                            node.citations.map((citation) => (
-                              <Badge className="max-w-full truncate" key={`${node.key}-citation-${citation}`} title={citation} variant="outline">
-                                {citation}
-                              </Badge>
-                            ))
-                          )}
-                        </div>
+                        {/* Per-node citation badges duplicated the Citations drawer in full; the
+                            drawer stays the single place to read cited records. */}
                         <p className="text-sm leading-5 text-muted-foreground">{node.deterministicBasis}</p>
                       </div>
                     );
@@ -347,6 +332,22 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Number of steps the trace panel will actually render.
+ *
+ * The drawer label previously counted `response.trace.length`, which is the backend event
+ * count and can be zero while the panel still renders a full process map. Callers use this
+ * so the label matches what is behind it.
+ */
+export function countAgentProcessNodes(input: {
+  evidencePack: MayaEvidencePack | undefined;
+  recordIds: readonly string[];
+  response: QueryEvidenceResponse | undefined;
+  selectedLine: string | undefined;
+}): number {
+  return buildAgentProcessNodes(input).length;
 }
 
 function buildAgentProcessNodes(input: {
