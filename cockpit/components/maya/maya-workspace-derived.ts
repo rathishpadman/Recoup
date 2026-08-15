@@ -128,6 +128,7 @@ export interface MayaCopilotVerdictBand {
   actionLabel: string;
   amountLabel: string;
   basis: string;
+  captionLabel: string;
   routeLabel: string;
   tone: "invalid" | "partial" | "valid" | "unknown";
   verdictLabel: string;
@@ -904,10 +905,33 @@ export function buildCopilotVerdictBand(input: {
     actionLabel: input.workItem.recommendedActionLabel,
     amountLabel: input.workItem.amount,
     basis: input.basis,
+    // This band restates the case's standing verdict, which exists before any question is
+    // asked. Captioning it keeps it from reading as the Copilot's answer.
+    captionLabel: "Current case state",
     routeLabel: routeTargetLabel(input.workItem, input.workItem.routingLabel),
     tone: bucket ?? "unknown",
     verdictLabel: input.workItem.verdictLabel
   };
+}
+
+export interface MayaCopilotSequenceStep {
+  actor: string;
+  detail: string;
+}
+
+/**
+ * The five stages a Copilot query passes through, phrased for a business reviewer rather
+ * than as a trace dump. Rendered as a compact sequence so Maya can see how an answer was
+ * produced without reading the full agent trace.
+ */
+export function buildCopilotQuerySequenceSteps(): MayaCopilotSequenceStep[] {
+  return [
+    { actor: "Maya", detail: "Asks a question about the selected case" },
+    { actor: "Conductor", detail: "Scopes the question to this case only" },
+    { actor: "Specialists", detail: "Check scope, route and approval gate" },
+    { actor: "Evidence", detail: "Returns only documents cited for this case" },
+    { actor: "Conductor", detail: "Answers, or stops if nothing is cited" }
+  ];
 }
 
 export function buildCopilotDrawerTrigger(label: string, value: string): string {
