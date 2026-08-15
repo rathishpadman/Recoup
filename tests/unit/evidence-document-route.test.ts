@@ -101,8 +101,52 @@ describe("evidence document route rendition", () => {
     expect(response.headers.get("content-disposition")).toBe('inline; filename="EVD-BUREAU-S3-L1.html"');
 
     const body = await response.text();
-    expect(body).toContain("EVD-BUREAU-S3-L1 source evidence document");
     expect(body).toContain("BUREAU-CUST-CREST");
     expect(body).not.toContain("%PDF-");
+  });
+
+  it("leads the HTML viewer with what the evidence says, not with its plumbing", async () => {
+    const response = buildEvidenceDocumentResponse({
+      ...podRow,
+      document_type: "carrier_photo",
+      evidence_id: "EVD-CARRIER-PHOTO-S1-L2",
+      payload_json: {
+        invoiceRef: "INV-S1-2",
+        lineId: "S1-L2",
+        photoEvidenceReceived: true,
+        photoSetId: "PHOTO-SET-S1-L2"
+      },
+      source_record_id: "CARRIER-PHOTO-S1-L2",
+      source_system: "carrier",
+      storage_uri: null
+    });
+    const body = await response.text();
+
+    // A business title, not the raw evidence ID.
+    expect(body).toContain("Carrier photo record");
+    // The payload is the document's actual content and must be shown.
+    expect(body).toContain("Photo set ID");
+    expect(body).toContain("PHOTO-SET-S1-L2");
+    expect(body).toContain("Photo evidence received");
+    expect(body).toContain("Invoice ref");
+    expect(body).toContain("INV-S1-2");
+    // Provenance is still available, just no longer the whole page.
+    expect(body).toContain(podRow.content_hash);
+  });
+
+  it("says plainly when a document type carries no stored artifact", async () => {
+    const response = buildEvidenceDocumentResponse({
+      ...podRow,
+      document_type: "carrier_photo",
+      evidence_id: "EVD-CARRIER-PHOTO-S1-L2",
+      payload_json: { lineId: "S1-L2", photoSetId: "PHOTO-SET-S1-L2" },
+      source_record_id: "CARRIER-PHOTO-S1-L2",
+      source_system: "carrier",
+      storage_uri: null
+    });
+    const body = await response.text();
+
+    expect(body).toContain("No stored file");
+    expect(body).not.toContain("Unavailable");
   });
 });

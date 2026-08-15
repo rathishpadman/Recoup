@@ -237,37 +237,115 @@ function escapePdfText(value: string): string {
   return value.replace(/\\/gu, "\\\\").replace(/\(/gu, "\\(").replace(/\)/gu, "\\)");
 }
 
+const evidenceDocumentTypeTitles: Record<string, string> = {
+  bureau_alert: "Bureau alert",
+  carrier_damage_report: "Carrier damage report",
+  carrier_photo: "Carrier photo record",
+  contract: "Contract terms",
+  contract_pricing: "Contract pricing",
+  contract_sla: "Contract SLA",
+  customer_po: "Customer purchase order",
+  payment_history: "Payment history",
+  pod: "Proof of delivery",
+  remittance_advice: "Remittance advice",
+  sap_credit_memo: "SAP credit memo",
+  sap_invoice: "SAP invoice",
+  tpm_accrual: "TPM accrual",
+  tpm_promo: "TPM promotion"
+};
+
+function evidenceDocumentTitle(documentType: string): string {
+  const title = evidenceDocumentTypeTitles[documentType];
+  if (title !== undefined) {
+    return title;
+  }
+
+  const spaced = documentType.replace(/[-_]/gu, " ").trim();
+
+  return spaced.length === 0 ? "Source evidence" : `${spaced.slice(0, 1).toUpperCase()}${spaced.slice(1)}`;
+}
+
+/** "photoSetId" -> "Photo set ID", so the payload reads as a record rather than as JSON keys. */
+function evidencePayloadLabel(key: string): string {
+  const spaced = key
+    .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
+    .replace(/[-_]/gu, " ")
+    .trim()
+    .toLowerCase();
+  const sentence = spaced.length === 0 ? key : `${spaced.slice(0, 1).toUpperCase()}${spaced.slice(1)}`;
+
+  return sentence.replace(/\bid\b/giu, "ID").replace(/\bsap\b/giu, "SAP").replace(/\btpm\b/giu, "TPM");
+}
+
+function formatEvidencePayloadValue(value: unknown): string {
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return value.toString();
+  }
+  if (value === null || value === undefined) {
+    return "Not recorded";
+  }
+
+  return JSON.stringify(value);
+}
+
+/**
+ * Leads with what the evidence says. The technical fields stay available underneath as
+ * provenance, but they are not the document.
+ */
 function renderEvidenceDocumentHtml(row: EvidenceDocumentRow): string {
-  const fields: Array<[string, string]> = [
+  const payloadFields = Object.entries(row.payload_json).map(
+    ([key, value]): [string, string] => [evidencePayloadLabel(key), formatEvidencePayloadValue(value)]
+  );
+  const provenanceFields: Array<[string, string]> = [
     ["Evidence ID", row.evidence_id],
-    ["Document type", row.document_type],
     ["Source system", row.source_system],
     ["Source record", row.source_record_id],
     ["Provenance", row.provenance],
     ["Content hash", row.content_hash],
     ["Retrieved at", row.retrieved_at],
-    ["Storage URI", row.storage_uri ?? "Unavailable"]
+    ["Stored file", row.storage_uri ?? "No stored file for this evidence type"]
   ];
+  const renderRows = (fields: ReadonlyArray<[string, string]>): string =>
+    fields.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
 
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>${escapeHtml(row.evidence_id)} evidence document</title>
+    <title>${escapeHtml(evidenceDocumentTitle(row.document_type))} ${escapeHtml(row.source_record_id)}</title>
     <style>
       body { color: #17201b; font-family: Arial, sans-serif; line-height: 1.45; margin: 32px; max-width: 920px; }
-      h1 { font-size: 24px; margin: 0 0 16px; }
-      dl { border: 1px solid #cdd6cf; border-radius: 8px; display: grid; grid-template-columns: 180px minmax(0, 1fr); overflow: hidden; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { color: #526057; font-size: 15px; margin: 28px 0 10px; }
+      p.reference { color: #526057; margin: 0 0 20px; }
+      dl { border: 1px solid #cdd6cf; border-radius: 8px; display: grid; grid-template-columns: 220px minmax(0, 1fr); overflow: hidden; }
       dt, dd { border-bottom: 1px solid #e3e8e4; margin: 0; padding: 10px 12px; }
       dt { background: #f4f7f5; color: #526057; font-weight: 700; }
-      dd { font-family: "Courier New", monospace; overflow-wrap: anywhere; }
+      dd { overflow-wrap: anywhere; }
+      dl.provenance dd { font-family: "Courier New", monospace; }
       dt:last-of-type, dd:last-of-type { border-bottom: 0; }
     </style>
   </head>
   <body>
-    <h1>${escapeHtml(row.evidence_id)} source evidence document</h1>
+    <h1>${escapeHtml(evidenceDocumentTitle(row.document_type))}</h1>
+    <p class="reference">${escapeHtml(row.source_record_id)}</p>
+    ${
+      payloadFields.length === 0
+        ? ""
+        : `<h2>What this evidence records</h2>
     <dl>
-      ${fields.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}
+      ${renderRows(payloadFields)}
+    </dl>`
+    }
+    <h2>Provenance</h2>
+    <dl class="provenance">
+      ${renderRows(provenanceFields)}
     </dl>
   </body>
 </html>`;
