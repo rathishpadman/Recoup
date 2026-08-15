@@ -2409,6 +2409,11 @@ async function assertRenderedCitedAnswerMatchesBackend(
     );
   }
   await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', `Maya Copilot verdict band for ${workItem.id}`);
+  // Model execution proof lives inside Trace details, so the trace drawer opens first.
+  const traceDetailsDrawer = page.getByTestId("maya-copilot-trace-drawer");
+  if ((await traceDetailsDrawer.getByRole("button", { name: /^Trace/u }).getAttribute("aria-expanded")) !== "true") {
+    await traceDetailsDrawer.getByRole("button", { name: /^Trace/u }).click();
+  }
   const modelExecutionDrawer = page.getByTestId("maya-copilot-model-drawer");
   if ((await modelExecutionDrawer.getByRole("button", { name: /^Model execution/u }).getAttribute("aria-expanded")) !== "true") {
     await modelExecutionDrawer.getByRole("button", { name: /^Model execution/u }).click();

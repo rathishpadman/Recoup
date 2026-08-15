@@ -1064,14 +1064,14 @@ function CopilotStoryPanel({
             response={snapshot}
             selectedLine={selectedLine ?? "workspace"}
           />
+          <CopilotDepthDrawer
+            label="Model execution"
+            testId="maya-copilot-model-drawer"
+            value={snapshot.modelExecution?.mode ?? "unavailable"}
+          >
+            <ModelExecutionFacts response={snapshot} />
+          </CopilotDepthDrawer>
         </div>
-      </CopilotDepthDrawer>
-      <CopilotDepthDrawer
-        label="Model execution"
-        testId="maya-copilot-model-drawer"
-        value={snapshot.modelExecution?.mode ?? "unavailable"}
-      >
-        <ModelExecutionFacts response={snapshot} />
       </CopilotDepthDrawer>
     </div>
   );
