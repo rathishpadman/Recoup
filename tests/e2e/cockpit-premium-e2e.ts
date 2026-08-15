@@ -4566,11 +4566,9 @@ async function assertBeat8CitedAnswerFidelity(
   await expectVisibleLocator(page, '[data-testid="maya-copilot-verdict-band"]', "Maya Beat 8 Copilot verdict band");
   await expectVisibleLocator(page, '[data-testid="maya-copilot-citations-drawer"]', "Maya Beat 8 citations drawer");
   await expectVisibleLocator(page, '[data-testid="maya-copilot-trace-drawer"]', "Maya Beat 8 trace drawer");
-  await expectVisibleLocator(page, '[data-testid="maya-copilot-model-drawer"]', "Maya Beat 8 model execution drawer");
   await expectVisibleLocator(page, 'button[aria-label="Ask by voice"]', "Maya Beat 8 completed answer voice button");
   const citationsDrawer = page.getByTestId("maya-copilot-citations-drawer");
   const traceDrawer = page.getByTestId("maya-copilot-trace-drawer");
-  const modelDrawer = page.getByTestId("maya-copilot-model-drawer");
   assert(
     (await citationsDrawer.getByRole("button", { name: /^Citations/u }).getAttribute("aria-expanded")) !== "true",
     "Beat 8 citations drawer must be collapsed by default"
@@ -4580,6 +4578,10 @@ async function assertBeat8CitedAnswerFidelity(
     "Beat 8 trace drawer must be collapsed by default"
   );
   await citationsDrawer.getByRole("button", { name: /^Citations/u }).click();
+  // Model execution proof lives inside Trace details, so the trace drawer opens first.
+  await traceDrawer.getByRole("button", { name: /^Trace/u }).click();
+  await expectVisibleLocator(page, '[data-testid="maya-copilot-model-drawer"]', "Maya Beat 8 model execution drawer");
+  const modelDrawer = page.getByTestId("maya-copilot-model-drawer");
   await modelDrawer.getByRole("button", { name: /^Model execution/u }).click();
   await expectVisibleLocator(page, '[data-testid="maya-query-citation-record"]', "Maya Beat 8 citation records");
   const evidenceDocument = firstItem(model.selected.evidencePack.documents, "selected evidence documents");
