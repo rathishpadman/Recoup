@@ -56,7 +56,7 @@ export function AgentTracePanel({ evidencePack, recordIds = [], response, select
   const isBlocked = response?.status === "blocked";
   const isError = response?.status === "error";
   const processNodes = buildAgentProcessNodes({ evidencePack, recordIds, response, selectedLine });
-  const explainedProcessNodeKeys = firstProcessNodeKeyPerKind(processNodes);
+  const explainedProcessNodeKeys = processNodeKeysWithNewMessage(processNodes);
 
   return (
     <Card className={mayaAccent.subtleCard} data-testid="maya-agent-trace" size="sm">
@@ -475,8 +475,33 @@ function compactCitationProcessMessage(): string {
   return "Cited evidence checked; supporting records are held in Trace details.";
 }
 
+const evidenceDocumentTypeLabels: Record<string, string> = {
+  bureau_alert: "Bureau alert",
+  carrier_damage_report: "Carrier damage report",
+  carrier_photo: "Carrier photo record",
+  contract: "Contract terms",
+  contract_pricing: "Contract pricing",
+  contract_sla: "Contract SLA",
+  customer_po: "Customer purchase order",
+  payment_history: "Payment history",
+  pod: "Proof of delivery",
+  remittance_advice: "Remittance advice",
+  sap_credit_memo: "SAP credit memo",
+  sap_invoice: "SAP invoice",
+  tpm_accrual: "TPM accrual",
+  tpm_promo: "TPM promotion"
+};
+
+/** Business label for an evidence type; raw enum values are not customer-facing copy. */
 function formatEvidenceDocumentType(documentType: string): string {
-  return documentType.replace(/-/gu, " ");
+  const label = evidenceDocumentTypeLabels[documentType];
+  if (label !== undefined) {
+    return label;
+  }
+
+  const spaced = documentType.replace(/[-_]/gu, " ").trim();
+
+  return spaced.length === 0 ? "Evidence" : `${spaced.slice(0, 1).toUpperCase()}${spaced.slice(1)}`;
 }
 
 function citationGuardProcessNode(
@@ -565,19 +590,21 @@ function formatPrimaryProcessNodeLabel(node: AgentProcessNode): string {
 }
 
 /**
- * The explanatory sentence is per-kind, so repeating it on every card of that kind adds nothing
- * once it has been read. Only the first node of each kind carries it; the rest stand on their
- * step label and their own evidence count.
+ * Suppress a step's sentence only when that exact sentence has already been shown. Generic
+ * per-kind copy therefore appears once, while steps that genuinely differ - a proof of delivery
+ * versus a remittance advice - each keep their own line and stay tellable apart.
  */
-function firstProcessNodeKeyPerKind(nodes: readonly AgentProcessNode[]): Set<string> {
-  const seenKinds = new Set<AgentProcessNode["nodeKind"]>();
+function processNodeKeysWithNewMessage(nodes: readonly AgentProcessNode[]): Set<string> {
+  const seenMessages = new Set<string>();
   const keys = new Set<string>();
 
   for (const node of nodes) {
-    if (!seenKinds.has(node.nodeKind)) {
-      seenKinds.add(node.nodeKind);
-      keys.add(node.key);
+    const message = formatPrimaryProcessNodeMessage(node).trim();
+    if (message.length === 0 || seenMessages.has(message)) {
+      continue;
     }
+    seenMessages.add(message);
+    keys.add(node.key);
   }
 
   return keys;
@@ -588,6 +615,13 @@ function formatPrimaryProcessNodeMessage(node: AgentProcessNode): string {
     return "Maya starts from the selected case evidence; supporting records stay in Trace details.";
   }
   if (node.nodeKind === "retrieval-source") {
+    // UI-composed nodes name the document they checked, which is what makes one retrieval step
+    // tellable from the next. Backend trace events carry raw source text, so they keep the
+    // business-readable fallback and stay behind Trace details.
+    if (!isBackendTraceProcessNode(node)) {
+      return node.message;
+    }
+
     return "Maya checked the evidence needed for this step; supporting records stay in Trace details.";
   }
   if (node.nodeKind === "handoff") {
