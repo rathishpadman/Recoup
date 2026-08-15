@@ -22,6 +22,19 @@ carry `lineId` on their vector document; `S5-L1` yields `WATCH -> ELEVATED` and 
 both `pending_human`; `S1-L1` yields none; `S3-L1` holds at `HIGH`. Full suite green (174 files,
 1603 tests) with no contract assertion edited.
 
+Verified in a browser against the real backend, zero console errors:
+
+- `S5-L1` renders both cards — *"Downgrade risk band · WATCH -> ELEVATED · Awaiting David approval"*
+  and *"Tighten payment terms · Net 45 -> Net 30 · Awaiting David approval"*, each carrying
+  `Recommended by Maya on 2026-01-26`.
+- `S1-L1` (billing) renders no credit recommendations.
+- `S3-L1` evidence groups are `S3-L1 (3 documents)`, `S3-L2`, `S3-L3`, `S3-L4` (2 each) with **no
+  "Case-wide evidence" group** — the vector document now sits inside `S3-L1`.
+
+The compact process map was not exercised in the browser: it renders inside the query dock and only
+after a live query runs. It is covered by `tests/unit/agent-trace-process-map.test.ts`, which
+renders the panel and asserts per-node counts and non-repeating prose.
+
 ### Why the terms ladder is not in `config/governed.ts`
 
 The ladder is an expert-owned business constant, so `config/governed.ts` looks like its natural
@@ -201,6 +214,30 @@ Recreate as needed:
   into the login form.
 - **Route note** — the shadcn workbench is `/forensics/shadcn`; the landing route is Overview, so
   click `maya-header-work-items-link` before opening a case.
+
+### Four traps that cost a session — read before writing another browser harness
+
+1. **Drive the app on `localhost`, never `127.0.0.1`.** Next serves its canonical dev origin as
+   `localhost`, and Next 16 blocks cross-origin dev resources. Browsing `127.0.0.1` splits the
+   session cookie across origins: the app 303s through login and then bounces back to `/login`, or
+   sits on `maya-shadcn-loading-shell` ("Connecting workspace") forever. On `localhost` the
+   workbench renders in **6-8 seconds**. This is the single biggest time sink here.
+2. **The minted-cookie shortcut did not work for this route.** Signing a session with
+   `signDemoSession` and setting it as a cookie left the workspace stuck on the loading shell. The
+   form login (`Maya` / `Welcome#123`, per `RECOUP_E2E_DEMO_PASSWORD`) is what the passing e2e does
+   and what works — despite the note above suggesting otherwise. The dev server compiles
+   `/api/demo-login` lazily, so a cold first POST can 404; retry it.
+3. **Kill the dev server with `taskkill /PID <pid> /T /F`.** It is spawned through `npx` with
+   `shell: true`, so `child.kill()` only kills the `cmd.exe` wrapper and leaves `next dev` running
+   — which then blocks the next run's port *and* holds keep-alive sockets to the API. Those sockets
+   make `apiServer.close(cb)` never fire its callback, so the script hangs after finishing all its
+   checks and prints nothing. Call `apiServer.closeAllConnections()` before `close()`.
+4. **Opening a case takes two clicks.** Clicking `maya-worklist-row` only selects it into the side
+   pane; the case opens via that row's own `maya-row-action-open` button. Scope the button to the
+   row — an unscoped `.first()` silently opens whichever case is at the top of the list.
+
+Server-side fetches are invisible to Playwright's network events, so when the page seems stuck,
+read the `next dev` stdout rather than the browser's request log.
 
 ## Deploy checklist
 
