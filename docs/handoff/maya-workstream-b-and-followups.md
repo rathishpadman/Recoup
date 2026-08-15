@@ -22,11 +22,26 @@ carry `lineId` on their vector document; `S5-L1` yields `WATCH -> ELEVATED` and 
 both `pending_human`; `S1-L1` yields none; `S3-L1` holds at `HIGH`. Full suite green (174 files,
 1603 tests) with no contract assertion edited.
 
-**Still open — pre-existing, not from this work:** `npm run test:e2e:maya-real` fails at the first
-work item because `assertCanonicalEvidenceMetadata` applies canonical receipt assertions to every
-document in the pack, including vector-store hits that have no `EVD-` id or `RECON-` receipt:
-`Maya detail S1-L1 evidence document VECTOR-EVIDENCE-S1-L1 omitted canonical evidenceId.` This
-reproduces on `eeca343` (main) with the changes absent.
+### Why the terms ladder is not in `config/governed.ts`
+
+The ladder is an expert-owned business constant, so `config/governed.ts` looks like its natural
+home. It is deliberately not there. Governed values are loaded from Supabase `recoup_config` and
+**fail closed when a required key is missing** — that is exactly why `npm run verify:release`
+currently reports `appendix-g-run-control-unset` and `governed accuracy bars unavailable`. Adding a
+new governed key without first seeding its row would fail every Maya and David surface closed on
+deploy. Keeping it beside `verdictByRank` in `creditRiskModel.ts` matches how the other business
+ladders in that file already live, and leaves the config hash untouched.
+
+To promote it later: seed the `recoup_config` row first, deploy, then move the constant.
+
+### Fixed here — the Maya e2e canonical-evidence sweep
+
+`assertCanonicalWorkItemDetailBackendModel` applied canonical receipt assertions to every evidence
+document, including vector-store hits that have no `EVD-` id or `RECON-` receipt, so the sweep died
+on the first work item: `Maya detail S1-L1 evidence document VECTOR-EVIDENCE-S1-L1 omitted canonical
+evidenceId.` It reproduced on `eeca343` with none of this work present. Vector documents now route
+to `assertVectorStoreEvidenceMetadata`, which asserts the `VECTOR-EVIDENCE-<lineId>` binding, the
+implied `lineId`, and in-range retrieval metadata. Canonical evidence keeps every assertion it had.
 
 **Deploy:** Workstream B and Finding 1 both change read-model/evidence-pack shape, so the
 `recoup_cockpit_read_models` purge below is required. Finding 2 is presentation-only.
