@@ -502,6 +502,7 @@ export interface MayaCreditRecommendationCard {
   amount: string;
   basis: string;
   changeLabel: string;
+  isApproved: boolean;
   isNoChange: boolean;
   key: string;
   statusLabel: string;
@@ -514,10 +515,13 @@ export interface MayaCreditRecommendationCard {
  * for a downgrade.
  */
 export function buildCreditRecommendationCards(
-  recommendations: readonly MayaWorkItemDetail["creditRecommendations"][number][]
+  recommendations: readonly MayaWorkItemDetail["creditRecommendations"][number][],
+  locallyApprovedActionIds: readonly string[] = []
 ): MayaCreditRecommendationCard[] {
   return recommendations.map((recommendation) => {
     const isNoChange = recommendation.currentLabel === recommendation.proposedLabel;
+    const isApproved =
+      recommendation.status === "human_decided" || locallyApprovedActionIds.includes(recommendation.actionId);
 
     return {
       amount: recommendation.amount,
@@ -525,9 +529,10 @@ export function buildCreditRecommendationCards(
       changeLabel: isNoChange
         ? `${recommendation.currentLabel} (no further change)`
         : `${recommendation.currentLabel} -> ${recommendation.proposedLabel}`,
+      isApproved,
       isNoChange,
       key: recommendation.actionId,
-      statusLabel: recommendation.statusLabel,
+      statusLabel: isApproved ? "Sent to David" : recommendation.statusLabel,
       title: recommendation.title
     };
   });

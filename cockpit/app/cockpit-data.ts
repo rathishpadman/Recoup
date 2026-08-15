@@ -731,6 +731,8 @@ export interface CreditRiskPacketModel {
 export interface CreditRiskSignalModel {
   amount?: string | undefined;
   basis: string;
+  label?: string | undefined;
+  verdictLabel?: string | undefined;
   feedsMesh: string;
   gamingFlag: boolean;
   meshPosition: string;
