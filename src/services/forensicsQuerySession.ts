@@ -355,6 +355,7 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
     answer: buildDeterministicForensicsQueryAnswer({
       basis: decision.basis,
       citationRecordIds: citations.map((citation) => citation.recordId),
+      citedDocuments: buildCitedDocumentTypes(decision, citations, input.reconciliation),
       question: request.question,
       routing: decision.routing,
       selectedLineId: decision.lineId,
@@ -724,6 +725,39 @@ function blockedLiveAgentQueryResponse(
 function hasDeterministicDecisionBasis(decision: DeductionDecision): boolean {
   const deterministicBasis = (decision as { deterministicBasis?: unknown }).deterministicBasis;
   return typeof deterministicBasis === "object" && deterministicBasis !== null;
+}
+
+/**
+ * The document types actually behind the cited records, so an evidence question can be answered by
+ * naming the evidence. Canonical reconciliation documents are preferred because they carry a real
+ * document type; decision evidence documents fill in the rest.
+ */
+function buildCitedDocumentTypes(
+  decision: DeductionDecision,
+  citations: readonly ForensicsQueryCitation[],
+  reconciliation: RunForensicsInvestigationOptions["reconciliation"] | undefined
+): { documentId: string; documentType: string }[] {
+  const citedIds = new Set<string>();
+  for (const citation of citations) {
+    citedIds.add(citation.recordId);
+    if (citation.documentId !== undefined) {
+      citedIds.add(citation.documentId);
+    }
+  }
+
+  const typesByDocumentId = new Map<string, string>();
+  for (const document of reconciliation?.evidenceDataset?.documents ?? []) {
+    if (citedIds.has(document.evidenceId)) {
+      typesByDocumentId.set(document.evidenceId, document.documentType);
+    }
+  }
+  for (const document of decision.evidenceDocuments) {
+    if (citedIds.has(document.documentId) && !typesByDocumentId.has(document.documentId)) {
+      typesByDocumentId.set(document.documentId, document.documentType);
+    }
+  }
+
+  return [...typesByDocumentId.entries()].map(([documentId, documentType]) => ({ documentId, documentType }));
 }
 
 function buildQueryCitations(
