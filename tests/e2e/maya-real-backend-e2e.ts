@@ -101,6 +101,7 @@ interface EvidenceDocumentModel {
   documentType: string;
   evidenceId?: string;
   evidenceProvenance?: string;
+  lineId?: string;
   provenance: MayaFieldProvenance;
   receiptContentHash?: string;
   receiptId?: string;
@@ -974,6 +975,12 @@ function assertCanonicalWorkItemDetailBackendModel(
     assert(document.documentId.trim().length > 0, `Maya detail ${lineId} cited document with blank documentId.`);
     assert(document.citationId.trim().length > 0, `Maya detail ${lineId} cited document ${document.documentId} with blank citationId.`);
     assertMayaFieldProvenance(document.provenance, `Maya detail ${lineId} evidence document ${document.documentId}`);
+    // A governed vector-store hit is retrieved evidence with no reconciliation receipt, so it
+    // carries none of the canonical EVD-/RECON- metadata and is asserted on its own terms.
+    if (document.retrieval?.provenance === "openai-vector-store") {
+      assertVectorStoreEvidenceMetadata(document, lineId);
+      continue;
+    }
     assertCanonicalEvidenceMetadata(document, lineId);
   }
   for (const prompt of detail.multimodalDock.promptSuggestions) {
@@ -1003,6 +1010,31 @@ function assertMayaFieldProvenance(
       `${context} provenance omitted expected recordId ${recordId}.`
     );
   }
+}
+
+/**
+ * A vector-store hit is bound to one deduction line by `mapSearchResults`, which mints its
+ * documentId as `VECTOR-EVIDENCE-<lineId>`. It has no reconciliation receipt, so it is asserted on
+ * that binding and its retrieval metadata rather than on canonical EVD-/RECON- fields.
+ */
+function assertVectorStoreEvidenceMetadata(document: EvidenceDocumentModel, lineId: string): void {
+  const boundLineId = document.documentId.replace("VECTOR-EVIDENCE-", "");
+  assert(
+    document.documentId.startsWith("VECTOR-EVIDENCE-") && boundLineId.length > 0,
+    `Maya detail ${lineId} vector evidence document ${document.documentId} is not line-bound.`
+  );
+  assert(
+    document.lineId === boundLineId,
+    `Maya detail ${lineId} vector evidence document ${document.documentId} carried lineId ${String(document.lineId)}; expected ${boundLineId}.`
+  );
+  assert(
+    document.retrieval !== undefined,
+    `Maya detail ${lineId} vector evidence document ${document.documentId} omitted semantic retrieval metadata.`
+  );
+  assert(
+    document.retrieval.score >= 0 && document.retrieval.score <= 1,
+    `Maya detail ${lineId} vector evidence document ${document.documentId} reported an out-of-range retrieval score.`
+  );
 }
 
 function assertCanonicalEvidenceMetadata(document: EvidenceDocumentModel, lineId: string): void {

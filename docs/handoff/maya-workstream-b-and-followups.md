@@ -3,6 +3,62 @@
 Written 2026-08-15. Pick this up cold: every file path and line reference below was verified
 against `main` at the time of writing.
 
+## Status — all three delivered on `claude/workstream-b-implementation-8ecd2d`
+
+| Item | Commit | Notes |
+|---|---|---|
+| Finding 1 — vector evidence line grouping | `9e4f06a` | `evidenceDocumentView` now derives `lineId` from the `VECTOR-EVIDENCE-<lineId>` documentId |
+| Workstream B — credit actions on Recovery | `d522979` | Derivation shared by the read model and the approval resolver via `src/services/creditRecommendation.ts` |
+| Finding 2 — trace process-map prose | `d57f372` | Per-node citation scoping plus one explanation per kind |
+
+The three defaults were answered by the requester: **downgrade one band** (capped at HIGH) with the
+recommendation dated from the credit snapshot's `asOfDate`; **every Recovery case**, no amount
+threshold; **account-level terms**, tightened one rung down the governed ladder `60/45/30/15`
+(floor Net 15) — that ladder is expert-owned and was supplied by the requester, and it lives beside
+`verdictByRank` in `creditRiskModel.ts` so the governed config hash is untouched.
+
+Verified against the real backend: all four manifest lines (`S1-L1`, `S3-L1`, `S6-L1`, `S8-L1`)
+carry `lineId` on their vector document; `S5-L1` yields `WATCH -> ELEVATED` and `Net 45 -> Net 30`
+both `pending_human`; `S1-L1` yields none; `S3-L1` holds at `HIGH`. Full suite green (174 files,
+1603 tests) with no contract assertion edited.
+
+Verified in a browser against the real backend, zero console errors:
+
+- `S5-L1` renders both cards — *"Downgrade risk band · WATCH -> ELEVATED · Awaiting David approval"*
+  and *"Tighten payment terms · Net 45 -> Net 30 · Awaiting David approval"*, each carrying
+  `Recommended by Maya on 2026-01-26`.
+- `S1-L1` (billing) renders no credit recommendations.
+- `S3-L1` evidence groups are `S3-L1 (3 documents)`, `S3-L2`, `S3-L3`, `S3-L4` (2 each) with **no
+  "Case-wide evidence" group** — the vector document now sits inside `S3-L1`.
+
+The compact process map was not exercised in the browser: it renders inside the query dock and only
+after a live query runs. It is covered by `tests/unit/agent-trace-process-map.test.ts`, which
+renders the panel and asserts per-node counts and non-repeating prose.
+
+### Why the terms ladder is not in `config/governed.ts`
+
+The ladder is an expert-owned business constant, so `config/governed.ts` looks like its natural
+home. It is deliberately not there. Governed values are loaded from Supabase `recoup_config` and
+**fail closed when a required key is missing** — that is exactly why `npm run verify:release`
+currently reports `appendix-g-run-control-unset` and `governed accuracy bars unavailable`. Adding a
+new governed key without first seeding its row would fail every Maya and David surface closed on
+deploy. Keeping it beside `verdictByRank` in `creditRiskModel.ts` matches how the other business
+ladders in that file already live, and leaves the config hash untouched.
+
+To promote it later: seed the `recoup_config` row first, deploy, then move the constant.
+
+### Fixed here — the Maya e2e canonical-evidence sweep
+
+`assertCanonicalWorkItemDetailBackendModel` applied canonical receipt assertions to every evidence
+document, including vector-store hits that have no `EVD-` id or `RECON-` receipt, so the sweep died
+on the first work item: `Maya detail S1-L1 evidence document VECTOR-EVIDENCE-S1-L1 omitted canonical
+evidenceId.` It reproduced on `eeca343` with none of this work present. Vector documents now route
+to `assertVectorStoreEvidenceMetadata`, which asserts the `VECTOR-EVIDENCE-<lineId>` binding, the
+implied `lineId`, and in-range retrieval metadata. Canonical evidence keeps every assertion it had.
+
+**Deploy:** Workstream B and Finding 1 both change read-model/evidence-pack shape, so the
+`recoup_cockpit_read_models` purge below is required. Finding 2 is presentation-only.
+
 Standing instructions from the requester: **goal-based, TDD (failing test first, red/green
 proof on every one), surgical changes, full regression plus browser/E2E verification, and no
 silent rewriting of contract assertions.**
@@ -158,6 +214,30 @@ Recreate as needed:
   into the login form.
 - **Route note** — the shadcn workbench is `/forensics/shadcn`; the landing route is Overview, so
   click `maya-header-work-items-link` before opening a case.
+
+### Four traps that cost a session — read before writing another browser harness
+
+1. **Drive the app on `localhost`, never `127.0.0.1`.** Next serves its canonical dev origin as
+   `localhost`, and Next 16 blocks cross-origin dev resources. Browsing `127.0.0.1` splits the
+   session cookie across origins: the app 303s through login and then bounces back to `/login`, or
+   sits on `maya-shadcn-loading-shell` ("Connecting workspace") forever. On `localhost` the
+   workbench renders in **6-8 seconds**. This is the single biggest time sink here.
+2. **The minted-cookie shortcut did not work for this route.** Signing a session with
+   `signDemoSession` and setting it as a cookie left the workspace stuck on the loading shell. The
+   form login (`Maya` / `Welcome#123`, per `RECOUP_E2E_DEMO_PASSWORD`) is what the passing e2e does
+   and what works — despite the note above suggesting otherwise. The dev server compiles
+   `/api/demo-login` lazily, so a cold first POST can 404; retry it.
+3. **Kill the dev server with `taskkill /PID <pid> /T /F`.** It is spawned through `npx` with
+   `shell: true`, so `child.kill()` only kills the `cmd.exe` wrapper and leaves `next dev` running
+   — which then blocks the next run's port *and* holds keep-alive sockets to the API. Those sockets
+   make `apiServer.close(cb)` never fire its callback, so the script hangs after finishing all its
+   checks and prints nothing. Call `apiServer.closeAllConnections()` before `close()`.
+4. **Opening a case takes two clicks.** Clicking `maya-worklist-row` only selects it into the side
+   pane; the case opens via that row's own `maya-row-action-open` button. Scope the button to the
+   row — an unscoped `.first()` silently opens whichever case is at the top of the list.
+
+Server-side fetches are invisible to Playwright's network events, so when the page seems stuck,
+read the `next dev` stdout rather than the browser's request log.
 
 ## Deploy checklist
 

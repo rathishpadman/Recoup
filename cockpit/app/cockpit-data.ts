@@ -475,9 +475,28 @@ export interface ForensicsCockpitModel {
   aiInsight: string;
 }
 
+export type CreditRecommendationKind = "band-downgrade" | "terms-change";
+
+export interface CreditRecommendationCard {
+  accountId: string;
+  actionId: string;
+  amount: string;
+  basis: string;
+  currentLabel: string;
+  kind: CreditRecommendationKind;
+  proposedBy: "agent:credit-risk-review";
+  proposedLabel: string;
+  provenance: MayaFieldProvenance;
+  recordIds: string[];
+  status: ApprovalLifecycleStatus;
+  statusLabel: string;
+  title: string;
+}
+
 export interface ForensicsWorkItemDetailCockpitModel {
   surface: "forensics-work-item-detail";
   lineId: string;
+  creditRecommendations: CreditRecommendationCard[];
   workItem: WorklistItem;
   selected: ForensicsCockpitModel["selected"];
   recommendedAction: ForensicsCockpitModel["actionInbox"][number];
@@ -710,6 +729,7 @@ export interface CreditRiskPacketModel {
 }
 
 export interface CreditRiskSignalModel {
+  amount?: string | undefined;
   basis: string;
   feedsMesh: string;
   gamingFlag: boolean;

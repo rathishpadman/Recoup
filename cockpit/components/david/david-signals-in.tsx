@@ -40,7 +40,10 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
             <span className="text-sm text-muted-foreground">{signal.routeLabel}</span>
           </div>
           <div className="grid gap-1">
-            <p className="text-sm font-medium">{signal.note}</p>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">{signal.note}</p>
+              {signal.amount === undefined ? null : <span className="text-sm tabular-nums">{signal.amount}</span>}
+            </div>
             <p className="text-sm text-muted-foreground">{signal.basis}</p>
           </div>
           <DavidRecordDisclosure items={signal.recordIds} label={`${signal.recordIds.length.toString()} cited records`} />

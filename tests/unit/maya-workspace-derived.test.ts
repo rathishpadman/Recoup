@@ -13,6 +13,7 @@ import {
   buildCopilotQuerySequenceSteps,
   buildDraftLetterPreview,
   buildEmailDraft,
+  buildCreditRecommendationCards,
   buildEvidenceFactCard,
   groupEvidenceFactCardsByLine,
   buildEvidencePacketAvailabilityLabel,
@@ -994,15 +995,19 @@ describe("Maya workspace derived helpers", () => {
       evidenceDocument({ documentId: "EVD-POD-S3-L1", evidenceId: "EVD-POD-S3-L1", lineId: "S3-L1" }),
       evidenceDocument({ documentId: "EVD-REMIT-S3-L2", evidenceId: "EVD-REMIT-S3-L2", lineId: "S3-L2" }),
       evidenceDocument({ documentId: "EVD-POD-S3-L2", evidenceId: "EVD-POD-S3-L2", lineId: "S3-L2" }),
-      // Vector-store hits are case-scoped, not line-scoped, so they must not invent a line group.
-      evidenceDocument({ citationId: "V4", documentId: "VECTOR-EVIDENCE-S3-L1" })
+      // A vector-store hit is bound to the line it was retrieved for, so it joins that line's group.
+      evidenceDocument({ citationId: "V4", documentId: "VECTOR-EVIDENCE-S3-L1", lineId: "S3-L1" }),
+      // Only a document with no line at all falls through to the case-wide group.
+      evidenceDocument({ citationId: "C5", documentId: "EVD-CASE-NOTE" })
     ]);
 
     expect(groups.map((group) => group.lineId)).toEqual(["S3-L1", "S3-L2", undefined]);
-    expect(groups.map((group) => group.cards.length)).toEqual([1, 2, 1]);
+    expect(groups.map((group) => group.cards.length)).toEqual([2, 2, 1]);
     expect(groups[0]?.label).toBe("S3-L1");
+    expect(groups[0]?.cards.map((card) => card.documentId)).toEqual(["EVD-POD-S3-L1", "VECTOR-EVIDENCE-S3-L1"]);
     expect(groups[2]?.label).toBe("Case-wide evidence");
-    expect(groups[0]?.countLabel).toBe("1 document");
+    expect(groups[2]?.cards.map((card) => card.documentId)).toEqual(["EVD-CASE-NOTE"]);
+    expect(groups[0]?.countLabel).toBe("2 documents");
     expect(groups[1]?.countLabel).toBe("2 documents");
     expect(groups[1]?.cards.map((card) => card.documentId)).toEqual(["EVD-REMIT-S3-L2", "EVD-POD-S3-L2"]);
   });
@@ -1615,3 +1620,47 @@ describe("Maya workspace derived helpers", () => {
 
 });
 
+
+describe("Maya credit recommendation cards", () => {
+  const bandRecommendation = {
+    accountId: "ACC-VAL",
+    actionId: "credit-recommendation:S5-L1:band-downgrade",
+    amount: "$12,700",
+    basis: "Recommended by Maya on 2026-01-26; case S5-L1 routed to Recovery.",
+    currentLabel: "WATCH",
+    kind: "band-downgrade" as const,
+    proposedBy: "agent:credit-risk-review" as const,
+    proposedLabel: "ELEVATED",
+    provenance: {
+      deterministicBasis: "test fixture",
+      recordIds: ["ACC-VAL", "S5-L1"],
+      sourceKind: "derived_backend" as const,
+      sourceName: "unit test"
+    },
+    recordIds: ["ACC-VAL", "S5-L1"],
+    status: "pending_human" as const,
+    statusLabel: "Awaiting David approval",
+    title: "Downgrade risk band"
+  };
+
+  it("renders the label, the current to proposed move, and the gate state", () => {
+    const [card] = buildCreditRecommendationCards([bandRecommendation]);
+
+    expect(card).toMatchObject({
+      changeLabel: "WATCH -> ELEVATED",
+      key: "credit-recommendation:S5-L1:band-downgrade",
+      statusLabel: "Awaiting David approval",
+      title: "Downgrade risk band"
+    });
+    expect(card?.isNoChange).toBe(false);
+  });
+
+  it("marks a recommendation that cannot move any further so it does not read as a change", () => {
+    const [card] = buildCreditRecommendationCards([
+      { ...bandRecommendation, currentLabel: "HIGH", proposedLabel: "HIGH" }
+    ]);
+
+    expect(card?.isNoChange).toBe(true);
+    expect(card?.changeLabel).toBe("HIGH (no further change)");
+  });
+});

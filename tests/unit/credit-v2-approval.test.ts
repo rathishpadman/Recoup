@@ -5,6 +5,49 @@ import type { CreditNegotiationApprovalAction, CreditRiskApprovalAction } from "
 import { prepareApprovalDecision } from "../../src/services/serviceLayer.js";
 import { harborDealOptimizerRows } from "./fixtures/dealOptimizerFixture.js";
 import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
+import { SyntheticSource } from "../../src/adapters/synthetic.js";
+import { retrieveBureau } from "../../src/tools/retrieval/bureau.js";
+import { retrieveDocs } from "../../src/tools/retrieval/docs.js";
+import { retrieveTpm } from "../../src/tools/retrieval/tpm.js";
+import type { ServiceInvocationContext } from "../../src/services/serviceLayer.js";
+
+function recoveryRecommendationContext(): ServiceInvocationContext {
+  const source = new SyntheticSource({ seed: 42 });
+
+  return {
+    creditRiskRows: loadCreditRiskFixtureRows(),
+    governedConfig: day1GovernedConfigSeed.values,
+    requireSupabaseSapEvidence: true,
+    requireSupabaseSyntheticEvidence: true,
+    sapEvidenceSource: {
+      readEvidence(line) {
+        return line.recordIds
+          .filter((recordId) => recordId.startsWith("INV-"))
+          .map((recordId) => ({
+            documentId: `SAP-${recordId}`,
+            documentType: "invoice",
+            recordIds: [line.lineId, recordId, `SAP-${recordId}`],
+            source: "sap" as const,
+            summary: `Supabase SAP source row for ${recordId}.`
+          }));
+      }
+    },
+    source,
+    syntheticEvidenceSource: {
+      readEvidence(connectorName, line) {
+        if (connectorName === "bureau") {
+          return retrieveBureau(line);
+        }
+        if (connectorName === "docs-repo") {
+          return retrieveDocs(line);
+        }
+
+        return retrieveTpm(line);
+      }
+    },
+    verifiedHumanPrincipal: "human:david-kim"
+  };
+}
 
 describe("credit-v2 approval resolver", () => {
   it("resolves a governed credit-v2 packet into a replayable draft-only approval action", () => {
@@ -374,5 +417,41 @@ describe("credit-v2 approval resolver", () => {
     expect(action.recordIds).not.toContain("credit_counter_offers:counter-harbor-stale-r1");
     expect(action.approvedDraft.body).toContain("counter-offer:counter-harbor-current-r2");
     expect(action.approvedDraft.body).not.toContain("counter-offer:counter-harbor-stale-r1");
+  });
+});
+
+describe("Maya recovery credit recommendation approval resolver", () => {
+  it("resolves a recovery recommendation into a draft-only approval action carrying the card's values", () => {
+    const prepared = prepareApprovalDecision(
+      {
+        actionId: "credit-recommendation:S5-L1:band-downgrade",
+        decision: "approve"
+      },
+      recoveryRecommendationContext()
+    );
+    const action = prepared.action as CreditRiskApprovalAction;
+
+    expect(action).toMatchObject({
+      actionId: "credit-recommendation:S5-L1:band-downgrade",
+      detail: "Downgrade risk band: WATCH -> ELEVATED",
+      dispatchedExternally: false,
+      proposedBy: "agent:credit-risk-review",
+      requiresHumanApproval: true
+    });
+    expect(action.recordIds).toEqual(expect.arrayContaining(["ACC-VAL", "S5-L1"]));
+    expect(action.basis).toContain("Recommended by Maya on 2026-01-26");
+    expect(prepared.approval).toMatchObject({ decision: "approve", status: "human_decided" });
+  });
+
+  it("refuses to resolve a credit recommendation for a line that does not route to recovery", () => {
+    expect(() =>
+      prepareApprovalDecision(
+        {
+          actionId: "credit-recommendation:S1-L1:band-downgrade",
+          decision: "approve"
+        },
+        recoveryRecommendationContext()
+      )
+    ).toThrow("Action not found.");
   });
 });

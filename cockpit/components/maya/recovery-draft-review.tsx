@@ -19,6 +19,7 @@ import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
 import { EmailDraftDialog } from "./email-draft-dialog.tsx";
 import { mayaAccent } from "./maya-accent.ts";
 import {
+  buildCreditRecommendationCards,
   buildDraftLetterPreview,
   buildEmailDraft,
   buildOutcomeActionPackages,
@@ -33,6 +34,7 @@ import type {
   MayaApprovalAction,
   MayaEvidencePack,
   MayaSelectedCase,
+  MayaWorkItemDetail,
   MayaWorklistItem
 } from "./types.ts";
 
@@ -40,6 +42,7 @@ interface RecoveryDraftReviewProps {
   actionInbox: MayaActionInboxItem[];
   approvalReceipt?: ApprovalGateResponse | undefined;
   approvalActions: MayaApprovalAction[];
+  creditRecommendations?: MayaWorkItemDetail["creditRecommendations"] | undefined;
   draft: MayaSelectedCase["draft"];
   evidencePack: MayaEvidencePack;
   onApprovalResponse: (response: ApprovalGateResponse) => void;
@@ -73,6 +76,7 @@ export function RecoveryDraftReview({
   actionInbox,
   approvalReceipt,
   approvalActions,
+  creditRecommendations,
   draft,
   evidencePack,
   onApprovalResponse,
@@ -117,6 +121,7 @@ export function RecoveryDraftReview({
     draft,
     selectedLineId
   });
+  const creditRecommendationCards = buildCreditRecommendationCards(creditRecommendations ?? []);
   const recommendedActionVerdictLabel = routingBanner?.verdictLabel ?? selectedWorklistItem?.verdictLabel;
   const recommendedActionSummary = routingBanner?.routeLine ?? draft.actionLabel;
   const draftPreviews =
@@ -242,6 +247,34 @@ export function RecoveryDraftReview({
                 </div>
               ))}
             </div>
+
+            {creditRecommendationCards.length === 0 ? null : (
+              <section className="grid gap-2" data-testid="maya-credit-recommendations">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="text-base">Credit recommendations</CardTitle>
+                  <Badge variant="outline">Advisory - David approves</Badge>
+                </div>
+                {creditRecommendationCards.map((card) => (
+                  <div
+                    className={cn("grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_auto]", mayaAccent.proofMutedPanel)}
+                    data-credit-recommendation-kind={card.key}
+                    data-testid="maya-credit-recommendation"
+                    key={card.key}
+                  >
+                    <div className="grid min-w-0 gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ShieldCheckIcon aria-hidden="true" data-icon="inline-start" />
+                        <span className="font-medium">{card.title}</span>
+                        <Badge variant={card.isNoChange ? "outline" : "secondary"}>{card.changeLabel}</Badge>
+                        <Badge variant="outline">{card.statusLabel}</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{card.basis}</p>
+                    </div>
+                    <strong className="self-start text-right tabular-nums">{card.amount}</strong>
+                  </div>
+                ))}
+              </section>
+            )}
 
             <section className="grid gap-2" data-testid="maya-draft-message-section">
               <div className="flex flex-wrap items-center gap-2">

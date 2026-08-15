@@ -27,6 +27,8 @@ import {
   buildMemorySummaryModel,
   buildTraceModel
 } from "../../src/services/cockpitModel.js";
+import { buildCreditRiskReviewModel } from "../../src/services/creditRiskModel.js";
+import { loadCreditRiskFixtureRows } from "./fixtures/creditRiskFixture.js";
 import { settlementRunIdForSource } from "../../src/services/settlementRunIdentity.js";
 import { buildSourceHealthFromConnectorReadiness } from "../../src/services/sourceHealth.js";
 import type {
@@ -295,6 +297,111 @@ describe("S5 Forensics cockpit model", () => {
     expect(vectorDocuments.every((document) => /^V\d+$/u.test(document.citationId))).toBe(true);
     expect(new Set(documents.map((document) => document.citationId)).size).toBe(documents.length);
     expect(model.selected.evidencePack.provenance.deterministicBasis).toContain("vector-store retrieval documents");
+  });
+
+  it("binds governed vector-store evidence to the deduction line it was retrieved for", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const vectorStoreEvidenceSource: ServiceVectorStoreEvidenceSource = {
+      readEvidence(line) {
+        return [
+          {
+            documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+            documentType: "carrier-report",
+            recordIds: [line.lineId],
+            retrieval: {
+              fileName: `${line.lineId}-carrier-dossier.md`,
+              mode: "semantic-vector",
+              provenance: "openai-vector-store",
+              score: 0.87
+            },
+            source: "docs",
+            summary: `Governed vector-store dossier for ${line.lineId}.`
+          }
+        ];
+      }
+    };
+    const model = buildForensicsCockpitModel({
+      governedConfig,
+      reconciliation: { evidenceDataset, mode: "authoritative", receipts },
+      ...sourceOptions,
+      serviceContext: { ...fixtureServiceContext, vectorStoreEvidenceSource }
+    });
+    const vectorDocuments = model.selected.evidencePack.documents.filter(
+      (document) => document.retrieval?.provenance === "openai-vector-store"
+    );
+
+    expect(vectorDocuments.length).toBeGreaterThan(0);
+    for (const document of vectorDocuments) {
+      expect(document.lineId).toBe(document.documentId.replace("VECTOR-EVIDENCE-", ""));
+    }
+  });
+
+  it("advises a band downgrade and a terms tightening on a Recovery case, and nothing on Billing", () => {
+    const creditRiskRows = loadCreditRiskFixtureRows();
+    // S5 routes to recovery for ValuMart (ACC-VAL), which stands at WATCH on Net 45 terms.
+    const recovery = buildForensicsWorkItemDetailCockpitModel({ creditRiskRows, governedConfig, ...sourceOptions }, "S5-L1");
+
+    expect(recovery.creditRecommendations.map((recommendation) => recommendation.kind)).toEqual([
+      "band-downgrade",
+      "terms-change"
+    ]);
+    expect(recovery.creditRecommendations.map((recommendation) => recommendation.status)).toEqual([
+      "pending_human",
+      "pending_human"
+    ]);
+    expect(recovery.creditRecommendations[0]).toMatchObject({
+      actionId: "credit-recommendation:S5-L1:band-downgrade",
+      currentLabel: "WATCH",
+      proposedLabel: "ELEVATED"
+    });
+    expect(recovery.creditRecommendations[1]).toMatchObject({
+      actionId: "credit-recommendation:S5-L1:terms-change",
+      currentLabel: "Net 45",
+      proposedLabel: "Net 30"
+    });
+    for (const recommendation of recovery.creditRecommendations) {
+      // The basis states when Maya recommended it and cites the account it moves.
+      expect(recommendation.basis).toContain(creditRiskRows.snapshot.asOfDate);
+      expect(recommendation.basis).toContain("Maya");
+      expect(recommendation.recordIds).toContain("ACC-VAL");
+      expect(recommendation.recordIds).toEqual(expect.arrayContaining(["S5-L1"]));
+    }
+
+    const billing = buildForensicsWorkItemDetailCockpitModel({ creditRiskRows, governedConfig, ...sourceOptions }, "S1-L1");
+
+    expect(billing.creditRecommendations).toEqual([]);
+  });
+
+  it("keeps credit recommendations advisory and never mutates the credit account model", () => {
+    const creditRiskRows = loadCreditRiskFixtureRows();
+    const before = structuredClone(creditRiskRows);
+    const detail = buildForensicsWorkItemDetailCockpitModel({ creditRiskRows, governedConfig, ...sourceOptions }, "S5-L1");
+
+    expect(detail.creditRecommendations.length).toBe(2);
+    // Advisory only: the recommendation does not move the account's own band or terms.
+    expect(creditRiskRows).toEqual(before);
+    const account = buildCreditRiskReviewModel(creditRiskRows).accounts.find((entry) => entry.accountId === "ACC-VAL");
+    expect(account?.verdict).toBe("WATCH");
+    expect(account?.termsDays).toBe(45);
+  });
+
+  it("holds the risk band at the ceiling when the account is already HIGH", () => {
+    const creditRiskRows = loadCreditRiskFixtureRows();
+    // S3 routes to recovery for Crestline (ACC-CRE), which is already HIGH.
+    const detail = buildForensicsWorkItemDetailCockpitModel({ creditRiskRows, governedConfig, ...sourceOptions }, "S3-L1");
+    const band = detail.creditRecommendations.find((recommendation) => recommendation.kind === "band-downgrade");
+
+    expect(band).toMatchObject({ currentLabel: "HIGH", proposedLabel: "HIGH" });
+    expect(band?.basis).toContain("already at the highest risk band");
+  });
+
+  it("omits credit recommendations when credit rows are not supplied", () => {
+    const detail = buildForensicsWorkItemDetailCockpitModel({ governedConfig, ...sourceOptions }, "S5-L1");
+
+    expect(detail.creditRecommendations).toEqual([]);
   });
 
   it("exposes a real evidence document URL for every authoritative Maya case evidence document", () => {

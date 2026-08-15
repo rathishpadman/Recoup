@@ -22,6 +22,7 @@ export interface CreditRiskRows {
   riskMeshPositions: RiskMeshPositionRow[];
   policy: CreditPolicy;
   approvalReceipts?: CreditRiskApprovalReceipt[] | undefined;
+  approvedCreditRecommendations?: ApprovedCreditRecommendationRow[] | undefined;
   negotiationOrders?: CreditNegotiationOrderSource[] | undefined;
   negotiationRounds?: CreditNegotiationRoundSource[] | undefined;
 }
@@ -144,6 +145,24 @@ export interface CreditRiskApprovalReceipt {
   auditEntryHash: string;
 }
 
+export type CreditRecommendationKind = "band-downgrade" | "terms-change";
+
+/**
+ * A credit recommendation Maya raised on a Recovery case that a human has already approved.
+ * Only approved rows reach this model; it never approves anything itself.
+ */
+export interface ApprovedCreditRecommendationRow {
+  accountId: string;
+  actionId: string;
+  amount: string;
+  basis: string;
+  currentLabel: string;
+  kind: CreditRecommendationKind;
+  proposedLabel: string;
+  recordIds: readonly string[];
+  scenarioId: string;
+}
+
 export interface CreditNegotiationOrderSource {
   accountId: string;
   orderAmount: string;
@@ -243,6 +262,7 @@ export interface CreditNegotiationSelectedDealCandidate {
 }
 
 export interface CreditSignalModel {
+  amount?: string | undefined;
   basis: string;
   feedsMesh: string;
   gamingFlag: boolean;
@@ -430,6 +450,21 @@ const routeByVerdict: Record<CreditVerdict, CreditRiskAccountModel["routeLabel"]
   HIGH: "Contain",
   WATCH: "Monitor"
 };
+// Expert-owned ladder, descending. A recovery case tightens terms by one rung so a single case
+// cannot jump an account to the strictest terms available.
+const termsNetDaysLadder = [60, 45, 30, 15] as const;
+
+/** Next risk band up, capped at the top of `verdictByRank`. */
+export function nextVerdictBand(current: CreditVerdict): CreditVerdict {
+  const nextRank = Math.min(verdictByRank.indexOf(current) + 1, verdictByRank.length - 1);
+
+  return verdictByRank[nextRank] ?? current;
+}
+
+/** Next stricter rung of `termsNetDaysLadder`, floored at its last entry. */
+export function nextTermsNetDays(currentNetDays: number): number {
+  return termsNetDaysLadder.find((netDays) => netDays < currentNetDays) ?? currentNetDays;
+}
 
 export function buildCreditRiskReviewModel(rows: CreditRiskRows): CreditRiskReviewModel {
   assertRequiredRows(rows);
@@ -736,7 +771,12 @@ function buildAccountModel(
     Fulfilment: fulfilmentRank
   };
   const verdictTone = toneByVerdict[verdict];
-  const signals = buildSignals(deductions, deductionLines, contractTpm);
+  const signals = buildSignals(
+    deductions,
+    deductionLines,
+    contractTpm,
+    (rows.approvedCreditRecommendations ?? []).filter((recommendation) => recommendation.accountId === account.accountId)
+  );
   const evidenceDocumentModels = buildEvidenceDocuments(evidenceDocuments);
   const negotiationOrders = buildNegotiationOrders(
     account.accountId,
@@ -995,7 +1035,37 @@ function assertRequiredRows(rows: CreditRiskRows): void {
   }
 }
 
+const creditRecommendationSignalTitles: Record<CreditRecommendationKind, string> = {
+  "band-downgrade": "Downgrade risk band",
+  "terms-change": "Tighten payment terms"
+};
+
 function buildSignals(
+  deductions: DeductionRow[],
+  deductionLines: DeductionLineRow[],
+  contractTpm: ContractTpmRow[],
+  approvedCreditRecommendations: readonly ApprovedCreditRecommendationRow[] = []
+): CreditSignalModel[] {
+  const deductionSignals = buildDeductionSignals(deductions, deductionLines, contractTpm);
+  const recommendationSignals = approvedCreditRecommendations.map((recommendation) => ({
+    amount: recommendation.amount,
+    basis: recommendation.basis,
+    feedsMesh: "Credit",
+    gamingFlag: false,
+    meshPosition: "Credit",
+    note: `${creditRecommendationSignalTitles[recommendation.kind]}: ${recommendation.currentLabel} -> ${recommendation.proposedLabel}`,
+    recordIds: dedupe([...recommendation.recordIds]),
+    routeLabel: "Maya recommendation",
+    scenarioId: recommendation.actionId,
+    // A recommendation asks for attention; it is not itself a deduction risk verdict.
+    tone: "elevated" as const,
+    verdict: deductions.find((deduction) => deduction.scenarioId === recommendation.scenarioId)?.verdict ?? "INVALID"
+  }));
+
+  return [...deductionSignals, ...recommendationSignals];
+}
+
+function buildDeductionSignals(
   deductions: DeductionRow[],
   deductionLines: DeductionLineRow[],
   contractTpm: ContractTpmRow[]

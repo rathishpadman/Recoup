@@ -451,8 +451,8 @@ export interface MayaEvidenceFactCardGroup {
 
 /**
  * Partitions evidence cards by deduction line so a work item covering several lines does not
- * render a run of identically titled documents. Documents with no line — governed vector-store
- * hits are case-scoped rather than line-scoped — collect into a trailing case-wide group.
+ * render a run of identically titled documents. Documents with no line at all collect into a
+ * trailing case-wide group.
  */
 export function groupEvidenceFactCardsByLine(
   documents: readonly MayaEvidenceDocument[]
@@ -496,6 +496,41 @@ export function groupEvidenceFactCardsByLine(
 
 function evidenceDocumentCountLabel(count: number): string {
   return count === 1 ? "1 document" : `${count.toString()} documents`;
+}
+
+export interface MayaCreditRecommendationCard {
+  amount: string;
+  basis: string;
+  changeLabel: string;
+  isNoChange: boolean;
+  key: string;
+  statusLabel: string;
+  title: string;
+}
+
+/**
+ * Presents each advisory credit move as current -> proposed with its approval gate. A move that
+ * cannot go further reads as a hold rather than a change, so an unchanged band is not mistaken
+ * for a downgrade.
+ */
+export function buildCreditRecommendationCards(
+  recommendations: readonly MayaWorkItemDetail["creditRecommendations"][number][]
+): MayaCreditRecommendationCard[] {
+  return recommendations.map((recommendation) => {
+    const isNoChange = recommendation.currentLabel === recommendation.proposedLabel;
+
+    return {
+      amount: recommendation.amount,
+      basis: recommendation.basis,
+      changeLabel: isNoChange
+        ? `${recommendation.currentLabel} (no further change)`
+        : `${recommendation.currentLabel} -> ${recommendation.proposedLabel}`,
+      isNoChange,
+      key: recommendation.actionId,
+      statusLabel: recommendation.statusLabel,
+      title: recommendation.title
+    };
+  });
 }
 
 export function buildEvidenceFactCard(document: MayaEvidenceDocument): MayaEvidenceFactCard {

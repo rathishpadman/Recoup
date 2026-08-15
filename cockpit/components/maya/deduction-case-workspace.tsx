@@ -315,6 +315,7 @@ export function DeductionCaseWorkspace({
           <RecoveryDraftReview
             actionInbox={actionInbox}
             approvalActions={selected.approvalActions}
+            creditRecommendations={detail.creditRecommendations}
             draft={selected.draft}
             evidencePack={selected.evidencePack}
             onApprovalResponse={handleApprovalResponse}

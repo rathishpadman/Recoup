@@ -19,6 +19,12 @@ import {
 } from "../agents/forensics.js";
 import { recoupHandoffGraph } from "../agents/handoffGraph.js";
 import { buildHarborRiskMeshProposalContext, runRiskMeshClosedLoop } from "../agents/riskMesh.js";
+import type { CreditRecommendationKind, CreditRiskRows } from "./creditRiskModel.js";
+import {
+  buildCreditRecommendationCores,
+  creditRecommendationProposedBy,
+  findCreditAccountForLine
+} from "./creditRecommendation.js";
 import { serviceToolMetadata, type ServiceInvocationContext } from "./serviceLayer.js";
 import { memoryCategories, type MemoryCategory, type MemoryRecord } from "../memory/schema.js";
 import type { CanonicalEvidenceDocument } from "../types/evidence.js";
@@ -36,6 +42,7 @@ export type ForensicsSseEvent = ForensicsTraceEvent;
 export interface CockpitModelGovernanceOptions {
   approvalRecordSource?: ApprovalRecordSourceMetadata | undefined;
   approvalRecords?: readonly MemoryRecord[] | undefined;
+  creditRiskRows?: CreditRiskRows | undefined;
   governedConfig: GovernedConfigValues;
   reconciliation?: ForensicsReconciliationOptions | undefined;
   riskObservationSource?: SourcePort | undefined;
@@ -259,9 +266,30 @@ export interface ForensicsCockpitModel {
   aiInsight: string;
 }
 
+/**
+ * Advisory credit move Maya proposes off a Recovery case. Draft-only: it never edits the credit
+ * account, and only a human approval turns it into a signal David sees.
+ */
+export interface CreditRecommendationCard {
+  accountId: string;
+  actionId: string;
+  amount: string;
+  basis: string;
+  currentLabel: string;
+  kind: CreditRecommendationKind;
+  proposedBy: "agent:credit-risk-review";
+  proposedLabel: string;
+  provenance: MayaFieldProvenance;
+  recordIds: string[];
+  status: ApprovalLifecycleStatus;
+  statusLabel: string;
+  title: string;
+}
+
 export interface ForensicsWorkItemDetailCockpitModel {
   surface: "forensics-work-item-detail";
   lineId: string;
+  creditRecommendations: CreditRecommendationCard[];
   workItem: WorklistItem;
   selected: ForensicsCockpitModel["selected"];
   recommendedAction: ForensicsCockpitModel["actionInbox"][number];
@@ -975,6 +1003,12 @@ export function buildForensicsWorkItemDetailCockpitModel(
   return {
     surface: "forensics-work-item-detail",
     lineId,
+    creditRecommendations: buildCreditRecommendations({
+      approvalRecords: options?.approvalRecords,
+      creditRiskRows: options?.creditRiskRows,
+      routing: selectedDecision.routing,
+      workItem
+    }),
     workItem,
     selected,
     recommendedAction,
@@ -2560,6 +2594,56 @@ function isPendingHumanApprovalGate(action: {
   return action.requiresHumanApproval && action.status === "pending_human" && !action.dispatchedExternally;
 }
 
+/**
+ * Two advisory credit moves for a Recovery case: step the risk band one rank and tighten the
+ * account's payment terms one rung. Both stay draft-only until a human approves them.
+ */
+function buildCreditRecommendations(input: {
+  approvalRecords: readonly MemoryRecord[] | undefined;
+  creditRiskRows: CreditRiskRows | undefined;
+  routing: string;
+  workItem: WorklistItem;
+}): CreditRecommendationCard[] {
+  if (input.routing !== "recovery" || input.creditRiskRows === undefined) {
+    return [];
+  }
+
+  const account = findCreditAccountForLine(input.creditRiskRows, input.workItem.lineId);
+  if (account === undefined) {
+    return [];
+  }
+
+  return buildCreditRecommendationCores({
+    account,
+    asOfDate: input.creditRiskRows.snapshot.asOfDate,
+    lineId: input.workItem.lineId,
+    recordIds: uniqueStrings([...input.workItem.lineIds, ...input.workItem.provenance.recordIds])
+  }).map((core) => {
+    const receipt = findApprovalReceipt(input.approvalRecords ?? [], core.actionId);
+
+    return {
+      accountId: core.accountId,
+      actionId: core.actionId,
+      amount: core.amount,
+      basis: core.basis,
+      currentLabel: core.currentLabel,
+      kind: core.kind,
+      proposedBy: creditRecommendationProposedBy,
+      proposedLabel: core.proposedLabel,
+      provenance: businessProvenance(`creditRecommendations.${core.actionId}`, {
+        sourceKind: "derived_backend",
+        sourceName: "Maya recovery credit recommendation",
+        recordIds: core.recordIds,
+        deterministicBasis: core.deterministicBasis
+      }),
+      recordIds: core.recordIds,
+      status: receipt === undefined ? ("pending_human" as const) : ("human_decided" as const),
+      statusLabel: receipt === undefined ? "Awaiting David approval" : "Human decision recorded",
+      title: core.title
+    };
+  });
+}
+
 function buildForensicsActionInbox(
   actions: ReturnType<typeof runForensicsInvestigation>["actions"]
 ): ForensicsCockpitModel["actionInbox"] {
@@ -2905,11 +2989,15 @@ function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[]
 
 function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][number], index: number) {
   const sourceLabel = evidenceDocumentSourceLabel(document);
+  const documentLineId = vectorStoreEvidenceLineId(document);
   return {
     citationId: document.retrieval?.provenance === "openai-vector-store" ? `V${String(index + 1)}` : citationId(document.source, index),
     description: document.summary,
     documentId: document.documentId,
     documentType: document.documentType,
+    // Grouping key for the dossier, same as the canonical view: a vector hit is bound to one
+    // line, so without it the dossier files it under case-wide evidence instead.
+    ...(documentLineId === undefined ? {} : { lineId: documentLineId }),
     provenance: businessProvenance(`selected.evidencePack.documents.${document.documentId}`, {
       sourceKind: evidenceDocumentSourceKind(document),
       sourceName: evidenceDocumentSourceName(document),
@@ -2922,6 +3010,22 @@ function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][n
     summary: document.summary,
     verifiedLabel: "Verified"
   };
+}
+
+// Minted by mapSearchResults in src/adapters/openAiVectorStore.ts, which binds each hit to a
+// single line via result.attributes.record_id before building the id.
+const vectorEvidenceDocumentIdPrefix = "VECTOR-EVIDENCE-";
+
+function vectorStoreEvidenceLineId(document: DeductionDecision["evidenceDocuments"][number]): string | undefined {
+  if (document.retrieval?.provenance !== "openai-vector-store") {
+    return undefined;
+  }
+
+  const lineId = document.documentId.startsWith(vectorEvidenceDocumentIdPrefix)
+    ? document.documentId.slice(vectorEvidenceDocumentIdPrefix.length)
+    : "";
+
+  return lineId.length === 0 ? undefined : lineId;
 }
 
 function buildTraceContextRows(
