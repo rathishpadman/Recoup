@@ -36,6 +36,42 @@ function response(): QueryEvidenceResponse {
 }
 
 /** Node prose with the step number stripped, so two cards that only differ by position match. */
+function evidenceDocument(documentId: string, documentType: string, sourceLabel: string) {
+  return {
+    citationId: documentId,
+    description: `${documentType} description`,
+    documentId,
+    documentType,
+    provenance: {
+      deterministicBasis: `${documentId} basis`,
+      recordIds: [documentId],
+      sourceKind: "derived_backend" as const,
+      sourceName: "unit test"
+    },
+    relevance: "Supporting",
+    sourceLabel,
+    summary: `${documentId} summary`,
+    verifiedLabel: "Verified"
+  };
+}
+
+function evidencePack() {
+  return {
+    documents: [
+      evidenceDocument("EVD-POD-S3-L1", "pod", "3PL"),
+      evidenceDocument("EVD-REMIT-S3-L1", "remittance_advice", "Remittance"),
+      evidenceDocument("EVD-TPM-ACCRUAL-S3-L1", "tpm_accrual", "TPM")
+    ],
+    provenance: {
+      deterministicBasis: "evidence pack basis",
+      recordIds: ["S3-L1"],
+      sourceKind: "derived_backend" as const,
+      sourceName: "unit test"
+    },
+    recordIds: ["S3-L1"]
+  };
+}
+
 function processNodeBodies(markup: string): string[] {
   const mapStart = markup.indexOf('data-testid="maya-agent-process-map"');
   expect(mapStart).toBeGreaterThan(-1);
@@ -84,6 +120,20 @@ describe("Maya compact agent process map", () => {
 
     expect(bodies.length).toBeGreaterThan(1);
     expect(new Set(bodies).size).toBe(bodies.length);
+  });
+
+  it("keeps distinct evidence steps distinguishable instead of collapsing them by kind", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentTracePanel, { evidencePack: evidencePack(), response: response() })
+    );
+
+    // These three are all "retrieval-source" nodes, but each checked a different document, so a
+    // reader must be able to tell them apart - and in business words, not raw enum values.
+    expect(markup).toContain("Proof of delivery");
+    expect(markup).toContain("Remittance advice");
+    expect(markup).toContain("TPM accrual");
+    expect(markup).not.toContain("remittance_advice");
+    expect(markup).not.toContain("tpm_accrual");
   });
 
   it("keeps raw backend trace messages off the compact map", () => {
