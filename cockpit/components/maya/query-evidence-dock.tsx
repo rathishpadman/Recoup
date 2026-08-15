@@ -18,7 +18,7 @@ import {
   type RealtimeBrowserSession,
   type RealtimeBrowserSessionSnapshot
 } from "../../app/realtime-browser-session.ts";
-import { AgentTracePanel } from "./agent-trace-panel.tsx";
+import { AgentTracePanel, countAgentProcessNodes } from "./agent-trace-panel.tsx";
 import { mayaAccent } from "./maya-accent.ts";
 import {
   buildAgentChecklistRows,
@@ -1054,7 +1054,12 @@ function CopilotStoryPanel({
       <CopilotDepthDrawer
         label="Trace"
         testId="maya-copilot-trace-drawer"
-        value={`${snapshot.trace.length.toString()} steps`}
+        value={`${countAgentProcessNodes({
+          evidencePack,
+          recordIds: snapshot.recordIds,
+          response: snapshot,
+          selectedLine: selectedLine ?? "workspace"
+        }).toString()} steps`}
       >
         <div className="grid min-w-0 gap-3">
           <CopilotQuerySequence />
