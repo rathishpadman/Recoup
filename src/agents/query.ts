@@ -34,10 +34,66 @@ export interface CitationParity {
 export interface DeterministicForensicsQueryAnswerInput {
   basis: string;
   citationRecordIds: readonly string[];
+  citedDocuments?: readonly { documentId: string; documentType: string }[];
   question: string;
   routing: string;
   selectedLineId: string;
   verdict: string;
+}
+
+/**
+ * Business names for the evidence types Maya cites. The cockpit strips record IDs out of displayed
+ * prose, so an answer built from IDs alone renders as nothing; these labels are what survives.
+ */
+const evidenceTypeLabels: Record<string, { plural: string; singular: string }> = {
+  bureau_alert: { plural: "bureau alerts", singular: "a bureau alert" },
+  carrier_damage_report: { plural: "carrier damage reports", singular: "a carrier damage report" },
+  carrier_photo: { plural: "carrier photo records", singular: "a carrier photo record" },
+  contract: { plural: "contract terms", singular: "the contract terms" },
+  contract_pricing: { plural: "contract pricing terms", singular: "the contract pricing terms" },
+  contract_sla: { plural: "contract SLA terms", singular: "the contract SLA terms" },
+  customer_po: { plural: "customer purchase orders", singular: "the customer purchase order" },
+  payment_history: { plural: "payment history records", singular: "the payment history" },
+  pod: { plural: "signed proofs of delivery", singular: "the signed proof of delivery" },
+  remittance_advice: { plural: "remittance advices", singular: "the remittance advice" },
+  sap_credit_memo: { plural: "SAP credit memos", singular: "the SAP credit memo" },
+  sap_invoice: { plural: "SAP invoices", singular: "the SAP invoice" },
+  tpm_accrual: { plural: "TPM accrual records", singular: "the TPM accrual record" },
+  tpm_promo: { plural: "TPM promotion records", singular: "the TPM promotion record" }
+};
+
+function describeCitedEvidence(
+  citedDocuments: readonly { documentId: string; documentType: string }[]
+): string | undefined {
+  const countByType = new Map<string, number>();
+  for (const document of citedDocuments) {
+    const label = evidenceTypeLabels[document.documentType];
+    if (label !== undefined) {
+      countByType.set(document.documentType, (countByType.get(document.documentType) ?? 0) + 1);
+    }
+  }
+  if (countByType.size === 0) {
+    return undefined;
+  }
+
+  const phrases = [...countByType.entries()].map(([documentType, count]) => {
+    const label = evidenceTypeLabels[documentType];
+    if (label === undefined) {
+      return "";
+    }
+
+    return count === 1 ? label.singular : `${count.toString()} ${label.plural}`;
+  });
+
+  return formatEvidenceList(phrases);
+}
+
+function formatEvidenceList(phrases: readonly string[]): string {
+  if (phrases.length === 1) {
+    return phrases[0] ?? "";
+  }
+
+  return `${phrases.slice(0, -1).join(", ")} and ${phrases[phrases.length - 1] ?? ""}`;
 }
 
 export function buildDeterministicForensicsQueryAnswer(input: DeterministicForensicsQueryAnswerInput): string {
@@ -70,6 +126,16 @@ export function buildDeterministicForensicsQueryAnswer(input: DeterministicForen
       `Instead, the selected evidence supports the ${input.verdict} verdict and ${input.routing} route: ${input.basis}`,
       citationLead
     ].join(" ");
+  }
+
+  if (intent === "evidence_basis") {
+    const evidenceDescription = describeCitedEvidence(input.citedDocuments ?? []);
+    const evidenceLead =
+      evidenceDescription === undefined
+        ? `The ${input.verdict} finding rests on ${citationRecordIds.length.toString()} cited records.`
+        : `The ${input.verdict} finding rests on ${evidenceDescription}.`;
+
+    return [evidenceLead, input.basis, `It routes to ${input.routing}.`, citationLead].join(" ");
   }
 
   if (intent === "customer_challenge") {
@@ -191,7 +257,13 @@ function dedupeRecordIds(recordIds: readonly string[]): string[] {
   return [...new Set(recordIds.map((recordId) => recordId.trim()).filter((recordId) => recordId.length > 0))];
 }
 
-type SelectedEvidenceQueryIntent = "approval_gate" | "counterfactual_validity" | "customer_challenge" | "generic" | "route";
+type SelectedEvidenceQueryIntent =
+  | "approval_gate"
+  | "counterfactual_validity"
+  | "customer_challenge"
+  | "evidence_basis"
+  | "generic"
+  | "route";
 
 function classifySelectedEvidenceQueryIntent(question: string): SelectedEvidenceQueryIntent {
   const normalizedQuestion = question.trim().toLowerCase();
@@ -227,13 +299,20 @@ function classifySelectedEvidenceQueryIntent(question: string): SelectedEvidence
     return "counterfactual_validity";
   }
 
-  if (
-    normalizedQuestion.includes("customer says") ||
-    normalizedQuestion.includes("challenge") ||
-    normalizedQuestion.includes("what proof supports") ||
-    normalizedQuestion.includes("what evidence supports")
-  ) {
+  if (normalizedQuestion.includes("customer says") || normalizedQuestion.includes("challenge")) {
     return "customer_challenge";
+  }
+
+  // Asking what the evidence is is a question about the evidence, not about replying to a
+  // customer. It is checked after the customer-challenge cues so an explicit challenge still wins.
+  if (
+    normalizedQuestion.includes("what evidence supports") ||
+    normalizedQuestion.includes("what proof supports") ||
+    normalizedQuestion.includes("which evidence supports") ||
+    normalizedQuestion.includes("what evidence backs") ||
+    normalizedQuestion.includes("what is the evidence")
+  ) {
+    return "evidence_basis";
   }
 
   return "generic";

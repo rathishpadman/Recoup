@@ -56,6 +56,60 @@ describe("deterministic forensics query answers", () => {
     expect(answer).toContain("invalid verdict");
   });
 
+  it("answers an evidence question by naming the evidence, not by describing the process", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      citedDocuments: [
+        { documentId: "EVD-POD-S3-L1", documentType: "pod" },
+        { documentId: "EVD-TPM-ACCRUAL-S3-L1", documentType: "tpm_accrual" },
+        { documentId: "EVD-SAP-INV-S3-L1", documentType: "sap_invoice" }
+      ],
+      question: "What evidence supports the Partial recovery verdict for Harbor Foods?"
+    });
+
+    // The cockpit strips record IDs from displayed prose, so the answer has to carry business
+    // labels or it says nothing at all once rendered.
+    expect(answer).toContain("proof of delivery");
+    expect(answer).toContain("TPM accrual");
+    expect(answer).toContain("SAP invoice");
+    expect(answer).toContain(baseInput.basis);
+    // The reviewer still needs to know where the case goes next.
+    expect(answer).toContain("It routes to recovery.");
+    // It must not fall back to the customer-challenge phrasing, which answers a different question.
+    expect(answer).not.toContain("To respond on");
+  });
+
+  it("still treats an explicit customer challenge as a customer challenge", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      question: "The customer says this was a valid shortage deduction. Which cited proof can I use to challenge it?"
+    });
+
+    expect(answer).toContain("To respond on");
+  });
+
+  it("names evidence without inventing a document it was not given", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      citedDocuments: [{ documentId: "EVD-POD-S3-L1", documentType: "pod" }],
+      question: "What evidence supports this verdict?"
+    });
+
+    expect(answer).toContain("proof of delivery");
+    expect(answer).not.toContain("TPM accrual");
+    expect(answer).not.toContain("SAP invoice");
+  });
+
+  it("falls back to the cited record count when no document types are supplied", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      question: "What evidence supports this verdict?"
+    });
+
+    expect(answer).toContain("3 cited records");
+    expect(answer).toContain(baseInput.basis);
+  });
+
   it("retains cited record IDs in every answer path", () => {
     const answer = buildDeterministicForensicsQueryAnswer({
       ...baseInput,
