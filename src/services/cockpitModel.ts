@@ -2905,11 +2905,15 @@ function connectorReadinessRecordIds(connectors: ConnectorReadiness[]): string[]
 
 function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][number], index: number) {
   const sourceLabel = evidenceDocumentSourceLabel(document);
+  const documentLineId = vectorStoreEvidenceLineId(document);
   return {
     citationId: document.retrieval?.provenance === "openai-vector-store" ? `V${String(index + 1)}` : citationId(document.source, index),
     description: document.summary,
     documentId: document.documentId,
     documentType: document.documentType,
+    // Grouping key for the dossier, same as the canonical view: a vector hit is bound to one
+    // line, so without it the dossier files it under case-wide evidence instead.
+    ...(documentLineId === undefined ? {} : { lineId: documentLineId }),
     provenance: businessProvenance(`selected.evidencePack.documents.${document.documentId}`, {
       sourceKind: evidenceDocumentSourceKind(document),
       sourceName: evidenceDocumentSourceName(document),
@@ -2922,6 +2926,22 @@ function evidenceDocumentView(document: DeductionDecision["evidenceDocuments"][n
     summary: document.summary,
     verifiedLabel: "Verified"
   };
+}
+
+// Minted by mapSearchResults in src/adapters/openAiVectorStore.ts, which binds each hit to a
+// single line via result.attributes.record_id before building the id.
+const vectorEvidenceDocumentIdPrefix = "VECTOR-EVIDENCE-";
+
+function vectorStoreEvidenceLineId(document: DeductionDecision["evidenceDocuments"][number]): string | undefined {
+  if (document.retrieval?.provenance !== "openai-vector-store") {
+    return undefined;
+  }
+
+  const lineId = document.documentId.startsWith(vectorEvidenceDocumentIdPrefix)
+    ? document.documentId.slice(vectorEvidenceDocumentIdPrefix.length)
+    : "";
+
+  return lineId.length === 0 ? undefined : lineId;
 }
 
 function buildTraceContextRows(

@@ -994,15 +994,19 @@ describe("Maya workspace derived helpers", () => {
       evidenceDocument({ documentId: "EVD-POD-S3-L1", evidenceId: "EVD-POD-S3-L1", lineId: "S3-L1" }),
       evidenceDocument({ documentId: "EVD-REMIT-S3-L2", evidenceId: "EVD-REMIT-S3-L2", lineId: "S3-L2" }),
       evidenceDocument({ documentId: "EVD-POD-S3-L2", evidenceId: "EVD-POD-S3-L2", lineId: "S3-L2" }),
-      // Vector-store hits are case-scoped, not line-scoped, so they must not invent a line group.
-      evidenceDocument({ citationId: "V4", documentId: "VECTOR-EVIDENCE-S3-L1" })
+      // A vector-store hit is bound to the line it was retrieved for, so it joins that line's group.
+      evidenceDocument({ citationId: "V4", documentId: "VECTOR-EVIDENCE-S3-L1", lineId: "S3-L1" }),
+      // Only a document with no line at all falls through to the case-wide group.
+      evidenceDocument({ citationId: "C5", documentId: "EVD-CASE-NOTE" })
     ]);
 
     expect(groups.map((group) => group.lineId)).toEqual(["S3-L1", "S3-L2", undefined]);
-    expect(groups.map((group) => group.cards.length)).toEqual([1, 2, 1]);
+    expect(groups.map((group) => group.cards.length)).toEqual([2, 2, 1]);
     expect(groups[0]?.label).toBe("S3-L1");
+    expect(groups[0]?.cards.map((card) => card.documentId)).toEqual(["EVD-POD-S3-L1", "VECTOR-EVIDENCE-S3-L1"]);
     expect(groups[2]?.label).toBe("Case-wide evidence");
-    expect(groups[0]?.countLabel).toBe("1 document");
+    expect(groups[2]?.cards.map((card) => card.documentId)).toEqual(["EVD-CASE-NOTE"]);
+    expect(groups[0]?.countLabel).toBe("2 documents");
     expect(groups[1]?.countLabel).toBe("2 documents");
     expect(groups[1]?.cards.map((card) => card.documentId)).toEqual(["EVD-REMIT-S3-L2", "EVD-POD-S3-L2"]);
   });

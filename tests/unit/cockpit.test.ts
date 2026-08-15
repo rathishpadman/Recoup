@@ -297,6 +297,46 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.selected.evidencePack.provenance.deterministicBasis).toContain("vector-store retrieval documents");
   });
 
+  it("binds governed vector-store evidence to the deduction line it was retrieved for", () => {
+    const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
+    const receipts = evidenceDataset.claims.map((claim) =>
+      reconcileDeductionClaim({ claim, documents: evidenceDataset.documents })
+    );
+    const vectorStoreEvidenceSource: ServiceVectorStoreEvidenceSource = {
+      readEvidence(line) {
+        return [
+          {
+            documentId: `VECTOR-EVIDENCE-${line.lineId}`,
+            documentType: "carrier-report",
+            recordIds: [line.lineId],
+            retrieval: {
+              fileName: `${line.lineId}-carrier-dossier.md`,
+              mode: "semantic-vector",
+              provenance: "openai-vector-store",
+              score: 0.87
+            },
+            source: "docs",
+            summary: `Governed vector-store dossier for ${line.lineId}.`
+          }
+        ];
+      }
+    };
+    const model = buildForensicsCockpitModel({
+      governedConfig,
+      reconciliation: { evidenceDataset, mode: "authoritative", receipts },
+      ...sourceOptions,
+      serviceContext: { ...fixtureServiceContext, vectorStoreEvidenceSource }
+    });
+    const vectorDocuments = model.selected.evidencePack.documents.filter(
+      (document) => document.retrieval?.provenance === "openai-vector-store"
+    );
+
+    expect(vectorDocuments.length).toBeGreaterThan(0);
+    for (const document of vectorDocuments) {
+      expect(document.lineId).toBe(document.documentId.replace("VECTOR-EVIDENCE-", ""));
+    }
+  });
+
   it("exposes a real evidence document URL for every authoritative Maya case evidence document", () => {
     const evidenceDataset = materializeRealEvidenceDataset({ retrievedAt: "2026-07-01T00:00:00.000Z" });
     const receipts = evidenceDataset.claims.map((claim) =>

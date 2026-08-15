@@ -451,8 +451,8 @@ export interface MayaEvidenceFactCardGroup {
 
 /**
  * Partitions evidence cards by deduction line so a work item covering several lines does not
- * render a run of identically titled documents. Documents with no line — governed vector-store
- * hits are case-scoped rather than line-scoped — collect into a trailing case-wide group.
+ * render a run of identically titled documents. Documents with no line at all collect into a
+ * trailing case-wide group.
  */
 export function groupEvidenceFactCardsByLine(
   documents: readonly MayaEvidenceDocument[]
