@@ -17,6 +17,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { ApprovalGateDialog } from "./approval-gate-dialog.tsx";
 import { CreditRecommendationApproval } from "./credit-recommendation-approval.tsx";
+import { CreditRecommendationFlowStrip } from "../shared/credit-recommendation-flow-strip.tsx";
 import { EmailDraftDialog } from "./email-draft-dialog.tsx";
 import { mayaAccent } from "./maya-accent.ts";
 import {
@@ -275,6 +276,7 @@ export function RecoveryDraftReview({
                         <Badge variant="outline">{card.statusLabel}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{card.basis}</p>
+                      <CreditRecommendationFlowStrip acknowledged={false} approved={card.isApproved} />
                     </div>
                     <div className="grid justify-items-end gap-2 self-start">
                       <strong className="text-right tabular-nums">{card.amount}</strong>
