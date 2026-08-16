@@ -1,10 +1,12 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../human-auth.ts";
 import {
+  cachedCreditSignalsAgreeWithApprovals,
   davidCreditRiskReadModelKey,
   davidCreditRiskReadModelMaxAgeMs,
   proxyJsonResponse,
   readCachedReadModelPayload,
+  readCommittedCreditRecommendationActionIds,
   readModelJsonResponse,
   refreshReadModelAfterResponse
 } from "../read-model-cache.ts";
@@ -27,8 +29,15 @@ export async function GET(request: Request): Promise<Response> {
     "credit-risk-review",
     { maxAgeMs: davidCreditRiskReadModelMaxAgeMs, persona: "david" }
   );
+  // Age alone is not freshness here: a recommendation approved a moment ago must appear on the
+  // next load, not whenever the cache happens to expire. When the approval store cannot be read we
+  // keep serving the cache - this surface exists so the credit view survives a slow backend, and an
+  // unreadable approval store is also one that could not have accepted a new approval.
   if (cached !== undefined) {
-    return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+    const committedActionIds = await readCommittedCreditRecommendationActionIds(runtimeEnv);
+    if (committedActionIds === undefined || cachedCreditSignalsAgreeWithApprovals(cached.payload, committedActionIds)) {
+      return readModelJsonResponse(cached.payload, "hit", { sourceRefreshedAt: cached.sourceRefreshedAt });
+    }
   }
 
   try {

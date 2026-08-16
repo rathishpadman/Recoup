@@ -57,7 +57,10 @@ describe("David credit route read-model cache", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get(readModelCacheHeader)).toBe("hit");
     await expect(response.json()).resolves.toEqual(cachedModel);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Two fetches now: the cached read model, plus the approval store, which the cache path must
+    // consult so a recommendation approved a moment ago is not hidden until the cache expires.
+    // The guarantee this test exists for - never wait on Render - is the assertion below.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.some(([input]) => fetchInputUrl(input) === "http://recoup-api.test/credit/v2")).toBe(false);
   });
 

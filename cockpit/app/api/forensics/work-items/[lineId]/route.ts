@@ -2,6 +2,8 @@ import { loadLocalRuntimeEnvFiles } from "../../../../../../config/localRuntimeE
 import { parseEvidenceStorageUri } from "../../../../../../src/services/evidenceStorage.ts";
 import { buildVerifiedHumanAuthHeaders } from "../../../human-auth.ts";
 import {
+  cachedCreditRecommendationActionIds,
+  cachedCreditRecommendationStateIsFresh,
   mayaForensicsWorkItemReadModelKey,
   publishCachedReadModelPayload,
   readCachedReadModelPayload,
@@ -174,6 +176,13 @@ async function cachedWorkItemDetailApprovalStateIsFresh(runtimeEnv: RuntimeEnv, 
     return false;
   }
 
+  // The draft receipt alone does not cover credit recommendations: approving one leaves the draft
+  // untouched, so the cached payload looked fresh while still offering an approve control for a
+  // decision that had already been recorded.
+  if (!(await cachedCreditRecommendationsAgreeWithApprovals(runtimeEnv, payload))) {
+    return false;
+  }
+
   const cachedReceipt = readCachedApprovalReceipt(payload);
   if (currentReceipt === undefined) {
     return cachedReceipt === undefined && !Object.hasOwn(payload, "approvalReceipt");
@@ -201,6 +210,29 @@ function readCachedActionId(payload: Record<string, unknown>): string | undefine
 
 function readCachedApprovalReceipt(payload: Record<string, unknown>): ApprovalReceiptSnapshot | undefined {
   return readApprovalReceiptSnapshot(readRecord(payload.approvalReceipt));
+}
+
+async function cachedCreditRecommendationsAgreeWithApprovals(
+  runtimeEnv: RuntimeEnv,
+  payload: Record<string, unknown>
+): Promise<boolean> {
+  const actionIds = cachedCreditRecommendationActionIds(payload);
+  if (actionIds.length === 0) {
+    return true;
+  }
+
+  const committed = new Set<string>();
+  for (const actionId of actionIds) {
+    const receipt = await readCurrentApprovalReceipt(runtimeEnv, actionId);
+    if (receipt === "unavailable") {
+      return false;
+    }
+    if (receipt !== undefined) {
+      committed.add(actionId);
+    }
+  }
+
+  return cachedCreditRecommendationStateIsFresh(payload, committed);
 }
 
 async function readCurrentApprovalReceipt(
