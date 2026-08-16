@@ -158,6 +158,8 @@ export interface ApprovedCreditRecommendationRow {
   basis: string;
   /** The case this came from, shown instead of the action ID. */
   caseLabel: string;
+  /** When the human decision was recorded. A pending recommendation has no decision date. */
+  decidedAt?: string | undefined;
   currentLabel: string;
   kind: CreditRecommendationKind;
   proposedLabel: string;
@@ -1055,7 +1057,7 @@ function buildSignals(
   const deductionSignals = buildDeductionSignals(deductions, deductionLines, contractTpm);
   const recommendationSignals = approvedCreditRecommendations.map((recommendation) => ({
     amount: recommendation.amount,
-    basis: recommendation.basis,
+    basis: appendApprovalDate(recommendation.basis, recommendation.decidedAt),
     feedsMesh: "Credit",
     gamingFlag: false,
     label: recommendation.caseLabel,
@@ -1073,6 +1075,16 @@ function buildSignals(
   }));
 
   return [...deductionSignals, ...recommendationSignals];
+}
+
+/** States when the decision was actually taken, which is the only real date in the chain. */
+function appendApprovalDate(basis: string, decidedAt: string | undefined): string {
+  const decisionDate = decidedAt?.slice(0, 10);
+  if (decisionDate === undefined || !/^\d{4}-\d{2}-\d{2}$/u.test(decisionDate)) {
+    return basis;
+  }
+
+  return `${basis} Approved ${decisionDate}.`;
 }
 
 function buildDeductionSignals(

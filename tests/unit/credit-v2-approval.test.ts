@@ -439,7 +439,12 @@ describe("Maya recovery credit recommendation approval resolver", () => {
       requiresHumanApproval: true
     });
     expect(action.recordIds).toEqual(expect.arrayContaining(["ACC-VAL", "S5-L1"]));
-    expect(action.basis).toContain("Recommended by Maya on 2026-01-26");
+    // 2026-01-26 is when the credit position was measured, not when Maya recommended anything.
+    // The basis must attach the date to the credit position and must not claim it as a
+    // recommendation date.
+    expect(action.basis).toContain("Credit position as of 2026-01-26");
+    expect(action.basis).not.toContain("Recommended by Maya on 2026-01-26");
+    expect(action.basis).toContain("Raised by Maya");
     expect(prepared.approval).toMatchObject({ decision: "approve", status: "human_decided" });
   });
 

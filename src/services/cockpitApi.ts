@@ -2036,8 +2036,12 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       };
       const isCreditV2Action = parsed.data.actionId.startsWith("credit-v2:");
       const isCreditNegotiationAction = parsed.data.actionId.startsWith("credit-v2:negotiation:");
-      let creditRiskRows = isCreditV2Action ? await loadRequiredCreditRiskRows(request, response) : undefined;
-      if (isCreditV2Action && creditRiskRows === undefined) {
+      // A Maya recovery credit recommendation is resolved against the credit account it moves, so
+      // it needs the same rows a credit-v2 action does.
+      const isCreditRecommendationAction = parsed.data.actionId.startsWith(creditRecommendationActionIdPrefix);
+      const requiresCreditRiskRows = isCreditV2Action || isCreditRecommendationAction;
+      let creditRiskRows = requiresCreditRiskRows ? await loadRequiredCreditRiskRows(request, response) : undefined;
+      if (requiresCreditRiskRows && creditRiskRows === undefined) {
         return;
       }
       let dealOptimizerRows: Awaited<ReturnType<typeof loadRequiredDealOptimizerRows>> = undefined;
@@ -3054,6 +3058,7 @@ function buildApprovedCreditRecommendationRows(
       amount: core.amount,
       basis: core.basis,
       caseLabel: parsed.lineId,
+      decidedAt: record.createdAt,
       currentLabel: core.currentLabel,
       kind: core.kind,
       proposedLabel: core.proposedLabel,
