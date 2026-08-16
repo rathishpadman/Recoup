@@ -18,6 +18,7 @@
     "test:e2e:shared-surfaces": "tsx tests/e2e/shared-cockpit-surfaces-regression-e2e.ts",
     "test:e2e:david-v2": "tsx tests/e2e/david-credit-v2-e2e.ts",
     "test:e2e:david-negotiation": "tsx tests/e2e/david-negotiation-e2e.ts",
+    "check:credit-recommendation-loop": "tsx scripts/checkCreditRecommendationLoop.ts",
     "smoke:post-prod": "tsx scripts/runPostProdPublicSmoke.ts",
     "test:reconciliation:matrix": "vitest run --pool=threads tests/unit/reconciliation-engine-matrix.test.ts tests/unit/reconciliation-mutation.test.ts tests/unit/reconciliation-receipt-basis.test.ts tests/unit/reconciliation-fail-closed-matrix.test.ts tests/unit/sap-fallback.test.ts",
     "depcruise": "depcruise src --config dependency-cruiser.config.cjs",

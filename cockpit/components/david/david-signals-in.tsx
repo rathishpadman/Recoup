@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
+import { CreditRecommendationFlowStrip } from "../shared/credit-recommendation-flow-strip.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
 export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
@@ -45,6 +46,9 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
               {signal.amount === undefined ? null : <span className="text-sm tabular-nums">{signal.amount}</span>}
             </div>
             <p className="text-sm text-muted-foreground">{signal.basis}</p>
+            {signal.scenarioId.startsWith("credit-recommendation:") ? (
+              <CreditRecommendationFlowStrip acknowledged={false} approved />
+            ) : null}
           </div>
           <DavidRecordDisclosure items={signal.recordIds} label={`${signal.recordIds.length.toString()} cited records`} />
         </div>
