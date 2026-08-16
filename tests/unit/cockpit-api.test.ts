@@ -3951,6 +3951,35 @@ describe("S5 cockpit API", () => {
     }
   });
 
+  it("approves a Maya credit recommendation through POST /approval", async () => {
+    // S3-L1 routes to Recovery, so it carries the two advisory credit recommendations. The route
+    // must load credit rows for these action IDs; it previously did so only for credit-v2:, so
+    // every Send to David click failed with "Credit risk source snapshot required."
+    const actionId = "credit-recommendation:S3-L1:terms-change";
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitApprovalEnv },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "d".repeat(64), seq: 9 }]
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/approval`, {
+        body: JSON.stringify({ actionId, decision: "approve" }),
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const result = (await response.json()) as { actionId?: string; auditEntryHash?: string; error?: string };
+
+      expect(result.error).toBeUndefined();
+      expect(response.status).toBe(200);
+      expect(result.actionId).toBe(actionId);
+      expect(result.auditEntryHash).toMatch(/^[a-f0-9]{64}$/u);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves David Risk Mesh hold and terms approval decisions through REST", async () => {
     const { baseUrl, server } = await listen({
       env: {

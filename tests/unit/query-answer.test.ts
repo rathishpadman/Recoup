@@ -79,6 +79,31 @@ describe("deterministic forensics query answers", () => {
     expect(answer).not.toContain("To respond on");
   });
 
+  it("answers a which-cited-records question by naming records even when it mentions approval", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      citedDocuments: [
+        { documentId: "EVD-POD-S3-L1", documentType: "pod" },
+        { documentId: "EVD-REMIT-S3-L1", documentType: "remittance_advice" }
+      ],
+      question: "Which cited records support the current route and human approval gate?"
+    });
+
+    // The question asks which records; the approval gate is context, not the subject.
+    expect(answer).toContain("proof of delivery");
+    expect(answer).toContain("remittance advice");
+    expect(answer).not.toContain("Before Maya opens approval");
+  });
+
+  it("still treats a genuine approval-gate question as an approval-gate question", () => {
+    const answer = buildDeterministicForensicsQueryAnswer({
+      ...baseInput,
+      question: "What should I tell my manager before I ask for approval on the recovery draft?"
+    });
+
+    expect(answer).toContain("Before Maya opens approval");
+  });
+
   it("still treats an explicit customer challenge as a customer challenge", () => {
     const answer = buildDeterministicForensicsQueryAnswer({
       ...baseInput,

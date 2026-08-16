@@ -459,6 +459,7 @@ describe("credit risk review model", () => {
           currentLabel: "WATCH",
           kind: "band-downgrade",
           caseLabel: "S5-L1",
+          decidedAt: "2026-08-16T09:12:44.000Z",
           proposedLabel: "ELEVATED",
           recordIds: ["ACC-VAL", "S5-L1"],
           scenarioId: "S5"
@@ -479,6 +480,8 @@ describe("credit risk review model", () => {
     // originating deduction's INVALID verdict as though the recommendation itself were invalid.
     expect(signal?.label).toBe("S5-L1");
     expect(signal?.verdictLabel).toBe("Advisory");
+    // A decision has a real date; the recommendation itself does not.
+    expect(signal?.basis).toContain("Approved 2026-08-16");
     expect(signal?.basis).toContain("Maya");
     expect(signal?.recordIds).toEqual(expect.arrayContaining(["ACC-VAL", "S5-L1"]));
     // The recommendation is scoped to its own account.

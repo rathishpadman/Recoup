@@ -78,7 +78,10 @@ export function buildCreditRecommendationCores(input: {
   // The amount a credit decision keys off is the account's unsupported deduction exposure, which
   // both the Maya card and the approval path read from the same governed account model.
   const amount = account.unsupportedAmountLabel;
-  const caseContext = `Recommended by Maya on ${input.asOfDate}; case ${input.lineId} routed to Recovery; ${account.accountId} unsupported deductions ${amount}`;
+  // The date belongs to the credit position, not to the recommendation. Saying "recommended on
+  // <snapshot date>" read as though Maya had decided in January when that is simply when the
+  // credit data was measured. A recommendation has no decision date until a human approves it.
+  const caseContext = `Raised by Maya from case ${input.lineId} routed to Recovery. Credit position as of ${input.asOfDate}: ${account.accountId} unsupported deductions ${amount}`;
 
   return [
     {

@@ -271,6 +271,20 @@ function classifySelectedEvidenceQueryIntent(question: string): SelectedEvidence
     return "generic";
   }
 
+  if (normalizedQuestion.includes("customer says") || normalizedQuestion.includes("challenge")) {
+    return "customer_challenge";
+  }
+
+  // Asking which records support something names the records as the subject, so it outranks the
+  // approval-gate and route cues that may also appear in the sentence.
+  if (
+    normalizedQuestion.includes("which cited records support") ||
+    normalizedQuestion.includes("which records support") ||
+    normalizedQuestion.includes("which cited evidence supports")
+  ) {
+    return "evidence_basis";
+  }
+
   if (
     normalizedQuestion.includes("approval") ||
     normalizedQuestion.includes("manager") ||
@@ -299,12 +313,6 @@ function classifySelectedEvidenceQueryIntent(question: string): SelectedEvidence
     return "counterfactual_validity";
   }
 
-  if (normalizedQuestion.includes("customer says") || normalizedQuestion.includes("challenge")) {
-    return "customer_challenge";
-  }
-
-  // Asking what the evidence is is a question about the evidence, not about replying to a
-  // customer. It is checked after the customer-challenge cues so an explicit challenge still wins.
   if (
     normalizedQuestion.includes("what evidence supports") ||
     normalizedQuestion.includes("what proof supports") ||
