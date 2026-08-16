@@ -38,10 +38,78 @@ export async function GET(request: Request): Promise<Response> {
       return jsonNoStore({ ok: false }, 504);
     }
 
+    await warmWorkItemReadModels(request, apiBaseUrl, authHeaders, timeoutMs);
+
     return jsonNoStore({ ok: true }, 200);
   } catch {
     return jsonNoStore({ ok: false }, 504);
   }
+}
+
+/**
+ * Per-work-item read models are built lazily on first open and refreshed by nothing, so a deploy
+ * that changes their shape left stale payloads serving until somebody happened to open each case.
+ * Rebuilding them here bounds that to one warm cycle. Best effort: a failure here must not fail the
+ * warm run, because the primary read models are already refreshed by this point.
+ */
+async function warmWorkItemReadModels(
+  request: Request,
+  apiBaseUrl: string,
+  authHeaders: HeadersInit,
+  timeoutMs: number
+): Promise<void> {
+  try {
+    const worklistResponse = await fetchWithTimeout(
+      `${apiBaseUrl}/forensics`,
+      { cache: "no-store", headers: authHeaders, method: "GET" },
+      timeoutMs
+    );
+    if (worklistResponse === undefined || !worklistResponse.ok) {
+      return;
+    }
+
+    const body = (await worklistResponse.json()) as unknown;
+    const lineIds = readWorklistLineIds(body);
+    if (lineIds.length === 0) {
+      return;
+    }
+
+    const cockpitOrigin = new URL(request.url).origin;
+    await Promise.all(
+      lineIds.map(async (lineId) =>
+        fetchWithTimeout(
+          `${cockpitOrigin}/api/forensics/work-items/${encodeURIComponent(lineId)}`,
+          { cache: "no-store", headers: authHeaders, method: "GET" },
+          timeoutMs
+        )
+      )
+    );
+  } catch {
+    /* best effort */
+  }
+}
+
+function readWorklistLineIds(body: unknown): string[] {
+  if (typeof body !== "object" || body === null) {
+    return [];
+  }
+  const worklist = (body as Record<string, unknown>)["worklist"];
+  if (!Array.isArray(worklist)) {
+    return [];
+  }
+
+  const lineIds: string[] = [];
+  for (const item of worklist) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const lineId = (item as Record<string, unknown>)["lineId"];
+    if (typeof lineId === "string" && lineId.length > 0 && !lineIds.includes(lineId)) {
+      lineIds.push(lineId);
+    }
+  }
+
+  return lineIds;
 }
 
 function hasBearerSecret(value: string | null, expectedSecret: string | undefined): boolean {
