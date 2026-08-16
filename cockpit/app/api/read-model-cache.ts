@@ -703,3 +703,158 @@ function canonicalJson(value: unknown): string {
 
   return JSON.stringify(value);
 }
+
+/**
+ * A cached read model bakes in each credit recommendation's approval status, and nothing evicts it
+ * when an approval commits. Without this check an approved recommendation kept re-offering its
+ * approve control, and the credit surface kept serving a snapshot taken before the decision.
+ */
+export function cachedCreditRecommendationActionIds(payload: Record<string, unknown>): string[] {
+  const recommendations = payload["creditRecommendations"];
+  if (!Array.isArray(recommendations)) {
+    return [];
+  }
+
+  const actionIds: string[] = [];
+  for (const entry of recommendations) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const actionId = (entry as Record<string, unknown>)["actionId"];
+    if (typeof actionId === "string" && actionId.length > 0) {
+      actionIds.push(actionId);
+    }
+  }
+
+  return actionIds;
+}
+
+export function cachedCreditRecommendationStateIsFresh(
+  payload: Record<string, unknown>,
+  committedApprovalActionIds: ReadonlySet<string>
+): boolean {
+  const recommendations = payload["creditRecommendations"];
+  if (!Array.isArray(recommendations)) {
+    return true;
+  }
+
+  return recommendations.every((entry) => {
+    if (typeof entry !== "object" || entry === null) {
+      return true;
+    }
+    const record = entry as Record<string, unknown>;
+    const actionId = record["actionId"];
+    if (typeof actionId !== "string" || actionId.length === 0) {
+      return true;
+    }
+
+    const cachedAsDecided = record["status"] === "human_decided";
+
+    return cachedAsDecided === committedApprovalActionIds.has(actionId);
+  });
+}
+
+/** Signals carry the recommendation action ID as their scenario ID. */
+export function cachedCreditRecommendationSignalActionIds(payload: Record<string, unknown>): string[] {
+  const accounts = payload["accounts"];
+  if (!Array.isArray(accounts)) {
+    return [];
+  }
+
+  const actionIds: string[] = [];
+  for (const account of accounts) {
+    if (typeof account !== "object" || account === null) {
+      continue;
+    }
+    const signals = (account as Record<string, unknown>)["signals"];
+    if (!Array.isArray(signals)) {
+      continue;
+    }
+    for (const signal of signals) {
+      if (typeof signal !== "object" || signal === null) {
+        continue;
+      }
+      const scenarioId = (signal as Record<string, unknown>)["scenarioId"];
+      if (typeof scenarioId === "string" && scenarioId.startsWith("credit-recommendation:")) {
+        actionIds.push(scenarioId);
+      }
+    }
+  }
+
+  return actionIds;
+}
+
+/**
+ * Every committed Maya credit-recommendation approval. Returns undefined when the store cannot be
+ * read, so callers fail closed onto a fresh build rather than trusting a possibly stale cache.
+ */
+export async function readCommittedCreditRecommendationActionIds(
+  runtimeEnv: RuntimeEnv
+): Promise<ReadonlySet<string> | undefined> {
+  if (runtimeEnv.SUPABASE_SERVICE_ROLE_KEY === undefined || runtimeEnv.SUPABASE_URL === undefined) {
+    return undefined;
+  }
+
+  const tableName = runtimeEnv.RECOUP_SUPABASE_MEMORY_TABLE ?? "recoup_memory_records";
+  if (!/^[A-Za-z0-9_]+$/u.test(tableName)) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(`${runtimeEnv.SUPABASE_URL.replace(/\/+$/u, "")}/rest/v1/${tableName}`);
+    url.searchParams.set("select", "id,category,trust_level");
+    url.searchParams.set("category", "eq.approval_records");
+    url.searchParams.set("id", "like.approval:credit-recommendation:*");
+
+    const response = await fetch(url.href, {
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        apikey: runtimeEnv.SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${runtimeEnv.SUPABASE_SERVICE_ROLE_KEY}`
+      },
+      method: "GET"
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const rows = (await response.json()) as unknown;
+    if (!Array.isArray(rows)) {
+      return undefined;
+    }
+
+    const actionIds = new Set<string>();
+    for (const row of rows) {
+      if (typeof row !== "object" || row === null) {
+        continue;
+      }
+      const record = row as Record<string, unknown>;
+      if (record["trust_level"] !== "trusted" || typeof record["id"] !== "string") {
+        continue;
+      }
+      actionIds.add(record["id"].replace(/^approval:/u, ""));
+    }
+
+    return actionIds;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The credit surface caches its whole account list, so a recommendation approved a moment ago stays
+ * invisible until the cache ages out. A cached payload is stale when its recommendation signals do
+ * not match the committed approvals exactly.
+ */
+export function cachedCreditSignalsAgreeWithApprovals(
+  payload: Record<string, unknown>,
+  committedActionIds: ReadonlySet<string>
+): boolean {
+  const cachedActionIds = new Set(cachedCreditRecommendationSignalActionIds(payload));
+
+  return (
+    cachedActionIds.size === committedActionIds.size &&
+    [...committedActionIds].every((actionId) => cachedActionIds.has(actionId))
+  );
+}

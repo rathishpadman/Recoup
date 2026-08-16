@@ -36,11 +36,39 @@ describe("Warm backend cron route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({ ok: true });
+    // The three primary refreshes still run first and there is still no separate health wait. The
+    // trailing /forensics read is the worklist lookup used to rebuild the per-work-item models.
     expect(urls).toEqual([
       "http://recoup-api.test/forensics/refresh",
       "http://recoup-api.test/connectors",
-      "http://recoup-api.test/credit/v2/refresh"
+      "http://recoup-api.test/credit/v2/refresh",
+      "http://recoup-api.test/forensics"
     ]);
+  });
+
+  it("rebuilds the per-work-item read models so a shape change cannot survive a warm cycle", async () => {
+    stubRouteEnv(envPatch);
+    const urls: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = fetchInputUrl(input);
+      urls.push(url);
+      if (url.endsWith("/forensics")) {
+        return Promise.resolve(
+          Response.json({ surface: "forensics-analyst", worklist: [{ lineId: "S3-L1" }, { lineId: "S5-L1" }] })
+        );
+      }
+
+      return Promise.resolve(Response.json({ surface: url.includes("credit") ? "credit-risk-review" : "forensics-analyst" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await getWarmBackend(warmRequest());
+
+    expect(response.status).toBe(200);
+    // Per-work-item models are lazily built and never refreshed by the primary endpoints, so a
+    // deploy that changes their shape left stale payloads serving until someone opened each case.
+    expect(urls.some((url) => url.endsWith("/api/forensics/work-items/S3-L1"))).toBe(true);
+    expect(urls.some((url) => url.endsWith("/api/forensics/work-items/S5-L1"))).toBe(true);
   });
 
   it("uses a default warm timeout long enough for a free Render cold start", async () => {
