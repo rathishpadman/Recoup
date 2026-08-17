@@ -254,3 +254,85 @@ manifest lines (`S1-L1`, `S3-L1`, `S6-L1`, `S8-L1`), and `cache=hit` on a second
 
 **PostgREST returns 403 on DELETE for this table.** Use the Supabase MCP `execute_sql`, not the
 REST API. This purge was missed once after PR #16 and left grouping broken on cached cases.
+
+---
+
+# Closed 2026-08-17 — the Maya-to-credit recommendation loop
+
+Everything above is delivered and live. This section records what the loop is now, the traps that
+cost real time, and what is genuinely still open.
+
+## The loop
+
+**Forensics analyst raises → Human approval → Credit lead acknowledges.** Named by role on both
+surfaces, because the same strip renders in both places.
+
+- A Recovery case carries two advisory recommendations: risk band one rank (capped at HIGH) and
+  account terms one rung down the governed `60/45/30/15` ladder.
+- **Send to David** on Maya's card commits a human approval through the existing HITL gate. No new
+  approval mechanism was added.
+- The approved recommendation becomes a governed signal on the credit account, labelled `Advisory`
+  and badged with its case, never its raw action ID.
+- **Acknowledge** on the credit surface records receipt via
+  `POST /credit/recommendations/:actionId/acknowledge`. It refuses an unapproved recommendation
+  with 409, and refuses a duplicate.
+
+Acknowledgement writes a trusted `case_state` record and deliberately does **not** enter the
+approval audit chain: it is receipt of a decision a human already made, not a new authorisation.
+It permits nothing and changes no amount.
+
+## The trap that cost the most: caches hide correct work
+
+Three separate "bugs" reported from production were all the same thing — the write succeeded and a
+surface served a snapshot taken before it. Every time, the approvals were in Supabase, correctly
+formed, with valid audit hashes.
+
+**Diagnose in this order. It finds these in minutes; reading code does not.**
+
+1. **Did the write land?**
+   `select id, created_at from recoup_memory_records where category='approval_records'`
+   Separates "action failed" from "action invisible".
+2. **How old is the cache serving it?**
+   `select model_key, generated_at from recoup_cockpit_read_models`
+   Compare against the write timestamp *and* the deploy time. This was the answer all three times.
+3. **Is the deployed commit what you think?** Resolve the alias you are actually testing.
+   `recoup-self-eta.vercel.app` and `recoup-hackathonopenai.vercel.app` are the same project — I
+   spent a while verifying a different hostname than the reporter was using.
+4. **Only then read code.**
+
+Approving now invalidates both affected read models, and the warm cron rebuilds the per-work-item
+models every cycle, so this class of failure should not recur. `npm run check:credit-recommendation-loop`
+asserts the three places the same fact lives still agree; run it after any deploy touching this area.
+
+## Two mistakes worth not repeating
+
+- **I judged a purge unnecessary and was wrong.** The recommendation basis string lives *inside* the
+  cached work-item payload, so a text-only change still needed one. "Presentation-only" is about
+  where the value is computed, not how it looks.
+- **I shipped a flow strip whose last step could not be reached.** It read "waiting for the credit
+  lead to acknowledge" while no acknowledge control or endpoint existed. Showing the picture of a
+  loop without its final step is worse than showing nothing — it asks a reviewer for an action the
+  product cannot accept. If a step cannot complete, omit it until it can.
+
+## Browser verification
+
+Log in through the demo form; do not mint a cookie. **Persona matters and is easy to get wrong:**
+Maya's `allowedRoutes` are `["/forensics", "/run"]` with no `/credit`, so a Maya session on the
+credit surface renders an empty queue. I nearly reported four false failures that way. Use `david`
+for anything on `/credit`.
+
+The credit surface lands on an account queue — click the Crestline row before asserting on signals.
+
+## Still open
+
+- **`Flag [D]`** now carries a one-line explanation, but there is still no single definition in the
+  repo it is derived from. A governed glossary would be better than three tooltips.
+- **The Copilot answer is code-composed, not model-written.** `rawModelTextPolicy: "suppressed"`
+  means raw model prose never reaches the user by design, and I-1 forbids an LLM-authored figure
+  reaching a finding. If model narration is wanted, the safe shape is a model-written explanation
+  shown *beside* the code-computed answer, attributed and guardrailed. That is a governance
+  decision, not a UI change.
+- **Production UI cannot be verified from a dev machine.** Production's
+  `RECOUP_DEMO_SESSION_SECRET` differs from local, so browser checks run against a local stack
+  wired to the real backend. `check:credit-recommendation-loop` covers the API against production;
+  rendering is not covered.
