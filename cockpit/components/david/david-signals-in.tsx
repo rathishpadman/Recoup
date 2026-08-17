@@ -47,7 +47,7 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
             </div>
             <p className="text-sm text-muted-foreground">{signal.basis}</p>
             {signal.scenarioId.startsWith("credit-recommendation:") ? (
-              <CreditRecommendationFlowStrip acknowledged={false} approved />
+              <CreditRecommendationFlowStrip acknowledged={false} acknowledgementAvailable={false} approved />
             ) : null}
           </div>
           <DavidRecordDisclosure items={signal.recordIds} label={`${signal.recordIds.length.toString()} cited records`} />
