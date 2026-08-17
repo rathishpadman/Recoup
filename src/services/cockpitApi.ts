@@ -2398,7 +2398,11 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
           })
         ]);
       }
-      response.json(queryResponse);
+      // facts is the value set the grounded answer guard verifies against, not something a client
+      // needs; it can carry every cited record id, so it is stripped rather than shipped.
+      const clientQueryResponse = { ...queryResponse };
+      delete (clientQueryResponse as { facts?: unknown }).facts;
+      response.json(clientQueryResponse);
     } catch (error) {
       if (error instanceof ForensicsQueryLineNotFoundError) {
         response.status(404).json({

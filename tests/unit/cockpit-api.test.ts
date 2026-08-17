@@ -1165,7 +1165,9 @@ describe("S5 cockpit API", () => {
         agentNames: ["Forensics Investigator", "Recovery Drafter"],
         handoffCount: 1,
         mode: "live_openai_agents",
-        rawModelTextPolicy: "suppressed"
+        // The stub emits prose referencing nothing from the run, so the guard rejects it and
+        // the deterministic answer stands. "suppressed" previously meant model text was never used.
+        rawModelTextPolicy: "rejected_ungrounded"
       });
       expect(body.trace.map((event) => event.phase)).toEqual(
         expect.arrayContaining(["supervisor", "query", "retrieval", "decision"])

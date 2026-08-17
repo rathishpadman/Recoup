@@ -89,6 +89,34 @@ describe("live forensics Agents SDK stream", () => {
     });
   });
 
+  it("accumulates model output text for the grounded answer guard while the trace stays suppressed", async () => {
+    // The delta content was replaced by a constant and discarded, so the prose the model wrote was
+    // never available to verify or display. It is now retained separately from the trace, which
+    // keeps showing the suppressed placeholder.
+    const runner: LiveForensicsStreamRunner = async function* () {
+      await Promise.resolve();
+      yield {
+        type: "raw_model_stream_event",
+        data: { type: "response.output_text.delta", delta: "S7 is the promo overclaim case" }
+      };
+      yield {
+        type: "raw_model_stream_event",
+        data: { type: "output_text_delta", delta: " routed to recovery." }
+      };
+    };
+
+    const result = await collectLiveForensicsAgentRun({
+      env: { OPENAI_API_KEY: "sk-test-secret" },
+      maxTurns: 7,
+      retryCap: 0,
+      runner
+    });
+
+    expect(result.outputText).toBe("S7 is the promo overclaim case routed to recovery.");
+    expect(JSON.stringify(result.events)).not.toContain("promo overclaim case");
+    expect(JSON.stringify(result.events)).toContain("content suppressed by Recoup output guard");
+  });
+
   it("captures allowed structured MCP tool outputs without exposing raw model text", async () => {
     const runner: LiveForensicsStreamRunner = async function* () {
       await Promise.resolve();
