@@ -132,7 +132,7 @@ export function buildDeterministicForensicsQueryAnswer(input: DeterministicForen
     const evidenceDescription = describeCitedEvidence(input.citedDocuments ?? []);
     const evidenceLead =
       evidenceDescription === undefined
-        ? `The ${input.verdict} finding rests on ${citationRecordIds.length.toString()} cited records.`
+        ? `The ${input.verdict} finding rests on ${citationRecordIds.length.toString()} cited ${citationRecordIds.length === 1 ? "record" : "records"}.`
         : `The ${input.verdict} finding rests on ${evidenceDescription}.`;
 
     return [evidenceLead, input.basis, `It routes to ${input.routing}.`, citationLead].join(" ");

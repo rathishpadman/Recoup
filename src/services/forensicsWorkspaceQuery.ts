@@ -9,6 +9,7 @@ import {
 import type { ForensicsQueryTraceEvent, ForensicsQueryTracePhase } from "../agents/liveForensicsStream.js";
 import type { ServiceInvocationContext } from "./serviceLayer.js";
 import { settlementRunIdForSource } from "./settlementRunIdentity.js";
+import { money, type Money } from "../types/money.js";
 
 export const workspaceForensicsQueryBasis = "current settlement run read-model + deterministic forensics decisions" as const;
 
@@ -43,6 +44,8 @@ export type ForensicsWorkspaceQueryResponse =
       answer: string;
       citations: ForensicsWorkspaceQueryCitation[];
       deterministicBasis: typeof workspaceForensicsQueryBasis;
+      facts: WorkspaceQueryFacts;
+      matchedCaseIds: string[];
       sourceReadStatus: "source_backed_workspace_scope";
       sourceReads: {
         canonicalModel: "ForensicsWorkspaceReadModel";
@@ -59,6 +62,8 @@ export type ForensicsWorkspaceQueryResponse =
       answer?: undefined;
       citations: [];
       deterministicBasis?: undefined;
+      facts?: undefined;
+      matchedCaseIds?: undefined;
       sourceReadStatus?: undefined;
       sourceReads?: undefined;
       trace: [];
@@ -103,14 +108,22 @@ export function buildForensicsWorkspaceQueryResponse(
     return blockedWorkspaceQueryResponse();
   }
 
-  const citations = buildWorkspaceQueryCitations(caseSummaries);
+  const matchedCases = matchWorkspaceCases(caseSummaries, question);
+  // Cite what the answer actually rests on. Citing the whole run for a question about one case
+  // dressed an unrelated answer in evidence. With no match the run itself is the subject, and the
+  // cockpit will not display an answer with no citations at all.
+  const citations = buildWorkspaceQueryCitations(matchedCases.length === 0 ? caseSummaries : matchedCases);
   const citedRecordIds = citations.map((citation) => citation.recordId);
+
   return {
     answer: buildDeterministicWorkspaceQueryAnswer({
       caseSummaries,
+      matchedCases,
       question
     }),
     citations,
+    facts: buildWorkspaceQueryFacts(caseSummaries),
+    matchedCaseIds: matchedCases.map((summary) => summary.caseId),
     deterministicBasis: workspaceForensicsQueryBasis,
     sourceReadStatus: "source_backed_workspace_scope",
     sourceReads: {
@@ -127,6 +140,7 @@ export function buildForensicsWorkspaceQueryResponse(
 }
 
 interface WorkspaceCaseSummary {
+  amount: string;
   basis: string;
   caseId: string;
   customerId: string;
@@ -134,7 +148,23 @@ interface WorkspaceCaseSummary {
   lineIds: string[];
   recordIds: string[];
   routing: string;
+  ruleId: string;
   verdict: string;
+}
+
+/**
+ * Everything a reader could be told about this run, computed from the read model. An answer may
+ * only contain values that appear here.
+ */
+export interface WorkspaceQueryFacts {
+  amounts: string[];
+  caseIds: string[];
+  counts: number[];
+  customerNames: string[];
+  recordIds: string[];
+  routings: string[];
+  ruleIds: string[];
+  verdicts: string[];
 }
 
 function buildWorkspaceCaseSummaries(
@@ -158,7 +188,13 @@ function buildWorkspaceCaseSummaries(
     const customerId = representativeLine?.customerId ?? "unknown";
     const customerName = customersById.get(customerId)?.name ?? customerId;
 
+    const caseAmount = caseDecisions.reduce(
+      (total, decision) => total.plus(decision.deterministicBasis.computedDeltaAmount),
+      money("0.00")
+    );
+
     return {
+      amount: formatWorkspaceMoney(caseAmount),
       basis: representative.basis,
       caseId,
       customerId,
@@ -172,9 +208,98 @@ function buildWorkspaceCaseSummaries(
         ])
       ),
       routing: representative.routing,
+      ruleId: representative.deterministicBasis.ruleId,
       verdict: representative.verdict
     };
   });
+}
+
+function formatWorkspaceMoney(value: Money): string {
+  const fixed = value.toDecimalPlaces(2).toFixed(2);
+  const [whole = "0", fractional = "00"] = fixed.split(".");
+
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/gu, ",")}.${fractional}`;
+}
+
+/** Terms that carry no topical meaning; matching on them would select every case. */
+const workspaceQueryStopWords = new Set([
+  "about", "all", "and", "are", "can", "case", "cases", "deduction", "deductions", "did", "does",
+  "explain", "for", "from", "give", "help", "how", "into", "its", "làm", "list", "many", "me",
+  "much", "run", "settlement", "show", "some", "tell", "that", "the", "their", "there", "these",
+  "this", "those", "understand", "was", "were", "what", "when", "where", "which", "who", "why",
+  "with", "you", "your"
+]);
+
+function workspaceQueryTerms(question: string): string[] {
+  return [
+    ...new Set(
+      question
+        .toLowerCase()
+        .split(/[^a-z0-9-]+/u)
+        .filter((term) => term.length >= 3 && !workspaceQueryStopWords.has(term))
+    )
+  ];
+}
+
+/**
+ * Cases whose rule, basis, customer, verdict or routing mentions a term from the question. The
+ * rule id is what makes a topical word reach both of its cases: promo-overclaim's basis speaks of
+ * an allowance and a TPM accrual and never says promo.
+ */
+export function matchWorkspaceCases(
+  caseSummaries: readonly WorkspaceCaseSummary[],
+  question: string
+): WorkspaceCaseSummary[] {
+  const terms = workspaceQueryTerms(question);
+  if (terms.length === 0) {
+    return [];
+  }
+
+  const scored = caseSummaries
+    .map((summary) => {
+      const haystack = [
+        summary.ruleId,
+        summary.basis,
+        summary.customerName,
+        summary.caseId,
+        summary.verdict,
+        summary.routing
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return { hits: terms.filter((term) => haystack.includes(term)).length, summary };
+    })
+    .filter((entry) => entry.hits > 0);
+  const bestHits = Math.max(0, ...scored.map((entry) => entry.hits));
+  const best = scored.filter((entry) => entry.hits === bestHits);
+  // One incidental word shared with a basis sentence is not a topical match. Require either two
+  // matching terms or a hit on the rule id, which is what actually classifies a case.
+  const confident = best.filter(
+    (entry) => entry.hits >= 2 || terms.some((term) => entry.summary.ruleId.toLowerCase().includes(term))
+  );
+
+  return confident.map((entry) => entry.summary);
+}
+
+export function buildWorkspaceQueryFacts(caseSummaries: readonly WorkspaceCaseSummary[]): WorkspaceQueryFacts {
+  return {
+    amounts: dedupeRecordIds(caseSummaries.map((summary) => summary.amount)),
+    caseIds: dedupeRecordIds(caseSummaries.map((summary) => summary.caseId)),
+    counts: [
+      ...new Set([
+        caseSummaries.length,
+        ...["valid", "invalid", "partial"].map((verdict) => countWorkspaceCasesBy(caseSummaries, "verdict", verdict)),
+        ...["billing", "recovery"].map((routing) => countWorkspaceCasesBy(caseSummaries, "routing", routing)),
+        ...caseSummaries.map((summary) => summary.lineIds.length)
+      ])
+    ],
+    customerNames: dedupeRecordIds(caseSummaries.map((summary) => summary.customerName)),
+    recordIds: dedupeRecordIds(caseSummaries.flatMap((summary) => [...summary.lineIds, ...summary.recordIds])),
+    routings: dedupeRecordIds(caseSummaries.map((summary) => summary.routing)),
+    ruleIds: dedupeRecordIds(caseSummaries.map((summary) => summary.ruleId)),
+    verdicts: dedupeRecordIds(caseSummaries.map((summary) => summary.verdict))
+  };
 }
 
 function buildWorkspaceQueryCitations(caseSummaries: readonly WorkspaceCaseSummary[]): ForensicsWorkspaceQueryCitation[] {
@@ -191,6 +316,7 @@ function buildWorkspaceQueryCitations(caseSummaries: readonly WorkspaceCaseSumma
 
 function buildDeterministicWorkspaceQueryAnswer(input: {
   caseSummaries: readonly WorkspaceCaseSummary[];
+  matchedCases: readonly WorkspaceCaseSummary[];
   question: string;
 }): string {
   const validCount = countWorkspaceCasesBy(input.caseSummaries, "verdict", "valid");
@@ -199,6 +325,31 @@ function buildDeterministicWorkspaceQueryAnswer(input: {
   const billingCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "billing");
   const recoveryCount = countWorkspaceCasesBy(input.caseSummaries, "routing", "recovery");
   const normalizedQuestion = input.question.toLowerCase();
+
+  // A question that names a topic, customer or case is answered with those cases. The generic run
+  // summary below used to answer everything, so anything that was not about invalid deductions got
+  // a paragraph that never addressed it.
+  if (input.matchedCases.length > 0 && input.matchedCases.length < input.caseSummaries.length) {
+    const described = input.matchedCases.map(
+      (summary) =>
+        `${summary.caseId} (${summary.customerName}) is ${summary.verdict} and routes to ${summary.routing} for ${summary.amount}: ${summary.basis}`
+    );
+    return [
+      `${formatCaseList(input.matchedCases.map((summary) => summary.caseId))} ${input.matchedCases.length === 1 ? "matches" : "match"} that question.`,
+      described.join(" "),
+      "The cited settlement and evidence records are attached below for review."
+    ].join(" ");
+  }
+
+  // A question about the run as a whole matches no single case, but the summary below is its
+  // correct answer. Reporting "nothing matched" for it would be wrong, not merely unhelpful.
+  if (input.matchedCases.length === 0 && !normalizedQuestion.includes("invalid") && !isRunOverviewQuestion(normalizedQuestion)) {
+    return [
+      "No case in the current settlement run matches that question.",
+      `The run has ${input.caseSummaries.length.toString()} deduction cases across ${dedupeRecordIds(input.caseSummaries.map((summary) => summary.customerName)).length.toString()} customers.`,
+      "The cited settlement and evidence records are attached below for review."
+    ].join(" ");
+  }
 
   if (normalizedQuestion.includes("invalid")) {
     const invalidCases = input.caseSummaries.filter((summary) => summary.verdict === "invalid");
@@ -218,6 +369,28 @@ function buildDeterministicWorkspaceQueryAnswer(input: {
     `${billingCount.toString()} cases route to Billing and ${recoveryCount.toString()} cases route to Recovery.`,
     `The cited settlement and evidence records are attached below for review.`
   ].join(" ");
+}
+
+/**
+ * Whether the question is about the run as a whole rather than a particular case. These match no
+ * single case, so without this they would be reported as unanswerable when the summary answers them.
+ */
+function isRunOverviewQuestion(normalizedQuestion: string): boolean {
+  return [
+    "across the settlement run",
+    "settlement run",
+    "the run",
+    "overall",
+    "in total",
+    "how many",
+    "summary",
+    "summarise",
+    "summarize",
+    "conclude",
+    "concluded",
+    "breakdown",
+    "status of"
+  ].some((phrase) => normalizedQuestion.includes(phrase));
 }
 
 function groupCasesByCustomer(cases: readonly WorkspaceCaseSummary[]): Array<{

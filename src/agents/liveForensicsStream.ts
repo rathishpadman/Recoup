@@ -77,6 +77,7 @@ export interface StreamLiveForensicsTraceOptions {
   mcpGatewayFactory?: () => MaybePromise<LiveForensicsMcpGateway | undefined>;
   mcpServiceContext?: ServiceInvocationContext;
   onAgentHookReceipt?: (receipt: AgentHookAuditReceipt) => void;
+  onModelText?: (delta: string) => void;
   onSdkToolOutput?: (output: LiveForensicsSdkToolOutput) => void;
   onRetry?: () => void;
   onTokenUsage?: (tokens: number) => void;
@@ -92,6 +93,12 @@ export type LiveForensicsAgentRunStatus = "blocked_missing_credentials" | "compl
 export interface LiveForensicsAgentRunResult {
   events: ForensicsTraceEvent[];
   hookReceipts: AgentHookAuditReceipt[];
+  /**
+   * The prose the model actually wrote. Kept out of the trace, which keeps its suppressed
+   * placeholder; this exists so the answer can be verified against code-computed facts before any
+   * of it reaches a reader.
+   */
+  outputText?: string;
   status: LiveForensicsAgentRunStatus;
   toolOutputs?: LiveForensicsSdkToolOutput[];
   tokenUsage: number;
@@ -152,6 +159,7 @@ export async function collectLiveForensicsAgentRun(
   const events: ForensicsTraceEvent[] = [];
   const hookReceipts: AgentHookAuditReceipt[] = [];
   const toolOutputs: LiveForensicsSdkToolOutput[] = [];
+  const modelTextChunks: string[] = [];
   let status: LiveForensicsAgentRunStatus = "failed";
   let tokenUsage = 0;
   let completedAttemptTokenUsageSnapshot: OpenAiTokenUsageSnapshot | undefined;
@@ -206,6 +214,10 @@ export async function collectLiveForensicsAgentRun(
     onAgentHookReceipt(receipt) {
       hookReceipts.push(receipt);
     },
+    onModelText(delta) {
+      modelTextChunks.push(delta);
+      options.onModelText?.(delta);
+    },
     onSdkToolOutput(output) {
       toolOutputs.push(output);
       options.onSdkToolOutput?.(output);
@@ -238,9 +250,12 @@ export async function collectLiveForensicsAgentRun(
           totalTokens: tokenUsage
         };
 
+  const outputText = modelTextChunks.join("").trim();
+
   return {
     events,
     hookReceipts,
+    ...(outputText.length === 0 ? {} : { outputText }),
     status,
     ...(toolOutputs.length === 0 ? {} : { toolOutputs }),
     tokenUsage,
@@ -371,6 +386,10 @@ export async function* streamLiveForensicsTraceEvents(
         const sdkToolOutput = sdkToolOutputFromRunItemEvent(event, options.allowedToolNames ?? mayaAgentMcpAllowedToolNames);
         if (sdkToolOutput !== undefined) {
           options.onSdkToolOutput?.(sdkToolOutput);
+        }
+        const modelTextDelta = modelTextDeltaFromEvent(event);
+        if (modelTextDelta !== undefined) {
+          options.onModelText?.(modelTextDelta);
         }
         const traceEvent = mapRunStreamEvent(event);
         if (traceEvent !== undefined) {
@@ -549,6 +568,20 @@ function openAiForensicsStreamOptionsFromTraceOptions(
     ...(options.allowedToolNames === undefined ? {} : { allowedToolNames: options.allowedToolNames }),
     ...(options.toolChoice === undefined ? {} : { toolChoice: options.toolChoice })
   };
+}
+
+/** The raw delta, before the trace replaces it with the suppressed placeholder. */
+function modelTextDeltaFromEvent(event: unknown): string | undefined {
+  if (!isRecord(event) || event.type !== "raw_model_stream_event" || !isRecord(event.data)) {
+    return undefined;
+  }
+
+  const data = event.data;
+  if ((data.type !== "response.output_text.delta" && data.type !== "output_text_delta") || typeof data.delta !== "string") {
+    return undefined;
+  }
+
+  return data.delta;
 }
 
 function mapRunStreamEvent(event: unknown): ForensicsTraceEvent | undefined {

@@ -59,7 +59,11 @@ describe("forensics query session", () => {
       expect(request.input).toContain("Workspace Maya forensics query");
       expect(request.input).toContain("query_workspace");
       expect(request.input).toContain("Do not write or return SQL");
-      expect(request.input).toContain("code-computed workspace answer");
+      // The instruction used to tell the model the API returns the code-computed answer and to
+      // emit only a lifecycle summary. It now asks the model to answer the question from the tool
+      // facts; the guarantee that it must not compute anything itself is asserted below instead.
+      expect(request.input).toContain("answer the question");
+      expect(request.input).toContain("Do not compute");
       expect(request.agentHookAudit?.recordIds).toEqual(
         expect.arrayContaining(["S3-L1", "S5-L1", "S6-L1", "S8-L1"])
       );
@@ -184,6 +188,41 @@ describe("forensics query session", () => {
     });
   });
 
+  it("uses model prose on a selected case when every business value in it was code-computed", async () => {
+    // The selected-case path discarded model text outright, so a reader saw one templated sentence
+    // whatever they asked. Prose is now used when the guard can verify it.
+    const grounded = "S6 is invalid and routes to recovery because the deduction priced below the contract.";
+    const result = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: groundedSelectedCaseRunner(grounded)
+        }
+      })
+    );
+
+    expect(result.answer).toBe(grounded);
+    expect(result.modelExecution).toMatchObject({ rawModelTextPolicy: "verified_grounded" });
+  });
+
+  it("falls back to the deterministic sentence when model prose invents an amount", async () => {
+    const deterministic = await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: groundedSelectedCaseRunner("S6 recovers $99,999.00 in full.")
+        }
+      })
+    );
+
+    expect(deterministic.answer).not.toContain("$99,999.00");
+    expect(deterministic.modelExecution).toMatchObject({ rawModelTextPolicy: "rejected_ungrounded" });
+  });
+
   it("adds live OpenAI Agents SDK handoff trace before returning a live-agent-backed Maya query answer", async () => {
     const liveRunner = vi.fn<LiveForensicsStreamRunner>((request) => {
       expect(request.input).toContain("Selected Maya forensics query");
@@ -242,12 +281,15 @@ describe("forensics query session", () => {
     );
 
     expect(liveRunner).toHaveBeenCalledTimes(1);
+    // This stub emits prose that references nothing from the run, so the guard rejects it and the
+    // deterministic answer stands. The policy used to be "suppressed" because model text was never
+    // used at all; it now records why the model's text did not reach the reader.
     expect(result.modelExecution).toMatchObject({
       agentNames: ["Forensics Investigator", "Recovery Drafter"],
       deterministicBasis: "OpenAI Agents SDK live trace + Recoup deterministic query answer guard",
       handoffCount: 1,
       mode: "live_openai_agents",
-      rawModelTextPolicy: "suppressed"
+      rawModelTextPolicy: "rejected_ungrounded"
     });
     expect(result.answer).toContain("S6-L1");
     expect(result.answer).not.toContain("$");
@@ -716,7 +758,7 @@ describe("forensics query session", () => {
 
     expect(result.modelExecution).toMatchObject({
       mode: "live_openai_agents",
-      rawModelTextPolicy: "suppressed"
+      rawModelTextPolicy: "rejected_ungrounded"
     });
     expect(result.answer).toContain("S6-L1");
     expect(
@@ -909,7 +951,9 @@ describe("forensics query session", () => {
         agentHookRecordIds: [...validS6HookRecordIds]
       })
     );
-    expect(keys).toEqual(["answer", "citations", "deterministicBasis", "trace"]);
+    // facts is the code-computed value set the grounded answer guard verifies model prose against.
+    // It stays on the session result and is stripped at the HTTP boundary, so it never ships.
+    expect(keys).toEqual(["answer", "citations", "deterministicBasis", "facts", "trace"]);
     expect(result.answer).toContain("S6-L1");
     expect(result.answer).toContain("record IDs");
     expect(phases).toEqual(["supervisor", "query", "retrieval", "decision"] satisfies ForensicsQueryTracePhase[]);
@@ -1484,4 +1528,33 @@ async function* emptyLiveQueryStream(): AsyncIterable<unknown> {
   if (Date.now() < 0) {
     yield undefined;
   }
+}
+
+function groundedSelectedCaseRunner(prose: string) {
+  return vi.fn<LiveForensicsStreamRunner>((request) => {
+    for (const [agentName, hook, nextAgentName] of [
+      ["Forensics Investigator", "agent_start", undefined],
+      ["Forensics Investigator", "agent_handoff", "Recovery Drafter"],
+      ["Recovery Drafter", "agent_start", undefined]
+    ] as const) {
+      request.agentHookAudit?.onReceipt(
+        createAgentHookAuditReceipt({
+          agentName,
+          hook,
+          ...(nextAgentName === undefined ? {} : { nextAgentName }),
+          recordIds: request.agentHookAudit.recordIds
+        })
+      );
+    }
+
+    return (async function* stream() {
+      await Promise.resolve();
+      yield sdkSelectedEvidenceToolEvent("tool_called", "query_answer", "Forensics Investigator");
+      yield sdkSelectedEvidenceToolEvent("tool_output", "query_answer", "Forensics Investigator");
+      yield {
+        data: { delta: prose, type: "output_text_delta" },
+        type: "raw_model_stream_event"
+      };
+    })();
+  });
 }

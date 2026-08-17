@@ -2,6 +2,7 @@ import type { GovernedConfigValues } from "../../config/governed.js";
 import { openAiPromptCacheConfig } from "../../config/openaiPromptCache.js";
 import type { SourcePort } from "../adapters/source.js";
 import { buildDeterministicForensicsQueryAnswer } from "../agents/query.js";
+import { buildGroundedAnswerFacts, selectGroundedAnswer } from "./groundedAnswerGuard.js";
 import {
   collectLiveForensicsAgentRun,
   forensicsQueryTracePhases,
@@ -84,7 +85,7 @@ export type ForensicsQueryModelExecution =
         promptCacheKey: string;
         promptPrefixVersion: string;
       };
-      rawModelTextPolicy: "suppressed";
+      rawModelTextPolicy: "rejected_ungrounded" | "suppressed" | "verified_grounded";
       sourceReadMode: "live_sdk_mcp";
       tokenUsage?: number;
       tokenUsageSnapshot?: OpenAiTokenUsageSnapshot;
@@ -138,6 +139,7 @@ export type ForensicsQuerySessionResponse =
       answer: string;
       citations: ForensicsQueryCitation[];
       deterministicBasis: typeof forensicsQueryDeterministicBasis | typeof liveForensicsQuerySessionBasis | typeof workspaceForensicsQueryBasis;
+      facts?: SelectedCaseQueryFacts;
       modelExecution?: ForensicsQueryModelExecution;
       trace: SourceAnnotatedForensicsQueryTraceEvent[];
     }
@@ -145,6 +147,7 @@ export type ForensicsQuerySessionResponse =
       answer?: undefined;
       citations: [];
       deterministicBasis?: undefined;
+      facts?: undefined;
       modelExecution: ForensicsQueryModelExecution;
       trace: SourceAnnotatedForensicsQueryTraceEvent[];
     }
@@ -152,9 +155,55 @@ export type ForensicsQuerySessionResponse =
       answer?: undefined;
       citations: [];
       deterministicBasis?: undefined;
+      facts?: undefined;
       modelExecution?: undefined;
       trace: SourceAnnotatedForensicsQueryTraceEvent[];
     };
+
+/** Everything a reader could be told about the selected case, computed from the decision. */
+export interface SelectedCaseQueryFacts {
+  amounts: string[];
+  caseIds: string[];
+  counts: number[];
+  customerNames: string[];
+  recordIds: string[];
+  routings: string[];
+  ruleIds: string[];
+  verdicts: string[];
+}
+
+function buildSelectedCaseQueryFacts(input: {
+  citations: readonly ForensicsQueryCitation[];
+  customerName: string | undefined;
+  decisions: readonly DeductionDecision[];
+  selectedLineId: string;
+}): SelectedCaseQueryFacts {
+  const caseId = input.selectedLineId.match(/^(S\d+)-/u)?.[1] ?? input.selectedLineId;
+
+  return {
+    amounts: dedupeRecordIds(
+      input.decisions.map((decision) => formatSelectedCaseMoney(decision.deterministicBasis.computedDeltaAmount))
+    ),
+    caseIds: [caseId],
+    counts: [...new Set([input.decisions.length, input.citations.length])],
+    customerNames: input.customerName === undefined ? [] : [input.customerName],
+    recordIds: dedupeRecordIds([
+      input.selectedLineId,
+      ...input.decisions.map((decision) => decision.lineId),
+      ...input.citations.map((citation) => citation.recordId)
+    ]),
+    routings: dedupeRecordIds(input.decisions.map((decision) => decision.routing)),
+    ruleIds: dedupeRecordIds(input.decisions.map((decision) => decision.deterministicBasis.ruleId)),
+    verdicts: dedupeRecordIds(input.decisions.map((decision) => decision.verdict))
+  };
+}
+
+function formatSelectedCaseMoney(value: { toDecimalPlaces: (places: number) => { toFixed: (places: number) => string } }): string {
+  const fixed = value.toDecimalPlaces(2).toFixed(2);
+  const [whole = "0", fractional = "00"] = fixed.split(".");
+
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/gu, ",")}.${fractional}`;
+}
 
 export class ForensicsQueryLineNotFoundError extends Error {
   readonly lineId: string;
@@ -277,8 +326,17 @@ export async function runForensicsWorkspaceQuerySessionWithLiveAgents(
 
   const tokenUsage = liveRun.tokenUsage > 0 ? { tokenUsage: liveRun.tokenUsage } : {};
   const promptCache = buildDeductionForensicsPromptCacheMetadata(liveRun.tokenUsageSnapshot);
+  // The model may write the sentence; it may not supply a business value. Anything it states that
+  // code did not compute is rejected and the deterministic answer stands.
+  const groundedAnswer = selectGroundedAnswer({
+    deterministicAnswer: deterministicResponse.answer,
+    facts: buildGroundedAnswerFacts(deterministicResponse.facts),
+    ...(liveRun.outputText === undefined ? {} : { modelAnswer: liveRun.outputText })
+  });
+
   return {
     ...deterministicResponse,
+    answer: groundedAnswer.answer,
     deterministicBasis: liveForensicsQuerySessionBasis,
     modelExecution: {
       agentNames: dedupeRecordIds(liveRun.hookReceipts.map((receipt) => receipt.agentName)),
@@ -286,7 +344,7 @@ export async function runForensicsWorkspaceQuerySessionWithLiveAgents(
       handoffCount,
       mode: "live_openai_agents",
       ...(promptCache === undefined ? {} : { promptCache }),
-      rawModelTextPolicy: "suppressed",
+      rawModelTextPolicy: groundedAnswer.policy,
       sourceReadMode: "live_sdk_mcp",
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot }),
       ...tokenUsage
@@ -363,6 +421,18 @@ export function runForensicsQuerySession(input: ForensicsQuerySessionInput): For
     }),
     citations,
     deterministicBasis: forensicsQueryDeterministicBasis,
+    facts: buildSelectedCaseQueryFacts({
+      citations,
+      customerName: input.source
+        .loadSettlementRun()
+        .customers.find(
+          (candidate) =>
+            candidate.customerId ===
+            input.source.loadSettlementRun().deductionLines.find((line) => line.lineId === decision.lineId)?.customerId
+        )?.name,
+      decisions: sameWorkspaceCaseDecisions(decision, run.decisions),
+      selectedLineId: decision.lineId
+    }),
     trace
   };
 }
@@ -482,8 +552,22 @@ export async function runForensicsQuerySessionWithLiveAgents(
 
   const tokenUsage = liveRun.tokenUsage > 0 ? { tokenUsage: liveRun.tokenUsage } : {};
   const promptCache = buildDeductionForensicsPromptCacheMetadata(liveRun.tokenUsageSnapshot);
+  // Same contract as the workspace path: the model writes the sentence, code owns every business
+  // value in it, and anything it cannot verify falls back to the deterministic answer.
+  // Without a computed fact set there is nothing to verify prose against, so the deterministic
+  // answer stands rather than trusting the model.
+  const groundedAnswer =
+    deterministicResponse.facts === undefined
+      ? { answer: deterministicResponse.answer, policy: "suppressed" as const }
+      : selectGroundedAnswer({
+          deterministicAnswer: deterministicResponse.answer,
+          facts: buildGroundedAnswerFacts(deterministicResponse.facts),
+          ...(liveRun.outputText === undefined ? {} : { modelAnswer: liveRun.outputText })
+        });
+
   return {
     ...deterministicResponse,
+    answer: groundedAnswer.answer,
     deterministicBasis: liveForensicsQuerySessionBasis,
     modelExecution: {
       agentNames: dedupeRecordIds(liveRun.hookReceipts.map((receipt) => receipt.agentName)),
@@ -491,7 +575,7 @@ export async function runForensicsQuerySessionWithLiveAgents(
       handoffCount,
       mode: "live_openai_agents",
       ...(promptCache === undefined ? {} : { promptCache }),
-      rawModelTextPolicy: "suppressed",
+      rawModelTextPolicy: groundedAnswer.policy,
       sourceReadMode: "live_sdk_mcp",
       ...(liveRun.tokenUsageSnapshot === undefined ? {} : { tokenUsageSnapshot: liveRun.tokenUsageSnapshot }),
       ...tokenUsage
@@ -1042,10 +1126,11 @@ function buildLiveForensicsWorkspaceQueryInput(input: {
     `Workspace record IDs in scope: ${dedupeRecordIds(input.recordIds).join(", ")}.`,
     "Step 1: call the SDK-visible governed MCP function tool query_workspace exactly once with this question and settlementRunId.",
     "Step 2: after query_workspace returns any result: Do not call query_workspace again. Immediately call the Agents SDK handoff function transfer_to_Recovery_Drafter to hand off to Recovery Drafter.",
-    "Step 3: provide a short lifecycle summary only. The API returns the code-computed workspace answer, citations, and deterministic basis, not raw model prose.",
-    "Do not compute verdict counts, customer lists, routing, or dollar amounts in model text. Code computes those from the current read model.",
+    "Step 3: answer the question in two or three plain sentences for a finance reviewer, using only the case facts the tool returned.",
+    "Never state a dollar amount, count, case id, record id or customer name that the tool did not return: an answer containing anything else is rejected and replaced.",
+    "Do not compute, total, estimate or convert anything. Restate values exactly as the tool returned them; code owns every figure.",
     "Do not write or return SQL. Use the governed tool only; external database queries and ERP mutation are forbidden.",
-    "Raw model text is suppressed by Recoup; source IDs and tool proof are retained for the model-execution drawer."
+    "Your answer is verified against the tool facts before a reader sees it; if it cannot be verified the deterministic answer is shown instead."
   ].join("\n");
 }
 
