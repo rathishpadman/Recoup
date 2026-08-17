@@ -6,6 +6,7 @@ import { Separator } from "../ui/separator.tsx";
 import { cn } from "../../lib/utils.ts";
 import type { ForensicsCockpitModel } from "../../app/cockpit-data.ts";
 import { mayaAccent } from "./maya-accent.ts";
+import { groupContainmentEvidenceLinks } from "./maya-workspace-derived.ts";
 
 interface ContainmentBriefCardProps {
   panel: ForensicsCockpitModel["containmentPanel"] | undefined;
@@ -166,10 +167,12 @@ interface EvidenceLinkGridProps {
 }
 
 /**
- * One row per cited record. This previously rendered every link twice - as a clickable card and
- * again as its own anchor target - so the reader scrolled a few pixels to a near-identical box.
+ * One row per evidence family, not per record. A containment case can cite dozens of records; a row
+ * each made the panel mostly repetition of the same sentence. The record IDs stay one click away.
  */
 function EvidenceLinkGrid({ links }: EvidenceLinkGridProps) {
+  const groups = groupContainmentEvidenceLinks(links);
+
   return (
     <section className="grid min-w-0 gap-2" aria-label="Cited containment evidence">
       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -177,22 +180,30 @@ function EvidenceLinkGrid({ links }: EvidenceLinkGridProps) {
         <Badge variant="outline">{links.length.toString()} cited records</Badge>
       </div>
       <div className="grid min-w-0 divide-y divide-border/60 rounded-md border">
-        {links.map((link) => (
-          <div
-            className="grid min-w-0 gap-1 px-3 py-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-baseline md:gap-4"
-            data-tone={link.tone}
-            id={containmentEvidenceAnchorId(link.recordId)}
-            key={link.recordId}
-          >
-            <div className="grid min-w-0 gap-1">
-              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
-                <FileSearchIcon aria-hidden="true" className={cn("size-4 shrink-0", toneIconClassName[link.tone])} />
-                <span className="truncate">{link.label}</span>
+        {groups.map((group) => (
+          <details className="min-w-0 px-3 py-2.5" data-tone={group.tone} key={group.label}>
+            <summary className="grid min-w-0 cursor-pointer list-none gap-1 md:grid-cols-[minmax(0,1fr)_auto] md:items-baseline md:gap-4 marker:content-none">
+              <span className="grid min-w-0 gap-1">
+                <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                  <FileSearchIcon aria-hidden="true" className={cn("size-4 shrink-0", toneIconClassName[group.tone])} />
+                  <span className="truncate">{group.label}</span>
+                </span>
+                <span className="text-sm text-muted-foreground">{group.reason}</span>
               </span>
-              <span className="text-sm text-muted-foreground">{link.reason}</span>
+              <span className="text-xs text-muted-foreground md:text-right">{group.countLabel}</span>
+            </summary>
+            <div className="flex min-w-0 flex-wrap gap-1.5 pt-2">
+              {group.recordIds.map((recordId) => (
+                <code
+                  className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground"
+                  id={containmentEvidenceAnchorId(recordId)}
+                  key={recordId}
+                >
+                  {recordId}
+                </code>
+              ))}
             </div>
-            <code className="text-xs text-muted-foreground md:text-right">{link.recordId}</code>
-          </div>
+          </details>
         ))}
       </div>
     </section>

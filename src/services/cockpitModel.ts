@@ -2137,15 +2137,35 @@ function buildContainmentEvidenceLinks(
   }));
 }
 
-function containmentEvidenceLabel(recordId: string): string {
-  if (/^TPM-/u.test(recordId)) {
+/**
+ * Business name for a cited containment record.
+ *
+ * Order matters: canonical evidence ids embed their family mid-string (EVD-TPM-ACCRUAL-S2-L1), so
+ * anchoring on the prefix silently dropped whole families into the generic bucket. On production
+ * data that left 32 of 46 records rendering as an identical row, including the TPM records the
+ * promotion-correlation reason cites.
+ */
+export function containmentEvidenceLabel(recordId: string): string {
+  if (/TPM|PROMO/u.test(recordId)) {
     return "Promotion correlation evidence";
   }
   if (/POD/u.test(recordId)) {
     return "Signed POD evidence";
   }
-  if (/PRICE|CONTRACT|CLAUSE/u.test(recordId)) {
+  if (/CUSTOMER-PO/u.test(recordId)) {
+    return "Customer purchase order";
+  }
+  if (/CONTRACT-PRICING|PRICE|CLAUSE/u.test(recordId)) {
     return "Contract pricing evidence";
+  }
+  if (/REMIT/u.test(recordId)) {
+    return "Remittance evidence";
+  }
+  if (/^RECON-/u.test(recordId)) {
+    return "Reconciliation receipt";
+  }
+  if (/^INV-|INVOICE/u.test(recordId)) {
+    return "Invoice evidence";
   }
   if (/^S\d+-L\d+$/u.test(recordId)) {
     return "Invalid deduction line evidence";
@@ -2155,14 +2175,26 @@ function containmentEvidenceLabel(recordId: string): string {
 }
 
 function containmentEvidenceReason(recordId: string): string {
-  if (/^TPM-/u.test(recordId)) {
+  if (/TPM|PROMO/u.test(recordId)) {
     return "TPM evidence links the invalid pattern to the promotion correlation branch.";
   }
   if (/POD/u.test(recordId)) {
     return "POD evidence anchors the shortage mismatch branch.";
   }
-  if (/PRICE|CONTRACT|CLAUSE/u.test(recordId)) {
+  if (/CUSTOMER-PO/u.test(recordId)) {
+    return "Customer order record for the disputed pricing lines.";
+  }
+  if (/CONTRACT-PRICING|PRICE|CLAUSE/u.test(recordId)) {
     return "Contract evidence anchors the pricing-below-contract branch.";
+  }
+  if (/REMIT/u.test(recordId)) {
+    return "Remittance evidence shows how the deduction was taken.";
+  }
+  if (/^RECON-/u.test(recordId)) {
+    return "Reconciliation receipt ties the claim to its canonical evidence.";
+  }
+  if (/^INV-|INVOICE/u.test(recordId)) {
+    return "Invoice the deduction was taken against.";
   }
   if (/^S\d+-L\d+$/u.test(recordId)) {
     return "Deduction line is part of the repeated invalid shortage/pricing pattern.";
@@ -2172,7 +2204,7 @@ function containmentEvidenceReason(recordId: string): string {
 }
 
 function containmentEvidenceTone(recordId: string): "critical" | "evidence" | "safe" | "warning" {
-  if (/^TPM-/u.test(recordId)) {
+  if (/TPM|PROMO/u.test(recordId)) {
     return "evidence";
   }
   if (/POD|^S\d+-L\d+$/u.test(recordId)) {

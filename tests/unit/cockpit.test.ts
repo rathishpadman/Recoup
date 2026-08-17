@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { groupContainmentEvidenceLinks } from "../../cockpit/components/maya/maya-workspace-derived.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -21,6 +22,7 @@ import {
   buildCfoSummaryCockpitModel,
   buildCreditCockpitModel,
   buildForensicsCockpitModel,
+  containmentEvidenceLabel,
   buildForensicsWorkItemDetailCockpitModel,
   buildForensicsSseEvents,
   buildLoginModel,
@@ -690,6 +692,43 @@ describe("S5 Forensics cockpit model", () => {
     expect(requestGate.current).toBe(staleRequestId + 1);
     expect(isCurrentWorkItemDetailRequest(requestGate, staleRequestId)).toBe(false);
     expect(isCurrentWorkItemDetailRequest(requestGate, beginWorkItemDetailRequest(requestGate))).toBe(true);
+  });
+
+  it("names each containment evidence family instead of falling back to a generic label", () => {
+    // Production names canonical evidence EVD-TPM-ACCRUAL-*, EVD-REMIT-*, RECON-* and so on. The
+    // classifier anchored TPM at the start of the id, so on the deployed data 32 of 46 cited
+    // records rendered as an identical "Source evidence" row - including the very TPM records the
+    // promotion-correlation reason cites, which left that branch with no labelled evidence at all.
+    const cases = [
+      { expected: "Promotion correlation evidence", recordId: "EVD-TPM-ACCRUAL-S2-L1" },
+      { expected: "Promotion correlation evidence", recordId: "EVD-TPM-PROMO-S2-L1" },
+      { expected: "Promotion correlation evidence", recordId: "TPM-CONTRACT-1" },
+      { expected: "Signed POD evidence", recordId: "EVD-POD-S3-L1" },
+      { expected: "Contract pricing evidence", recordId: "EVD-CONTRACT-PRICING-S6-L1" },
+      { expected: "Remittance evidence", recordId: "EVD-REMIT-S2-L1" },
+      { expected: "Reconciliation receipt", recordId: "RECON-S2-L1" },
+      { expected: "Invoice evidence", recordId: "INV-S2-L1" },
+      { expected: "Invoice evidence", recordId: "EVD-SAP-INVOICE-S6-L1" },
+      { expected: "Customer purchase order", recordId: "EVD-CUSTOMER-PO-S6-L1" },
+      { expected: "Invalid deduction line evidence", recordId: "S3-L1" }
+    ];
+
+    for (const { expected, recordId } of cases) {
+      expect(containmentEvidenceLabel(recordId), recordId).toBe(expected);
+    }
+  });
+
+  it("groups containment evidence so a long cited list stays readable", () => {
+    const groups = groupContainmentEvidenceLinks([
+      { label: "Remittance evidence", reason: "r", recordId: "EVD-REMIT-S2-L1", tone: "evidence" },
+      { label: "Remittance evidence", reason: "r", recordId: "EVD-REMIT-S2-L2", tone: "evidence" },
+      { label: "Signed POD evidence", reason: "p", recordId: "EVD-POD-S3-L1", tone: "critical" }
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ countLabel: "2 records", label: "Remittance evidence" });
+    expect(groups[0]?.recordIds).toEqual(["EVD-REMIT-S2-L1", "EVD-REMIT-S2-L2"]);
+    expect(groups[1]).toMatchObject({ countLabel: "1 record", label: "Signed POD evidence" });
   });
 
   it("surfaces Crestline M6 as a risk-review-only containment read model", () => {
