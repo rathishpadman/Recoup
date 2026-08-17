@@ -96,10 +96,29 @@ async function close(server: Server): Promise<void> {
 function buildCreditRiskApprovalFetcher(input: {
   approvalRows?: unknown[];
   auditHead?: { entry_hash: string; seq: number }[];
+  /** Action IDs that already carry a committed human approval. */
+  existingApprovals?: readonly string[];
   onRpcPayload?: (payload: Record<string, unknown>) => void;
 } = {}): SupabaseMemoryFetch {
   const fixture = loadCreditRiskFixtureRows();
-  const approvalRows = input.approvalRows ?? [];
+  const approvalRows = [
+    ...(input.approvalRows ?? []),
+    ...(input.existingApprovals ?? []).map((actionId) => ({
+      category: "approval_records",
+      created_at: "2026-08-16T09:12:44.000Z",
+      id: `approval:${actionId}`,
+      payload_json: {
+        actionId,
+        approverId: "human:maya-lead",
+        auditEntryHash: "a".repeat(64),
+        decision: "approve",
+        status: "human_decided"
+      },
+      record_ids_json: [actionId, "ACC-CRE", "S3-L1"],
+      scope: `approval:${actionId}`,
+      trust_level: "trusted"
+    }))
+  ];
   const auditHead = input.auditHead ?? [];
 
   return (url, init) => {
@@ -116,6 +135,10 @@ function buildCreditRiskApprovalFetcher(input: {
 
     if (init.method === "GET" && url.includes("/rest/v1/recoup_memory_records")) {
       return Promise.resolve(testJsonResponse(approvalRows));
+    }
+
+    if (init.method === "POST" && url.includes("/rest/v1/recoup_memory_records")) {
+      return Promise.resolve(testJsonResponse(JSON.parse(body ?? "[]") as unknown));
     }
 
     const tableName = new URL(url).pathname.split("/").at(-1);
@@ -3975,6 +3998,54 @@ describe("S5 cockpit API", () => {
       expect(response.status).toBe(200);
       expect(result.actionId).toBe(actionId);
       expect(result.auditEntryHash).toMatch(/^[a-f0-9]{64}$/u);
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("refuses to acknowledge a credit recommendation that no human has approved", async () => {
+    // Acknowledgement confirms receipt of an approved decision. Without an approval there is
+    // nothing to acknowledge, and accepting one would fabricate a closed loop.
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitApprovalEnv },
+      memoryFetcher: buildCreditRiskApprovalFetcher({ auditHead: [{ entry_hash: "e".repeat(64), seq: 11 }] })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/recommendations/credit-recommendation:S3-L1:terms-change/acknowledge`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const result = (await response.json()) as { error?: string };
+
+      expect(response.status).toBe(409);
+      expect(result.error).toContain("approved");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("acknowledges an approved credit recommendation for the credit lead", async () => {
+    const actionId = "credit-recommendation:S3-L1:terms-change";
+    const { baseUrl, server } = await listen({
+      env: { ...cockpitApprovalEnv },
+      memoryFetcher: buildCreditRiskApprovalFetcher({
+        auditHead: [{ entry_hash: "f".repeat(64), seq: 12 }],
+        existingApprovals: [actionId]
+      })
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/credit/recommendations/${actionId}/acknowledge`, {
+        headers: cockpitAuthHeaders,
+        method: "POST"
+      });
+      const result = (await response.json()) as { acknowledgedAt?: string; actionId?: string; error?: string };
+
+      expect(result.error).toBeUndefined();
+      expect(response.status).toBe(200);
+      expect(result.actionId).toBe(actionId);
+      expect(result.acknowledgedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
     } finally {
       await close(server);
     }

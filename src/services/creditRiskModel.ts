@@ -159,6 +159,7 @@ export interface ApprovedCreditRecommendationRow {
   /** The case this came from, shown instead of the action ID. */
   caseLabel: string;
   /** When the human decision was recorded. A pending recommendation has no decision date. */
+  acknowledgedAt?: string | undefined;
   decidedAt?: string | undefined;
   currentLabel: string;
   kind: CreditRecommendationKind;
@@ -266,6 +267,7 @@ export interface CreditNegotiationSelectedDealCandidate {
 }
 
 export interface CreditSignalModel {
+  acknowledgedAt?: string | undefined;
   amount?: string | undefined;
   basis: string;
   /** Badge text when the scenario ID is not what a reviewer should read. */
@@ -1057,7 +1059,11 @@ function buildSignals(
   const deductionSignals = buildDeductionSignals(deductions, deductionLines, contractTpm);
   const recommendationSignals = approvedCreditRecommendations.map((recommendation) => ({
     amount: recommendation.amount,
-    basis: appendApprovalDate(recommendation.basis, recommendation.decidedAt),
+    ...(recommendation.acknowledgedAt === undefined ? {} : { acknowledgedAt: recommendation.acknowledgedAt }),
+    basis: appendAcknowledgementDate(
+      appendApprovalDate(recommendation.basis, recommendation.decidedAt),
+      recommendation.acknowledgedAt
+    ),
     feedsMesh: "Credit",
     gamingFlag: false,
     label: recommendation.caseLabel,
@@ -1085,6 +1091,16 @@ function appendApprovalDate(basis: string, decidedAt: string | undefined): strin
   }
 
   return `${basis} Approved ${decisionDate}.`;
+}
+
+/** States when the credit lead confirmed receipt, closing the loop the flow strip describes. */
+function appendAcknowledgementDate(basis: string, acknowledgedAt: string | undefined): string {
+  const acknowledgedDate = acknowledgedAt?.slice(0, 10);
+  if (acknowledgedDate === undefined || !/^\d{4}-\d{2}-\d{2}$/u.test(acknowledgedDate)) {
+    return basis;
+  }
+
+  return `${basis} Acknowledged ${acknowledgedDate}.`;
 }
 
 function buildDeductionSignals(
