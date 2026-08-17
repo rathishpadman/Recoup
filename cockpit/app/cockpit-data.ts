@@ -729,6 +729,7 @@ export interface CreditRiskPacketModel {
 }
 
 export interface CreditRiskSignalModel {
+  acknowledgedAt?: string | undefined;
   amount?: string | undefined;
   basis: string;
   label?: string | undefined;

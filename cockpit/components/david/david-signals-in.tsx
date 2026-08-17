@@ -4,18 +4,34 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { CreditRiskAccountModel } from "../../app/cockpit-data.ts";
 import { DavidCollapsibleCard } from "./david-collapsible-card.tsx";
+import { CreditRecommendationAcknowledge } from "./credit-recommendation-acknowledge.tsx";
 import { DavidRecordDisclosure } from "./david-record-disclosure.tsx";
 import { CreditRecommendationFlowStrip } from "../shared/credit-recommendation-flow-strip.tsx";
 import { davidBadgeVariantByTone, davidBorderClassByTone, davidMutedSurfaceClassByTone } from "./david-verdict-tokens.ts";
 
 export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
+  // An approved recommendation used to become just another row in a list; nothing marked it as
+  // new, so a closed-loop handoff could sit unread indefinitely.
+  const unacknowledgedCount = account.signals.filter(
+    (signal) => signal.scenarioId.startsWith("credit-recommendation:") && signal.acknowledgedAt === undefined
+  ).length;
+
   return (
     <DavidCollapsibleCard
-      badges={<Badge variant="outline">{`${account.signals.length.toString()} signals`}</Badge>}
+      badges={
+        <>
+          <Badge variant="outline">{`${account.signals.length.toString()} signals`}</Badge>
+          {unacknowledgedCount === 0 ? null : (
+            <Badge data-testid="david-signals-unacknowledged" variant="review">
+              {`${unacknowledgedCount.toString()} awaiting acknowledgement`}
+            </Badge>
+          )}
+        </>
+      }
       defaultOpen
       description={
         account.gamingFlag
-          ? "Closed-loop signals include the behavioural handoff [D] and cited deduction scenarios."
+          ? "Closed-loop signals include the behavioural handoff [D] - a deduction-side gaming flag - and cited deduction scenarios."
           : "Signals stay read-only and route through governed review before any external packet is approved."
       }
       testId="david-signals-in"
@@ -47,7 +63,13 @@ export function DavidSignalsIn({ account }: Readonly<{ account: CreditRiskAccoun
             </div>
             <p className="text-sm text-muted-foreground">{signal.basis}</p>
             {signal.scenarioId.startsWith("credit-recommendation:") ? (
-              <CreditRecommendationFlowStrip acknowledged={false} acknowledgementAvailable={false} approved />
+              <div className="grid gap-2">
+                <CreditRecommendationFlowStrip acknowledged={signal.acknowledgedAt !== undefined} approved />
+                <CreditRecommendationAcknowledge
+                  {...(signal.acknowledgedAt === undefined ? {} : { acknowledgedAt: signal.acknowledgedAt })}
+                  actionId={signal.scenarioId}
+                />
+              </div>
             ) : null}
           </div>
           <DavidRecordDisclosure items={signal.recordIds} label={`${signal.recordIds.length.toString()} cited records`} />

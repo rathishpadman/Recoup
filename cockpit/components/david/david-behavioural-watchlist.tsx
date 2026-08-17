@@ -59,7 +59,7 @@ export function DavidBehaviouralWatchlist({ accounts, onOpenAccount }: Readonly<
                   </TableCell>
                   <TableCell className="align-top">
                     <div className="flex flex-wrap gap-1.5">
-                      <Badge variant="destructive">Flag [D]</Badge>
+                      <Badge title="Deduction-side gaming flag: a behavioural pattern found by forensics, not a credit metric." variant="destructive">Flag [D]</Badge>
                       <Badge variant="outline">{account.routeLabel}</Badge>
                     </div>
                   </TableCell>

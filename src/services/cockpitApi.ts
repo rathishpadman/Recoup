@@ -343,6 +343,7 @@ type CockpitRateLimitedRoute =
   | "POST /admin/demo-reset"
   | "POST /approval"
   | "POST /credit/query"
+  | "POST /credit/recommendations/:actionId/acknowledge"
   | "POST /credit/v2/refresh"
   | "POST /credit/v2/simulate"
   | "POST /forensics/refresh"
@@ -370,6 +371,7 @@ const cockpitApiRoutes = [
   "POST /admin/demo-reset",
   "POST /approval",
   "POST /credit/query",
+  "POST /credit/recommendations/:actionId/acknowledge",
   "POST /credit/v2/refresh",
   "POST /credit/v2/simulate",
   "POST /forensics/refresh",
@@ -2105,6 +2107,76 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   });
 
+  app.post(
+    "/credit/recommendations/:actionId/acknowledge",
+    rateLimitAuditEndpoint("POST /credit/recommendations/:actionId/acknowledge"),
+    async (request, response) => {
+      const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+        allowProxyDemoRoles: ["david"],
+        proxyPurpose: "read"
+      });
+      if (!human.success) {
+        response.status(401).json({ error: human.error });
+        return;
+      }
+
+      const rawActionId = request.params.actionId;
+      const actionId = (typeof rawActionId === "string" ? rawActionId : "").trim();
+      if (!actionId.startsWith(creditRecommendationActionIdPrefix) || parseCreditRecommendationActionId(actionId) === undefined) {
+        response.status(400).json({ error: "Unknown credit recommendation." });
+        return;
+      }
+
+      const approvalRecordsSnapshot = await loadApprovalRecordsOrFailClosed(request, response, runtimeEnv, options.memoryFetcher);
+      if (approvalRecordsSnapshot === undefined) {
+        return;
+      }
+
+      // Acknowledgement confirms receipt of a decision a human already made. Without an approval
+      // there is nothing to acknowledge, and accepting one would fabricate a closed loop.
+      if (!hasCommittedCreditRecommendationApproval(approvalRecordsSnapshot.records, actionId)) {
+        response.status(409).json({ error: "This recommendation has not been approved yet." });
+        return;
+      }
+
+      if (readCreditRecommendationAcknowledgedAt(approvalRecordsSnapshot.records, actionId) !== undefined) {
+        response.status(409).json({ error: "This recommendation is already acknowledged." });
+        return;
+      }
+
+      const supabaseMemory = createSupabaseMemoryRepositoryFromEnv(runtimeEnv, options.memoryFetcher);
+      if (supabaseMemory === undefined) {
+        sendFailClosedJson(request, response, 503, {
+          error: "Acknowledgement is unavailable from governed backend sources.",
+          missingSource: "recoup_memory_records"
+        });
+        return;
+      }
+
+      const acknowledgedAt = new Date().toISOString();
+      try {
+        await supabaseMemory.append({
+          category: "case_state",
+          createdAt: acknowledgedAt,
+          id: creditRecommendationAcknowledgementScope(actionId),
+          payload: { acknowledgedAt, acknowledgedBy: human.principal, actionId },
+          recordIds: [actionId],
+          scope: creditRecommendationAcknowledgementScope(actionId),
+          trustLevel: "trusted"
+        });
+      } catch {
+        sendFailClosedJson(request, response, 503, {
+          error: "Acknowledgement is unavailable from governed backend sources.",
+          missingSource: "recoup_memory_records"
+        });
+        return;
+      }
+
+      response.setHeader("cache-control", "no-store");
+      response.json({ acknowledgedAt, acknowledgedBy: human.principal, actionId });
+    }
+  );
+
   app.post("/admin/demo-reset", rateLimitAuditEndpoint("POST /admin/demo-reset"), async (request, response) => {
     const human = verifyHumanCockpitAuth(request, runtimeEnv, {
       allowProxyDemoRoles: ["cfo"],
@@ -3006,6 +3078,57 @@ function buildCreditRiskApprovalReceipts(records: readonly MemoryRecord[]): Cred
  * carries the values that were approved rather than anything a client supplied. Rejected and
  * modified decisions never become signals.
  */
+/** Whether a human approval for this recommendation is committed. Mirrors the row builder's checks. */
+function hasCommittedCreditRecommendationApproval(records: readonly MemoryRecord[], actionId: string): boolean {
+  const expectedScope = `approval:${actionId}`;
+
+  return records.some(
+    (record) =>
+      record.category === "approval_records" &&
+      record.trustLevel === "trusted" &&
+      record.id === expectedScope &&
+      record.scope === expectedScope &&
+      record.recordIds.includes(actionId) &&
+      readApprovalPayloadString(record, "actionId") === actionId &&
+      readApprovalPayloadString(record, "approverId")?.startsWith("human:") === true &&
+      readApprovalPayloadString(record, "status") === "human_decided" &&
+      readApprovalPayloadString(record, "decision") === "approve"
+  );
+}
+
+/** Scope and id for a credit-lead acknowledgement of an approved recommendation. */
+function creditRecommendationAcknowledgementScope(actionId: string): string {
+  return `acknowledgement:${actionId}`;
+}
+
+/** When the credit lead confirmed receipt, if they have. */
+function readCreditRecommendationAcknowledgedAt(
+  records: readonly MemoryRecord[],
+  actionId: string
+): string | undefined {
+  const scope = creditRecommendationAcknowledgementScope(actionId);
+  for (const record of records) {
+    if (
+      record.category !== "case_state" ||
+      record.trustLevel !== "trusted" ||
+      record.id !== scope ||
+      record.scope !== scope ||
+      !record.recordIds.includes(actionId)
+    ) {
+      continue;
+    }
+
+    const payload = record.payload as Record<string, unknown> | undefined;
+    const acknowledgedAt = payload?.["acknowledgedAt"];
+    const acknowledgedBy = payload?.["acknowledgedBy"];
+    if (typeof acknowledgedAt === "string" && typeof acknowledgedBy === "string" && acknowledgedBy.startsWith("human:")) {
+      return acknowledgedAt;
+    }
+  }
+
+  return undefined;
+}
+
 function buildApprovedCreditRecommendationRows(
   records: readonly MemoryRecord[],
   rows: CreditRiskRows
@@ -3035,6 +3158,7 @@ function buildApprovedCreditRecommendationRows(
       continue;
     }
 
+    const acknowledgedAt = readCreditRecommendationAcknowledgedAt(records, actionId);
     const parsed = parseCreditRecommendationActionId(actionId);
     const account = parsed === undefined ? undefined : findCreditAccountForLine(rows, parsed.lineId);
     if (parsed === undefined || account === undefined) {
@@ -3057,6 +3181,7 @@ function buildApprovedCreditRecommendationRows(
       actionId: core.actionId,
       amount: core.amount,
       basis: core.basis,
+      ...(acknowledgedAt === undefined ? {} : { acknowledgedAt }),
       caseLabel: parsed.lineId,
       decidedAt: record.createdAt,
       currentLabel: core.currentLabel,

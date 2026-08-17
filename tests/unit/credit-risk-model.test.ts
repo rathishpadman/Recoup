@@ -446,6 +446,63 @@ describe("credit risk review model", () => {
       deterministicBasis: null
     });
   });
+  it("marks a recommendation the credit lead has acknowledged", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const model = buildCreditRiskReviewModel({
+      ...rows,
+      approvedCreditRecommendations: [
+        {
+          accountId: "ACC-VAL",
+          acknowledgedAt: "2026-08-17T10:04:00.000Z",
+          actionId: "credit-recommendation:S5-L1:terms-change",
+          amount: "$12,700.00",
+          basis: "Raised by Maya from case S5-L1.",
+          currentLabel: "Net 45",
+          kind: "terms-change",
+          caseLabel: "S5-L1",
+          decidedAt: "2026-08-16T09:12:44.000Z",
+          proposedLabel: "Net 30",
+          recordIds: ["ACC-VAL", "S5-L1"],
+          scenarioId: "S5"
+        }
+      ]
+    });
+    const signal = byId(model, "ACC-VAL").signals.find(
+      (candidate) => candidate.scenarioId === "credit-recommendation:S5-L1:terms-change"
+    );
+
+    expect(signal?.acknowledgedAt).toBe("2026-08-17T10:04:00.000Z");
+    expect(signal?.basis).toContain("Acknowledged");
+  });
+
+  it("leaves an unacknowledged recommendation without an acknowledgement stamp", () => {
+    const rows = loadCreditRiskFixtureRows();
+    const model = buildCreditRiskReviewModel({
+      ...rows,
+      approvedCreditRecommendations: [
+        {
+          accountId: "ACC-VAL",
+          actionId: "credit-recommendation:S5-L1:terms-change",
+          amount: "$12,700.00",
+          basis: "Raised by Maya from case S5-L1.",
+          currentLabel: "Net 45",
+          kind: "terms-change",
+          caseLabel: "S5-L1",
+          decidedAt: "2026-08-16T09:12:44.000Z",
+          proposedLabel: "Net 30",
+          recordIds: ["ACC-VAL", "S5-L1"],
+          scenarioId: "S5"
+        }
+      ]
+    });
+    const signal = byId(model, "ACC-VAL").signals.find(
+      (candidate) => candidate.scenarioId === "credit-recommendation:S5-L1:terms-change"
+    );
+
+    expect(signal?.acknowledgedAt).toBeUndefined();
+    expect(signal?.basis).not.toContain("Acknowledged");
+  });
+
   it("surfaces an approved Maya credit recommendation as a cited signal for David", () => {
     const rows = loadCreditRiskFixtureRows();
     const model = buildCreditRiskReviewModel({

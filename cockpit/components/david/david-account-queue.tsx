@@ -138,7 +138,7 @@ export function DavidAccountQueue({
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lg font-semibold">{account.customer}</h2>
                       <Badge variant="outline">{account.channel}</Badge>
-                      {account.gamingFlag ? <Badge variant="destructive">Flag [D]</Badge> : null}
+                      {account.gamingFlag ? <Badge title="Deduction-side gaming flag: a behavioural pattern found by forensics, not a credit metric." variant="destructive">Flag [D]</Badge> : null}
                     </div>
                     <p className="text-sm text-muted-foreground">{account.routeLine}</p>
                   </div>

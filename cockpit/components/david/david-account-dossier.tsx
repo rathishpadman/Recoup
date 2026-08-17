@@ -77,7 +77,7 @@ export function DavidAccountDossier({
               <Badge variant="outline">{account.accountId}</Badge>
               <Badge variant="outline">{account.channel}</Badge>
               <Badge variant={davidBadgeVariantByTone[account.verdictTone]}>{account.verdict}</Badge>
-              {account.gamingFlag ? <Badge variant="destructive">Flag [D]</Badge> : null}
+              {account.gamingFlag ? <Badge title="Deduction-side gaming flag: a behavioural pattern found by forensics, not a credit metric." variant="destructive">Flag [D]</Badge> : null}
             </div>
             <div className="grid gap-1">
               <h2 className="text-2xl font-semibold leading-tight">{account.customer}</h2>
