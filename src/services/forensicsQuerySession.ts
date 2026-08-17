@@ -1087,8 +1087,11 @@ function buildLiveForensicsQueryInput(input: {
     "Step 1: call the SDK-visible governed MCP function tool query_answer (Recoup service query.answer) exactly once with this question, selectedLineId, and selected record IDs.",
     "Step 2: after query_answer returns any result: Do not call query_answer again. Immediately call the Agents SDK handoff function transfer_to_Recovery_Drafter to hand off to Recovery Drafter.",
     "Do not call actions.*, decisions.*, approvals.*, or core.* tools.",
-    "Acknowledge the selected evidence scope, then hand off to Recovery Drafter for draft-only recovery context.",
-    "Return only concise lifecycle status. Do not compute or state dollar amounts, verdicts, routings, approvals, or external actions."
+    "Step 3: answer the question in two or three plain sentences for a finance reviewer, using only the facts query_answer returned about this case.",
+    "Never state a dollar amount, verdict, routing, case id or record id that the tool did not return: an answer containing anything else is rejected and replaced.",
+    "Do not compute, total, estimate or convert anything. Restate values exactly as the tool returned them; code owns every figure.",
+    "Do not describe your own steps. 'Evidence scope acknowledged' and 'handed off to Recovery Drafter' are not answers to the reviewer's question.",
+    "Your answer is verified against the tool facts before a reader sees it; if it cannot be verified the deterministic answer is shown instead."
   ];
   if (input.validationRetryReason !== undefined) {
     lines.splice(
