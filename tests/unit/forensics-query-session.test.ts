@@ -188,6 +188,30 @@ describe("forensics query session", () => {
     });
   });
 
+  it("asks the selected-case model to answer the question rather than narrate its lifecycle", async () => {
+    // In production this instruction produced "Evidence scope acknowledged for S7-L1. query.answer
+    // completed on the selected record set." - grounded, verifiable, and not an answer. The guard
+    // cannot fix a model that was told to narrate lifecycle.
+    const seen: string[] = [];
+    await runForensicsQuerySessionWithLiveAgents(
+      buildServiceInput({
+        liveAgentTrace: {
+          env: { OPENAI_API_KEY: "sk-test-live-query" },
+          maxTurns: 2,
+          retryCap: 0,
+          runner: vi.fn<LiveForensicsStreamRunner>((request) => {
+            seen.push(request.input);
+            return groundedSelectedCaseRunner("S6 is invalid and routes to recovery.")(request);
+          })
+        }
+      })
+    );
+
+    const instruction = seen[0] ?? "";
+    expect(instruction).toContain("answer the question");
+    expect(instruction).not.toContain("Return only concise lifecycle status");
+  });
+
   it("uses model prose on a selected case when every business value in it was code-computed", async () => {
     // The selected-case path discarded model text outright, so a reader saw one templated sentence
     // whatever they asked. Prose is now used when the guard can verify it.
