@@ -276,7 +276,7 @@ export function RecoveryDraftReview({
                         <Badge variant="outline">{card.statusLabel}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">{card.basis}</p>
-                      <CreditRecommendationFlowStrip acknowledged={false} approved={card.isApproved} />
+                      <CreditRecommendationFlowStrip acknowledged={false} acknowledgementAvailable={false} approved={card.isApproved} />
                     </div>
                     <div className="grid justify-items-end gap-2 self-start">
                       <strong className="text-right tabular-nums">{card.amount}</strong>

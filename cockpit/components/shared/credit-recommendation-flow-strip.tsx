@@ -4,6 +4,7 @@ import { buildCreditRecommendationFlow } from "./credit-recommendation-flow.ts";
 
 interface CreditRecommendationFlowStripProps {
   acknowledged: boolean;
+  acknowledgementAvailable?: boolean;
   approved: boolean;
 }
 
@@ -12,8 +13,16 @@ interface CreditRecommendationFlowStripProps {
  * recommendation that was approved but never reached the credit lead looked complete on one screen
  * and absent on the other.
  */
-export function CreditRecommendationFlowStrip({ acknowledged, approved }: CreditRecommendationFlowStripProps) {
-  const flow = buildCreditRecommendationFlow({ acknowledged, approved });
+export function CreditRecommendationFlowStrip({
+  acknowledged,
+  acknowledgementAvailable,
+  approved
+}: CreditRecommendationFlowStripProps) {
+  const flow = buildCreditRecommendationFlow({
+    acknowledged,
+    ...(acknowledgementAvailable === undefined ? {} : { acknowledgementAvailable }),
+    approved
+  });
 
   return (
     <div className="grid min-w-0 gap-1" data-testid="credit-recommendation-flow">

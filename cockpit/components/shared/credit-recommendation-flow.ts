@@ -20,13 +20,34 @@ export interface CreditRecommendationFlow {
  */
 export function buildCreditRecommendationFlow(input: {
   acknowledged: boolean;
+  /**
+   * Whether the product can actually accept an acknowledgement yet. While it cannot, the step is
+   * omitted rather than shown as pending: the credit surface previously read "Waiting for the
+   * credit lead to acknowledge" with no acknowledge control anywhere on the page, which asked the
+   * reviewer for an action the product could not take.
+   */
+  acknowledgementAvailable?: boolean;
   approved: boolean;
 }): CreditRecommendationFlow {
+  const acknowledgementAvailable = input.acknowledgementAvailable ?? true;
   // Acknowledgement without an approval is not reachable; treat it as not acknowledged rather than
   // reporting a completed flow for a decision that was never made.
-  const acknowledged = input.approved && input.acknowledged;
+  const acknowledged = acknowledgementAvailable && input.approved && input.acknowledged;
   const currentIndex = acknowledged ? 3 : input.approved ? 2 : 1;
-  const labels = ["Forensics analyst raises", "Human approval", "Credit lead acknowledges"];
+  const labels = acknowledgementAvailable
+    ? ["Forensics analyst raises", "Human approval", "Credit lead acknowledges"]
+    : ["Forensics analyst raises", "Human approval"];
+
+  if (!acknowledgementAvailable) {
+    return {
+      currentIndex,
+      steps: labels.map((label, index) => ({
+        label,
+        state: index < currentIndex ? "done" : index === currentIndex ? "current" : "waiting"
+      })),
+      summary: input.approved ? "Approved and sent to the credit lead." : "Waiting for human approval."
+    };
+  }
 
   return {
     currentIndex,

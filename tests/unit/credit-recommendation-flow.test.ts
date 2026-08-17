@@ -43,6 +43,24 @@ describe("credit recommendation flow", () => {
     expect(flow.summary).toBe("Acknowledged by the credit lead.");
   });
 
+  it("does not advertise an acknowledgement step the product cannot accept", () => {
+    // The credit surface rendered "Waiting for the credit lead to acknowledge" while no
+    // acknowledge control existed anywhere, so the strip told the reviewer to take an action the
+    // product could not accept.
+    const flow = buildCreditRecommendationFlow({ acknowledged: false, acknowledgementAvailable: false, approved: true });
+
+    expect(flow.steps.map((step) => step.label)).toEqual(["Forensics analyst raises", "Human approval"]);
+    expect(flow.summary).toBe("Approved and sent to the credit lead.");
+    expect(flow.steps.every((step) => step.state === "done")).toBe(true);
+  });
+
+  it("still shows the raise and approval steps honestly while acknowledgement is unavailable", () => {
+    const flow = buildCreditRecommendationFlow({ acknowledged: false, acknowledgementAvailable: false, approved: false });
+
+    expect(flow.steps[1]?.state).toBe("current");
+    expect(flow.summary).toBe("Waiting for human approval.");
+  });
+
   it("cannot be acknowledged before it is approved", () => {
     const flow = buildCreditRecommendationFlow({ acknowledged: true, approved: false });
 
