@@ -1738,3 +1738,41 @@ function dedupeQueryableRecordIds(values: readonly string[]): string[] {
 function isProviderFileRecordId(value: string): boolean {
   return value.startsWith("file-");
 }
+
+
+export interface ContainmentEvidenceGroup {
+  countLabel: string;
+  label: string;
+  reason: string;
+  recordIds: string[];
+  tone: "critical" | "evidence" | "safe" | "warning";
+}
+
+/**
+ * Collapses cited containment records into one row per evidence family. A containment case can cite dozens of
+ * records; a row each made the panel mostly repetition of the same sentence.
+ */
+export function groupContainmentEvidenceLinks(
+  links: readonly { label: string; reason: string; recordId: string; tone: ContainmentEvidenceGroup["tone"] }[]
+): ContainmentEvidenceGroup[] {
+  const groups = new Map<string, ContainmentEvidenceGroup>();
+  for (const link of links) {
+    const existing = groups.get(link.label);
+    if (existing === undefined) {
+      groups.set(link.label, {
+        countLabel: "1 record",
+        label: link.label,
+        reason: link.reason,
+        recordIds: [link.recordId],
+        tone: link.tone
+      });
+      continue;
+    }
+    existing.recordIds.push(link.recordId);
+  }
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    countLabel: group.recordIds.length === 1 ? "1 record" : `${group.recordIds.length.toString()} records`
+  }));
+}

@@ -168,6 +168,18 @@ describe("ContainmentBriefCard", () => {
     }
   });
 
+  it("collapses cited evidence into one row per family", () => {
+    const markup = renderToStaticMarkup(createElement(ContainmentBriefCard, { panel: panelFixture }));
+    const occurrences = (phrase: string): number => markup.split(phrase).length - 1;
+
+    // A production Crestline case cites 46 records. Listing each one rendered 46 near-identical
+    // rows, so the page was mostly repetition of the same sentence.
+    for (const link of panelFixture.evidenceLinks) {
+      expect(occurrences(link.reason), `${link.recordId} reason repeated`).toBeLessThanOrEqual(1);
+    }
+    expect(markup).toContain("records");
+  });
+
   it("keeps provenance detail out of the top level of the brief", () => {
     const markup = renderToStaticMarkup(createElement(ContainmentBriefCard, { panel: panelFixture }));
 
