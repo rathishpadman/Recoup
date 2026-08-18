@@ -134,6 +134,9 @@ export function DavidAccountDossier({
 }
 
 function DavidWorkflowCommandStrip({ account }: Readonly<{ account: CreditRiskAccountModel }>) {
+  // Falls back to the account exposure when an account carries no negotiation order, so the tile
+  // never renders empty.
+  const orderReceivedLabel = account.negotiationOrders[0]?.orderAmountLabel ?? account.exposureLabel;
   const approvalLabel = account.packet.approvalStatus === "committed" ? "Committed" : "Awaiting review";
   const nextAction =
     account.packet.approvalStatus === "committed"
@@ -183,11 +186,12 @@ function DavidWorkflowCommandStrip({ account }: Readonly<{ account: CreditRiskAc
         </div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="rounded-md border bg-muted/15 px-2.5 py-2">
-            <span className="block text-xs text-muted-foreground">Exposure</span>
-            <strong>{account.exposureLabel}</strong>
+            {/* The decision in front of the reviewer is about this order, not the whole AR balance. */}
+            <span className="block text-xs text-muted-foreground">Order received</span>
+            <strong>{orderReceivedLabel}</strong>
           </div>
           <div className="rounded-md border bg-muted/15 px-2.5 py-2">
-            <span className="block text-xs text-muted-foreground">Utilisation</span>
+            <span className="block text-xs text-muted-foreground">Credit utilisation</span>
             <strong>{`${account.utilisationLabel} utilised`}</strong>
           </div>
         </div>
