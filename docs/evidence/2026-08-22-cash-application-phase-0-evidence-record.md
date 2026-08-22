@@ -334,6 +334,44 @@ S1-S8 manifests, seed-42 generation and gold eval storage, and enforces this
 through SA-CA-03 ("Live cases never alter S1-S8 storage, enums or gold totals").
 S1-S8 totals, labels and release gates are unchanged by this work.
 
+## Implementation progress against the Section 14 phase plan
+
+Built under the deferred-live-slice election. Every phase below was developed
+tests-first, and the four repository gates pass on each commit.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Cash/workflow types and pure deterministic core | **Complete** — types, source port, `match`, `allocate`, `reason`, workflow envelopes, stable idempotency keys |
+| 2 | Additive schema and repositories | **Schema contract complete**, `docs/supabase-cash-application-schema.sql` with 29 contract tests; **not applied** (D-10). Repository port implemented in memory |
+| 3 | Provider adapter, scanner, CSV mapper, intake | **Not started** — needs D-03, D-04, D-05 |
+| 4 | CashReceipt adapter, re-drive, cash application service | **Rehearsal-only** — proxy source plus durable re-drive; live SAP adapter blocked on D-02 |
+| 5 | Cash Application agent, tools, conductor, handoff | **Not started** — needs D-19 prompt-cache namespace and pinned models |
+| 6 | Live-case Forensics and Maya read models | **Not started** |
+| 7A | Worker lifecycle seam, construction flag, pre-claim config return, negative tests | **Complete** — both N5 negative cases proven with byte-equivalent state snapshots; `CLAUDE.md` updated |
+| 7B | Bounded claims/leases, events, resume, dead letter | **Core complete** — outbox with idempotent scheduling, leases, crash reclaim, dead letter; durable SSE not started |
+| 8 | Agent Operations and Maya UI | **Not started** — needs a running cockpit and approved ImageGen cues |
+| 9 | Security, evals, complete regression | **Partial** — full suite green; `npm run verify` blocked on governed inputs |
+| 10 | Rehearsal, shadow, canary, production | **Not started** — requires explicit release approval |
+
+Test files added: 15, covering unit, integration and invariant layers.
+
+### AC coverage proven so far
+
+| AC | Status |
+|---|---|
+| AC-01 live email to Maya | **Blocked** — no authoritative settlement source (D-02) |
+| AC-06 no settled receipt waits durably and resumes | **Proven for the rehearsal source** — `cash-receipt-redrive.test.ts` drives wait, due-time resume, crash reclaim and dead-letter exhaustion with no browser open |
+
+### What the phase work does not prove
+
+- No live cash has moved. Every allocation cites a `rehearsal-proxy` receipt.
+- The schema has never been applied to a database; the contract tests read SQL
+  text, they do not exercise Postgres.
+- The repository is in memory. Restart durability is proven only against that
+  implementation, not against Supabase.
+- No browser, agent, SSE stream or UI exists yet, so Phases 5, 6 and 8 have no
+  runtime evidence of any kind.
+
 ## Residual risk
 
 AC-01 is structurally unreachable while D-02, D-04, D-05 and D-08 remain open. No
