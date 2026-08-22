@@ -493,6 +493,33 @@ PostgREST end to end. It needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`,
 which are not present in this container, and it exits with code 2 rather than
 degrading to a no-op — a skipped verification must not read as a pass.
 
+## Phase 8 visual gate — scored against Design Rules, cue comparison outstanding
+
+`DESIGN_TARGETS.md` carries two separate things, and only one of them is
+blocked.
+
+**The ImageGen cue comparison is blocked and stays blocked.** Agent Operations is
+a new screen: the inventory covers M1–M6, D1–D5 and CFO, and there is no cue for
+a cash surface. The file also states that implementation must not be pixel-diffed
+against the raster cues, so the missing cue blocks the mockup-vs-build score and
+nothing else. It will unblock when the owner supplies one.
+
+**The Design Rules are checkable without a cue, and now are.**
+`tests/invariants/cash-design-conformance.test.ts` scores them: **47 of 47 pass.**
+
+| Design Rule | Result |
+|---|---|
+| Tokens only — no raw hex, no inline `rgb`/`hsl` | PASS |
+| Light-first — no `dark:` variant outside D5 | PASS |
+| No model-computed dollars — no `Decimal`, `parseFloat`, `toFixed`, `toLocaleString` | PASS |
+| Synthetic renders as synthetic — rehearsal and unratified-policy warnings present, both gated on backend flags | PASS |
+| Cards per panel, never nested — at most one `<Card>` per component, none in the workspace | PASS |
+| No scenario identity on a live-case surface | PASS |
+
+The rules are the part that protects the build; the cue is the part that
+protects the look. The first is now a repeatable gate rather than a one-off
+review.
+
 ## Assumed values register (D-07) — NOT OWNER-RATIFIED
 
 The owner instructed that values may be invented for demo and MVP purposes and
