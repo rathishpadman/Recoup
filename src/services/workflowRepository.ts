@@ -27,6 +27,13 @@ export interface AppendEventInput {
 export interface WorkflowRepository {
   createRun(run: WorkflowRun): Promise<WorkflowRun>;
   getRun(runId: string): Promise<WorkflowRun | undefined>;
+  /**
+   * Every run, including one that has emitted no event yet. Without this a
+   * run that was accepted but has not started is invisible to the operations
+   * view, and accepted work silently disappearing is worse than showing it
+   * as queued.
+   */
+  listRuns(): Promise<WorkflowRun[]>;
   updateRunState(input: {
     runId: string;
     state: string;
@@ -123,6 +130,10 @@ export function createInMemoryWorkflowRepository(options?: {
 
     getCase(caseId) {
       return Promise.resolve(cases.get(caseId));
+    },
+
+    listRuns() {
+      return Promise.resolve([...runs.values()]);
     },
 
     listCases() {

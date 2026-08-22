@@ -172,21 +172,16 @@ export function createSupabaseWorkflowRepository(
       const [row] = rows;
       if (row === undefined) return undefined;
 
-      return WorkflowRunSchema.parse({
-        runId: row.run_id,
-        workflowName: row.workflow_name,
-        workflowVersion: row.workflow_version,
-        triggerType: row.trigger_type,
-        triggerRecordId: row.trigger_record_id,
-        correlationId: row.correlation_id,
-        state: row.state,
-        currentPhase: row.current_phase,
-        ...(row.case_id === null ? {} : { caseId: row.case_id }),
-        provenanceMode: row.provenance_mode,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        ...(row.terminal_at === null ? {} : { terminalAt: row.terminal_at })
-      });
+      return mapRun(row);
+    },
+
+    async listRuns() {
+      const rows = (await request("/recoup_workflow_runs?select=*", {
+        method: "GET",
+        headers: headers(serviceRoleKey)
+      })) as Record<string, unknown>[];
+
+      return rows.map(mapRun);
     },
 
     async updateRunState(input) {
@@ -314,6 +309,24 @@ export function createSupabaseWorkflowRepository(
       return rows.map(mapCase);
     }
   };
+}
+
+function mapRun(row: Record<string, unknown>): WorkflowRun {
+  return WorkflowRunSchema.parse({
+    runId: row.run_id,
+    workflowName: row.workflow_name,
+    workflowVersion: row.workflow_version,
+    triggerType: row.trigger_type,
+    triggerRecordId: row.trigger_record_id,
+    correlationId: row.correlation_id,
+    state: row.state,
+    currentPhase: row.current_phase,
+    ...(row.case_id === null ? {} : { caseId: row.case_id }),
+    provenanceMode: row.provenance_mode,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.terminal_at === null ? {} : { terminalAt: row.terminal_at })
+  });
 }
 
 function mapCase(row: Record<string, unknown>): LiveDeductionCase {
