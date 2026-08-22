@@ -65,6 +65,30 @@ all green, so verify afterwards rather than assuming.
 
 Presentation-only changes (client components) do not need the purge.
 
+## Cash Application worker (N5 split) — do not skip
+
+The workflow worker is deliberately split across two phases, and Phase 7B must
+not be started until both Phase 7A negative cases pass independently.
+
+`src/services/workflowWorker.ts` is **Phase 7A only**. It contains no
+claim-capable path, and `workflow-worker-disabled-no-mutation.test.ts` asserts
+that by reading its source. Adding claiming, leasing, a timer or an UPDATE to
+that file breaks the test on purpose — the split is the safety property, not
+an ordering preference.
+
+Two gates must both hold before any command is claimed:
+
+1. `RECOUP_CASH_WORKER_ENABLED` exactly `true`, or the factory constructs
+   nothing at all. Configuration is not even read when the flag is absent.
+2. A valid `cash_run_control`, checked **before** the claim RPC, never after.
+
+Both refusal paths must leave persisted state byte-equivalent; the tests prove
+it with a sha256 snapshot taken either side of the refused start.
+
+Cash flags stay off during any baseline run. The demo path additionally needs
+`RECOUP_CASH_REHEARSAL_ENABLED` and `RECOUP_CASH_DEMO_POLICY_ENABLED`, both of
+which gate assumed, non-ratified values and must never be set in production.
+
 ## Open work
 
 `docs/handoff/maya-workstream-b-and-followups.md` carries the Workstream B plan and two open UI
