@@ -3,41 +3,85 @@
  *
  * These mirror the backend read model exactly. The cockpit performs no
  * business logic and no arithmetic: every value here was decided and formatted
- * by the backend, and the components below only choose how to show it.
+ * by the backend, and the components only choose how to show it.
+ *
+ * Shapes follow the approved ImageGen cues in `mockups/imagegen/`.
  */
 
-export type AgentRunState =
+export type AgentStatus =
   | "Idle"
   | "Queued"
   | "Running"
   | "Waiting"
-  | "HandedOff"
+  | "Handed off"
   | "Blocked"
   | "Completed";
 
+export type AgentHealth = "healthy" | "degraded" | "unavailable";
+
+/** The four counters across the top of the workspace. */
+export interface AgentOperationsCounts {
+  active: number;
+  queued: number;
+  waiting: number;
+  needsAttention: number;
+}
+
+/** Shown only while an agent is running. All values backend-formatted. */
+export interface AgentCurrentAction {
+  currentAction: string;
+  tool: string;
+  elapsed: string;
+  traceHref?: string;
+}
+
+export interface AgentRosterRow {
+  agent: string;
+  status: AgentStatus;
+  health: AgentHealth;
+  lastRun?: string;
+  lastRunId?: string;
+  lastScenario?: string;
+  successRate30d?: string;
+  avgRunTime30d?: string;
+  currentAction?: AgentCurrentAction;
+}
+
 export interface AgentOperationsRunRow {
   runId: string;
-  specialist: string;
-  state: string;
-  phase: string;
-  lastEventType: string;
-  lastEventAt: string;
+  agent: string;
+  scenario?: string;
+  customer?: string;
+  status: AgentStatus;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  elapsed?: string;
   caseId?: string;
   provenanceMode: "live" | "replay" | "synthetic";
   blocked: boolean;
+}
+
+export interface RunDetail {
+  runId: string;
+  agent: string;
+  scenario?: string;
+  status: AgentStatus;
+  startedAt?: string;
+  elapsed?: string;
+  blockerCode?: string;
 }
 
 export interface AgentOperationsEvent {
   eventId: string;
   runId: string;
   cursor: string;
+  time: string;
+  event: string;
   eventType: string;
   phase: string;
-  status: string;
-  safeSummary: string;
   recordIds: string[];
   provenanceMode: "live" | "replay" | "synthetic";
-  occurredAt: string;
 }
 
 export interface UpstreamCashOrigin {
@@ -56,7 +100,13 @@ export interface UpstreamCashOrigin {
 }
 
 export interface AgentOperationsSnapshot {
+  counts: AgentOperationsCounts;
+  roster: AgentRosterRow[];
   runs: AgentOperationsRunRow[];
   events: AgentOperationsEvent[];
   cursor: string;
 }
+
+/** Shown when no verified remittance email has arrived yet. */
+export const RUNS_EMPTY_MESSAGE = "Waiting for a verified remittance email.";
+export const NO_RUN_SELECTED_TITLE = "No run selected.";

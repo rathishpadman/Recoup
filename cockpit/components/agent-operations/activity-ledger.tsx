@@ -1,16 +1,16 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { EmptyPanel } from "./run-detail.tsx";
 import type { AgentOperationsEvent } from "./types.ts";
 
 /**
- * Append-only activity ledger.
+ * Event ledger.
  *
  * Events are rendered in the order the backend produced them and are never
- * reordered, merged or summarised here. Each row shows the safe summary and how
- * many records it cites; the cockpit does not open the records or restate their
- * contents.
+ * reordered, merged or summarised here. Each row shows the backend-formatted
+ * time and the safe summary; the cockpit does not open the cited records or
+ * restate their contents.
  */
 
 interface ActivityLedgerProps {
@@ -19,40 +19,40 @@ interface ActivityLedgerProps {
 }
 
 export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
-  const visible = runId === undefined ? events : events.filter((event) => event.runId === runId);
+  const visible = runId === undefined ? [] : events.filter((event) => event.runId === runId);
 
   return (
     <Card data-testid="agent-operations-activity-ledger">
       <CardHeader>
-        <CardTitle>Activity</CardTitle>
+        <CardTitle>Event ledger</CardTitle>
       </CardHeader>
       <CardContent>
         {visible.length === 0 ? (
-          <p className="text-sm text-muted-foreground" data-testid="activity-ledger-empty">
-            No activity recorded.
-          </p>
+          <EmptyPanel
+            testId="activity-ledger-empty"
+            hint="Select a run from the table to view its event history."
+          />
         ) : (
-          <ol className="space-y-3">
-            {visible.map((event) => (
-              <li
-                key={event.eventId}
-                data-testid={`activity-event-${event.eventId}`}
-                className="border-l-2 pl-3"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs">{event.eventType}</span>
-                  <Badge variant="outline">{event.phase}</Badge>
-                  {event.provenanceMode !== "live" ? (
-                    <Badge variant="secondary">{event.provenanceMode}</Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-sm">{event.safeSummary}</p>
-                <p className="text-xs text-muted-foreground">
-                  cites {event.recordIds.length} record(s) · {event.occurredAt}
-                </p>
-              </li>
-            ))}
-          </ol>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th className="py-2 pr-4 font-normal">Time</th>
+                <th className="py-2 font-normal">Event</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((event) => (
+                <tr
+                  key={event.eventId}
+                  data-testid={`activity-event-${event.eventId}`}
+                  className="border-t align-top"
+                >
+                  <td className="py-3 pr-4 tabular-nums whitespace-nowrap">{event.time}</td>
+                  <td className="py-3">{event.event}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </CardContent>
     </Card>

@@ -59,6 +59,30 @@ function headers(serviceRoleKey: string, extra: Record<string, string> = {}): He
   };
 }
 
+/**
+ * PostgREST reports failures as `{ message, code, details, hint }`. Only the
+ * message is surfaced: details and hint can echo row values, which may carry
+ * customer references.
+ */
+function readPostgrestMessage(body: string): string | undefined {
+  if (body.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(body);
+
+    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+      const { message } = parsed;
+      return typeof message === "string" ? message : undefined;
+    }
+  } catch {
+    // A non-JSON body is not a PostgREST error shape; the status alone stands.
+  }
+
+  return undefined;
+}
+
 function toEvent(row: WorkflowEventRow): WorkflowEvent {
   return WorkflowEventSchema.parse({
     schemaVersion: "1",
@@ -92,7 +116,18 @@ export function createSupabaseWorkflowRepository(
     const response = await fetcher(`${rest}${path}`, init);
 
     if (!response.ok) {
-      throw new Error(`supabase request failed: ${String(response.status)}`);
+      // A bare status code makes an RLS or grant problem indistinguishable from
+      // a schema one, so the PostgREST message is carried through. It describes
+      // the failure and never contains the key, which is only ever sent in a
+      // header.
+      const detail = await response.text().catch(() => "");
+      const message = readPostgrestMessage(detail);
+
+      throw new Error(
+        message === undefined
+          ? `supabase request failed: ${String(response.status)}`
+          : `supabase request failed: ${String(response.status)} ${message}`
+      );
     }
 
     const text = await response.text();

@@ -19,7 +19,19 @@ import type {
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The roster is the fixed set of specialists the workspace reports on, so it is
+ * present even with no runs. Counts are zero and every agent is idle, which is
+ * the truthful picture below the shadow rollout stage.
+ */
 const emptySnapshot: AgentOperationsSnapshot = {
+  counts: { active: 0, queued: 0, waiting: 0, needsAttention: 0 },
+  roster: [
+    { agent: "Cash Application", status: "Idle", health: "healthy" },
+    { agent: "Deduction Forensics", status: "Idle", health: "healthy" },
+    { agent: "Recovery Drafter", status: "Idle", health: "healthy" },
+    { agent: "Maya Queue", status: "Idle", health: "healthy" }
+  ],
   runs: [],
   events: [],
   cursor: "0"
