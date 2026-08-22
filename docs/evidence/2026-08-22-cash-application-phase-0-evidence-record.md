@@ -268,6 +268,39 @@ authority; Architecture for the source-port and amendment decision.
 
 ---
 
+## Schema DDL validated against live Postgres
+
+| Field | Value |
+|---|---|
+| Timestamp (UTC) | 2026-08-22 |
+| Environment | Supabase project `nmwfftudympcvcjtyjbf`, Postgres 17.6 |
+| Method | Table and index DDL applied to a throwaway schema `cash_ddl_validation`, verified, then dropped |
+| Result | **PASS** |
+
+This closes the caveat that the schema tests read SQL text rather than exercising
+Postgres. The table DDL is now known to apply, not merely to look correct.
+
+| Check | Observed |
+|---|---|
+| Tables created | 12 |
+| Foreign keys | 15 |
+| Unique constraints | 6 |
+| Check constraints | 173 |
+| Indexes | 24 |
+| `numeric` money columns | 13 |
+| `float`/`real` columns | **0** |
+| `scenario%` columns on the live-case table | **0** |
+
+**Scope and safety.** Only `CREATE TABLE` and `CREATE INDEX` ran, inside a schema
+created for the purpose and dropped afterwards with `CASCADE`. The RLS/grant block
+and the `recoup_config` CHECK widening were deliberately excluded, because both act
+on real objects and belong to the D-10 migration. Verified after cleanup: zero
+`recoup_cash*` or `recoup_workflow*` tables in `public`, the validation schema gone,
+and the `recoup_config` key CHECK unchanged (still without `cash_run_control`).
+
+**Still outstanding for Phase 2.** Applying the schema to `public` as live authority,
+enabling RLS and grants, and widening the `recoup_config` CHECK all require D-10.
+
 ## Assumed values register (D-07) — NOT OWNER-RATIFIED
 
 The owner instructed that values may be invented for demo and MVP purposes and
