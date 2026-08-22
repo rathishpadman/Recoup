@@ -213,7 +213,26 @@ now satisfied by Item 10.
 
 ## D-02 contingency election (§5.3)
 
-The owner has elected **option 1 — promote another authoritative source**.
+**Election superseded 2026-08-22.** The owner first elected option 1, then confirmed
+that no real bank or treasury source is available and directed that a proxy be built
+so work can proceed. With no bank or lockbox source in existence, option 1 is not
+reachable: it requires a named external authority to promote. The operative election
+is therefore **option 2 — defer the live slice**, under which a proxy is permitted
+only as an explicitly labelled rehearsal/shadow capability.
+
+Consequences of option 2, recorded so they are not later mistaken:
+
+- AC-01 remains **blocked**. Production cash allocation and live email-to-Maya are
+  not claimed complete.
+- The feature cannot meet §18 or §19 while this election stands.
+- No customer-facing effectiveness claim is permitted from proxy, reference,
+  synthetic or replay data (§17.6).
+- The proxy must never be presented as an authoritative settled `CashReceipt`
+  source; SA-CA-01 continues to forbid allocation without one.
+
+### Superseded: option 1 assessment (retained for audit)
+
+The owner had elected **option 1 — promote another authoritative source**.
 
 §5.3 option 1 requires a **bank or lockbox** read-only adapter promoted into slice
 one, with its security, source and freshness contract defined through synchronized
