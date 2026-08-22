@@ -14,3 +14,7 @@ coverage/
 output/
 
 .vercel
+
+# Claude Code linked worktrees (implementation spec 7.2); untracked worktree
+# content otherwise dirties the restore-rehearsal status comparison (6.3).
+.claude/worktrees/
