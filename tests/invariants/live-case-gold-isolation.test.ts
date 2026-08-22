@@ -19,6 +19,15 @@ const demoEnv = {
   RECOUP_CASH_DEMO_POLICY_ENABLED: "true"
 };
 
+const firstLine = {
+  lineId: "LINE-1",
+  invoiceReference: "INV-1",
+  instructedAmount: "1000.00",
+  claimedDeductionAmount: "250.00",
+  claimedReasonCode: "DMG",
+  sourceRecordIds: ["REM-SRC-1"]
+};
+
 const advice = {
   remittanceId: "REM-1",
   inboundMessageId: "MSG-1",
@@ -28,16 +37,7 @@ const advice = {
   currency: "USD",
   instructedPaymentAmount: "1250.00",
   mapperVersion: "csv-v1",
-  lines: [
-    {
-      lineId: "LINE-1",
-      invoiceReference: "INV-1",
-      instructedAmount: "1000.00",
-      claimedDeductionAmount: "250.00",
-      claimedReasonCode: "DMG",
-      sourceRecordIds: ["REM-SRC-1"]
-    }
-  ],
+  lines: [firstLine],
   sourceRecordIds: ["REM-SRC-1"],
   provenanceMode: "replay" as const
 };
@@ -146,7 +146,7 @@ describe("agent operations rows derive from events, not from agent claims", () =
   it("marks a blocked run blocked", async () => {
     const repository = createInMemoryWorkflowRepository();
     const outcome = await startCashApplicationRun({
-      advice: { ...advice, lines: [{ ...advice.lines[0], claimedReasonCode: "NOPE" }] },
+      advice: { ...advice, lines: [{ ...firstLine, claimedReasonCode: "NOPE" }] },
       invoices,
       env: demoEnv,
       repository
