@@ -435,6 +435,64 @@ and the `recoup_config` key CHECK unchanged (still without `cash_run_control`).
 **Still outstanding for Phase 2.** Applying the schema to `public` as live authority,
 enabling RLS and grants, and widening the `recoup_config` CHECK all require D-10.
 
+## Persistence path verified against live Postgres
+
+The repository and receipt source were previously exercised only against mocks.
+Both have now been driven against the real database.
+
+### Write shapes accepted
+
+The exact row shapes `createSupabaseWorkflowRepository` writes were inserted into
+`recoup_workflow_runs` and `recoup_workflow_events`. Both accepted; the event
+`cursor_id` advanced monotonically and `run_sequence` was contiguous from 1. Rows
+were deleted afterwards, and runs, events and cases are all back to zero.
+
+### Constraints reject what the design forbids
+
+Six negative cases were attempted against the live tables. **All six were
+rejected by the database**, so these are database guarantees rather than code
+conventions:
+
+| Attempted | Outcome |
+|---|---|
+| Duplicate `run_sequence` for one run | rejected |
+| `safe_summary` longer than 1000 characters | rejected |
+| `provenance_mode` of `production` | rejected |
+| Negative `amount_received` | rejected |
+| Lowercase `usd` currency | rejected |
+| `validated_reason` of `PRC` rather than `DEP` | rejected |
+
+### Settlement source now reads durable rows
+
+`src/adapters/supabaseCashReceipt.ts` reads settled receipts from
+`recoup_cash_receipts` rather than from in-memory fixtures, so a run resolves
+against durable state and survives a restart. Four rehearsal receipts are seeded,
+chosen to exercise each branch:
+
+| Receipt | Settlement | Age | Expected outcome |
+|---|---|---|---|
+| `REHEARSAL-PAY-1001` | settled | 2h | allocates |
+| `REHEARSAL-PAY-1002` | settled | 3h | allocates |
+| `REHEARSAL-PAY-1003` | pending | 1h | `pending`, no allocation |
+| `REHEARSAL-PAY-1004` | settled | 60d | `stale`, no allocation |
+
+Freshness is evaluated at read time rather than trusted from the stored
+`freshness_status`, because a stored flag ages the moment it is written. The
+`REHEARSAL-PAY-1004` row is the case that proves it: it claims `fresh` and is
+still reported `stale`.
+
+**This does not close D-02.** Every seeded row carries
+`source_system = 'rehearsal-proxy'`, and `isAuthoritativeSourceSystem` returns
+false for it. The table records what an upstream source claimed; it is not
+evidence that cash arrived. AC-01 remains blocked.
+
+### Not run here
+
+`scripts/verifyCashApplicationLivePath.ts` drives the whole path through
+PostgREST end to end. It needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`,
+which are not present in this container, and it exits with code 2 rather than
+degrading to a no-op — a skipped verification must not read as a pass.
+
 ## Assumed values register (D-07) — NOT OWNER-RATIFIED
 
 The owner instructed that values may be invented for demo and MVP purposes and
