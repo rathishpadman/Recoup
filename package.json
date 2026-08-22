@@ -55,7 +55,8 @@
     "dev:api": "tsx watch src/services/cockpitApi.ts",
     "dev:mcp": "tsx watch src/mcp/server.ts",
     "dev:cockpit": "next dev cockpit",
-    "test:e2e:agent-operations": "tsx tests/e2e/agent-operations-live-e2e.ts"
+    "test:e2e:agent-operations": "tsx tests/e2e/agent-operations-live-e2e.ts",
+    "test:e2e:agent-operations-routed": "tsx tests/e2e/agent-operations-routed-e2e.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
