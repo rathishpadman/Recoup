@@ -268,6 +268,72 @@ authority; Architecture for the source-port and amendment decision.
 
 ---
 
+## Assumed values register (D-07) — NOT OWNER-RATIFIED
+
+The owner instructed that values may be invented for demo and MVP purposes and
+that each be called out here. Every value below is an **assumption authored by
+the implementer**. None has been reviewed by Treasury or Architecture, and D-07
+remains open.
+
+The object lives in `config/cashAllocationPolicy.ts` as `DEMO_ALLOCATION_POLICY`
+and is reachable only when `RECOUP_CASH_DEMO_POLICY_ENABLED` is explicitly
+`true`. Without that flag `loadApprovedAllocationPolicy` returns `undefined`,
+`match.ts` reports `policy_missing` and `allocate.ts` returns `Contract gap`, so
+the fail-closed path stays intact for anything that is not the demo.
+
+The bias throughout is conservative: where a choice could either resolve a case
+automatically or send it to a human, this policy sends it to a human. The demo
+therefore under-claims rather than over-claims, which is the safe direction to be
+wrong in when the numbers are invented.
+
+| Field | Assumed value | Basis | Cost if wrong |
+|---|---|---|---|
+| `policyVersion` | `demo-allocation-policy-v1-ASSUMED` | Names itself in every allocation receipt that cites it | None; the label is the safeguard |
+| `calculationVersion` | `demo-calc-v1` | Distinguishes arithmetic revisions from policy revisions | Version confusion across receipts |
+| `paymentReferenceMatchRule` | `normalized` | Demo fixtures and hand-typed references vary in case and whitespace | Looser than `exact`; could match an unrelated payment sharing a reference |
+| `cardinality` | `one_to_many` | One remittance commonly settles several invoices | Permits multi-invoice cases a stricter policy would send to review |
+| `invoiceOrdering` | `remittance_line_order` | Deterministic, and needs no field the canonical invoice lacks | Not value-optimal; `oldest_due_date_first` needs a due date that is not modelled |
+| `currencyScale` | `2` | Suits the USD demo fixtures | Exactly the assumption the design warns against generalising; wrong for zero-decimal and three-decimal currencies |
+| `rounding` | `half_up` | Matches the `ROUND_HALF_UP` already configured in `src/types/money.ts`, so the formatter cannot disagree with the arithmetic | Sub-unit drift against a house convention that rounds differently |
+| `amountTolerance` | `"0"` | No tolerance; a penny of drift becomes a human decision | More review volume than a real operation would accept |
+| `discountsAllowed` | `false` | Not modelled in the canonical remittance line | Legitimate early-payment discounts land in review |
+| `creditsAllowed` | `false` | Same | Legitimate credit applications land in review |
+| `overpayment` | `review` | Surplus cash is a question for a human, not something to park automatically | Higher review volume; no silent credit creation |
+| `residual` | `review` | Same reasoning | No automatic write-off |
+| `ambiguity` | `review` | Same reasoning | No automatic resolution |
+| `fx` | `reject_cross_currency` | No approved rate source exists | Cross-currency cases cannot complete at all |
+
+Two related assumed values sit outside this object and are recorded for the same
+reason:
+
+| Value | Location | Note |
+|---|---|---|
+| `REHEARSAL_SOURCE_SYSTEM = "rehearsal-proxy"` | `src/adapters/rehearsalCashReceipt.ts` | Stamped on every proxy receipt so an audit trail cannot read as live |
+| `freshnessPolicyVersion = "rehearsal-freshness-v1"` | same | Placeholder; D-15 owns real source-freshness targets |
+| Rehearsal fixtures (`PAY-1001`, `PAY-1002`) | same | Illustrative demo data, **not** an approved D-06 fixture set |
+
+**Promotion rule.** None of the above may reach production. Ratifying D-07 means
+replacing `DEMO_ALLOCATION_POLICY` with a reviewed object, recording the new
+`policyVersion` here, and removing the demo flag path.
+
+## Open specification gap found during implementation
+
+The Technical Design 4.6 `CashMatchResult` reason enum has no arm for a payment
+reference that fails to match. `match.ts` reports `cash_receipt_missing`, on the
+grounds that a receipt whose payment reference does not match was not a receipt
+for this remittance; `amount_mismatch` would assert something about amounts that
+was never compared. Raised here rather than resolved by picking a convenient
+label; an owner may prefer a new enum arm.
+
+## Scenario enum — no S09/S10
+
+Cash Application cases are `LiveDeductionCase` records and are **not** added to
+the scenario enum. The SDD addendum names "adding live cases to the scenario
+enum" as a non-goal, keeps `LiveDeductionCase` separate from `ScenarioId`, the
+S1-S8 manifests, seed-42 generation and gold eval storage, and enforces this
+through SA-CA-03 ("Live cases never alter S1-S8 storage, enums or gold totals").
+S1-S8 totals, labels and release gates are unchanged by this work.
+
 ## Residual risk
 
 AC-01 is structurally unreachable while D-02, D-04, D-05 and D-08 remain open. No
