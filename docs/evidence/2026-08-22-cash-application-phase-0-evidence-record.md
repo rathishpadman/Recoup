@@ -178,14 +178,27 @@ failed the restore on a difference it created itself.
 
 ## Item 11 — Clean target worktree and baseline verify — **PARTIAL**
 
-Gates executed on the target SHA:
+Gates executed on the target SHA. Per §13.1 this is an **offline partial baseline**,
+because the governed runtime inputs `verify:release` requires are unavailable in this
+environment.
 
 | Gate | Result |
 |---|---|
 | `npm run lint` | exit 0 |
 | `npm run typecheck` | exit 0 |
 | `npm run test` | exit 0 — 181 files, 1680 tests passed |
-| `npm run verify` | **not run** — adds dependency-cruiser port purity and eval gates |
+| `npm run depcruise` | exit 0 — no violations, 161 modules / 558 dependencies cruised |
+| `npm run verify:release` | **BLOCKED** — exit 1, `governed accuracy bars unavailable` |
+| `npm run verify` (aggregate) | **BLOCKED — governed runtime inputs unavailable** |
+
+`verify:release` loads governed owner inputs from Supabase. No `SUPABASE_URL` or
+`SUPABASE_SERVICE_ROLE_KEY` is set in this environment and no `.env.local` is
+present, so the release-readiness gates return `governed accuracy bars unavailable`
+rather than a pass or a substantive failure. Configuration was not weakened, no file
+was excluded and no hook was skipped.
+
+§13.1 is explicit that a partial baseline cannot satisfy §5.2, §18 or a GO decision.
+Item 11 therefore remains **PARTIAL** and blocks the §18 baseline condition.
 
 The feature worktree at `.claude/worktrees/cash-application-agent-workspace` has
 **not** been created. §7.1 requires the release owner to name the target branch and
