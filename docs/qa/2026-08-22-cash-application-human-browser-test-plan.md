@@ -208,6 +208,63 @@ They are fake, and the UI is supposed to say so.
 
 ---
 
+## Part E — Seeded scenarios, and how to remove them afterwards
+
+`scripts/cashE2eScenarios.ts` seeds ten fixtures. They are real rows in the real
+`recoup_cash_receipts` table, not mocks — the pipeline reads them the same way it
+would read anything else, which is the point: a fixture the code can tell apart
+from production data proves nothing.
+
+Each one exercises a different branch. Repeating the happy path with different
+numbers would give ten green checks and one tested path.
+
+| ID | Scenario | What a tester should see |
+|---|---|---|
+| `E2E-SC-01` | Happy path short payment | Run reaches `Ready`, a live case is created, short payment 250.00 USD |
+| `E2E-SC-02` | Full payment, nothing deducted | Run reaches `Ready`, short payment 0.00, no deduction to investigate |
+| `E2E-SC-03` | Duplicate delivery of the same remittance | Second run reuses the same run id and case id; exactly one case exists |
+| `E2E-SC-04` | No receipt has arrived yet | Run halts at `AwaitingCashReceipt`, no case created, one resume scheduled |
+| `E2E-SC-05` | Receipt exists but is not settled | Lookup reports `pending`, run does not allocate, no case created |
+| `E2E-SC-06` | Settled receipt older than the freshness window | Lookup reports `stale` despite the row claiming fresh; no allocation |
+| `E2E-SC-07` | Reversed receipt | Lookup reports `pending` rather than settled; no allocation |
+| `E2E-SC-08` | Cross-currency receipt (EUR) | Contract gap: no approved FX policy, the amount is never converted |
+| `E2E-SC-09` | Unmapped claimed reason code | Run halts at `ReasonReview`, allocation exists, no case created |
+| `E2E-SC-10` | Large multi-line remittance | Allocation covers every line; reconciliation identities balanced |
+
+`E2E-SC-04` deliberately has **no receipt row**. The absence is the fixture. If a
+run against it produces an allocation, SA-CA-01 has been broken and that is a
+stop-everything finding, not a bug report.
+
+### Running them
+
+```bash
+npx tsx scripts/cashE2eScenarios.ts verify   # prints the ten and their expectations
+npx tsx scripts/cashE2eScenarios.ts seed     # inserts the nine receipt rows
+npx tsx scripts/cashE2eScenarios.ts reset    # removes them again
+```
+
+### Why reset is safe to run against production
+
+Every row the seed writes carries the `E2E-` prefix in its primary key, and reset
+deletes strictly by that prefix across twelve tables in child-first order. Reset
+cannot remove a row the seed did not create — that is the whole safety design, not
+a convention someone is expected to remember.
+
+This was verified against the live database rather than assumed. Before reset:
+nine `E2E-` receipts and four `REHEARSAL-` receipts. After reset: `e2e_rows: 0`,
+`rehearsal_rows: 4`. The four rehearsal rows that the reset had every opportunity
+to remove were still there.
+
+Re-seeding restored `e2e_seeded: 9, rehearsal_intact: 4`, so the cycle is
+repeatable — a tester can seed, break things, reset and start again without
+coordinating with anyone.
+
+**Reset when the session ends.** These rows are visible to anything reading the
+cash tables, and a stale `E2E-` row surviving into a later demo would be indistin-
+guishable from real data to someone who was not in the room.
+
+---
+
 ## Reporting
 
 For each test record: ID, pass/fail, browser + version, and a screenshot for any
