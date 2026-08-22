@@ -76,7 +76,32 @@ export function moneyStringToDecimal(value: MoneyStringValue): Money {
 }
 
 /**
- * decimalToMoneyString is intentionally absent. It requires an owner-approved
- * CurrencyScalePolicy (Technical Design 4.1), which is unratified; the document
- * is explicit that two decimal places must not be assumed for every currency.
+ * Currency scale policy, the second half of the Technical Design 4.1 boundary
+ * pair. Declared structurally here rather than imported from config so the type
+ * layer stays free of a dependency on the policy module.
  */
+export interface CurrencyScalePolicy {
+  currencyScale: number;
+  rounding: "half_up" | "half_even" | "down";
+}
+
+const decimalRoundingModes = {
+  half_up: Decimal.ROUND_HALF_UP,
+  half_even: Decimal.ROUND_HALF_EVEN,
+  down: Decimal.ROUND_DOWN
+} as const;
+
+/**
+ * The single formatter. Core results stay Decimal until this produces the
+ * persistence, API or display string, so scale and rounding are applied in
+ * exactly one place and come from policy rather than from an assumed two
+ * decimal places.
+ */
+export function decimalToMoneyString(
+  value: Money,
+  policy: CurrencyScalePolicy
+): MoneyStringValue {
+  return MoneyString.parse(
+    value.toFixed(policy.currencyScale, decimalRoundingModes[policy.rounding])
+  );
+}
