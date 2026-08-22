@@ -37,16 +37,40 @@ const emptySnapshot: AgentOperationsSnapshot = {
   cursor: "0"
 };
 
-function readSnapshot(): AgentOperationsSnapshot {
-  return emptySnapshot;
+/**
+ * Reads the snapshot the backend assembled.
+ *
+ * Nothing is derived here. The backend decides what is exposed from the
+ * rollout stage and the kill switch, so an empty snapshot arriving over the
+ * wire is an answer rather than an absence.
+ *
+ * An unreachable backend also renders the empty snapshot. Below the exposing
+ * stage there is legitimately no backend to reach, and the empty state is the
+ * truthful picture there; the API route returns 502 for callers that need to
+ * tell an outage apart from a quiet system.
+ */
+async function readSnapshot(): Promise<AgentOperationsSnapshot> {
+  const apiBaseUrl = process.env.RECOUP_API_URL ?? "http://127.0.0.1:4317";
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/agent-operations`, { cache: "no-store" });
+
+    if (!response.ok) {
+      return emptySnapshot;
+    }
+
+    return (await response.json()) as AgentOperationsSnapshot;
+  } catch {
+    return emptySnapshot;
+  }
 }
 
 function readUpstreamOrigin(): UpstreamCashOrigin | undefined {
   return undefined;
 }
 
-export default function AgentOperationsPage() {
-  const snapshot = readSnapshot();
+export default async function AgentOperationsPage() {
+  const snapshot = await readSnapshot();
   const origin = readUpstreamOrigin();
 
   return (

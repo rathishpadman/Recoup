@@ -26,6 +26,9 @@ import {
   type CockpitDemoRole,
   type CockpitHumanProxyPurpose
 } from "../../config/cockpitHumanPrincipals.js";
+import { loadAgentOperationsSnapshot } from "./agentOperationsReadModel.js";
+import { resolveWorkflowRepository } from "./workflowRepositoryFactory.js";
+import type { WorkflowRepository } from "./workflowRepository.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
 import { createInMemoryStore } from "../memory/store.js";
 import type { MemoryRecord } from "../memory/schema.js";
@@ -389,6 +392,8 @@ export interface CockpitApiOptions {
   openAiVectorStoreFetcher?: OpenAiVectorStoreFetch;
   realtimeFetcher?: typeof fetch;
   sapFetcher?: typeof fetch;
+  /** Test seam. Production resolves the repository from the environment. */
+  workflowRepository?: WorkflowRepository;
 }
 
 export type CockpitSourceHealthPollerFactory = (options: SourceHealthPollerOptions) => SourceHealthPollerHandle;
@@ -1002,6 +1007,25 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
 
   app.get("/agents", (_request, response) => {
     response.json(buildAgentGraphModel());
+  });
+
+  /**
+   * The Agent Operations snapshot. The gate lives in the loader, so this route
+   * asks for the snapshot and returns whatever it is given: below the exposing
+   * stage that is the empty snapshot, and the route cannot accidentally leak
+   * rows by forgetting a check of its own.
+   */
+  app.get("/agent-operations", async (_request, response) => {
+    const repository =
+      options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository;
+
+    try {
+      response.json(await loadAgentOperationsSnapshot({ repository, env: runtimeEnv }));
+    } catch {
+      // A read failure must not render as "no runs", which would look like a
+      // quiet system rather than a broken one.
+      response.status(502).json({ error: "Agent operations read model unavailable." });
+    }
   });
 
   app.get("/connectors", async (_request, response) => {
