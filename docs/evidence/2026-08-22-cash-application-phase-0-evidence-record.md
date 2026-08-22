@@ -268,7 +268,49 @@ authority; Architecture for the source-port and amendment decision.
 
 ---
 
-## Schema DDL validated against live Postgres
+## Phase 2 schema APPLIED to production Supabase
+
+Applied on owner instruction to proceed without further approvals. Three
+migrations, in the order Technical Design 7.1 prescribes.
+
+| Migration | Result |
+|---|---|
+| `cash_application_additive_tables` | 12 tables, 6 indexes |
+| `cash_application_rls_and_grants` | RLS enabled and forced, revoke-then-grant |
+| `recoup_config_key_check_widen_cash_run_control` | CHECK widened, constraint renamed |
+
+Post-application verification against the live database:
+
+| Check | Observed |
+|---|---|
+| Cash tables in `public` | 12 |
+| RLS enabled **and forced** | 12 of 12 |
+| `anon` / `authenticated` / `PUBLIC` grants | **0** |
+| `service_role` DELETE grants | **0** |
+| `service_role` UPDATE or DELETE on `recoup_workflow_events` | **0** — append-only holds |
+| `scenario%` columns on the live-case table | **0** |
+| `recoup_config` constraint name | `recoup_config_key_check` |
+| `cash_run_control` permitted | true |
+| `recoup_config` rows preserved | 13 |
+| `recoup_deduction_lines` (S1-S8) | 20, unchanged |
+| `recoup_src_remittance` (legacy) | 5, unchanged |
+
+`service_role` holds UPDATE on exactly five tables — workflow runs, outbox,
+agent run state, attachment scan status and live-case status — and INSERT+SELECT
+elsewhere. The event log is INSERT+SELECT only, so the runtime role cannot
+rewrite history.
+
+**One honest correction.** A first verification query counted UPDATE and DELETE
+grants across *all* grantees and reported 2 and 10, which read as an append-only
+violation. It was a measurement error: those grants belong to `postgres`, the
+table owner. Owner privileges are implicit in Postgres, cannot be revoked, and
+apply identically to every existing table in this database. The runtime role
+holds none of them.
+
+**`cash_run_control` row not inserted.** D-13 owns whether it exists and with
+what values. The constraint now permits the key; nothing populates it.
+
+## Schema DDL previously validated in an isolated schema
 
 | Field | Value |
 |---|---|
