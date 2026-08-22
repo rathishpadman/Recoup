@@ -310,6 +310,51 @@ holds none of them.
 **`cash_run_control` row not inserted.** D-13 owns whether it exists and with
 what values. The constraint now permits the key; nothing populates it.
 
+## Cross-phase end-to-end run against the applied schema
+
+A full chain was written to the live tables in the order the pipeline produces
+it — inbox, remittance, remittance line, receipt, allocation, allocation line,
+live case, run, four events, outbox command — then verified and removed.
+
+| Assertion | Result |
+|---|---|
+| Receipt identity: `receipt = applied + deduction + unapplied` | **holds in Postgres** |
+| Line identity: `balance before = applied + deduction + balance after` | **holds in Postgres** |
+| `reconciliation_status` | `balanced` |
+| Short payment / validated reason | `250.00` / `DEP` |
+| Case origin / provenance | `live_cash_application` / `replay` |
+| Events, cursor span, distinct sequences | 4 / 4 / 4 — no gaps, no duplicates |
+| Receipt source system | `rehearsal-proxy` |
+| Allocation policy flagged assumed | true |
+
+The two reconciliation identities were previously proven only in TypeScript. They
+now hold on stored `numeric` columns, which rules out a rounding or type
+conversion at the persistence boundary changing a figure the core computed.
+
+### Negative constraints proven by rejection
+
+Seven writes the design forbids were attempted inside a transaction that was
+then deliberately rolled back. Every one was refused by the database:
+
+| Attempt | Outcome |
+|---|---|
+| Case with `origin = 'gold_set'` | rejected |
+| Case with `validated_reason = 'PRC'` | rejected |
+| Receipt with a negative amount | rejected |
+| Duplicate `(run_id, run_sequence)` event | rejected |
+| Duplicate outbox idempotency key | rejected |
+| Replayed `(provider, provider_event_id)` | rejected |
+| Lowercase currency code | rejected |
+
+These are the guarantees the code also enforces. Proving them at the database
+means a future caller that bypasses the repository still cannot write them.
+
+### Cleanup
+
+All fixture rows were removed. Verified afterwards: every cash table at zero
+rows, `recoup_deduction_lines` still at 20. The tables are live and empty, which
+matches the `disabled` rollout stage.
+
 ## Schema DDL previously validated in an isolated schema
 
 | Field | Value |
