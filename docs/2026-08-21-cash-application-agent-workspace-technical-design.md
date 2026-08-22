@@ -5,7 +5,7 @@
 **Date:** 2026-08-22  
 **Repository baseline reviewed:** `origin/main` at `0dfcaa7edcb7c3b6f1d8952fd0f100fa5e018c97`; local authoring checkout remained `main` at `eeca34327b562bbc3101ac5f019d1a4ecd1f2be7`  
 **Governing design:** `docs/2026-08-21-cash-application-agent-workspace-sdd-addendum.md`  
-**Business requirements:** `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.docx`  
+**Business requirements:** `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.md`  
 **Status:** Final design review candidate; Phase 0-only authorization requested; implementation remains NO-GO  
 **Change type:** Additive vertical slice; no existing capability replacement
 

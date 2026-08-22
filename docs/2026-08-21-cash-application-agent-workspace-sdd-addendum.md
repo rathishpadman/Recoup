@@ -23,7 +23,7 @@ Conflicts are resolved in this order:
 1. `INVARIANTS.md`
 2. `RECONCILIATION_LEDGER.md`
 3. Approved sections of `Recoup_v2_SDD.md` and `Recoup_Software_Design_Document_v3.0.docx`
-4. Owner-approved requirements in `Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.docx`, within the bounds of items 1-3
+4. Owner-approved requirements in `Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.md`, within the bounds of items 1-3
 5. This approved addendum
 6. The Technical Design derived from this addendum
 7. Implementation judgment
@@ -34,7 +34,7 @@ The BRD defines the requested business outcome; this addendum resolves its archi
 
 ### 0.3 Input documents
 
-- `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.docx`
+- `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.md`
 - `docs/plans/2026-08-19-remittance-email-cash-application-agent-workspace-plan.docx`
 - `INVARIANTS.md`
 - `RECONCILIATION_LEDGER.md`

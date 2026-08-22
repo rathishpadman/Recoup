@@ -29,7 +29,7 @@ Implementation shall use the following sources in this order:
 
 1. `INVARIANTS.md`.
 2. `RECONCILIATION_LEDGER.md`.
-3. `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.docx`.
+3. `docs/Recoup_Business_Requirements_Document_v3.3.4_Cash_Application_Agent_Workspace.md`.
 4. `docs/2026-08-21-cash-application-agent-workspace-sdd-addendum.md`, version 0.9.4.
 5. `docs/2026-08-21-cash-application-agent-workspace-technical-design.md`, version 0.9.4.
 6. This implementation specification.
