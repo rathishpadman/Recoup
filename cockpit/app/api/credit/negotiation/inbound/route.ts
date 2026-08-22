@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import { loadLocalRuntimeEnvFiles } from "../../../../../../config/localRuntimeEnv.ts";
 import {
   parseCreditNegotiationCounterOffer,
@@ -8,6 +8,7 @@ import {
 import { extractCreditNegotiationCounterOfferWithLiveModel } from "../../../../../../src/services/creditNegotiationCounterExtractor.ts";
 import type { CreditNegotiationPolicyRow } from "../../../../../../src/services/creditNegotiationPolicy.ts";
 import type { EmailFetch, RuntimeEmailEnv } from "../../../../../../src/services/emailGateway.ts";
+import { verifyResendWebhookSignature } from "../../../../../../src/services/resendInboundSignature.ts";
 
 interface CreditNegotiationInboundRouteTestOptions {
   env?: RuntimeEmailEnv;
@@ -630,52 +631,9 @@ export function buildSupabaseNegotiationInboundStore(
   };
 }
 
-function verifyResendWebhookSignature(input: {
-  headers: Headers;
-  nowMs: number;
-  rawBody: string;
-  signingSecret: string;
-}): boolean {
-  const webhookId = input.headers.get("svix-id")?.trim();
-  const timestamp = input.headers.get("svix-timestamp")?.trim();
-  const signatureHeader = input.headers.get("svix-signature")?.trim();
-  if (webhookId === undefined || timestamp === undefined || signatureHeader === undefined) {
-    return false;
-  }
-
-  const timestampSeconds = Number.parseInt(timestamp, 10);
-  if (!Number.isFinite(timestampSeconds) || Math.abs(Math.floor(input.nowMs / 1000) - timestampSeconds) > 300) {
-    return false;
-  }
-
-  const secret = decodeSvixSecret(input.signingSecret);
-  if (secret === undefined) {
-    return false;
-  }
-
-  const expected = createHmac("sha256", secret).update(`${webhookId}.${timestamp}.${input.rawBody}`).digest("base64");
-  return signatureHeader
-    .split(/\s+/u)
-    .flatMap((entry) => {
-      const [version, signature, extra] = entry.split(",");
-      return version === "v1" && signature !== undefined && extra === undefined ? [signature] : [];
-    })
-    .some((signature) => safeEqualStrings(signature, expected));
-}
-
-function decodeSvixSecret(secret: string): Buffer | undefined {
-  const trimmed = secret.trim();
-  if (!trimmed.startsWith("whsec_")) {
-    return undefined;
-  }
-  const encoded = trimmed.slice("whsec_".length);
-  if (encoded.length === 0 || encoded.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded)) {
-    return undefined;
-  }
-
-  const decoded = Buffer.from(encoded, "base64");
-  return decoded.length === 0 ? undefined : decoded;
-}
+// Signature verification lives in src/services/resendInboundSignature.ts so
+// cash application and credit negotiation share one implementation. Two copies
+// of webhook crypto drift, and the copy that drifts stops rejecting forgeries.
 
 function readConfiguredInboundRateLimit(env: RuntimeEmailEnv): CreditNegotiationInboundRateLimit | undefined {
   const maxEvents = readPositiveInteger(env.RESEND_INBOUND_RATE_LIMIT_MAX_EVENTS);
@@ -1180,8 +1138,3 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function safeEqualStrings(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
