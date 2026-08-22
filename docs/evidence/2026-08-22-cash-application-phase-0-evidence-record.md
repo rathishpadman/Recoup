@@ -343,17 +343,17 @@ tests-first, and the four repository gates pass on each commit.
 |---|---|---|
 | 1 | Cash/workflow types and pure deterministic core | **Complete** — types, source port, `match`, `allocate`, `reason`, workflow envelopes, stable idempotency keys |
 | 2 | Additive schema and repositories | **Schema contract complete**, `docs/supabase-cash-application-schema.sql` with 29 contract tests; **not applied** (D-10). Repository port implemented in memory |
-| 3 | Provider adapter, scanner, CSV mapper, intake | **Not started** — needs D-03, D-04, D-05 |
-| 4 | CashReceipt adapter, re-drive, cash application service | **Rehearsal-only** — proxy source plus durable re-drive; live SAP adapter blocked on D-02 |
-| 5 | Cash Application agent, tools, conductor, handoff | **Not started** — needs D-19 prompt-cache namespace and pinned models |
-| 6 | Live-case Forensics and Maya read models | **Not started** |
+| 3 | Provider adapter, scanner, CSV mapper, intake | **Complete** — signature/replay/recipient/scan/map ordering proven; assumed CSV and scan policy behind a flag |
+| 4 | CashReceipt adapter, re-drive, cash application service | **Code complete, unproven live** — rehearsal proxy, durable re-drive, and a read-only SAP adapter that returns `contract_gap` until D-02 supplies the entity and property mapping |
+| 5 | Cash Application agent, tools, conductor, handoff | **Complete** — narration cannot introduce a figure the core did not produce; three read-only tools; `cash_application` cache namespace |
+| 6 | Live-case Forensics and Maya read models | **Complete** — projection performs no arithmetic; gold-set isolation asserted |
 | 7A | Worker lifecycle seam, construction flag, pre-claim config return, negative tests | **Complete** — both N5 negative cases proven with byte-equivalent state snapshots; `CLAUDE.md` updated |
 | 7B | Bounded claims/leases, events, resume, dead letter | **Core complete** — outbox with idempotent scheduling, leases, crash reclaim, dead letter; durable SSE not started |
-| 8 | Agent Operations and Maya UI | **Not started** — needs a running cockpit and approved ImageGen cues |
-| 9 | Security, evals, complete regression | **Partial** — full suite green; `npm run verify` blocked on governed inputs |
-| 10 | Rehearsal, shadow, canary, production | **Not started** — requires explicit release approval |
+| 8 | Agent Operations and Maya UI | **Functionally complete** — components, contract tests and 13/13 Chromium checks. **Visual gate not scored**: no approved ImageGen cues supplied |
+| 9 | Security, evals, complete regression | **Complete** — AC-01..19 walk, Section 12 regression matrix, Section 15 security acceptance. `verify:release` remains BLOCKED per Section 13.1 |
+| 10 | Rehearsal, shadow, canary, production | **Machinery complete, not deployed** — ordered stages, five independent kill switches, no purge path. Deployment requires explicit release approval |
 
-Test files added: 15, covering unit, integration and invariant layers.
+Test files added: 22, covering unit, integration, invariant and browser layers. Suite total 2045 tests across 206 files, from a 1680-test baseline.
 
 ### AC coverage proven so far
 
