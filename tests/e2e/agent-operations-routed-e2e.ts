@@ -125,7 +125,12 @@ async function runChecks(page: Page): Promise<void> {
     (await page.locator('[data-testid="maya-upstream-cash-origin"]').count()) === 0
   );
 
-  const heading = await page.locator("h1").first().textContent();
+  // The cockpit shell renders its own h1, so the heading must be read from
+  // inside the page rather than taking the first one on the document.
+  const heading = await page
+    .locator('[data-testid="agent-operations-page"] h1')
+    .first()
+    .textContent();
   record("heading names the surface", heading?.trim() === "Agent Operations", heading ?? "");
 
   const body = (await page.locator("body").textContent()) ?? "";
