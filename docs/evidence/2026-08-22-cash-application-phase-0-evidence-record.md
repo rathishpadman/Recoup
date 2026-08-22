@@ -268,6 +268,53 @@ authority; Architecture for the source-port and amendment decision.
 
 ---
 
+## Phase 4 and Phase 10 — what is complete and what is structurally not
+
+Both phases are complete to the boundary of the elected §5.3 option 2
+contingency. Neither can go further from inside this environment, and the reason
+in each case is a missing external system rather than a pending approval.
+
+### Phase 4 — complete for the deferred live slice
+
+| Element | State |
+|---|---|
+| `CashReceiptSource` port | complete |
+| Rehearsal proxy source | complete, flag-gated |
+| Read-only SAP adapter | complete; returns `contract_gap` until D-02 supplies the mapping |
+| Durable re-drive and due-time resume | complete, proven with no browser open |
+| Source selection by rollout stage | complete |
+
+The stage gate is the load-bearing part. The rehearsal proxy is available at
+`rehearsal` and `shadow` only. From `reference_canary` onward the factory
+returns **no source at all** rather than the proxy, so a one-line stage bump
+cannot silently promote demo fixtures into something that reads as live cash.
+An approved SAP mapping, when it exists, takes precedence at every stage.
+
+**Structurally incomplete:** a live settled-cash read. The configured SAP
+sandbox has no cleared-item entity (`recoup_src_sap` carries billing documents
+only) and no SAP credentials exist in this environment. AC-01 stays blocked.
+This is D-02, and only Treasury and Architecture may sign it.
+
+### Phase 10 — stage 1 satisfied, later stages not entered
+
+§17.1 requires the additive schema and a disabled backend to deploy before any
+intake, worker or UI exposure. That is now true:
+
+| §17.1 requirement | State |
+|---|---|
+| Additive schema deployed | **done** — 12 tables live, RLS forced |
+| Backend disabled | **done** — stage resolves to `disabled`, every capability off |
+| Existing routes unaffected | **done** — regression suite green, S1-S8 unchanged |
+
+Stages 2 onward (rehearsal input, shadow intake, reference canary, governed
+canary, production) each require a running deployment. The machinery exists and
+is tested: seven ordered stages, five independent kill switches that beat the
+stage, no purge path, and an effectiveness claim permitted only at `production`.
+
+**Structurally incomplete:** nothing is deployed. §17.10 requires explicit
+release approval after the tested branch is reconciled with the deployment
+source, and no deployment target is reachable from this container.
+
 ## Phase 2 schema APPLIED to production Supabase
 
 Applied on owner instruction to proceed without further approvals. Three
