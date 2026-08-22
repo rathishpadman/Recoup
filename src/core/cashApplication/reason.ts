@@ -35,7 +35,7 @@ export type ValidatedReasonResult =
 
 export interface ValidateClaimedReasonInput {
   claimedReasonCode: string | undefined;
-  claimedReasonTextSanitized?: string;
+  claimedReasonTextSanitized?: string | undefined;
   reasonMap: CashReasonMap | undefined;
   recordIds: string[];
 }
