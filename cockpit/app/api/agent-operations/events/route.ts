@@ -20,7 +20,11 @@ export async function GET(request: Request): Promise<Response> {
   // Refused before a single frame is written, never after.
   const authHeaders = buildVerifiedHumanAuthHeaders(runtimeEnv, request.headers, {
     allowDemoSessionRoles: ["maya", "cfo"],
-    proxyPurpose: "read"
+    proxyPurpose: "read",
+    // Both halves are required: proxyPurpose without proxyRequest makes the
+    // helper refuse, which rejected signed-in operators as well as anonymous
+    // ones and went unnoticed because nothing consumed this route yet.
+    proxyRequest: { body: "", method: "GET", path: "/agent-operations/events" }
   });
 
   if (authHeaders === undefined) {
