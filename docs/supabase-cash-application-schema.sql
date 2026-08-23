@@ -413,7 +413,7 @@ $$;
 -- purpose.
 --
 -- MVP SCOPE. This clears ALL cash rows, since here every row is test data. It
--- must not follow the slice into an environment holding real customer cash.
+-- must not follow the slice into an environment holding live customer cash.
 CREATE OR REPLACE FUNCTION reset_cash_application_demo_data()
 RETURNS jsonb
 LANGUAGE plpgsql
