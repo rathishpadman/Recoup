@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
@@ -401,6 +401,8 @@ export interface CockpitApiOptions {
   openAiVectorStoreFetcher?: OpenAiVectorStoreFetch;
   realtimeFetcher?: typeof fetch;
   sapFetcher?: typeof fetch;
+  /** Test seam. Production posts the rehearsal receipt straight to Supabase. */
+  cashReceiptWriteFetcher?: typeof fetch;
   /** Test seam. Production resolves the repository from the environment. */
   workflowRepository?: WorkflowRepository;
 }
@@ -475,6 +477,17 @@ interface CockpitRateLimitBucket {
 }
 
 export function createCockpitApi(options: CockpitApiOptions = {}): Express {
+  const RehearsalCashReceiptSchema = z
+    .object({
+      amountReceived: z.string().min(1),
+      currency: z.string().min(1),
+      customerReference: z.string().min(1),
+      legalEntityReference: z.string().min(1),
+      paymentReference: z.string().min(1),
+      settlementStatus: z.enum(["settled", "pending", "reversed", "unknown"])
+    })
+    .passthrough();
+
   const app = express();
   const runtimeEnv = options.env ?? process.env;
   const dataMode = readRecoupDataMode(runtimeEnv);
@@ -1114,6 +1127,95 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       });
     } catch {
       response.status(502).json({ error: "Cash application run could not be started." });
+    }
+  });
+
+  /**
+   * Rehearsal cash receipt, standing in for an SAP posting.
+   *
+   * D-02 is unsigned: the configured SAP probe returned 401, so no authoritative
+   * settlement source exists. This writes the proxy row the CashReceipt adapter
+   * reads so a rehearsal run can reach an allocation.
+   *
+   * It cannot launder itself into authority. source_system is stamped
+   * rehearsal-proxy whatever the caller sends, so every allocation citing it
+   * still reads as non-authoritative and D-02 stays open.
+   */
+  app.post("/rehearsal/cash-receipt", async (request, response) => {
+    if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
+      response.status(404).json({ error: "Rehearsal receipt posting is not enabled." });
+      return;
+    }
+
+    const secret = runtimeEnv.RECOUP_INBOUND_SHARED_SECRET?.trim();
+    const rawBody = (request as express.Request & { rawBody?: string }).rawBody ?? "";
+    const presented = request.headers["x-recoup-signature"];
+
+    if (secret === undefined || secret.length === 0) {
+      response.status(404).json({ error: "Rehearsal receipt posting is not configured." });
+      return;
+    }
+
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+
+    if (typeof presented !== "string" || presented.trim() !== expected) {
+      response.status(401).json({ error: "Rehearsal receipt rejected." });
+      return;
+    }
+
+    const parsed = RehearsalCashReceiptSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      response.status(422).json({ error: "Rehearsal receipt is not the expected shape." });
+      return;
+    }
+
+    const supabaseUrl = runtimeEnv.RECOUP_SUPABASE_URL?.replace(/\/$/u, "") ?? "";
+    const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    const observedAt = new Date().toISOString();
+    const receiptId = `REH-${parsed.data.paymentReference}`;
+
+    const row = {
+      receipt_id: receiptId,
+      // Never the caller's claim. D-02 is unsigned.
+      source_system: "rehearsal-proxy",
+      source_record_id: receiptId,
+      payment_reference: parsed.data.paymentReference,
+      customer_reference: parsed.data.customerReference,
+      legal_entity_reference: parsed.data.legalEntityReference,
+      amount_received: parsed.data.amountReceived,
+      currency: parsed.data.currency,
+      settlement_status: parsed.data.settlementStatus,
+      value_date: observedAt.slice(0, 10),
+      observed_at: observedAt,
+      retrieved_at: observedAt,
+      freshness_policy_version: "rehearsal-freshness-v1",
+      freshness_status: "fresh",
+      record_ids: [receiptId]
+    };
+
+    const fetcher = options.cashReceiptWriteFetcher ?? fetch;
+
+    try {
+      const upstream = await fetcher(`${supabaseUrl}/rest/v1/recoup_cash_receipts`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          apikey: serviceRoleKey,
+          authorization: `Bearer ${serviceRoleKey}`,
+          prefer: "resolution=merge-duplicates"
+        },
+        body: JSON.stringify(row)
+      });
+
+      if (!upstream.ok) {
+        response.status(502).json({ error: "Rehearsal receipt could not be written." });
+        return;
+      }
+
+      response.status(201).json({ written: true, receiptId, sourceSystem: "rehearsal-proxy" });
+    } catch {
+      response.status(502).json({ error: "Rehearsal receipt could not be written." });
     }
   });
 
