@@ -101,7 +101,16 @@ const OUTCOME_LABEL: Record<string, string> = {
   balanced: "Balanced",
   imbalanced: "Does not balance",
   run_failed: "Failed",
-  awaiting_receipt: "Waiting on the bank"
+  awaiting_receipt: "Waiting on the bank",
+  // Reason codes that arrive as an outcome when a run stops. Left unmapped
+  // they surface as "not found", which reads like a system error rather than
+  // the ordinary situation of the money not having landed yet.
+  not_found: "No payment found",
+  not_settled: "Not cleared yet",
+  stale: "Confirmation too old",
+  reversed: "Payment reversed",
+  contract_gap: "No approved rule",
+  source_unavailable: "Bank source unavailable"
 };
 
 export function readableOutcome(outcome: string): string {
