@@ -5,6 +5,11 @@ import type { RemittanceAdviceInput } from "../core/cashApplication/match.js";
 import { deriveInboundCommandKey } from "../types/workflow.js";
 import type { AttachmentSecurityService } from "./attachmentSecurity.js";
 import { mapRemittanceCsvV1, type MappingFailure } from "./remittanceMapper.js";
+import {
+  detectRemittanceFormat,
+  extractRemittanceRows,
+  toCanonicalCsv
+} from "./remittanceFormats.js";
 
 /**
  * Inbound remittance intake.
@@ -83,6 +88,20 @@ const REJECTION_DETAIL_BY_MAPPING: Record<MappingFailure, string> = {
   not_utf8: "file is not valid UTF-8"
 };
 
+
+/**
+ * A spreadsheet presented as text: tab- or comma-separated rows. The approved
+ * export path writes this, so no workbook parser is pulled into the attachment
+ * boundary.
+ */
+function readGridFromText(body: string): string[][] {
+  const TAB = String.fromCharCode(9);
+
+  return body
+    .split(/\r?\n/u)
+    .map((line) => (line.includes(TAB) ? line.split(TAB) : line.split(",")));
+}
+
 export async function acceptInboundRemittance(
   message: InboundMessage,
   dependencies: IntakeDependencies
@@ -130,10 +149,39 @@ export async function acceptInboundRemittance(
     return reject("attachment_missing", "scanned attachment body is not retrievable");
   }
 
+  /**
+   * Anything that is not already CSV is converted to it here, after the scan
+   * and before the mapper. The order is the point: converting first would hand
+   * unscanned bytes to a parser, which is exactly what the attachment boundary
+   * exists to prevent.
+   *
+   * The mapper never learns which format it came from. One validated mapper,
+   * many ways in.
+   */
+  const format = detectRemittanceFormat({
+    filename: message.attachmentRef,
+    mimeType: inspection.detectedMime
+  });
+  let csvBody = body;
+
+  if (format !== undefined && format !== "csv") {
+    const extracted = extractRemittanceRows(
+      format === "xlsx"
+        ? { format, grid: readGridFromText(body) }
+        : { format, text: body }
+    );
+
+    if (!extracted.ok) {
+      return reject("mapping_failed", extracted.reason);
+    }
+
+    csvBody = toCanonicalCsv(extracted.rows);
+  }
+
   const inboxId = `INBOX-${eventKey.slice(0, 16)}`;
 
   const mapped = mapRemittanceCsvV1({
-    csv: body,
+    csv: csvBody,
     inboundMessageId: inboxId,
     provenanceMode: dependencies.provenanceMode,
     sourceRecordIds: [inboxId, `ATT-${inspection.contentHash.slice(0, 16)}`]

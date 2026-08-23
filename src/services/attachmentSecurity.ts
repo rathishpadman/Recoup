@@ -49,7 +49,16 @@ export const DEMO_SCAN_POLICY_VERSION = "demo-scan-policy-v1-ASSUMED";
 /** Assumed limit. A real limit is an owner decision. */
 export const DEMO_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
-const ALLOWED_MIME = new Set(["text/csv", "text/plain"]);
+/**
+ * The formats the approved layouts cover. Everything else is refused at the
+ * boundary, before any parser sees the bytes.
+ */
+const ALLOWED_MIME = new Set([
+  "text/csv",
+  "text/plain",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
 
 const BLOCKED_EXTENSIONS = [".exe", ".js", ".vbs", ".scr", ".bat", ".cmd", ".ps1", ".jar"];
 const ARCHIVE_EXTENSIONS = [".zip", ".rar", ".7z", ".gz", ".tar"];

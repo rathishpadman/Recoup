@@ -532,3 +532,35 @@ export const REMITTANCE_TEMPLATES: RemittanceTemplate[] = [
     ["CUST-001", "PAY-9001", "USD", "1250.00", "INV-2026-0913", "0.00", "0.00", "DMG"]
   ])
 ];
+
+/**
+ * Canonical rows back out as CSV v1, for the one mapper that validates them.
+ *
+ * Approved CSV v1 permits no quoted fields, so a comma inside free text would
+ * shift every column after it. Commas and newlines are removed rather than
+ * escaped, because escaping would produce a file the approved mapper refuses.
+ */
+export function toCanonicalCsv(rows: CanonicalRow[]): string {
+  const columns: (keyof CanonicalRow)[] = [
+    "remittance_id",
+    "customer_reference",
+    "legal_entity_reference",
+    "payment_reference",
+    "currency",
+    "instructed_payment_amount",
+    "line_id",
+    "invoice_reference",
+    "instructed_amount",
+    "claimed_deduction_amount",
+    "claimed_reason_code",
+    "claimed_reason_text"
+  ];
+
+  const clean = (value: string): string => value.replace(/[,\r\n]/gu, " ").trim();
+  const newline = String.fromCharCode(10);
+
+  return [
+    columns.join(","),
+    ...rows.map((row) => columns.map((column) => clean(row[column])).join(","))
+  ].join(newline);
+}
