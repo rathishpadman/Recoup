@@ -36,6 +36,8 @@ import { acceptInboundRemittance } from "./remittanceIntake.js";
 import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
 import { startCashApplicationRun } from "./cashApplicationRun.js";
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
+import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
+import { persistRemittanceEvidence } from "../adapters/remittanceEvidenceStore.js";
 import { resolveWorkflowRepository } from "./workflowRepositoryFactory.js";
 import type { WorkflowRepository } from "./workflowRepository.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
@@ -1111,12 +1113,50 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       currency: intake.advice.currency
     }));
 
+    const supabaseUrl = runtimeEnv.SUPABASE_URL?.replace(/\/$/u, "");
+    const supabaseKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseConfigured = supabaseUrl !== undefined && supabaseKey !== undefined;
+
     try {
+      /**
+       * The canonical evidence set, before the run. A live case references the
+       * remittance, so without these rows the run allocates and then fails on
+       * the foreign key with the money already worked out.
+       */
+      if (supabaseConfigured) {
+        await persistRemittanceEvidence({
+          url: supabaseUrl,
+          serviceRoleKey: supabaseKey,
+          inboxId: intake.inboxId,
+          advice: intake.advice,
+          message: parsed.message,
+          attachmentContentHash: intake.attachmentContentHash
+        });
+      }
+
+      /**
+       * REHEARSAL SETTLEMENT - NOT AUTHORITATIVE.
+       *
+       * D-02 is unsigned, so there is no SAP source. The run reads the proxy
+       * receipts table that POST /rehearsal/cash-receipt writes. Every row
+       * there is stamped rehearsal-proxy, so the allocation stays
+       * non-authoritative and AC-01 stays blocked.
+       */
+      const receiptSource = supabaseConfigured
+        ? createSupabaseCashReceiptSource({
+            url: supabaseUrl,
+            serviceRoleKey: supabaseKey,
+            freshnessMaxAgeSeconds: 86_400,
+            freshnessPolicyVersion: "rehearsal-freshness-v1"
+          })
+        : undefined;
+
       const outcome = await startCashApplicationRun({
         advice: intake.advice,
         invoices,
         env: runtimeEnv,
-        repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository
+        repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
+        ...(receiptSource === undefined ? {} : { source: receiptSource })
       });
 
       response.status(202).json({
