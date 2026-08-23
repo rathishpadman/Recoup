@@ -31,14 +31,17 @@ insert into recoup_demo_users (
   allowed_routes,
   password_hash
 ) values
-  ('Maya', 'Maya Patel', 'maya', '/forensics', array['/forensics', '/run'], extensions.crypt('Welcome#123', extensions.gen_salt('bf'))),
+  -- allowed_routes must match the canonical contract in config/cockpitDemoProfiles.ts
+  -- exactly. Login compares the two and rejects the sign-in on any difference,
+  -- so adding a route in code without adding it here locks the account out.
+  ('Maya', 'Maya Patel', 'maya', '/forensics', array['/agent-operations', '/forensics', '/run'], extensions.crypt('Welcome#123', extensions.gen_salt('bf'))),
   ('david', 'David Kim', 'david', '/credit', array['/credit'], extensions.crypt('Welcome#123', extensions.gen_salt('bf'))),
   (
     'CFO',
     'CFO',
     'cfo',
     '/cfo',
-    array['/cfo', '/governance/agents', '/governance/connectors', '/governance/memory', '/governance/trace'],
+    array['/agent-operations', '/cfo', '/governance/agents', '/governance/connectors', '/governance/evals-finops', '/governance/memory', '/governance/trace'],
     extensions.crypt('Welcome#123', extensions.gen_salt('bf'))
   )
 on conflict (login_id) do update set
