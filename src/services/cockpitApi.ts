@@ -1192,6 +1192,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       retrieved_at: observedAt,
       freshness_policy_version: "rehearsal-freshness-v1",
       freshness_status: "fresh",
+      // Hash of what was actually posted, so the row can be tied back to it.
+      source_payload_hash: createHash("sha256").update(rawBody).digest("hex"),
       record_ids: [receiptId]
     };
 

@@ -83,6 +83,8 @@ describe("POST /rehearsal/cash-receipt", () => {
       expect(written.url).toContain("recoup_cash_receipts");
       expect(written.body.payment_reference).toBe("PAY-E2E-1");
       expect(written.body.settlement_status).toBe("settled");
+      // NOT NULL in the live table; omitting it is why the first prod write 502'd.
+      expect(typeof written.body.source_payload_hash).toBe("string");
     } finally {
       await api.close();
     }
