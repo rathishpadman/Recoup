@@ -380,7 +380,7 @@ export function createSupabaseWorkflowRepository(
 
     async getCase(caseId: string) {
       const rows = (await request(
-        `/recoup_live_deduction_cases?case_id=eq.${encodeURIComponent(caseId)}&select=*`,
+        `/recoup_live_deduction_cases?case_id=eq.${encodeURIComponent(caseId)}&select=*,short_payment_amount::text`,
         { method: "GET", headers: headers(serviceRoleKey) }
       )) as Record<string, unknown>[];
 
@@ -389,7 +389,7 @@ export function createSupabaseWorkflowRepository(
     },
 
     async listCases() {
-      const rows = (await request("/recoup_live_deduction_cases?select=*", {
+      const rows = (await request("/recoup_live_deduction_cases?select=*,short_payment_amount::text", {
         method: "GET",
         headers: headers(serviceRoleKey)
       })) as Record<string, unknown>[];
