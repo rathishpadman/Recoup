@@ -479,6 +479,8 @@ interface CockpitRateLimitBucket {
 }
 
 export function createCockpitApi(options: CockpitApiOptions = {}): Express {
+  const CashDemoResetSchema = z.object({ confirm: z.literal("reset-cash-demo-data") }).strict();
+
   const RehearsalCashReceiptSchema = z
     .object({
       amountReceived: z.string().min(1),
@@ -1349,6 +1351,81 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
 
     response.end();
+  });
+
+  /**
+   * Demo reset for the cash slice.
+   *
+   * MVP affordance: between test cycles the screen has to start empty again.
+   * The deletion itself is a SECURITY DEFINER function in Postgres, so the cash
+   * tables stay append-only for every other caller and this is the only way
+   * out. That keeps the audit guarantee intact everywhere except one named,
+   * guarded door.
+   *
+   * The guards, in order: rehearsal must be on, the caller must be signed, and
+   * the request must spell out what it is doing. A stray signed POST must not
+   * be able to wipe the slice by accident.
+   */
+  app.post("/admin/cash-demo-reset", async (request, response) => {
+    // A deployment that is not running demo data has no demo reset.
+    if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
+      response.status(404).json({ error: "Cash demo reset is not enabled." });
+      return;
+    }
+
+    const secret = runtimeEnv.RECOUP_INBOUND_SHARED_SECRET?.trim();
+    const rawBody = (request as express.Request & { rawBody?: string }).rawBody ?? "";
+    const presented = request.headers["x-recoup-signature"];
+
+    if (secret === undefined || secret.length === 0) {
+      response.status(404).json({ error: "Cash demo reset is not configured." });
+      return;
+    }
+
+    if (
+      typeof presented !== "string" ||
+      presented.trim() !== createHmac("sha256", secret).update(rawBody).digest("hex")
+    ) {
+      response.status(401).json({ error: "Cash demo reset rejected." });
+      return;
+    }
+
+    // Deliberately not a boolean. Typing the phrase is what separates an
+    // intentional reset from a stray request that happens to be signed.
+    const parsed = CashDemoResetSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      response.status(422).json({
+        error: 'Confirm with {"confirm":"reset-cash-demo-data"}.'
+      });
+      return;
+    }
+
+    const supabaseUrl = (runtimeEnv.SUPABASE_URL ?? "").replace(/\/$/u, "");
+    const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    const fetcher = options.cashReceiptWriteFetcher ?? fetch;
+
+    try {
+      const upstream = await fetcher(`${supabaseUrl}/rest/v1/rpc/reset_cash_application_demo_data`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          apikey: serviceRoleKey,
+          authorization: `Bearer ${serviceRoleKey}`
+        },
+        body: "{}"
+      });
+
+      if (!upstream.ok) {
+        // Never report a reset that did not happen.
+        response.status(502).json({ error: "Cash demo reset failed." });
+        return;
+      }
+
+      response.json({ reset: true, deleted: (await upstream.json()) as unknown });
+    } catch {
+      response.status(502).json({ error: "Cash demo reset failed." });
+    }
   });
 
   app.get("/agent-operations", async (_request, response) => {
