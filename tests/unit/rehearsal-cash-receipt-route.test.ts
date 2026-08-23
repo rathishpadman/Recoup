@@ -21,7 +21,7 @@ const baseEnv: RuntimeEnv = {
   RECOUP_CASH_ROLLOUT_STAGE: "shadow",
   RECOUP_CASH_REHEARSAL_ENABLED: "true",
   RECOUP_INBOUND_SHARED_SECRET: secret,
-  RECOUP_SUPABASE_URL: "https://stub.invalid",
+  SUPABASE_URL: "https://stub.invalid",
   SUPABASE_SERVICE_ROLE_KEY: "stub-key"
 };
 

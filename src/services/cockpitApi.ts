@@ -1170,7 +1170,8 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const supabaseUrl = runtimeEnv.RECOUP_SUPABASE_URL?.replace(/\/$/u, "") ?? "";
+    // SUPABASE_URL is the name every other adapter reads.
+    const supabaseUrl = (runtimeEnv.SUPABASE_URL ?? runtimeEnv.RECOUP_SUPABASE_URL ?? "").replace(/\/$/u, "");
     const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY ?? "";
     const observedAt = new Date().toISOString();
     const receiptId = `REH-${parsed.data.paymentReference}`;
