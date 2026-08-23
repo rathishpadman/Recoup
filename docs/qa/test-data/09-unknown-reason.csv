@@ -1,0 +1,2 @@
+remittance_id,customer_reference,legal_entity_reference,payment_reference,currency,instructed_payment_amount,line_id,invoice_reference,instructed_amount,claimed_deduction_amount,claimed_reason_code,claimed_reason_text
+REM-SC09,CUST-009,LE-001,PAY-SC09,USD,1250.00,LINE-1,INV-2026-0920,1000.00,250.00,ZZZ-UNMAPPED,reason code we do not recognise

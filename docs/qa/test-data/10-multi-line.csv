@@ -1,0 +1,4 @@
+remittance_id,customer_reference,legal_entity_reference,payment_reference,currency,instructed_payment_amount,line_id,invoice_reference,instructed_amount,claimed_deduction_amount,claimed_reason_code,claimed_reason_text
+REM-SC10,CUST-010,LE-001,PAY-SC10,USD,8400.50,LINE-1,INV-2026-0921,3000.00,150.50,DMG,damaged on line one
+REM-SC10,CUST-010,LE-001,PAY-SC10,USD,8400.50,LINE-2,INV-2026-0922,2500.00,100.00,DMG,short on line two
+REM-SC10,CUST-010,LE-001,PAY-SC10,USD,8400.50,LINE-3,INV-2026-0923,2650.00,0.00,DMG,line three in full
