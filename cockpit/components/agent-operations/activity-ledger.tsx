@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyPanel } from "./run-detail.tsx";
+import { readableClock, readableOutcome, readablePhase, readableSpecialist } from "./display.ts";
 import type { AgentOperationsEvent } from "./types.ts";
 
 /**
@@ -42,7 +43,7 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
                 <th className="py-2 pr-4 font-normal">Phase</th>
                 <th className="py-2 pr-4 font-normal">Event</th>
                 <th className="py-2 pr-4 font-normal">Outcome</th>
-                <th className="py-2 font-normal">Records</th>
+                <th className="py-2 font-normal">Evidence</th>
               </tr>
             </thead>
             <tbody>
@@ -52,22 +53,22 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
                   data-testid={`activity-event-${event.eventId}`}
                   className="border-t align-top"
                 >
-                  <td className="py-3 pr-4 tabular-nums whitespace-nowrap">{event.time}</td>
+                  <td className="py-3 pr-4 tabular-nums whitespace-nowrap">{readableClock(event.time)}</td>
                   <td
                     className="py-3 pr-4 whitespace-nowrap"
                     data-testid={`activity-event-specialist-${event.eventId}`}
                   >
-                    {event.specialist ?? "—"}
+                    {readableSpecialist(event.specialist)}
                   </td>
                   <td className="py-3 pr-4 whitespace-nowrap" data-testid={`activity-event-phase-${event.eventId}`}>
-                    {event.phase}
+                    {readablePhase(event.phase)}
                   </td>
                   <td className="py-3 pr-4">{event.event}</td>
                   <td
                     className="py-3 pr-4 whitespace-nowrap"
                     data-testid={`activity-event-outcome-${event.eventId}`}
                   >
-                    {event.outcome}
+                    {readableOutcome(event.outcome)}
                   </td>
                   <td
                     className="py-3 font-mono text-xs break-all"

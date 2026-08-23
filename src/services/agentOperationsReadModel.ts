@@ -1,6 +1,6 @@
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import type { RuntimeEnv } from "../../config/localRuntimeEnv.js";
-import type { WorkflowEvent, WorkflowRun } from "../types/workflow.js";
+import type { LiveDeductionCase, WorkflowEvent, WorkflowRun } from "../types/workflow.js";
 import { projectAgentOperations } from "./liveCaseReadModel.js";
 import type { WorkflowRepository } from "./workflowRepository.js";
 
@@ -43,6 +43,10 @@ export interface AgentCurrentAction {
 
 export interface AgentRosterRow {
   agent: string;
+  /** What this specialist is for, in words a reader outside the team follows. */
+  role: string;
+  /** What it is doing right now, or why it is not. */
+  activity: string;
   status: AgentStatus;
   health: AgentHealth;
   currentAction?: AgentCurrentAction;
@@ -143,8 +147,26 @@ const ROSTER_LABEL_BY_SPECIALIST: Record<string, string> = {
   maya_queue: "Maya Queue"
 };
 
+/**
+ * What each specialist is for. The screen previously named four specialists and
+ * explained none of them, which left the reader to infer the pipeline from four
+ * labels and a row of dashes.
+ */
+const ROLE_BY_AGENT: Record<string, string> = {
+  "Cash Application": "Reads the payment note, confirms the money arrived and works out the shortfall",
+  "Deduction Forensics": "Investigates whether a deduction the customer took is justified",
+  "Recovery Drafter": "Prepares a recovery letter when money is owed back",
+  "Maya Queue": "Holds prepared cases until a person decides"
+};
+
 function emptyRoster(): AgentRosterRow[] {
-  return ROSTER_AGENTS.map((agent) => ({ agent, status: "Idle", health: "healthy" }));
+  return ROSTER_AGENTS.map((agent) => ({
+    agent,
+    role: ROLE_BY_AGENT[agent] ?? "",
+    activity: "Nothing to do",
+    status: "Idle",
+    health: "healthy"
+  }));
 }
 
 export function emptyAgentOperationsSnapshot(): AgentOperationsSnapshot {
@@ -219,6 +241,57 @@ function displayStatus(state: string, blocked: boolean): AgentStatus {
   }
 
   return STATUS_BY_RUN_STATE[state] ?? "Running";
+}
+
+
+/** Plain-language description of what a run is doing, for the roster row. */
+function activityFor(agent: string, run: AgentOperationsRunRow): string {
+  const who = run.customer ?? "a payment";
+
+  switch (run.status) {
+    case "Completed":
+      return run.caseId === undefined
+        ? `Finished ${who} — nothing deducted`
+        : `Finished ${who} — case raised`;
+    case "Waiting":
+      return `Holding ${who} until the money is confirmed`;
+    case "Blocked":
+      return `Stopped on ${who} — needs a person`;
+    case "Queued":
+      return `About to start ${who}`;
+    default:
+      return `Working on ${who}`;
+  }
+}
+
+/**
+ * State for a specialist that has no runs of its own, derived from the cases
+ * that reached it. Returns nothing when no case did, so an idle specialist
+ * stays idle rather than borrowing another's activity.
+ */
+function downstreamState(
+  agent: string,
+  casesByRun: Map<string, LiveDeductionCase>
+): { activity: string; status: AgentStatus } | undefined {
+  const cases = [...casesByRun.values()];
+
+  if (cases.length === 0) {
+    return undefined;
+  }
+
+  const plural = cases.length === 1 ? "case" : "cases";
+
+  if (agent === "Deduction Forensics") {
+    return { activity: `${String(cases.length)} ${plural} to investigate`, status: "Queued" };
+  }
+
+  if (agent === "Maya Queue") {
+    return { activity: `${String(cases.length)} ${plural} waiting for a decision`, status: "Waiting" };
+  }
+
+  // Recovery drafts only after Forensics finds money owed back, and nothing
+  // records that yet. Claiming otherwise would be the decoration again.
+  return undefined;
 }
 
 export async function loadAgentOperationsSnapshot(input: {
@@ -340,11 +413,26 @@ export async function loadAgentOperationsSnapshot(input: {
     })),
     roster: ROSTER_AGENTS.map((agent) => {
       const latest = latestByAgent.get(agent);
+      const role = ROLE_BY_AGENT[agent] ?? "";
 
-      return latest === undefined
-        ? { agent, status: "Idle" as AgentStatus, health: "healthy" as AgentHealth }
-        : {
+      /**
+       * Downstream specialists have no runs of their own yet, so their state is
+       * read from the cases that reached them. That is real: a case handed over
+       * is work waiting, whoever picks it up. Inventing a run for them would be
+       * the same mistake as the specialist that was never written.
+       */
+      if (latest === undefined) {
+        const downstream = downstreamState(agent, casesByRun);
+
+        return downstream === undefined
+          ? { agent, role, activity: "Nothing to do", status: "Idle" as AgentStatus, health: "healthy" as AgentHealth }
+          : { agent, role, ...downstream, health: "healthy" as AgentHealth };
+      }
+
+      return {
             agent,
+            role,
+            activity: activityFor(agent, latest),
             status: latest.status,
             health: "healthy" as AgentHealth,
             ...(latest.completedAt === undefined ? {} : { lastRun: latest.completedAt }),

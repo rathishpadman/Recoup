@@ -29,10 +29,34 @@ export const dynamic = "force-dynamic";
 const emptySnapshot: AgentOperationsSnapshot = {
   counts: { active: 0, queued: 0, waiting: 0, needsAttention: 0 },
   roster: [
-    { agent: "Cash Application", status: "Idle", health: "healthy" },
-    { agent: "Deduction Forensics", status: "Idle", health: "healthy" },
-    { agent: "Recovery Drafter", status: "Idle", health: "healthy" },
-    { agent: "Maya Queue", status: "Idle", health: "healthy" }
+    {
+      agent: "Cash Application",
+      role: "Reads the payment note, confirms the money arrived and works out the shortfall",
+      activity: "Nothing to do",
+      status: "Idle",
+      health: "healthy"
+    },
+    {
+      agent: "Deduction Forensics",
+      role: "Investigates whether a deduction the customer took is justified",
+      activity: "Nothing to do",
+      status: "Idle",
+      health: "healthy"
+    },
+    {
+      agent: "Recovery Drafter",
+      role: "Prepares a recovery letter when money is owed back",
+      activity: "Nothing to do",
+      status: "Idle",
+      health: "healthy"
+    },
+    {
+      agent: "Maya Queue",
+      role: "Holds prepared cases until a person decides",
+      activity: "Nothing to do",
+      status: "Idle",
+      health: "healthy"
+    }
   ],
   handoffs: [],
   runs: [],

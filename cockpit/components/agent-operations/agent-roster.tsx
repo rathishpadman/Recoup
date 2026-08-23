@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLinkIcon, LoaderCircleIcon } from "lucide-react";
+import { readableTime } from "./display.ts";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,11 +53,9 @@ export function AgentRoster({ rows }: AgentRosterProps) {
                 <th className="py-2 pr-4 font-normal">Agent</th>
                 <th className="py-2 pr-4 font-normal">Status</th>
                 <th className="py-2 pr-4 font-normal">Health</th>
-                <th className="py-2 pr-4 font-normal">Last run</th>
-                <th className="py-2 pr-4 font-normal">Last run ID</th>
-                <th className="py-2 pr-4 font-normal">Last scenario</th>
-                <th className="py-2 pr-4 font-normal">Success rate (30d)</th>
-                <th className="py-2 font-normal">Avg run time (30d)</th>
+                <th className="py-2 pr-4 font-normal">What it does</th>
+                <th className="py-2 pr-4 font-normal">Doing now</th>
+                <th className="py-2 font-normal">Last run</th>
               </tr>
             </thead>
             <tbody>
@@ -80,7 +79,7 @@ function RosterRows({ row }: { row: AgentRosterRow }) {
         data-testid={`agent-roster-row-${row.agent.replace(/\s+/gu, "-").toLowerCase()}`}
         className={cn("border-t", running && "border-l-2 border-l-teal-600")}
       >
-        <td className="py-3 pr-4">{row.agent}</td>
+        <td className="py-3 pr-4 font-medium whitespace-nowrap">{row.agent}</td>
         <td className="py-3 pr-4">
           <span className="flex items-center gap-2">
             {running ? (
@@ -100,16 +99,16 @@ function RosterRows({ row }: { row: AgentRosterRow }) {
             aria-label={row.health}
           />
         </td>
-        <td className="py-3 pr-4 tabular-nums">{row.lastRun ?? DASH}</td>
-        <td className="py-3 pr-4 font-mono text-xs">{row.lastRunId ?? DASH}</td>
-        <td className="py-3 pr-4">{row.lastScenario ?? DASH}</td>
-        <td className="py-3 pr-4 tabular-nums">{row.successRate30d ?? DASH}</td>
-        <td className="py-3 tabular-nums">{row.avgRunTime30d ?? DASH}</td>
+        <td className="text-muted-foreground py-3 pr-4">{row.role}</td>
+        <td className="py-3 pr-4" data-testid="agent-roster-activity">
+          {row.activity}
+        </td>
+        <td className="py-3 tabular-nums whitespace-nowrap">{readableTime(row.lastRun)}</td>
       </tr>
 
       {row.currentAction === undefined ? null : (
         <tr className="bg-muted/40" data-testid="agent-roster-current-action">
-          <td colSpan={8} className="px-4 py-3">
+          <td colSpan={6} className="px-4 py-3">
             <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <div>
                 <dt className="text-muted-foreground">Current action</dt>

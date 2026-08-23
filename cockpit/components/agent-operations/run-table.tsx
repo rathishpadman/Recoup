@@ -1,6 +1,7 @@
 "use client";
 
 import { FileTextIcon } from "lucide-react";
+import { readableTime } from "./display.ts";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,9 +79,9 @@ export function RunTable({ runs, selectedRunId, onSelectRun }: RunTableProps) {
                       {row.status}
                     </Badge>
                   </td>
-                  <td className="py-3 pr-4 tabular-nums">{row.queuedAt ?? DASH}</td>
-                  <td className="py-3 pr-4 tabular-nums">{row.startedAt ?? DASH}</td>
-                  <td className="py-3 pr-4 tabular-nums">{row.completedAt ?? DASH}</td>
+                  <td className="py-3 pr-4 tabular-nums">{readableTime(row.queuedAt)}</td>
+                  <td className="py-3 pr-4 tabular-nums">{readableTime(row.startedAt)}</td>
+                  <td className="py-3 pr-4 tabular-nums">{readableTime(row.completedAt)}</td>
                   <td className="py-3 tabular-nums">{row.elapsed ?? DASH}</td>
                 </tr>
               ))}

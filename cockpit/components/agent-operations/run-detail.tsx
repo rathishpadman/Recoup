@@ -4,6 +4,7 @@ import { FileTextIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { readableSpecialist, readableTime } from "./display.ts";
 import { NO_RUN_SELECTED_TITLE, type RunDetail } from "./types.ts";
 
 /**
@@ -33,13 +34,15 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
             hint="Select a run from the table to view details."
           />
         ) : (
-          <dl className="space-y-4 text-sm">
-            <Field label="Run ID">
-              <span className="font-mono text-xs" data-testid="run-detail-run-id">
-                {detail.runId}
-              </span>
-            </Field>
-            <Field label="Agent">{detail.agent}</Field>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+            <div className="col-span-2">
+              <Field label="Run ID">
+                <span className="font-mono text-xs" data-testid="run-detail-run-id">
+                  {detail.runId}
+                </span>
+              </Field>
+            </div>
+            <Field label="Agent">{readableSpecialist(detail.agent)}</Field>
             <Field label="Scenario">{detail.scenario ?? DASH}</Field>
             <Field label="Customer">
               <span data-testid="run-detail-customer">{detail.customer ?? DASH}</span>
@@ -52,7 +55,7 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
                 {detail.status}
               </Badge>
             </Field>
-            <Field label="Started at">{detail.startedAt ?? DASH}</Field>
+            <Field label="Started at">{readableTime(detail.startedAt)}</Field>
             <Field label="Elapsed">
               <span className="tabular-nums">{detail.elapsed ?? DASH}</span>
             </Field>
@@ -64,10 +67,11 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
               </Field>
             )}
             {detail.evidence === undefined ? null : (
-              <div className="space-y-3 border-t pt-4" data-testid="run-detail-evidence">
+              <div className="col-span-2 space-y-3 border-t pt-4" data-testid="run-detail-evidence">
                 <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
                   Allocation
                 </p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <Field label="Short payment">
                   {/* Backend-formatted. The cockpit never computes a money value. */}
                   <span className="tabular-nums" data-testid="run-detail-short-payment">
@@ -89,6 +93,7 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
                 <Field label="Cited records">
                   <span className="tabular-nums">{detail.evidence.citedRecordCount}</span>
                 </Field>
+                </div>
                 {!detail.evidence.assumedPolicy ? null : (
                   <Badge variant="secondary" data-testid="run-detail-assumed-policy">
                     Assumed policy, not ratified
@@ -97,7 +102,7 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
               </div>
             )}
             {detail.blockerCode === undefined ? null : (
-              <Field label="Blocker">
+              <Field label="Why it stopped">
                 <span data-testid="run-detail-blocker">{detail.blockerCode}</span>
               </Field>
             )}

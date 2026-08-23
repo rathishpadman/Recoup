@@ -37,6 +37,10 @@ export interface AgentCurrentAction {
 
 export interface AgentRosterRow {
   agent: string;
+  /** What this specialist is for, in words a reader outside the team follows. */
+  role: string;
+  /** What it is doing right now, or why it is not. */
+  activity: string;
   status: AgentStatus;
   health: AgentHealth;
   lastRun?: string;

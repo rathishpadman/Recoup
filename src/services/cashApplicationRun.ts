@@ -46,6 +46,29 @@ const TRIGGER_BY_PROVENANCE = {
   synthetic: "synthetic_email"
 } as const;
 
+
+/** The first invoice an allocation touched, for the activity trail. */
+function firstAllocatedInvoice(allocation: { lines: { invoiceRecordId: string }[] }): string {
+  return allocation.lines[0]?.invoiceRecordId ?? "the invoice";
+}
+
+/**
+ * Why a run is holding, said in terms of the money rather than the state
+ * machine. "run halted: awaiting_receipt" tells a reviewer nothing about their
+ * payment; the reason code is still on the event for anyone who needs it.
+ */
+function holdSummary(status: string, reason: string): string {
+  if (status === "awaiting_receipt") {
+    return "Waiting: the money has not been confirmed as received yet";
+  }
+
+  if (reason.includes("currency") || reason.includes("fx")) {
+    return "Stopped: paid in a different currency and no approved conversion exists";
+  }
+
+  return `Stopped: ${reason.replace(/_/gu, " ")}`;
+}
+
 export async function startCashApplicationRun(
   input: StartCashApplicationRunInput
 ): Promise<CashApplicationRunOutcome> {
@@ -79,11 +102,14 @@ export async function startCashApplicationRun(
     status: string,
     safeSummary: string,
     recordIds: string[],
-    caseId?: string
+    caseId?: string,
+    /** Who did the work. Unwritten, the projection has to guess, and it guessed. */
+    specialist: string = "cash_application"
   ): Promise<void> => {
     await repository.appendEvent({
       runId,
       event: {
+        specialist,
         eventId: `EVT-${runId}-${eventType}-${phase}`,
         runId,
         correlationId,
@@ -99,8 +125,20 @@ export async function startCashApplicationRun(
     });
   };
 
-  await record("run_received", "intake", "started", "remittance advice accepted", advice.sourceRecordIds);
-  await record("phase_started", "validate", "started", "resolving cash receipt", advice.sourceRecordIds);
+  await record(
+    "run_received",
+    "intake",
+    "started",
+    `Payment note received from ${advice.customerReference}`,
+    advice.sourceRecordIds
+  );
+  await record(
+    "phase_started",
+    "validate",
+    "started",
+    "Checking whether the money reached the bank",
+    advice.sourceRecordIds
+  );
 
   /**
    * Past this point the run is committed and a failure has to be recorded.
@@ -121,7 +159,7 @@ export async function startCashApplicationRun(
       "error",
       "validate",
       "run_failed",
-      "run stopped before completion and needs an operator",
+      "Stopped before finishing and needs a person",
       advice.sourceRecordIds
     );
     await repository.updateRunState({ runId, state: "Review", currentPhase: "validate" });
@@ -165,7 +203,7 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
     const eventType: WorkflowEventType =
       outcome.status === "awaiting_receipt" ? "phase_waiting" : "phase_blocked";
 
-    await record(eventType, "validate", outcome.reason, `run halted: ${outcome.reason}`, advice.sourceRecordIds);
+    await record(eventType, "validate", outcome.reason, holdSummary(outcome.status, outcome.reason), advice.sourceRecordIds);
     await repository.updateRunState({ runId, state, currentPhase: "validate" });
 
     return { runId, state, caseId: undefined, liveCase: undefined };
@@ -175,7 +213,7 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
     "phase_completed",
     "allocate",
     outcome.allocation.reconciliationStatus,
-    `allocated ${outcome.allocation.totalAppliedAmount} ${outcome.allocation.currency}`,
+    `Applied ${outcome.allocation.totalAppliedAmount} ${outcome.allocation.currency} to ${firstAllocatedInvoice(outcome.allocation)}`,
     outcome.allocation.recordIds
   );
 
@@ -186,7 +224,7 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
       "phase_blocked",
       "reason",
       outcome.validatedReason.reason,
-      `reason not validated: ${outcome.validatedReason.reason}`,
+      `Stopped: the customer’s reason code could not be recognised (${outcome.validatedReason.reason})`,
       outcome.allocation.recordIds
     );
     await repository.updateRunState({ runId, state: "ReasonReview", currentPhase: "reason" });
@@ -235,8 +273,22 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
   // Before the case, which references it by foreign key.
   await repository.insertAllocation(outcome.allocation);
   await repository.upsertCase(liveCase);
-  await record("case_created", "case", "created", "live deduction case created", liveCase.recordIds, caseId);
-  await record("maya_ready", "handoff", "ready", "case ready for Forensics", liveCase.recordIds, caseId);
+  await record(
+    "case_created",
+    "case",
+    "created",
+    `Raised a case for the ${liveCase.shortPaymentAmount} ${liveCase.currency} shortfall`,
+    liveCase.recordIds,
+    caseId
+  );
+  await record(
+    "maya_ready",
+    "handoff",
+    "ready",
+    "Passed to Deduction Forensics to investigate",
+    liveCase.recordIds,
+    caseId
+  );
   await repository.updateRunState({
     runId,
     state: "Ready",
