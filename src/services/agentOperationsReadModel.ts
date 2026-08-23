@@ -101,9 +101,20 @@ export interface AgentOperationsEventRow {
   provenanceMode: WorkflowEvent["provenanceMode"];
 }
 
+/**
+ * One edge of the handoff graph. FR-OPS-05: emphasized only once the durable
+ * handoff event exists, never because a run looks like it is heading there.
+ */
+export interface AgentHandoffEdge {
+  from: string;
+  to: string;
+  emphasized: boolean;
+}
+
 export interface AgentOperationsSnapshot {
   counts: AgentOperationsCounts;
   roster: AgentRosterRow[];
+  handoffs: AgentHandoffEdge[];
   runs: AgentOperationsRunRow[];
   events: AgentOperationsEventRow[];
   cursor: string;
@@ -139,12 +150,23 @@ function emptyRoster(): AgentRosterRow[] {
 export function emptyAgentOperationsSnapshot(): AgentOperationsSnapshot {
   return {
     counts: { active: 0, queued: 0, waiting: 0, needsAttention: 0 },
+    handoffs: HANDOFF_EDGES.map((edge) => ({ ...edge, emphasized: false })),
     roster: emptyRoster(),
     runs: [],
     events: [],
     cursor: "0"
   };
 }
+
+/**
+ * The edges the workflow can take, in order. Drawn always so the shape of the
+ * pipeline is legible; emphasized only on evidence.
+ */
+const HANDOFF_EDGES: readonly { from: string; to: string; event: WorkflowEvent["eventType"] }[] = [
+  { from: "Cash Application", to: "Deduction Forensics", event: "maya_ready" },
+  { from: "Deduction Forensics", to: "Recovery Drafter", event: "agent_handoff" },
+  { from: "Recovery Drafter", to: "Maya Queue", event: "human_decision" }
+];
 
 /**
  * Run state to display status. The mapping lives here rather than in the
@@ -306,8 +328,16 @@ export async function loadAgentOperationsSnapshot(input: {
     }
   }
 
+  // Evidence only: an edge lights up because its event is in the log.
+  const seenEventTypes = new Set(events.map((event) => event.eventType));
+
   return {
     counts,
+    handoffs: HANDOFF_EDGES.map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      emphasized: seenEventTypes.has(edge.event)
+    })),
     roster: ROSTER_AGENTS.map((agent) => {
       const latest = latestByAgent.get(agent);
 

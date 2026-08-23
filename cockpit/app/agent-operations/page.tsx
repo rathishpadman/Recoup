@@ -34,6 +34,7 @@ const emptySnapshot: AgentOperationsSnapshot = {
     { agent: "Recovery Drafter", status: "Idle", health: "healthy" },
     { agent: "Maya Queue", status: "Idle", health: "healthy" }
   ],
+  handoffs: [],
   runs: [],
   events: [],
   cursor: "0"

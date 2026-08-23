@@ -120,9 +120,17 @@ export interface UpstreamCashOrigin {
   createdAt: string;
 }
 
+/** Emphasized only once the durable handoff event exists (FR-OPS-05). */
+export interface AgentHandoffEdge {
+  from: string;
+  to: string;
+  emphasized: boolean;
+}
+
 export interface AgentOperationsSnapshot {
   counts: AgentOperationsCounts;
   roster: AgentRosterRow[];
+  handoffs: AgentHandoffEdge[];
   runs: AgentOperationsRunRow[];
   events: AgentOperationsEvent[];
   cursor: string;
