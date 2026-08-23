@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { chromium, type Browser } from "playwright";
+import type { Browser } from "playwright";
 import {
   assertNoBrowserErrors,
   assertBrowserTargetReachable,
   checkedGoto,
   ensurePostImplementationScreenshotDir,
+  launchEvidenceBrowser,
   loginAsDemoUser,
   newPageWithErrors,
   resolveBaseUrl,
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
   let browser: Browser | undefined;
 
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchEvidenceBrowser();
     for (const route of sharedRoutes) {
       const baseline = findBaselineCapture(manifest, route);
       if (baseline.liveRoute !== true) {

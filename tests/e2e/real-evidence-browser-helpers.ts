@@ -1,6 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Browser, Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 
 export type DemoLoginId = "CFO" | "Maya" | "david";
 
@@ -19,6 +19,40 @@ const demoDefaultRoutes = {
   Maya: "/forensics/shadcn",
   david: "/credit"
 } as const satisfies Record<DemoLoginId, string>;
+
+/**
+ * The browser this sandbox actually has, rather than the build Playwright
+ * expects. A version bump in the package leaves launch() pointing at a
+ * revision that was never downloaded, and downloading one here is not an
+ * option, so the installed binary is located explicitly.
+ */
+export function resolveChromiumExecutablePath(): string | undefined {
+  const configured = process.env.RECOUP_CHROMIUM_PATH;
+  if (configured !== undefined && configured.trim().length > 0) {
+    return configured;
+  }
+
+  for (const candidate of [
+    "/opt/pw-browsers/chromium",
+    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    "/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell"
+  ]) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+export function launchEvidenceBrowser(): Promise<Browser> {
+  const executablePath = resolveChromiumExecutablePath();
+
+  return chromium.launch({
+    headless: true,
+    ...(executablePath === undefined ? {} : { executablePath })
+  });
+}
 
 export function resolveBaseUrl(): string {
   return (process.env.RECOUP_E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/u, "");
