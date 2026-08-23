@@ -396,3 +396,65 @@ $$;
 -- evidence or config by down migration requires separate data-operation
 -- approval, and no destructive down migration is permitted for workflow
 -- evidence.
+
+-- ---------------------------------------------------------------------------
+-- Demo reset (MVP)
+-- ---------------------------------------------------------------------------
+-- The cash tables are append-only: service_role holds INSERT and SELECT and no
+-- DELETE, which is what makes the ledger usable as an audit trail. Granting
+-- DELETE to clear test data between cycles would trade that away permanently.
+--
+-- This function is the alternative: the single named door out, SECURITY
+-- DEFINER and callable only by service_role, so the tables stay append-only for
+-- every other caller and every other code path.
+--
+-- Each DELETE carries an explicit WHERE because Supabase refuses an unqualified
+-- one (SQLSTATE 21000), a guard against exactly the accident this performs on
+-- purpose.
+--
+-- MVP SCOPE. This clears ALL cash rows, since here every row is test data. It
+-- must not follow the slice into an environment holding real customer cash.
+CREATE OR REPLACE FUNCTION reset_cash_application_demo_data()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  counts jsonb := '{}'::jsonb;
+  n integer;
+BEGIN
+  -- Children before parents, following the foreign keys. Runs reference cases,
+  -- so runs are removed before cases.
+  DELETE FROM recoup_agent_run_state WHERE true;        GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('agent_run_state', n);
+  DELETE FROM recoup_workflow_events WHERE true;        GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('workflow_events', n);
+  DELETE FROM recoup_workflow_outbox WHERE true;        GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('workflow_outbox', n);
+  DELETE FROM recoup_workflow_runs WHERE true;          GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('workflow_runs', n);
+  DELETE FROM recoup_live_deduction_cases WHERE true;   GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('live_deduction_cases', n);
+  DELETE FROM recoup_cash_allocation_lines WHERE true;  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('allocation_lines', n);
+  DELETE FROM recoup_cash_allocations WHERE true;       GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('allocations', n);
+  DELETE FROM recoup_cash_remittance_lines WHERE true;  GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('remittance_lines', n);
+  DELETE FROM recoup_cash_remittances WHERE true;       GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('remittances', n);
+  DELETE FROM recoup_cash_attachments WHERE true;       GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('attachments', n);
+  DELETE FROM recoup_cash_receipts WHERE true;          GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('receipts', n);
+  DELETE FROM recoup_cash_inbox WHERE true;             GET DIAGNOSTICS n = ROW_COUNT;
+  counts := counts || jsonb_build_object('inbox', n);
+  RETURN counts;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION reset_cash_application_demo_data() FROM public;
+REVOKE ALL ON FUNCTION reset_cash_application_demo_data() FROM anon;
+REVOKE ALL ON FUNCTION reset_cash_application_demo_data() FROM authenticated;
+GRANT EXECUTE ON FUNCTION reset_cash_application_demo_data() TO service_role;
