@@ -125,7 +125,7 @@ describe("S5 Forensics cockpit model", () => {
     expect(model.personas.map((persona) => persona.role)).toEqual(["maya", "david", "cfo"]);
     expect(model.personas.map((persona) => persona.displayName)).toEqual(["Maya Patel", "David Kim", "CFO"]);
     expect(model.personas.map((persona) => persona.defaultRoute)).toEqual(["/forensics/shadcn", "/credit", "/cfo"]);
-    expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([2, 1, 6]);
+    expect(model.personas.map((persona) => persona.allowedRouteCount)).toEqual([3, 1, 7]);
     expect(new Set(model.personas.map((persona) => persona.sourceMode))).toEqual(new Set(["deterministic_demo_profile"]));
     expect(model.personas.find((persona) => persona.loginId === "Maya")).toMatchObject({
       persona: "Forensics analyst",
@@ -136,6 +136,7 @@ describe("S5 Forensics cockpit model", () => {
       workspace: "Risk Mesh arbitration queue"
     });
     expect(model.personas.find((persona) => persona.loginId === "CFO")?.allowedRoutes).toEqual([
+      "/agent-operations",
       "/cfo",
       "/governance/agents",
       "/governance/connectors",

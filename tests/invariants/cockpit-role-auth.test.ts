@@ -86,7 +86,7 @@ describe("cockpit role-based demo auth", () => {
     expect(demoProfiles).toContain('defaultRoute: "/credit"');
     expect(demoProfiles).toContain('defaultRoute: "/cfo"');
     expect(demoProfiles).toContain('"/governance/connectors"');
-    expect(demoProfiles).toContain('allowedRoutes: ["/forensics", "/run"]');
+    expect(demoProfiles).toContain('allowedRoutes: ["/agent-operations", "/forensics", "/run"]');
     expect(demoProfiles).toContain('allowedRoutes: ["/credit"]');
   });
 

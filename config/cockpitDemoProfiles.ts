@@ -27,7 +27,7 @@ export interface CockpitDemoLoginPersona {
 
 export const cockpitDemoProfiles = [
   {
-    allowedRoutes: ["/forensics", "/run"],
+    allowedRoutes: ["/agent-operations", "/forensics", "/run"],
     defaultRoute: "/forensics/shadcn",
     displayName: "Maya Patel",
     loginId: "Maya",
@@ -46,6 +46,7 @@ export const cockpitDemoProfiles = [
   },
   {
     allowedRoutes: [
+      "/agent-operations",
       "/cfo",
       "/governance/agents",
       "/governance/connectors",

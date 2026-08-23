@@ -1,4 +1,5 @@
 import { loadLocalRuntimeEnvFiles } from "../../../config/localRuntimeEnv.ts";
+import { requireRouteAccess } from "../demo-auth.ts";
 import { AgentOperationsWorkspace } from "@/components/agent-operations/agent-operations-workspace";
 import { UpstreamCashOriginPanel } from "@/components/maya/upstream-cash-origin";
 import type {
@@ -84,6 +85,11 @@ function readUpstreamOrigin(): UpstreamCashOrigin | undefined {
 }
 
 export default async function AgentOperationsPage() {
+  // Gated like every other business surface. The snapshot carries customer
+  // identity and money once the cash flags are on, so the route may not answer
+  // an anonymous caller.
+  await requireRouteAccess("/agent-operations");
+
   const snapshot = await readSnapshot();
   const origin = readUpstreamOrigin();
 

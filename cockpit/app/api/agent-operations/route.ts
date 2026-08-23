@@ -1,4 +1,5 @@
 import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts";
+import { buildVerifiedHumanAuthHeaders } from "../human-auth.ts";
 
 /**
  * Proxies the Agent Operations snapshot from the backend.
@@ -13,8 +14,23 @@ export const dynamic = "force-dynamic";
 /** Bounded, so a cold or wedged backend answers 502 rather than hanging. */
 const UPSTREAM_TIMEOUT_MS = 2_500;
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
+
+  // Refused before any upstream read: an unauthenticated caller must not be
+  // able to learn whether the backend is up, let alone what it holds.
+  const authHeaders = buildVerifiedHumanAuthHeaders(runtimeEnv, request.headers, {
+    allowDemoSessionRoles: ["maya", "cfo"],
+    proxyPurpose: "read"
+  });
+
+  if (authHeaders === undefined) {
+    return Response.json(
+      { error: "Verified human cockpit auth required." },
+      { headers: { "cache-control": "no-store" }, status: 401 }
+    );
+  }
+
   const apiBaseUrl = runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
   try {

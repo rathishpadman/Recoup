@@ -22,9 +22,10 @@ describe("cockpit demo auth helpers", () => {
     expect(roleHomeRoute("david")).toBe("/credit");
     expect(roleHomeRoute("cfo")).toBe("/cfo");
 
-    expect(roleAllowedRoutes("maya")).toEqual(["/forensics", "/run"]);
+    expect(roleAllowedRoutes("maya")).toEqual(["/agent-operations", "/forensics", "/run"]);
     expect(roleAllowedRoutes("david")).toEqual(["/credit"]);
     expect(roleAllowedRoutes("cfo")).toEqual([
+      "/agent-operations",
       "/cfo",
       "/governance/agents",
       "/governance/connectors",
@@ -109,14 +110,14 @@ describe("cockpit demo auth helpers", () => {
   it("normalizes verified Supabase demo records to the canonical local route contract", () => {
     expect(
       demoSessionFromSupabaseRecord({
-        allowed_routes: ["/forensics", "/run"],
+        allowed_routes: ["/agent-operations", "/forensics", "/run"],
         default_route: "/forensics",
         display_name: "Maya Patel",
         login_id: "Maya",
         role: "maya"
       })
     ).toEqual({
-      allowedRoutes: ["/forensics", "/run"],
+      allowedRoutes: ["/agent-operations", "/forensics", "/run"],
       defaultRoute: "/forensics/shadcn",
       displayName: "Maya Patel",
       loginId: "Maya",
