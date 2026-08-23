@@ -38,6 +38,7 @@ export interface AgentRosterRow {
   agent: string;
   status: AgentStatus;
   health: AgentHealth;
+  lastRunId?: string;
 }
 
 export interface AgentOperationsRunRow {
@@ -79,6 +80,18 @@ const ROSTER_AGENTS = [
   "Recovery Drafter",
   "Maya Queue"
 ] as const;
+
+/**
+ * The specialist name an event carries, mapped to its roster label. A
+ * specialist with no run of its own stays idle rather than borrowing another's
+ * status.
+ */
+const ROSTER_LABEL_BY_SPECIALIST: Record<string, string> = {
+  cash_application: "Cash Application",
+  deduction_forensics: "Deduction Forensics",
+  recovery_drafter: "Recovery Drafter",
+  maya_queue: "Maya Queue"
+};
 
 function emptyRoster(): AgentRosterRow[] {
   return ROSTER_AGENTS.map((agent) => ({ agent, status: "Idle", health: "healthy" }));
@@ -166,9 +179,31 @@ export async function loadAgentOperationsSnapshot(input: {
     }
   }
 
+  // The roster reports the latest run each specialist has. A screen showing
+  // "Waiting 1" beside four idle agents reads as broken and invites the reader
+  // to distrust both halves.
+  const latestByAgent = new Map<string, AgentOperationsRunRow>();
+  for (const row of runs) {
+    const label = ROSTER_LABEL_BY_SPECIALIST[row.agent];
+    if (label !== undefined) {
+      latestByAgent.set(label, row);
+    }
+  }
+
   return {
     counts,
-    roster: emptyRoster(),
+    roster: ROSTER_AGENTS.map((agent) => {
+      const latest = latestByAgent.get(agent);
+
+      return latest === undefined
+        ? { agent, status: "Idle" as AgentStatus, health: "healthy" as AgentHealth }
+        : {
+            agent,
+            status: latest.status,
+            health: "healthy" as AgentHealth,
+            lastRunId: latest.runId
+          };
+    }),
     // Order is the order they happened. The loader never sorts or reverses.
     events: events.map((event) => ({
       eventId: event.eventId,

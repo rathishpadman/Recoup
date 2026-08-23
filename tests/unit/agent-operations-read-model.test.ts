@@ -213,4 +213,42 @@ describe("loadAgentOperationsSnapshot", () => {
     expect(snapshot.events[0]?.time).toBe("2026-08-22T10:00:00.000Z");
     expect(snapshot.events[0]?.recordIds).toEqual(["REC-RUN-1"]);
   });
+
+  it("reflects a run in flight on the roster rather than reporting every agent idle", async () => {
+    const repository = createInMemoryWorkflowRepository();
+    await seedRun(repository, {
+      runId: "RUN-WAIT",
+      state: "AwaitingCashReceipt",
+      phase: "validate",
+      events: [
+        { eventType: "run_received", phase: "intake", status: "started" },
+        { eventType: "phase_waiting", phase: "validate", status: "awaiting_receipt" }
+      ]
+    });
+
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+
+    // A screen showing "Waiting 1" beside a roster of four idle agents reads as
+    // broken, and invites the reader to distrust both halves.
+    const cashApplication = snapshot.roster.find((row) => row.agent === "Cash Application");
+    expect(cashApplication?.status).toBe("Waiting");
+    expect(cashApplication?.lastRunId).toBe("RUN-WAIT");
+
+    // The specialists with no run of their own stay idle.
+    expect(snapshot.roster.find((row) => row.agent === "Maya Queue")?.status).toBe("Idle");
+  });
+
+  it("leaves every agent idle when the capability is not exposed", async () => {
+    const repository = createInMemoryWorkflowRepository();
+    await seedRun(repository, {
+      runId: "RUN-WAIT",
+      state: "AwaitingCashReceipt",
+      phase: "validate",
+      events: [{ eventType: "phase_waiting", phase: "validate", status: "awaiting_receipt" }]
+    });
+
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: {} });
+
+    expect(snapshot.roster.every((row) => row.status === "Idle")).toBe(true);
+  });
 });

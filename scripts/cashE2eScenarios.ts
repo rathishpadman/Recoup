@@ -276,7 +276,14 @@ async function runSql(statements: string[]): Promise<void> {
   }
 }
 
-const command = process.argv[2] ?? "help";
+/**
+ * Only dispatch when run directly. Importing this module for its scenario
+ * definitions must not execute the CLI, which it previously did.
+ */
+const invokedDirectly =
+  process.argv[1] !== undefined && process.argv[1].endsWith("cashE2eScenarios.ts");
+
+const command = invokedDirectly ? (process.argv[2] ?? "help") : "none";
 
 if (command === "seed") {
   const statements = seedStatements();
@@ -291,6 +298,6 @@ if (command === "seed") {
     console.log(`${scenario.id}  ${scenario.title}`);
     console.log(`         expect: ${scenario.expected}`);
   }
-} else {
+} else if (command !== "none") {
   console.log("usage: npx tsx scripts/cashE2eScenarios.ts <seed|verify|reset>");
 }
