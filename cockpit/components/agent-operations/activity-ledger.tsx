@@ -9,8 +9,9 @@ import type { AgentOperationsEvent } from "./types.ts";
  *
  * Events are rendered in the order the backend produced them and are never
  * reordered, merged or summarised here. Each row shows the backend-formatted
- * time, the phase, the safe summary and the cited record IDs. The cockpit does
- * not open those records or restate their contents.
+ * time, the specialist, the phase, the safe summary, the outcome and the cited
+ * record IDs, which is what FR-OPS-04 asks for. The cockpit does not open those
+ * records or restate their contents.
  */
 
 interface ActivityLedgerProps {
@@ -37,8 +38,10 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th className="py-2 pr-4 font-normal">Time</th>
+                <th className="py-2 pr-4 font-normal">Specialist</th>
                 <th className="py-2 pr-4 font-normal">Phase</th>
                 <th className="py-2 pr-4 font-normal">Event</th>
+                <th className="py-2 pr-4 font-normal">Outcome</th>
                 <th className="py-2 font-normal">Records</th>
               </tr>
             </thead>
@@ -50,10 +53,22 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
                   className="border-t align-top"
                 >
                   <td className="py-3 pr-4 tabular-nums whitespace-nowrap">{event.time}</td>
+                  <td
+                    className="py-3 pr-4 whitespace-nowrap"
+                    data-testid={`activity-event-specialist-${event.eventId}`}
+                  >
+                    {event.specialist ?? "—"}
+                  </td>
                   <td className="py-3 pr-4 whitespace-nowrap" data-testid={`activity-event-phase-${event.eventId}`}>
                     {event.phase}
                   </td>
                   <td className="py-3 pr-4">{event.event}</td>
+                  <td
+                    className="py-3 pr-4 whitespace-nowrap"
+                    data-testid={`activity-event-outcome-${event.eventId}`}
+                  >
+                    {event.outcome}
+                  </td>
                   <td
                     className="py-3 font-mono text-xs break-all"
                     data-testid={`activity-event-records-${event.eventId}`}

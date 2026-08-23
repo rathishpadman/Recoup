@@ -82,6 +82,9 @@ export interface AgentOperationsEvent {
   event: string;
   eventType: string;
   phase: string;
+  specialist?: string;
+  /** How that step turned out, decided by the backend. */
+  outcome: string;
   recordIds: string[];
   provenanceMode: "live" | "replay" | "synthetic";
 }

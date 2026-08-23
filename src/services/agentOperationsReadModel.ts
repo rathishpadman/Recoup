@@ -34,10 +34,18 @@ export interface AgentOperationsCounts {
   needsAttention: number;
 }
 
+/** Shown only while an agent is still working. */
+export interface AgentCurrentAction {
+  currentAction: string;
+  tool?: string;
+  elapsed?: string;
+}
+
 export interface AgentRosterRow {
   agent: string;
   status: AgentStatus;
   health: AgentHealth;
+  currentAction?: AgentCurrentAction;
   lastRun?: string;
   lastRunId?: string;
   lastScenario?: string;
@@ -66,6 +74,9 @@ export interface AgentOperationsEventRow {
   event: string;
   eventType: string;
   phase: string;
+  specialist?: string;
+  /** The event's own status: how that step turned out. */
+  outcome: string;
   recordIds: string[];
   provenanceMode: WorkflowEvent["provenanceMode"];
 }
@@ -235,6 +246,17 @@ export async function loadAgentOperationsSnapshot(input: {
   // The roster reports the latest run each specialist has. A screen showing
   // "Waiting 1" beside four idle agents reads as broken and invites the reader
   // to distrust both halves.
+  /**
+   * The most recent thing a run did, for a run that has not finished. A
+   * terminal run reports nothing: an action left on the screen after the work
+   * stopped reads as still running.
+   */
+  const TERMINAL: AgentStatus[] = ["Completed", "Blocked"];
+  const latestEventByRun = new Map<string, (typeof events)[number]>();
+  for (const event of events) {
+    latestEventByRun.set(event.runId, event);
+  }
+
   const latestByAgent = new Map<string, AgentOperationsRunRow>();
   for (const row of runs) {
     const label = ROSTER_LABEL_BY_SPECIALIST[row.agent];
@@ -256,7 +278,16 @@ export async function loadAgentOperationsSnapshot(input: {
             health: "healthy" as AgentHealth,
             ...(latest.completedAt === undefined ? {} : { lastRun: latest.completedAt }),
             lastRunId: latest.runId,
-            ...(latest.scenario === undefined ? {} : { lastScenario: latest.scenario })
+            ...(latest.scenario === undefined ? {} : { lastScenario: latest.scenario }),
+            ...(TERMINAL.includes(latest.status)
+              ? {}
+              : (() => {
+                  const event = latestEventByRun.get(latest.runId);
+
+                  return event === undefined
+                    ? {}
+                    : { currentAction: { currentAction: event.safeSummary } };
+                })())
           };
     }),
     // Order is the order they happened. The loader never sorts or reverses.
@@ -268,6 +299,8 @@ export async function loadAgentOperationsSnapshot(input: {
       event: event.safeSummary,
       eventType: event.eventType,
       phase: event.phase,
+      ...(event.specialist === undefined ? {} : { specialist: event.specialist }),
+      outcome: event.status,
       recordIds: event.recordIds,
       provenanceMode: event.provenanceMode
     })),
