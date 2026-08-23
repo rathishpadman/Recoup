@@ -36,6 +36,7 @@ export function AgentOperationsWorkspace({ snapshot }: AgentOperationsWorkspaceP
           runId: selectedRun.runId,
           agent: selectedRun.agent,
           ...(selectedRun.scenario === undefined ? {} : { scenario: selectedRun.scenario }),
+          ...(selectedRun.customer === undefined ? {} : { customer: selectedRun.customer }),
           status: selectedRun.status,
           ...(selectedRun.startedAt === undefined ? {} : { startedAt: selectedRun.startedAt }),
           ...(selectedRun.elapsed === undefined ? {} : { elapsed: selectedRun.elapsed }),

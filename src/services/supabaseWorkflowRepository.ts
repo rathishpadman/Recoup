@@ -150,6 +150,7 @@ export function createSupabaseWorkflowRepository(
           trigger_type: parsed.triggerType,
           trigger_record_id: parsed.triggerRecordId,
           correlation_id: parsed.correlationId,
+          customer_reference: parsed.customerReference ?? null,
           state: parsed.state,
           current_phase: parsed.currentPhase,
           case_id: parsed.caseId ?? null,
@@ -321,6 +322,9 @@ function mapRun(row: Record<string, unknown>): WorkflowRun {
     correlationId: row.correlation_id,
     state: row.state,
     currentPhase: row.current_phase,
+    ...(row.customer_reference === null || row.customer_reference === undefined
+      ? {}
+      : { customerReference: row.customer_reference }),
     ...(row.case_id === null ? {} : { caseId: row.case_id }),
     provenanceMode: row.provenance_mode,
     createdAt: row.created_at,

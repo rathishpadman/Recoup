@@ -67,6 +67,7 @@ export async function startCashApplicationRun(
     correlationId,
     state: "Received",
     currentPhase: "intake",
+    customerReference: advice.customerReference,
     provenanceMode: advice.provenanceMode,
     createdAt: timestamp,
     updatedAt: timestamp

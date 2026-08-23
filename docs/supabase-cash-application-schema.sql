@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS recoup_workflow_runs (
   correlation_id   text NOT NULL,
   state            text NOT NULL,
   current_phase    text NOT NULL,
+  customer_reference text,
   case_id          text REFERENCES recoup_live_deduction_cases (case_id),
   provenance_mode  text NOT NULL CHECK (provenance_mode IN ('live', 'replay', 'synthetic')),
   created_at       timestamptz NOT NULL DEFAULT now(),

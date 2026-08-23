@@ -47,6 +47,7 @@ export interface AgentOperationsRunRow {
   runId: string;
   agent: string;
   scenario?: string;
+  customer?: string;
   status: AgentStatus;
   queuedAt?: string;
   startedAt?: string;
@@ -209,6 +210,7 @@ export async function loadAgentOperationsSnapshot(input: {
       runId: projected.runId,
       agent: projected.specialist,
       ...(scenario === undefined ? {} : { scenario }),
+      ...(run.customerReference === undefined ? {} : { customer: run.customerReference }),
       status,
       queuedAt: run.createdAt,
       ...(startedAt === undefined ? {} : { startedAt }),

@@ -41,6 +41,9 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
             </Field>
             <Field label="Agent">{detail.agent}</Field>
             <Field label="Scenario">{detail.scenario ?? DASH}</Field>
+            <Field label="Customer">
+              <span data-testid="run-detail-customer">{detail.customer ?? DASH}</span>
+            </Field>
             <Field label="Status">
               <Badge
                 variant={detail.status === "Blocked" ? "destructive" : "secondary"}

@@ -66,6 +66,7 @@ export interface RunDetail {
   runId: string;
   agent: string;
   scenario?: string;
+  customer?: string;
   status: AgentStatus;
   startedAt?: string;
   elapsed?: string;
