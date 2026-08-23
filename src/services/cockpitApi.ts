@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
+import { Decimal } from "decimal.js";
 import { z } from "zod";
 import { runtimeModels, runtimeOpenAiServiceTier } from "../../config/models.js";
 import { day1GovernedConfigSeed, sha256CanonicalJson, type GovernedConfigValues } from "../../config/governed.js";
@@ -27,6 +28,14 @@ import {
   type CockpitHumanProxyPurpose
 } from "../../config/cockpitHumanPrincipals.js";
 import { loadAgentOperationsSnapshot } from "./agentOperationsReadModel.js";
+import {
+  isAllowedInboundSender,
+  parseInboundRequest
+} from "../adapters/inboundRemittance.js";
+import { acceptInboundRemittance } from "./remittanceIntake.js";
+import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
+import { startCashApplicationRun } from "./cashApplicationRun.js";
+import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import { resolveWorkflowRepository } from "./workflowRepositoryFactory.js";
 import type { WorkflowRepository } from "./workflowRepository.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
@@ -1015,6 +1024,99 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
    * stage that is the empty snapshot, and the route cannot accidentally leak
    * rows by forgetting a check of its own.
    */
+  /**
+   * Inbound remittance acceptance.
+   *
+   * Nothing deployed could start a cash run before this: every caller of the
+   * intake and the run lived in tests. The order of the gates is the security
+   * property — capability, then shared secret, then sender, then recipient,
+   * then scan, then map — and each refuses on its own.
+   */
+  const inboundSeenEventKeys = new Set<string>();
+
+  app.post("/inbound/remittance", async (request, response) => {
+    // Off by stage or by kill switch means the route does not exist at all.
+    if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
+      response.status(404).json({ error: "Inbound acceptance is not enabled." });
+      return;
+    }
+
+    const rawBody = (request as express.Request & { rawBody?: string }).rawBody ?? "";
+    const parsed = parseInboundRequest({
+      env: runtimeEnv,
+      rawBody,
+      headers: request.headers as Record<string, string | undefined>
+    });
+
+    if (!parsed.ok) {
+      const status = parsed.reason === "signature_invalid" ? 401 : 422;
+      response.status(status).json({ error: "Inbound rejected.", reason: parsed.reason });
+      return;
+    }
+
+    if (!isAllowedInboundSender(parsed.message.sender, runtimeEnv)) {
+      response.status(403).json({ error: "Inbound rejected.", reason: "sender_not_allowed" });
+      return;
+    }
+
+    const approvedRecipient = runtimeEnv.RECOUP_INBOUND_APPROVED_RECIPIENT?.trim() ?? "";
+    const scanner = createDemoAttachmentSecurityService({
+      attachments: new Map([[parsed.message.attachmentRef, parsed.attachment]])
+    });
+
+    const intake = await acceptInboundRemittance(parsed.message, {
+      env: runtimeEnv,
+      scanner,
+      attachmentBody: (ref) => (ref === parsed.message.attachmentRef ? parsed.attachment.bytes : undefined),
+      approvedRecipient,
+      // The transport already proved the shared secret over the raw body.
+      verifySignature: () => true,
+      seenEventKeys: inboundSeenEventKeys,
+      provenanceMode: "live"
+    });
+
+    if (intake.status !== "accepted") {
+      // The reason is a safe enum, never the attachment or its contents.
+      const status = intake.reason === "replay_detected" ? 409 : 422;
+      response.status(status).json({ error: "Inbound rejected.", reason: intake.reason });
+      return;
+    }
+
+    /**
+     * REHEARSAL CANDIDATE INVOICES - ASSUMED, NOT AN AR SOURCE.
+     *
+     * A real open-item source is required for AC-14, because candidates built
+     * from the advice can never disagree with the advice and so can never
+     * surface a receipt/remittance mismatch. This exists so a rehearsal run has
+     * something to match against, and is reachable only behind the rehearsal
+     * flag.
+     */
+    const invoices = intake.advice.lines.map((line) => ({
+      invoiceRecordId: line.invoiceReference,
+      invoiceReference: line.invoiceReference,
+      balance: new Decimal(line.instructedAmount).plus(line.claimedDeductionAmount).toFixed(2),
+      currency: intake.advice.currency
+    }));
+
+    try {
+      const outcome = await startCashApplicationRun({
+        advice: intake.advice,
+        invoices,
+        env: runtimeEnv,
+        repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository
+      });
+
+      response.status(202).json({
+        accepted: true,
+        runId: outcome.runId,
+        state: outcome.state,
+        caseId: outcome.caseId ?? null
+      });
+    } catch {
+      response.status(502).json({ error: "Cash application run could not be started." });
+    }
+  });
+
   app.get("/agent-operations", async (_request, response) => {
     const repository =
       options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository;
