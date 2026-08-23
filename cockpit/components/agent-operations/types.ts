@@ -58,8 +58,23 @@ export interface AgentOperationsRunRow {
   completedAt?: string;
   elapsed?: string;
   caseId?: string;
+  evidence?: RunEvidence;
   provenanceMode: "live" | "replay" | "synthetic";
   blocked: boolean;
+}
+
+/** Everything the case rests on. All backend-decided; money already formatted. */
+export interface RunEvidence {
+  caseId: string;
+  remittanceId: string;
+  receiptId: string;
+  allocationId: string;
+  claimedReason: string;
+  validatedReason: string;
+  shortPaymentAmount: string;
+  currency: string;
+  citedRecordCount: number;
+  assumedPolicy: boolean;
 }
 
 export interface RunDetail {
@@ -71,6 +86,7 @@ export interface RunDetail {
   startedAt?: string;
   elapsed?: string;
   caseId?: string;
+  evidence?: RunEvidence;
   blockerCode?: string;
 }
 

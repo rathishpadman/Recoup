@@ -40,7 +40,8 @@ export function AgentOperationsWorkspace({ snapshot }: AgentOperationsWorkspaceP
           status: selectedRun.status,
           ...(selectedRun.startedAt === undefined ? {} : { startedAt: selectedRun.startedAt }),
           ...(selectedRun.elapsed === undefined ? {} : { elapsed: selectedRun.elapsed }),
-          ...(selectedRun.caseId === undefined ? {} : { caseId: selectedRun.caseId })
+          ...(selectedRun.caseId === undefined ? {} : { caseId: selectedRun.caseId }),
+          ...(selectedRun.evidence === undefined ? {} : { evidence: selectedRun.evidence })
         };
 
   return (

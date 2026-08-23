@@ -51,6 +51,25 @@ export interface AgentRosterRow {
   lastScenario?: string;
 }
 
+/**
+ * What the case rests on, for FR-OPS-06. Every value is the backend's, and the
+ * money is the string the allocation produced: the cockpit neither computes nor
+ * reformats a monetary value.
+ */
+export interface AgentOperationsRunEvidence {
+  caseId: string;
+  remittanceId: string;
+  receiptId: string;
+  allocationId: string;
+  claimedReason: string;
+  validatedReason: string;
+  shortPaymentAmount: string;
+  currency: string;
+  citedRecordCount: number;
+  /** The allocation or reason pack is registered as assumed, not ratified. */
+  assumedPolicy: boolean;
+}
+
 export interface AgentOperationsRunRow {
   runId: string;
   agent: string;
@@ -62,6 +81,7 @@ export interface AgentOperationsRunRow {
   completedAt?: string;
   elapsed?: string;
   caseId?: string;
+  evidence?: AgentOperationsRunEvidence;
   provenanceMode: WorkflowRun["provenanceMode"];
   blocked: boolean;
 }
@@ -193,6 +213,7 @@ export async function loadAgentOperationsSnapshot(input: {
 
   const events = await repository.readEventsSince("0");
   const allRuns = await repository.listRuns();
+  const casesByRun = new Map((await repository.listCases()).map((entry) => [entry.runId, entry]));
 
   const runs: AgentOperationsRunRow[] = [];
   const counts: AgentOperationsCounts = { active: 0, queued: 0, waiting: 0, needsAttention: 0 };
@@ -217,6 +238,25 @@ export async function loadAgentOperationsSnapshot(input: {
         ? undefined
         : formatElapsed(startedAt, run.terminalAt);
 
+    const liveCase = casesByRun.get(run.runId);
+    const evidence =
+      liveCase === undefined
+        ? undefined
+        : {
+            caseId: liveCase.caseId,
+            remittanceId: liveCase.remittanceId,
+            receiptId: liveCase.receiptId,
+            allocationId: liveCase.allocationId,
+            claimedReason: liveCase.claimedReason,
+            validatedReason: liveCase.validatedReason,
+            shortPaymentAmount: liveCase.shortPaymentAmount,
+            currency: liveCase.currency,
+            citedRecordCount: liveCase.recordIds.length,
+            assumedPolicy: Object.values(liveCase.policyVersions).some((version) =>
+              version.toLowerCase().includes("assumed")
+            )
+          };
+
     runs.push({
       runId: projected.runId,
       agent: projected.specialist,
@@ -228,6 +268,7 @@ export async function loadAgentOperationsSnapshot(input: {
       ...(run.terminalAt === undefined ? {} : { completedAt: run.terminalAt }),
       ...(elapsed === undefined ? {} : { elapsed }),
       ...(projected.caseId === undefined ? {} : { caseId: projected.caseId }),
+      ...(evidence === undefined ? {} : { evidence }),
       provenanceMode: projected.provenanceMode,
       blocked: projected.blocked
     });

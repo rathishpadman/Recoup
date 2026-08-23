@@ -63,6 +63,39 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
                 </span>
               </Field>
             )}
+            {detail.evidence === undefined ? null : (
+              <div className="space-y-3 border-t pt-4" data-testid="run-detail-evidence">
+                <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  Allocation
+                </p>
+                <Field label="Short payment">
+                  {/* Backend-formatted. The cockpit never computes a money value. */}
+                  <span className="tabular-nums" data-testid="run-detail-short-payment">
+                    {detail.evidence.shortPaymentAmount} {detail.evidence.currency}
+                  </span>
+                </Field>
+                <Field label="Validated reason">
+                  <span data-testid="run-detail-validated-reason">
+                    {detail.evidence.validatedReason}
+                  </span>
+                </Field>
+                <Field label="Claimed reason">{detail.evidence.claimedReason}</Field>
+                <Field label="Evidence">
+                  <span className="font-mono text-xs break-all" data-testid="run-detail-evidence-ids">
+                    {detail.evidence.receiptId}, {detail.evidence.allocationId},{" "}
+                    {detail.evidence.remittanceId}
+                  </span>
+                </Field>
+                <Field label="Cited records">
+                  <span className="tabular-nums">{detail.evidence.citedRecordCount}</span>
+                </Field>
+                {!detail.evidence.assumedPolicy ? null : (
+                  <Badge variant="secondary" data-testid="run-detail-assumed-policy">
+                    Assumed policy, not ratified
+                  </Badge>
+                )}
+              </div>
+            )}
             {detail.blockerCode === undefined ? null : (
               <Field label="Blocker">
                 <span data-testid="run-detail-blocker">{detail.blockerCode}</span>
