@@ -102,6 +102,55 @@ export async function startCashApplicationRun(
   await record("run_received", "intake", "started", "remittance advice accepted", advice.sourceRecordIds);
   await record("phase_started", "validate", "started", "resolving cash receipt", advice.sourceRecordIds);
 
+  /**
+   * Past this point the run is committed and a failure has to be recorded.
+   *
+   * A write that throws after intake — a missing column, a foreign key, a
+   * refused grant — used to leave the row at Received with no terminal event.
+   * The caller reported the failure and the operations screen counted the run
+   * as Queued forever: work that looks pending and never moves. That is the
+   * stranding definition of done 2 forbids.
+   *
+   * The error is recorded and then rethrown: the operator sees blocked work,
+   * and the caller still learns the run failed.
+   */
+  try {
+    return await completeCashApplicationRun({ advice, invoices, env, repository, runId, record, now, ...(input.source === undefined ? {} : { source: input.source }) });
+  } catch (error) {
+    await record(
+      "error",
+      "validate",
+      "run_failed",
+      "run stopped before completion and needs an operator",
+      advice.sourceRecordIds
+    );
+    await repository.updateRunState({ runId, state: "Review", currentPhase: "validate" });
+
+    throw error;
+  }
+}
+
+interface CompleteRunInput {
+  advice: RemittanceAdviceInput;
+  invoices: CandidateInvoice[];
+  env: RuntimeEnv;
+  repository: WorkflowRepository;
+  runId: string;
+  record: (
+    eventType: WorkflowEventType,
+    phase: string,
+    status: string,
+    safeSummary: string,
+    recordIds: string[],
+    caseId?: string
+  ) => Promise<void>;
+  now: () => Date;
+  source?: CashReceiptSource;
+}
+
+async function completeCashApplicationRun(input: CompleteRunInput): Promise<CashApplicationRunOutcome> {
+  const { advice, invoices, env, repository, runId, record, now } = input;
+
   const outcome = await runCashApplication({
     advice,
     invoices,
