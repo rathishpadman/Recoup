@@ -1269,6 +1269,88 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     }
   });
 
+  /**
+   * Durable event stream for Agent Operations (FR-OPS-07).
+   *
+   * The cursor is the persisted event cursor, not a position held in memory,
+   * so a client that reconnects — across a restart, a redeploy or a dropped
+   * connection — resumes exactly where it stopped. Nothing is replayed twice
+   * and nothing is skipped.
+   *
+   * The stream reports only what the log already holds. It never emits a
+   * progress frame of its own, because a reconnecting client would read that
+   * as work that happened while it was away.
+   *
+   * This is separate from read-model invalidation SSE and does not replace it.
+   */
+  app.get("/agent-operations/events", async (request, response) => {
+    if (!isCashCapabilityEnabled(runtimeEnv, "agent_operations_exposure")) {
+      response.status(404).json({ error: "Agent operations is not enabled." });
+      return;
+    }
+
+    // Authenticated before a single header is written, never after.
+    if (
+      !requireProtectedReadAuth(request, response, {
+        allowProxyDemoRoles: ["maya", "cfo"],
+        proxyPurpose: "read"
+      })
+    ) {
+      return;
+    }
+
+    const repository =
+      options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository;
+
+    // A browser resends Last-Event-ID automatically; an explicit cursor wins
+    // so a caller can choose where to resume.
+    const requestedCursor = typeof request.query.cursor === "string" ? request.query.cursor : undefined;
+    const lastEventId = request.headers["last-event-id"];
+    let cursor =
+      requestedCursor ?? (typeof lastEventId === "string" ? lastEventId : undefined) ?? "0";
+
+    const pollMs = Number(runtimeEnv.RECOUP_AGENT_OPERATIONS_SSE_POLL_MS ?? "1000");
+
+    response.setHeader("content-type", "text/event-stream");
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("connection", "keep-alive");
+    response.flushHeaders();
+
+    // The socket's own state, rather than a flag a closure sets: the compiler
+    // cannot see that assignment and narrows the flag to a constant.
+    const stillOpen = (): boolean => !response.destroyed && !response.writableEnded;
+
+    while (stillOpen()) {
+      let batch;
+
+      try {
+        batch = await repository.readEventsSince(cursor);
+      } catch {
+        // A read failure ends the stream rather than looping silently, so the
+        // client reconnects and tries again from the same cursor.
+        break;
+      }
+
+      for (const event of batch) {
+        if (!stillOpen()) {
+          break;
+        }
+
+        // The id is the cursor the client resumes from.
+        response.write(`id: ${event.cursor}
+`);
+        response.write(`data: ${JSON.stringify(event)}
+
+`);
+        cursor = event.cursor;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
+    response.end();
+  });
+
   app.get("/agent-operations", async (_request, response) => {
     const repository =
       options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository;
