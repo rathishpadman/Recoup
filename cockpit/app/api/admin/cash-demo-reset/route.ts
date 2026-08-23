@@ -1,15 +1,12 @@
-import { createHmac } from "node:crypto";
-
 import { loadLocalRuntimeEnvFiles } from "../../../../../config/localRuntimeEnv.ts";
 import { buildVerifiedHumanAuthHeaders } from "../../human-auth.ts";
 
 /**
  * Cash demo reset, for the operator in the browser.
  *
- * Two independent checks, because this is the one call that can delete cash
- * rows. The cockpit proves a signed-in CFO is asking, and the backend proves
- * the request carries the shared secret. Neither alone is enough, and the
- * browser never holds the secret: it is added here, server-side.
+ * A pass-through that proves a signed-in operator is asking. The proxy headers
+ * it mints are what the backend verifies, so no shared secret has to be copied
+ * onto this deployment just so the browser path can sign.
  */
 
 export const dynamic = "force-dynamic";
@@ -33,15 +30,6 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const secret = runtimeEnv.RECOUP_INBOUND_SHARED_SECRET?.trim();
-
-  if (secret === undefined || secret.length === 0) {
-    return Response.json(
-      { error: "Cash demo reset is not configured." },
-      { headers: noStore, status: 404 }
-    );
-  }
-
   try {
     const upstream = await fetch(
       `${runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317"}/admin/cash-demo-reset`,
@@ -50,9 +38,7 @@ export async function POST(request: Request): Promise<Response> {
         cache: "no-store",
         headers: {
           ...authHeaders,
-          "content-type": "application/json",
-          // Signed over the exact bytes forwarded, never re-serialised.
-          "x-recoup-signature": createHmac("sha256", secret).update(body).digest("hex")
+          "content-type": "application/json"
         },
         body
       }

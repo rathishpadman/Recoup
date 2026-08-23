@@ -1373,20 +1373,20 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       return;
     }
 
-    const secret = runtimeEnv.RECOUP_INBOUND_SHARED_SECRET?.trim();
-    const rawBody = (request as express.Request & { rawBody?: string }).rawBody ?? "";
-    const presented = request.headers["x-recoup-signature"];
+    /**
+     * The same admin auth the approval-lifecycle reset uses. A shared secret
+     * was the wrong choice here: it would have to live on the cockpit
+     * deployment as well so the browser path could sign, spreading the secret
+     * for no gain. A verified admin principal is what actually identifies the
+     * person clicking.
+     */
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["cfo", "maya"],
+      proxyPurpose: "admin-reset"
+    });
 
-    if (secret === undefined || secret.length === 0) {
-      response.status(404).json({ error: "Cash demo reset is not configured." });
-      return;
-    }
-
-    if (
-      typeof presented !== "string" ||
-      presented.trim() !== createHmac("sha256", secret).update(rawBody).digest("hex")
-    ) {
-      response.status(401).json({ error: "Cash demo reset rejected." });
+    if (!human.success) {
+      response.status(401).json({ error: human.error });
       return;
     }
 

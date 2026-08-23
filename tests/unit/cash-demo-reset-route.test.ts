@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
@@ -10,27 +9,28 @@ import type { RuntimeEnv } from "../../config/localRuntimeEnv.js";
  * POST /admin/cash-demo-reset clears the cash slice between test cycles.
  *
  * It is the most destructive endpoint in the service, so the guards are the
- * point of these tests rather than the happy path. It must refuse an unsigned
- * caller, refuse when rehearsal is off, and never be reachable from a
- * deployment that is not running demo data.
+ * point of these tests rather than the happy path. It must refuse an
+ * unauthenticated caller, refuse an unconfirmed request, and not exist at all
+ * on a deployment that is not running demo data.
  *
  * The deletion itself is a SECURITY DEFINER function in Postgres, so the tables
  * stay append-only for every other caller and this stays the only way out.
  */
 
-const secret = "reset-secret";
-
 const baseEnv: RuntimeEnv = {
   RECOUP_CASH_ROLLOUT_STAGE: "shadow",
   RECOUP_CASH_REHEARSAL_ENABLED: "true",
-  RECOUP_INBOUND_SHARED_SECRET: secret,
+  RECOUP_COCKPIT_AUTH_TOKEN: "test-human-token",
+  RECOUP_COCKPIT_HUMAN_PRINCIPAL: "human:maya-lead",
   SUPABASE_URL: "https://stub.invalid",
   SUPABASE_SERVICE_ROLE_KEY: "stub-key"
 };
 
-function sign(raw: string): string {
-  return createHmac("sha256", secret).update(raw).digest("hex");
-}
+/** What the cockpit proxy mints once it has proven who is asking. */
+const adminAuth = {
+  "x-recoup-human-principal": "human:maya-lead",
+  "x-recoup-human-token": "test-human-token"
+};
 
 async function startApi(
   env: RuntimeEnv,
@@ -82,7 +82,7 @@ describe("POST /admin/cash-demo-reset", () => {
     const api = await startApi(baseEnv, capture);
 
     try {
-      const result = await post(api.baseUrl, body, { "x-recoup-signature": sign(body) });
+      const result = await post(api.baseUrl, body, adminAuth);
 
       expect(result.status).toBe(200);
       expect(result.json.reset).toBe(true);
@@ -94,7 +94,7 @@ describe("POST /admin/cash-demo-reset", () => {
     }
   });
 
-  it("refuses an unsigned caller", async () => {
+  it("refuses an unauthenticated caller", async () => {
     const capture = { calls: [] as { url: string }[] };
     const api = await startApi(baseEnv, capture);
 
@@ -109,12 +109,15 @@ describe("POST /admin/cash-demo-reset", () => {
     }
   });
 
-  it("refuses a signature over different bytes", async () => {
+  it("refuses a wrong admin token", async () => {
     const capture = { calls: [] as { url: string }[] };
     const api = await startApi(baseEnv, capture);
 
     try {
-      const result = await post(api.baseUrl, body, { "x-recoup-signature": sign("tampered") });
+      const result = await post(api.baseUrl, body, {
+        ...adminAuth,
+        "x-recoup-human-token": "not-the-token"
+      });
 
       expect(result.status).toBe(401);
       expect(capture.calls).toHaveLength(0);
@@ -131,7 +134,7 @@ describe("POST /admin/cash-demo-reset", () => {
       // A signed but unconfirmed request must not wipe the slice: the phrase is
       // what separates an intentional reset from a stray POST.
       const stray = JSON.stringify({});
-      const result = await post(api.baseUrl, stray, { "x-recoup-signature": sign(stray) });
+      const result = await post(api.baseUrl, stray, adminAuth);
 
       expect(result.status).toBe(422);
       expect(capture.calls).toHaveLength(0);
@@ -145,7 +148,7 @@ describe("POST /admin/cash-demo-reset", () => {
     const api = await startApi({ ...baseEnv, RECOUP_CASH_ROLLOUT_STAGE: "disabled" }, capture);
 
     try {
-      const result = await post(api.baseUrl, body, { "x-recoup-signature": sign(body) });
+      const result = await post(api.baseUrl, body, adminAuth);
 
       // A deployment that is not running demo data has no demo reset.
       expect(result.status).toBe(404);
@@ -160,7 +163,7 @@ describe("POST /admin/cash-demo-reset", () => {
     const api = await startApi(baseEnv, capture, 403);
 
     try {
-      const result = await post(api.baseUrl, body, { "x-recoup-signature": sign(body) });
+      const result = await post(api.baseUrl, body, adminAuth);
 
       expect(result.status).toBe(502);
       expect(result.json.reset).toBeUndefined();
