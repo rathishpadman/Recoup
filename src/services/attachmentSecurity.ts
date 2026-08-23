@@ -60,6 +60,24 @@ const ALLOWED_MIME = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ]);
 
+/**
+ * Each permitted extension and the content types it may legitimately claim.
+ * The pair has to agree; a list per side lets a .pdf pass as a spreadsheet.
+ *
+ * The empty extension is the note typed into the email body with nothing
+ * attached.
+ */
+const EXTENSION_TYPES: { extension: string; types: string[] }[] = [
+  { extension: ".csv", types: ["text/csv", "text/plain", "application/csv"] },
+  { extension: ".txt", types: ["text/plain"] },
+  { extension: ".pdf", types: ["application/pdf"] },
+  {
+    extension: ".xlsx",
+    types: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+  },
+  { extension: "", types: ["text/plain"] }
+];
+
 const BLOCKED_EXTENSIONS = [".exe", ".js", ".vbs", ".scr", ".bat", ".cmd", ".ps1", ".jar"];
 const ARCHIVE_EXTENSIONS = [".zip", ".rar", ".7z", ".gz", ".tar"];
 const MACRO_EXTENSIONS = [".xlsm", ".docm", ".pptm"];
@@ -141,7 +159,20 @@ export function createDemoAttachmentSecurityService(
         });
       }
 
-      if (!lowerName.endsWith(".csv") && !lowerName.endsWith(".txt")) {
+      /**
+       * The extension and the declared type must agree with each other, not
+       * merely each appear on a list of their own. Checking them separately
+       * accepts a .pdf that claims to be a spreadsheet, which is the confusion
+       * the pairing exists to catch.
+       *
+       * An empty filename is the payment note typed into the body of the email
+       * rather than attached, and is only permitted as plain text.
+       */
+      const permittedTypes = EXTENSION_TYPES.find((entry) =>
+        entry.extension === "" ? lowerName === "" : lowerName.endsWith(entry.extension)
+      );
+
+      if (permittedTypes === undefined || !permittedTypes.types.includes(attachment.declaredMime)) {
         return Promise.resolve({
           ...base,
           status: "unsupported",
