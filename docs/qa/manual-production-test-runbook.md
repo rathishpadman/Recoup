@@ -5,9 +5,10 @@ step states what a pass looks like, so a failure is unambiguous.
 
 - **Cockpit** `https://recoup-self-eta.vercel.app`
 - **API** `https://recoup-api.onrender.com`
-- **Verified against** `main @ a23df1e`, 23 Aug 2026
+- **Verified against** `main @ aa28f95`, 23 Aug 2026
 
-Steps 1–3 are setup, 4–8 are the happy path, 9–15 are the refusals, 16 is teardown.
+Steps 1–3 are setup, 4–8 are the happy path, 9–15 are the refusals, 16–17 are reset
+and teardown.
 Budget about 20 minutes.
 
 ---
@@ -305,13 +306,52 @@ frame.
 
 ---
 
-## 16. Teardown
+## 16. Reset the test data
 
-Nothing needs deleting, and nothing can be. The cash tables grant INSERT and
-SELECT and no DELETE; that append-only guarantee is worth more than a tidy table.
-Test runs stay visible and are expected.
+When you are finished, clear the slice so the next cycle starts from an empty
+screen.
 
-To return production to dormant when you are finished:
+1. Log in as **`CFO`** / **`Welcome#123`** (Maya can also do this)
+2. Go to **`/governance/memory`** — the CFO → Memory page
+3. Find **Cash application test data** → **Reset cash test data**
+4. Confirm with **Yes, remove it**
+
+**Expect** a message naming what was removed, for example:
+
+```
+Removed 231 rows — 19 inbox, 22 receipts, 12 allocations, 19 remittances,
+26 workflow runs, 106 workflow events, 12 allocation lines,
+3 remittance lines, 12 live deduction cases.
+```
+
+Now open `/agent-operations`.
+
+**Expect** zero rows, the empty state *"Waiting for a verified remittance email."*,
+and all four counters at `0`.
+
+**Then re-run steps 3–4 once.** A reset that leaves the pipeline unable to run
+again is not a reset — you should get a fresh `Ready` run and a single row.
+
+### What the reset does and does not do
+
+- It clears **all** cash rows: runs, events, cases, allocations, remittances,
+  receipts, attachments and inbox rows. In an MVP every one of them is test data.
+- It does **not** touch the approval-lifecycle reset above it on the same page.
+  That one is scoped to a single `actionId` and is a different mechanism.
+- The cash tables are append-only — `service_role` has INSERT and SELECT and no
+  DELETE. This is a single `SECURITY DEFINER` function, the only path that can
+  remove those rows, so the audit guarantee holds everywhere else.
+- It cannot be undone.
+
+> **MVP scope.** This clears everything without a filter, which is correct while
+> every row is test data and wrong the moment the deployment holds live customer
+> cash. It should not follow the slice into that environment.
+
+---
+
+## 17. Return production to dormant
+
+Optional, and only when you have finished demoing.
 
 ```
 Render → recoup-api → Environment → RECOUP_CASH_KILL_INBOUND = true → Save
@@ -341,6 +381,7 @@ leaked shared secret becomes worthless. Removing the variable re-opens intake.
 | 13 | Wrong recipient | `422` |
 | 14 | Quoted CSV | `422 mapping_failed` |
 | 15 | No receipt | `202 AwaitingCashReceipt`, no case |
+| 16 | Reset | counts reported; 0 rows, empty state, counters 0; a fresh run still works |
 
 ---
 
@@ -354,6 +395,8 @@ leaked shared secret becomes worthless. Removing the variable re-opens intake.
 | `502` from inbound | Render instance waking, or a Supabase write failed. Check Render logs |
 | Money shows `250` not `250.00` | Regression in the case read — the amount must be selected as text |
 | Run stuck at `Queued` | A run stranded mid-flight. Should not happen: a failure now records an error and moves the run to `Review` |
+| Reset says "not enabled" | The rollout stage is below `rehearsal`, or `RECOUP_CASH_KILL_INBOUND` is true |
+| Reset says "Reset failed" | The reset reached the backend and the database refused. Nothing was removed — check Render logs |
 
 ## Known limits, so a pass is not over-read
 
