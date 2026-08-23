@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 
 import { chromium, type Browser, type Page } from "playwright";
 
+import { signDemoSession } from "../../cockpit/app/demo-auth.ts";
+
 /**
  * Routed Agent Operations browser evidence.
  *
@@ -9,6 +11,10 @@ import { chromium, type Browser, type Page } from "playwright";
  * fixed snapshot, this drives a real Next.js server over HTTP. It proves the
  * route exists, compiles, server-renders and fails closed with no live data,
  * which is what the cockpit does below the shadow rollout stage.
+ *
+ * The surface is gated like every other business route, so the run signs a
+ * Maya demo session first. Before that gate it answered anonymous callers,
+ * which was only harmless while the snapshot was always empty.
  *
  * Prerequisite: `npx next start cockpit -p 3947` with
  * RECOUP_SUPABASE_READ_MODEL_TABLE pointed at a table that does not exist, so
@@ -113,11 +119,22 @@ async function runChecks(page: Page): Promise<void> {
     (await page.locator('[data-testid="agent-operations-activity-ledger"]').count()) === 1
   );
 
-  // Below the shadow rollout stage there is no live data, so the surface must
-  // say so rather than inventing rows.
+  /**
+   * This used to assert the empty state unconditionally, which held only while
+   * nothing could ever start a run. Now that mail can be accepted, a deployment
+   * carrying real runs must show them; one carrying none must still say so
+   * rather than inventing rows. Both readings are checked against what the
+   * table actually holds.
+   */
+  const runRowCount = await page.locator('[data-testid="agent-operations-run-table"] tbody tr').count();
+  const emptyStateCount = await page.locator('[data-testid="agent-operations-empty"]').count();
+
   record(
-    "empty state is shown rather than fabricated rows",
-    (await page.locator('[data-testid="agent-operations-empty"]').count()) === 1
+    runRowCount === 0
+      ? "empty state is shown rather than fabricated rows"
+      : "runs are shown rather than a misleading empty state",
+    runRowCount === 0 ? emptyStateCount === 1 : emptyStateCount === 0,
+    `${String(runRowCount)} rows`
   );
 
   record(
@@ -152,11 +169,16 @@ async function runChecks(page: Page): Promise<void> {
   );
 
   // A second load must look identical: the surface holds no client-side state
-  // that could drift from the backend.
+  // that could drift from the backend. Compared against the first load rather
+  // than against emptiness, which is no longer the only correct answer.
   await page.reload({ waitUntil: "domcontentloaded" });
+  const reloadedRowCount = await page
+    .locator('[data-testid="agent-operations-run-table"] tbody tr')
+    .count();
   record(
     "surface is identical after reload",
-    (await page.locator('[data-testid="agent-operations-empty"]').count()) === 1
+    reloadedRowCount === runRowCount,
+    `${String(runRowCount)} then ${String(reloadedRowCount)}`
   );
 }
 
@@ -166,7 +188,32 @@ async function main(): Promise<void> {
 
   try {
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath });
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    const sessionSecret = process.env.RECOUP_DEMO_SESSION_SECRET;
+
+    if (sessionSecret === undefined || sessionSecret === "") {
+      throw new Error("RECOUP_DEMO_SESSION_SECRET is required: the surface is gated.");
+    }
+
+    await context.addCookies([
+      {
+        name: "recoup_demo_session",
+        value: signDemoSession(
+          {
+            allowedRoutes: ["/agent-operations", "/forensics", "/run"],
+            defaultRoute: "/forensics/shadcn",
+            displayName: "Maya Patel",
+            loginId: "Maya",
+            role: "maya"
+          },
+          sessionSecret
+        ),
+        domain: new URL(baseUrl).hostname,
+        path: "/"
+      }
+    ]);
+
+    const page = await context.newPage();
     await runChecks(page);
   } finally {
     await browser?.close();
