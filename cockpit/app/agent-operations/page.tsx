@@ -1,3 +1,4 @@
+import { loadLocalRuntimeEnvFiles } from "../../../config/localRuntimeEnv.ts";
 import { AgentOperationsWorkspace } from "@/components/agent-operations/agent-operations-workspace";
 import { UpstreamCashOriginPanel } from "@/components/maya/upstream-cash-origin";
 import type {
@@ -48,12 +49,25 @@ const emptySnapshot: AgentOperationsSnapshot = {
  * stage there is legitimately no backend to reach, and the empty state is the
  * truthful picture there; the API route returns 502 for callers that need to
  * tell an outage apart from a quiet system.
+ *
+ * The read is bounded. This page renders on every request and the backend it
+ * calls can be cold, so an unbounded fetch would let a slow upstream hang a
+ * page that has to render either way.
  */
+const SNAPSHOT_READ_TIMEOUT_MS = 2_500;
+
 async function readSnapshot(): Promise<AgentOperationsSnapshot> {
-  const apiBaseUrl = process.env.RECOUP_API_URL ?? "http://127.0.0.1:4317";
+  // Read through the runtime env loader rather than process.env directly, the
+  // way every other route that reaches the backend already does. It also picks
+  // up .env and .env.local, which is what a local cockpit run relies on.
+  const runtimeEnv = loadLocalRuntimeEnvFiles();
+  const apiBaseUrl = runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
   try {
-    const response = await fetch(`${apiBaseUrl}/agent-operations`, { cache: "no-store" });
+    const response = await fetch(`${apiBaseUrl}/agent-operations`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(SNAPSHOT_READ_TIMEOUT_MS)
+    });
 
     if (!response.ok) {
       return emptySnapshot;

@@ -10,12 +10,18 @@ import { loadLocalRuntimeEnvFiles } from "../../../../config/localRuntimeEnv.ts"
 
 export const dynamic = "force-dynamic";
 
+/** Bounded, so a cold or wedged backend answers 502 rather than hanging. */
+const UPSTREAM_TIMEOUT_MS = 2_500;
+
 export async function GET(): Promise<Response> {
   const runtimeEnv = loadLocalRuntimeEnvFiles();
   const apiBaseUrl = runtimeEnv.RECOUP_API_URL ?? "http://127.0.0.1:4317";
 
   try {
-    const upstream = await fetch(`${apiBaseUrl}/agent-operations`, { cache: "no-store" });
+    const upstream = await fetch(`${apiBaseUrl}/agent-operations`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
+    });
 
     if (!upstream.ok) {
       return Response.json(
