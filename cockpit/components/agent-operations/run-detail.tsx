@@ -53,6 +53,13 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
             <Field label="Elapsed">
               <span className="tabular-nums">{detail.elapsed ?? DASH}</span>
             </Field>
+            {detail.caseId === undefined ? null : (
+              <Field label="Case">
+                <span className="font-mono text-xs" data-testid="run-detail-case-id">
+                  {detail.caseId}
+                </span>
+              </Field>
+            )}
             {detail.blockerCode === undefined ? null : (
               <Field label="Blocker">
                 <span data-testid="run-detail-blocker">{detail.blockerCode}</span>

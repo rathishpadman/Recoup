@@ -69,6 +69,7 @@ export interface RunDetail {
   status: AgentStatus;
   startedAt?: string;
   elapsed?: string;
+  caseId?: string;
   blockerCode?: string;
 }
 

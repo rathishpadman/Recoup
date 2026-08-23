@@ -38,13 +38,20 @@ export interface AgentRosterRow {
   agent: string;
   status: AgentStatus;
   health: AgentHealth;
+  lastRun?: string;
   lastRunId?: string;
+  lastScenario?: string;
 }
 
 export interface AgentOperationsRunRow {
   runId: string;
   agent: string;
+  scenario?: string;
   status: AgentStatus;
+  queuedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  elapsed?: string;
   caseId?: string;
   provenanceMode: WorkflowRun["provenanceMode"];
   blocked: boolean;
@@ -121,6 +128,37 @@ const STATUS_BY_RUN_STATE: Record<string, AgentStatus> = {
   Ready: "Completed"
 };
 
+/**
+ * Workflow name to the operator-facing scenario label. A workflow with no
+ * approved label reports nothing rather than having its internal name shown:
+ * an enum leaking onto the screen is how `cash_application` ended up there.
+ */
+const SCENARIO_BY_WORKFLOW: Record<string, string> = {
+  cash_application_to_maya: "AR Cash App"
+};
+
+/**
+ * Duration as mm:ss, or h:mm:ss once it runs past an hour. Computed here
+ * because the cockpit performs no arithmetic, and a client-side clock would
+ * disagree with the audit trail.
+ */
+function formatElapsed(fromIso: string, toIso: string): string | undefined {
+  const from = Date.parse(fromIso);
+  const to = Date.parse(toIso);
+
+  if (Number.isNaN(from) || Number.isNaN(to) || to < from) {
+    return undefined;
+  }
+
+  const totalSeconds = Math.floor((to - from) / 1_000);
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3_600);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+
+  return hours === 0 ? `${pad(minutes)}:${pad(seconds)}` : `${String(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
 function displayStatus(state: string, blocked: boolean): AgentStatus {
   if (blocked) {
     return "Blocked";
@@ -158,11 +196,24 @@ export async function loadAgentOperationsSnapshot(input: {
     }
 
     const status = displayStatus(run.state, projected.blocked);
+    const scenario = SCENARIO_BY_WORKFLOW[run.workflowName];
+    // When work began, which is the first event, not when the row was created.
+    const startedAt = events.find((event) => event.runId === run.runId)?.occurredAt;
+    // Only a terminal run has a finish, so only a terminal run has an elapsed.
+    const elapsed =
+      run.terminalAt === undefined || startedAt === undefined
+        ? undefined
+        : formatElapsed(startedAt, run.terminalAt);
 
     runs.push({
       runId: projected.runId,
       agent: projected.specialist,
+      ...(scenario === undefined ? {} : { scenario }),
       status,
+      queuedAt: run.createdAt,
+      ...(startedAt === undefined ? {} : { startedAt }),
+      ...(run.terminalAt === undefined ? {} : { completedAt: run.terminalAt }),
+      ...(elapsed === undefined ? {} : { elapsed }),
       ...(projected.caseId === undefined ? {} : { caseId: projected.caseId }),
       provenanceMode: projected.provenanceMode,
       blocked: projected.blocked
@@ -201,7 +252,9 @@ export async function loadAgentOperationsSnapshot(input: {
             agent,
             status: latest.status,
             health: "healthy" as AgentHealth,
-            lastRunId: latest.runId
+            ...(latest.completedAt === undefined ? {} : { lastRun: latest.completedAt }),
+            lastRunId: latest.runId,
+            ...(latest.scenario === undefined ? {} : { lastScenario: latest.scenario })
           };
     }),
     // Order is the order they happened. The loader never sorts or reverses.
