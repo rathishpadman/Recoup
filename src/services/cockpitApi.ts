@@ -36,6 +36,7 @@ import { acceptInboundRemittance } from "./remittanceIntake.js";
 import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
 import { startCashApplicationRun } from "./cashApplicationRun.js";
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
+import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
 import { resolveWorkflowRepository } from "./workflowRepositoryFactory.js";
 import type { WorkflowRepository } from "./workflowRepository.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
@@ -1111,12 +1112,33 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       currency: intake.advice.currency
     }));
 
+    /**
+     * REHEARSAL SETTLEMENT - NOT AUTHORITATIVE.
+     *
+     * D-02 is unsigned, so there is no SAP source. The run reads the proxy
+     * receipts table, which POST /rehearsal/cash-receipt writes. Every row
+     * there is stamped rehearsal-proxy, so an allocation built on it still
+     * reads as non-authoritative and AC-01 stays blocked.
+     */
+    const supabaseUrl = runtimeEnv.SUPABASE_URL?.replace(/\/$/u, "");
+    const supabaseKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY;
+    const receiptSource =
+      supabaseUrl === undefined || supabaseKey === undefined
+        ? undefined
+        : createSupabaseCashReceiptSource({
+            url: supabaseUrl,
+            serviceRoleKey: supabaseKey,
+            freshnessMaxAgeSeconds: 86_400,
+            freshnessPolicyVersion: "rehearsal-freshness-v1"
+          });
+
     try {
       const outcome = await startCashApplicationRun({
         advice: intake.advice,
         invoices,
         env: runtimeEnv,
-        repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository
+        repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
+        ...(receiptSource === undefined ? {} : { source: receiptSource })
       });
 
       response.status(202).json({
