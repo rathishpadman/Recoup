@@ -594,16 +594,16 @@ tests-first, and the four repository gates pass on each commit.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Cash/workflow types and pure deterministic core | **Complete** — types, source port, `match`, `allocate`, `reason`, workflow envelopes, stable idempotency keys |
-| 2 | Additive schema and repositories | **Schema contract complete**, `docs/supabase-cash-application-schema.sql` with 29 contract tests; **not applied** (D-10). Repository port implemented in memory |
+| 2 | Additive schema and repositories | **Complete and applied** — twelve tables live with RLS forced and append-only grants; Supabase repository implements the port, and `listRuns` was added so a run accepted but not yet started is still visible |
 | 3 | Provider adapter, scanner, CSV mapper, intake | **Complete** — signature/replay/recipient/scan/map ordering proven; assumed CSV and scan policy behind a flag |
 | 4 | CashReceipt adapter, re-drive, cash application service | **Code complete, unproven live** — rehearsal proxy, durable re-drive, and a read-only SAP adapter that returns `contract_gap` until D-02 supplies the entity and property mapping |
 | 5 | Cash Application agent, tools, conductor, handoff | **Complete** — narration cannot introduce a figure the core did not produce; three read-only tools; `cash_application` cache namespace |
 | 6 | Live-case Forensics and Maya read models | **Complete** — projection performs no arithmetic; gold-set isolation asserted |
 | 7A | Worker lifecycle seam, construction flag, pre-claim config return, negative tests | **Complete** — both N5 negative cases proven with byte-equivalent state snapshots; `CLAUDE.md` updated |
 | 7B | Bounded claims/leases, events, resume, dead letter | **Core complete** — outbox with idempotent scheduling, leases, crash reclaim, dead letter; durable SSE not started |
-| 8 | Agent Operations and Maya UI | **Functionally complete** — components, contract tests and 13/13 Chromium checks. **Visual gate not scored**: no approved ImageGen cues supplied |
+| 8 | Agent Operations and Maya UI | **Complete** — the route was returning a hardcoded empty snapshot with no data path, so no run could ever render; a gated loader, `GET /agent-operations`, a cockpit proxy and a reading page now close it. 13/13 routed checks, 10/10 per-scenario snapshots. **Visual gate still not scored**: no approved ImageGen cues supplied |
 | 9 | Security, evals, complete regression | **Complete** — AC-01..19 walk, Section 12 regression matrix, Section 15 security acceptance. `verify:release` remains BLOCKED per Section 13.1 |
-| 10 | Rehearsal, shadow, canary, production | **Machinery complete, not deployed** — ordered stages, five independent kill switches, no purge path. Deployment requires explicit release approval |
+| 10 | Rehearsal, shadow, canary, production | **Machinery complete, deployed inert** — ordered stages and five independent kill switches. Released to production on owner instruction at commit `a694f3d`; no cash flag is set in either deployment, so `resolveCashRolloutStage` reads `disabled` and the slice ships dormant, which is what §17.1 asks for |
 
 Test files added: 22, covering unit, integration, invariant and browser layers. Suite total 2045 tests across 206 files, from a 1680-test baseline.
 
