@@ -1205,11 +1205,18 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         headers: {
           "content-type": "application/json",
           apikey: serviceRoleKey,
-          authorization: `Bearer ${serviceRoleKey}`,
-          prefer: "resolution=merge-duplicates"
+          authorization: `Bearer ${serviceRoleKey}`
         },
         body: JSON.stringify(row)
       });
+
+      // The cash tables are append-only: service_role holds INSERT and neither
+      // UPDATE nor DELETE. A repeat post therefore collides on the primary key,
+      // and saying so is more honest than upserting over history.
+      if (upstream.status === 409) {
+        response.status(409).json({ error: "A receipt for that payment reference already exists.", receiptId });
+        return;
+      }
 
       if (!upstream.ok) {
         response.status(502).json({ error: "Rehearsal receipt could not be written." });
