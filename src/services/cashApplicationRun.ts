@@ -183,6 +183,8 @@ export async function startCashApplicationRun(
     createdAt: now().toISOString()
   });
 
+  // Before the case, which references it by foreign key.
+  await repository.insertAllocation(outcome.allocation);
   await repository.upsertCase(liveCase);
   await record("case_created", "case", "created", "live deduction case created", liveCase.recordIds, caseId);
   await record("maya_ready", "handoff", "ready", "case ready for Forensics", liveCase.recordIds, caseId);

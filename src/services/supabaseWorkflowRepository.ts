@@ -1,4 +1,5 @@
 import type { SupabaseSyntheticSourceFetch } from "../adapters/supabaseSyntheticSource.js";
+import type { CashAllocationReceipt } from "../core/cashApplication/allocate.js";
 import {
   LiveDeductionCaseSchema,
   WorkflowEventSchema,
@@ -111,6 +112,15 @@ export function createSupabaseWorkflowRepository(
 ): WorkflowRepository {
   const { url, serviceRoleKey, fetcher = fetch } = options;
   const rest = `${url.replace(/\/$/u, "")}/rest/v1`;
+
+  /**
+   * The response itself, for callers that must tell a duplicate apart from a
+   * failure. `request` throws on any non-ok status, which would turn an
+   * already-recorded row into an error.
+   */
+  function requestRaw(path: string, init: RequestInit): Promise<Response> {
+    return fetcher(`${rest}${path}`, init);
+  }
 
   async function request(path: string, init: RequestInit): Promise<unknown> {
     const response = await fetcher(`${rest}${path}`, init);
@@ -258,6 +268,83 @@ export function createSupabaseWorkflowRepository(
       )) as WorkflowEventRow[];
 
       return rows.map(toEvent);
+    },
+
+    /**
+     * Append-only: recoup_cash_allocations grants INSERT and SELECT and no
+     * UPDATE, so this inserts rather than upserting. A 409 means the allocation
+     * is already recorded, which is what an idempotent replay looks like, and
+     * the identity is derived so the existing row is the same allocation.
+     */
+    async insertAllocation(allocation: CashAllocationReceipt) {
+      const response = await requestRaw("/recoup_cash_allocations", {
+        method: "POST",
+        headers: headers(serviceRoleKey),
+        body: JSON.stringify({
+          allocation_id: allocation.allocationId,
+          idempotency_key: allocation.allocationId,
+          receipt_id: allocation.receiptId,
+          remittance_id: allocation.remittanceId,
+          version: 1,
+          currency: allocation.currency,
+          receipt_amount: allocation.receiptAmount,
+          total_applied_amount: allocation.totalAppliedAmount,
+          total_deduction_amount: allocation.totalDeductionAmount,
+          total_unapplied_amount: allocation.totalUnappliedAmount,
+          reconciliation_status: allocation.reconciliationStatus,
+          policy_version: allocation.policyVersion,
+          calculation_version: allocation.calculationVersion,
+          record_ids: allocation.recordIds
+        })
+      });
+
+      if (response.status === 409) {
+        return allocation;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `supabase request failed: ${String(response.status)} ${await response.text()}`
+        );
+      }
+
+      if (allocation.lines.length > 0) {
+        const lineResponse = await requestRaw("/recoup_cash_allocation_lines", {
+          method: "POST",
+          headers: headers(serviceRoleKey),
+          body: JSON.stringify(
+            allocation.lines.map((line: CashAllocationReceipt["lines"][number]) => ({
+              allocation_line_id: line.allocationLineId,
+              allocation_id: allocation.allocationId,
+              remittance_line_id: line.remittanceLineId,
+              invoice_record_id: line.invoiceRecordId,
+              invoice_balance_before: line.invoiceBalanceBefore,
+              applied_amount: line.appliedAmount,
+              explicit_deduction_amount: line.explicitDeductionAmount,
+              invoice_balance_after_internal_allocation: line.invoiceBalanceAfterInternalAllocation,
+              record_ids: line.recordIds
+            }))
+          )
+        });
+
+        if (!lineResponse.ok && lineResponse.status !== 409) {
+          throw new Error(
+            `supabase request failed: ${String(lineResponse.status)} ${await lineResponse.text()}`
+          );
+        }
+      }
+
+      return allocation;
+    },
+
+    async listAllocations() {
+      const rows = (await request("/recoup_cash_allocations?select=allocation_id", {
+        method: "GET",
+        headers: headers(serviceRoleKey)
+      })) as { allocation_id: string }[];
+
+      // Identity only: the operations view never reads allocation money from here.
+      return rows.map((row) => ({ allocationId: row.allocation_id }) as CashAllocationReceipt);
     },
 
     async upsertCase(liveCase: LiveDeductionCase) {

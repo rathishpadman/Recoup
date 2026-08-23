@@ -5,6 +5,7 @@ import {
   type WorkflowEvent,
   type WorkflowRun
 } from "../types/workflow.js";
+import type { CashAllocationReceipt } from "../core/cashApplication/allocate.js";
 
 /**
  * Workflow repository port and an in-memory implementation.
@@ -44,6 +45,12 @@ export interface WorkflowRepository {
   appendEvent(input: AppendEventInput): Promise<WorkflowEvent>;
   listEvents(runId: string): Promise<WorkflowEvent[]>;
   readEventsSince(cursor: string, limit?: number): Promise<WorkflowEvent[]>;
+  /**
+   * Append-only: a live case carries a foreign key to its allocation, so the
+   * allocation must exist before the case does.
+   */
+  insertAllocation(allocation: CashAllocationReceipt): Promise<CashAllocationReceipt>;
+  listAllocations(): Promise<CashAllocationReceipt[]>;
   upsertCase(liveCase: LiveDeductionCase): Promise<LiveDeductionCase>;
   getCase(caseId: string): Promise<LiveDeductionCase | undefined>;
   listCases(): Promise<LiveDeductionCase[]>;
@@ -55,6 +62,7 @@ export function createInMemoryWorkflowRepository(options?: {
   const now = options?.now ?? (() => new Date());
   const runs = new Map<string, WorkflowRun>();
   const events: WorkflowEvent[] = [];
+  const allocations = new Map<string, CashAllocationReceipt>();
   const cases = new Map<string, LiveDeductionCase>();
   let cursor = 0;
 
@@ -119,6 +127,15 @@ export function createInMemoryWorkflowRepository(options?: {
       return Promise.resolve(
         events.filter((event) => Number(event.cursor) > after).slice(0, limit)
       );
+    },
+
+    insertAllocation(allocation) {
+      allocations.set(allocation.allocationId, allocation);
+      return Promise.resolve(allocation);
+    },
+
+    listAllocations() {
+      return Promise.resolve([...allocations.values()]);
     },
 
     upsertCase(liveCase) {
