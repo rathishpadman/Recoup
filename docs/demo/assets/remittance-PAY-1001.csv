@@ -1,0 +1,2 @@
+remittance_id,customer_reference,legal_entity_reference,payment_reference,currency,instructed_payment_amount,line_id,invoice_reference,instructed_amount,claimed_deduction_amount,claimed_reason_code,claimed_reason_text
+REM-DEMO-NW-4471,CUST-001,LE-001,PAY-1001,USD,1250.00,LINE-1,INV-2026-0912,1000.00,250.00,DMG,"two pallets arrived damaged, POD signed short"
