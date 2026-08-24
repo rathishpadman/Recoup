@@ -81,7 +81,9 @@ async function run(): Promise<{
     inboxId: "INBOX-1",
     advice,
     message,
-    attachmentContentHash: "abc123",
+    // A real sha256: the column is constrained to ^[a-f0-9]{64}$ and intake
+    // always supplies one, so a short stub tested a shape production never sends.
+    attachmentContentHash: "fa05b47128b9dcb46903cecb7b80a0f8add2cad46fb03be9bd0dae5a7d12c60a",
     fetcher
   });
 
@@ -109,9 +111,9 @@ describe("remittance evidence persistence", () => {
     // citing it by foreign key; the ordering guarantee is unchanged.
     expect(writes.map((write) => write.table)).toEqual([
       "recoup_cash_inbox",
-      "recoup_evidence_documents",
       "recoup_cash_remittances",
-      "recoup_cash_remittance_lines"
+      "recoup_cash_remittance_lines",
+      "recoup_evidence_documents"
     ]);
   });
 
@@ -217,13 +219,40 @@ describe("the evidence document behind a deduction claim", () => {
     expect(doc?.evidence_id).toBe("REM-1");
   });
 
-  it("writes it before anything can reference it", async () => {
+  it("writes it last, so a rejected row cannot strand the remittance", async () => {
     const { tables } = await run();
 
-    // Ordering is the whole contract of this module.
-    expect(tables.indexOf("recoup_evidence_documents")).toBeLessThan(
-      tables.indexOf("recoup_cash_remittance_lines")
+    /**
+     * It went first at one point, and a check-constraint failure there took
+     * the whole chain down with it: no remittance row, so the case that came
+     * later died on a foreign key. Nothing in this function references the
+     * document — only the claim does, and that is written elsewhere and
+     * afterwards.
+     */
+    expect(tables[tables.length - 1]).toBe("recoup_evidence_documents");
+  });
+
+  it("uses a provenance value the schema actually permits", async () => {
+    const { body } = await run();
+
+    // The column allows sap_odata, source_generated, uploaded_document and
+    // provider_api. The run’s own provenance mode ("live") is not among them,
+    // which only Postgres could tell us.
+    expect(["sap_odata", "source_generated", "uploaded_document", "provider_api"]).toContain(
+      body("recoup_evidence_documents")?.provenance
     );
+  });
+
+  it("hashes to the shape the content_hash constraint requires", async () => {
+    const { body } = await run();
+
+    expect(String(body("recoup_evidence_documents")?.content_hash)).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it("declares a document type the schema knows", async () => {
+    const { body } = await run();
+
+    expect(body("recoup_evidence_documents")?.document_type).toBe("remittance_advice");
   });
 
   it("carries no raw attachment body, only its hash", async () => {
