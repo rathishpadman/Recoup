@@ -118,7 +118,12 @@ const OUTCOME_LABEL: Record<string, string> = {
   attachment_unsafe: "Failed the security check",
   attachment_quarantined: "Quarantined by the security check",
   scan_unavailable: "Security check could not run",
-  mapping_failed: "Could not be read as a payment note"
+  mapping_failed: "Could not be read as a payment note",
+  // Why a reason code did not validate.
+  unclassified: "Reason code not recognised",
+  ambiguous: "Reason could match more than one rule",
+  policy_missing: "No approved reason rules loaded",
+  evidence_missing: "Nothing cited to check the claim against"
 };
 
 export function readableOutcome(outcome: string): string {

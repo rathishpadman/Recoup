@@ -150,3 +150,26 @@ describe("why a run stopped, in words", () => {
     expect(detail).toContain("readableOutcome(detail.blockerCode)");
   });
 });
+
+describe("a reason that could not be validated", () => {
+  it("names the outcome instead of printing the failure code", () => {
+    // Seen in production: the Outcome column read "unclassified".
+    expect(readableOutcome("unclassified")).not.toBe("unclassified");
+    expect(readableOutcome("unclassified").toLowerCase()).toMatch(/recognis|recogniz/u);
+  });
+
+  it("labels the other reason failures too", () => {
+    for (const code of ["ambiguous", "policy_missing", "evidence_missing"]) {
+      expect(readableOutcome(code)).not.toBe(code);
+    }
+  });
+
+  it("does not also repeat the code inside the sentence", () => {
+    const source = readFileSync("src/services/cashApplicationRun.ts", "utf8");
+
+    // "Stopped: the customer’s reason code could not be recognised
+    // (unclassified)" said it twice, once in words and once in the enum the
+    // Outcome column was already showing.
+    expect(source).not.toContain("could not be recognised (${");
+  });
+});

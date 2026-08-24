@@ -367,7 +367,8 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
       "phase_blocked",
       "reason",
       outcome.validatedReason.reason,
-      `Stopped: the customer’s reason code could not be recognised (${outcome.validatedReason.reason})`,
+      // The code itself is the event status, which the ledger already shows.
+      "Stopped: the customer’s reason code could not be recognised",
       outcome.allocation.recordIds
     );
     await repository.updateRunState({ runId, state: "ReasonReview", currentPhase: "reason" });
