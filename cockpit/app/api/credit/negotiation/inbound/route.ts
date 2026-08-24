@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  isRemittanceRecipient,
+  routeRemittanceEmail,
+  type ResendInboundEventLike
+} from "../../../../../../src/services/remittanceEmailRouting.ts";
 import { loadLocalRuntimeEnvFiles } from "../../../../../../config/localRuntimeEnv.ts";
 import {
   parseCreditNegotiationCounterOffer,
@@ -140,6 +145,36 @@ export async function handleCreditNegotiationInboundPostForTest(
   const event = readResendInboundEvent(parseJson(rawBody));
   if (event === undefined || event.type !== "email.received") {
     return Response.json({ status: "ignored" });
+  }
+
+  /**
+   * Remittance mail shares this webhook.
+   *
+   * Only one Resend `email.received` webhook is registered, and it points
+   * here. Registering a second one for remittance would be a change to the
+   * Resend account, so the split happens in the app instead: mail addressed
+   * to the remittance mailbox goes to intake and returns, and everything
+   * else falls through to negotiation exactly as before.
+   *
+   * Routed off the raw payload rather than the parsed event, because
+   * readResendInboundEvent narrows to the fields negotiation needs and drops
+   * the attachments.
+   *
+   * Always a 2xx. Resend retries anything else, and a refused attachment is
+   * a settled answer that intake has already recorded as work for a person.
+   */
+  const rawEvent = parseJson(rawBody) as ResendInboundEventLike;
+  if (isRemittanceRecipient(rawEvent, runtimeEnv)) {
+    const routed = await routeRemittanceEmail({
+      env: runtimeEnv,
+      event: rawEvent,
+      ...(options.fetchImpl === undefined ? {} : { fetcher: options.fetchImpl })
+    });
+
+    return Response.json({
+      status: `remittance_${routed.status}`,
+      ...(routed.reason === undefined ? {} : { reason: routed.reason })
+    });
   }
   const inboundRateLimit = options.inboundRateLimit ?? readConfiguredInboundRateLimit(runtimeEnv);
   if (inboundRateLimit === undefined && options.inboundRateLimit === undefined && options.store === undefined) {

@@ -1349,3 +1349,95 @@ describe("David negotiation inbound webhook", () => {
     expect(metadataRevert?.body).toContain("\"body_fetch_status\":\"failed\"");
   });
 });
+
+/**
+ * Remittance now shares this webhook, because only one is registered with
+ * Resend and adding a second would be a change to the account.
+ *
+ * Sharing an endpoint between two workstreams is the risk worth testing: the
+ * split must be exact in both directions. Negotiation mail must reach
+ * negotiation untouched, and remittance mail must never be parsed as a
+ * counter-offer.
+ */
+describe("two workstreams on one webhook", () => {
+  const remittanceBody = JSON.stringify({
+    created_at: "2026-08-24T09:00:00.000Z",
+    data: {
+      attachments: [
+        {
+          content: Buffer.from("a,b", "utf8").toString("base64"),
+          content_type: "text/csv",
+          filename: "advice.csv"
+        }
+      ],
+      email_id: "eml_remittance_1",
+      from: "ar@customer.example",
+      received_for: [],
+      subject: "Remittance advice",
+      to: ["remittance@north-bay.dev"]
+    },
+    type: "email.received"
+  });
+
+  const routingEnv = {
+    RECOUP_API_URL: "https://api.invalid",
+    RECOUP_INBOUND_APPROVED_RECIPIENT: "remittance@north-bay.dev",
+    RECOUP_INBOUND_SHARED_SECRET: "shared",
+    RESEND_INBOUND_SIGNING_SECRET: secret
+  };
+
+  it("sends remittance mail to intake and never to the negotiation store", async () => {
+    const store = {
+      insertInboundMetadata: vi.fn(),
+      readCounterOfferByEmailId: vi.fn(() => Promise.resolve(undefined)),
+      readInboundByEmailId: vi.fn(() => Promise.resolve(undefined))
+    };
+
+    const response = await handleCreditNegotiationInboundPostForTest(signedRequest(remittanceBody), {
+      env: routingEnv,
+      nowMs: Number(timestamp) * 1000,
+      store
+    });
+
+    expect(response.status).toBe(200);
+    expect(store.readInboundByEmailId).not.toHaveBeenCalled();
+    expect(store.insertInboundMetadata).not.toHaveBeenCalled();
+    const routed = (await response.json()) as { status?: string };
+    expect(routed.status ?? "").toContain("remittance_");
+  });
+
+  it("leaves negotiation mail on its own path", async () => {
+    const store = {
+      insertInboundMetadata: vi.fn(),
+      readCounterOfferByEmailId: vi.fn(() => Promise.resolve(undefined)),
+      readInboundByEmailId: vi.fn(() => Promise.resolve(undefined))
+    };
+
+    const response = await handleCreditNegotiationInboundPostForTest(
+      signedRequest(resendReceivedWebhookBody),
+      { env: routingEnv, nowMs: Number(timestamp) * 1000, store }
+    );
+
+    // Whatever it decides, it must have decided it as negotiation.
+    const body = (await response.json()) as { status?: string };
+    expect(body.status ?? "").not.toContain("remittance_");
+  });
+
+  it("claims nothing when the remittance mailbox is unconfigured", async () => {
+    const store = {
+      insertInboundMetadata: vi.fn(),
+      readCounterOfferByEmailId: vi.fn(() => Promise.resolve(undefined)),
+      readInboundByEmailId: vi.fn(() => Promise.resolve(undefined))
+    };
+
+    const response = await handleCreditNegotiationInboundPostForTest(signedRequest(remittanceBody), {
+      env: { RESEND_INBOUND_SIGNING_SECRET: secret },
+      nowMs: Number(timestamp) * 1000,
+      store
+    });
+
+    // Unconfigured must mean "not mine", never "everything is mine".
+    const body = (await response.json()) as { status?: string };
+    expect(body.status ?? "").not.toContain("remittance_");
+  });
+});
