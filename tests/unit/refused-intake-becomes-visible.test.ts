@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { recordRefusedIntake } from "../../src/services/cashApplicationRun.ts";
+import {
+  recordRefusedIntake,
+  refusalNeedsAPerson
+} from "../../src/services/cashApplicationRun.ts";
 import { loadAgentOperationsSnapshot } from "../../src/services/agentOperationsReadModel.ts";
 import { createInMemoryWorkflowRepository } from "../../src/services/workflowRepository.ts";
 
@@ -111,9 +114,8 @@ describe("each refusal explains itself differently", () => {
   it.each([
     ["attachment_unsupported", /format/iu],
     ["attachment_unsafe", /security|safe/iu],
-    ["attachment_missing", /attach/iu],
-    ["wrong_recipient", /address|mailbox|recipient/iu],
-    ["signature_invalid", /verif|sender/iu],
+    ["attachment_quarantined", /quarantine/iu],
+    ["scan_unavailable", /security check/iu],
     ["mapping_failed", /read|understand/iu]
   ])("%s reads as something a person can act on", async (reason, expected) => {
     const { repository, outcome } = await refuse(reason);
@@ -121,4 +123,31 @@ describe("each refusal explains itself differently", () => {
 
     expect(events[events.length - 1]?.safeSummary ?? "").toMatch(expected);
   });
+});
+
+/**
+ * Not every refusal is work for a person, and the difference matters more
+ * than it first looks.
+ *
+ * A customer email whose attachment could not be processed is a real payment
+ * note that needs someone to look at it. A request with a bad signature or
+ * addressed to the wrong mailbox is not: it may not be from a customer at
+ * all. Opening a run for those would let anyone who can reach the endpoint
+ * fill the operations board with rows, which turns a safety feature into a
+ * way to bury real work.
+ */
+describe("which refusals are somebody’s problem", () => {
+  it.each(["attachment_unsupported", "attachment_unsafe", "attachment_quarantined", "scan_unavailable", "mapping_failed"])(
+    "%s needs a person",
+    (reason) => {
+      expect(refusalNeedsAPerson(reason)).toBe(true);
+    }
+  );
+
+  it.each(["signature_invalid", "replay_detected", "wrong_recipient", "attachment_missing", "intake_disabled"])(
+    "%s does not",
+    (reason) => {
+      expect(refusalNeedsAPerson(reason)).toBe(false);
+    }
+  );
 });

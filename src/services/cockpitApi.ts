@@ -35,7 +35,11 @@ import {
 } from "../adapters/inboundRemittance.js";
 import { acceptInboundRemittance } from "./remittanceIntake.js";
 import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
-import { recordRefusedIntake, startCashApplicationRun } from "./cashApplicationRun.js";
+import {
+  recordRefusedIntake,
+  refusalNeedsAPerson,
+  startCashApplicationRun
+} from "./cashApplicationRun.js";
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
 import { persistRemittanceEvidence } from "../adapters/remittanceEvidenceStore.js";
@@ -1111,7 +1115,7 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         return { status: 409, body: { error: "Inbound rejected.", reason: intake.reason } };
       }
 
-      if (intake.reason !== "intake_disabled") {
+      if (refusalNeedsAPerson(intake.reason)) {
         await recordRefusedIntake({
           repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
           messageId: input.messageId,
@@ -1223,6 +1227,18 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     });
 
     if (intake.status !== "accepted") {
+      // AC-05: a customer note we could not process becomes visible work.
+      // A bad signature or a wrong mailbox does not — see refusalNeedsAPerson.
+      if (refusalNeedsAPerson(intake.reason)) {
+        await recordRefusedIntake({
+          repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
+          messageId: parsed.message.messageId,
+          reason: intake.reason,
+          detail: intake.detail,
+          provenanceMode: "live"
+        });
+      }
+
       // The reason is a safe enum, never the attachment or its contents.
       const status = intake.reason === "replay_detected" ? 409 : 422;
       response.status(status).json({ error: "Inbound rejected.", reason: intake.reason });

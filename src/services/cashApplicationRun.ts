@@ -83,12 +83,27 @@ const REFUSAL_SUMMARY: Record<string, string> = {
   attachment_unsupported: "Stopped: the attached file is not in a format we accept",
   attachment_unsafe: "Stopped: the attachment failed a security check",
   attachment_quarantined: "Stopped: the attachment was quarantined by the security check",
-  attachment_missing: "Stopped: the email arrived with no attachment",
   scan_unavailable: "Stopped: the security check could not run, so the file was not opened",
-  wrong_recipient: "Stopped: sent to a mailbox address we do not accept remittances on",
-  signature_invalid: "Stopped: the sender could not be verified",
   mapping_failed: "Stopped: the file was accepted but could not be read as a payment note"
 };
+
+/**
+ * Whether a refusal is work for a person or just a request we declined.
+ *
+ * The difference matters more than it looks. A customer email whose
+ * attachment could not be processed is a real payment note that somebody
+ * needs to see. A request with a bad signature, addressed to the wrong
+ * mailbox, or replayed is not — it may not be from a customer at all.
+ * Opening a run for those would let anyone who can reach the endpoint fill
+ * the operations board with rows, turning a safety feature into a way to
+ * bury real work.
+ *
+ * The list is therefore exactly the content family: the file arrived, and we
+ * could not use it.
+ */
+export function refusalNeedsAPerson(reason: string): boolean {
+  return Object.hasOwn(REFUSAL_SUMMARY, reason);
+}
 
 export interface RecordRefusedIntakeInput {
   repository: WorkflowRepository;

@@ -35,7 +35,16 @@ const baseEnv: RuntimeEnv = {
   RECOUP_INBOUND_ALLOWED_SENDERS: "ar@customer.example"
 };
 
-function body(overrides: { from?: string; to?: string; messageId?: string } = {}): string {
+function body(
+  overrides: {
+    from?: string;
+    to?: string;
+    messageId?: string;
+    filename?: string;
+    mimeType?: string;
+    content?: string;
+  } = {}
+): string {
   return JSON.stringify({
     messageId: overrides.messageId ?? "MSG-E2E-1",
     from: overrides.from ?? "ar@customer.example",
@@ -43,9 +52,9 @@ function body(overrides: { from?: string; to?: string; messageId?: string } = {}
     subject: "Remittance advice",
     receivedAt: "2026-08-23T09:00:00.000Z",
     attachment: {
-      filename: "remittance.csv",
-      mimeType: "text/csv",
-      contentBase64: Buffer.from(csv, "utf8").toString("base64")
+      filename: overrides.filename ?? "remittance.csv",
+      mimeType: overrides.mimeType ?? "text/csv",
+      contentBase64: Buffer.from(overrides.content ?? csv, "utf8").toString("base64")
     }
   });
 }
@@ -171,6 +180,47 @@ describe("POST /inbound/remittance", () => {
     }
   });
 
+  /**
+   * AC-05. Before this, intake refused the file and the operations screen
+   * showed nothing, so a customer’s note could be turned away with nobody
+   * aware it had arrived.
+   */
+  it("leaves a visible blocker when the attachment cannot be read", async () => {
+    const repository = createInMemoryWorkflowRepository();
+    const api = await startApi({ env: baseEnv, workflowRepository: repository });
+
+    try {
+      const raw = body({ messageId: "MSG-BAD-1", content: "this is not a remittance at all" });
+      const result = await post(api.baseUrl, raw, { "x-recoup-signature": sign(raw) });
+
+      expect(result.status).toBe(422);
+
+      const runs = await repository.listRuns();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.state).toBe("Review");
+
+      const events = await repository.listEvents(runs[0]?.runId ?? "");
+      expect(events[0]?.safeSummary ?? "").toMatch(/could not be read/iu);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("still opens nothing for a request that may not be from a customer", async () => {
+    const repository = createInMemoryWorkflowRepository();
+    const api = await startApi({ env: baseEnv, workflowRepository: repository });
+
+    try {
+      // Anyone who can reach the endpoint could otherwise fill the board.
+      const raw = body({ messageId: "MSG-BAD-2", to: "someone-else@recoup.example" });
+      const result = await post(api.baseUrl, raw, { "x-recoup-signature": sign(raw) });
+
+      expect(result.status).toBe(422);
+      expect(await repository.listRuns()).toHaveLength(0);
+    } finally {
+      await api.close();
+    }
+  });
   it("is closed when the inbound kill switch is engaged", async () => {
     const repository = createInMemoryWorkflowRepository();
     const api = await startApi({
