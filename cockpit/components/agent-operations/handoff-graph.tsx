@@ -2,7 +2,7 @@
 
 import { ArrowRightIcon } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsiblePanel } from "./collapsible-panel.tsx";
 import type { AgentHandoffEdge } from "./types.ts";
 
 /**
@@ -23,12 +23,8 @@ interface HandoffGraphProps {
 
 export function HandoffGraph({ handoffs }: HandoffGraphProps) {
   return (
-    <Card data-testid="agent-operations-handoff-graph">
-      <CardHeader>
-        <CardTitle>Handoffs</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <ol className="flex flex-wrap items-center gap-x-2 gap-y-3">
+    <CollapsiblePanel testId="agent-operations-handoff-graph" title="Handoffs">
+      <ol className="flex flex-wrap items-center gap-x-2 gap-y-3">
           {handoffs.map((edge, index) => (
             <li key={`${edge.from}-${edge.to}`} className="flex items-center gap-2">
               {index === 0 ? <Node label={edge.from} active={edge.emphasized} /> : null}
@@ -41,9 +37,8 @@ export function HandoffGraph({ handoffs }: HandoffGraphProps) {
               <Node label={edge.to} active={edge.emphasized} />
             </li>
           ))}
-        </ol>
-      </CardContent>
-    </Card>
+      </ol>
+    </CollapsiblePanel>
   );
 }
 

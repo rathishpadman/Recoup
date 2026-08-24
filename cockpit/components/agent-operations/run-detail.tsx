@@ -3,7 +3,7 @@
 import { FileTextIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsiblePanel } from "./collapsible-panel.tsx";
 import { readableSpecialist, readableTime } from "./display.ts";
 import { NO_RUN_SELECTED_TITLE, type RunDetail } from "./types.ts";
 
@@ -23,12 +23,8 @@ const DASH = "—";
 
 export function RunDetailPanel({ detail }: RunDetailPanelProps) {
   return (
-    <Card data-testid="agent-operations-run-detail">
-      <CardHeader>
-        <CardTitle>Run details</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {detail === undefined ? (
+    <CollapsiblePanel testId="agent-operations-run-detail" title="Run details">
+      {detail === undefined ? (
           <EmptyPanel
             testId="run-detail-empty"
             hint="Select a run from the table to view details."
@@ -107,9 +103,8 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
               </Field>
             )}
           </dl>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </CollapsiblePanel>
   );
 }
 

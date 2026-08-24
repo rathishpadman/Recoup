@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsiblePanel } from "./collapsible-panel.tsx";
 import { EmptyPanel } from "./run-detail.tsx";
 import { readableClock, readableOutcome, readablePhase, readableSpecialist } from "./display.ts";
 import type { AgentOperationsEvent } from "./types.ts";
@@ -24,19 +24,21 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
   const visible = runId === undefined ? [] : events.filter((event) => event.runId === runId);
 
   return (
-    <Card data-testid="agent-operations-activity-ledger">
-      <CardHeader>
-        <CardTitle>Event ledger</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {visible.length === 0 ? (
-          <EmptyPanel
-            testId="activity-ledger-empty"
-            hint="Select a run from the table to view its event history."
-          />
-        ) : (
+    <CollapsiblePanel testId="agent-operations-activity-ledger" title="Event ledger">
+      {visible.length === 0 ? (
+        <EmptyPanel
+          testId="activity-ledger-empty"
+          hint="Select a run from the table to view its event history."
+        />
+      ) : (
+        /**
+         * The rows scroll inside the panel. Left to grow, a run with a dozen
+         * events sets the height of the whole page and pushes everything below
+         * it out of reach.
+         */
+        <div className="max-h-96 overflow-y-auto" data-testid="activity-ledger-scroll">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="bg-card sticky top-0">
               <tr className="text-left text-muted-foreground">
                 <th className="py-2 pr-4 font-normal">Time</th>
                 <th className="py-2 pr-4 font-normal">Specialist</th>
@@ -80,8 +82,8 @@ export function ActivityLedger({ events, runId }: ActivityLedgerProps) {
               ))}
             </tbody>
           </table>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </CollapsiblePanel>
   );
 }

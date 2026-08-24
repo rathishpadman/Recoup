@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation.js";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsiblePanel } from "./collapsible-panel.tsx";
 
 /**
  * Sends one test payment from the screen.
@@ -103,11 +103,8 @@ export function SendTestPayment() {
   }
 
   return (
-    <Card data-testid="send-test-payment">
-      <CardHeader>
-        <CardTitle>Send a test payment</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <CollapsiblePanel testId="send-test-payment" title="Send a test payment">
+      <div className="space-y-3">
         <p className="text-muted-foreground text-sm">
           Pick a situation and send it. The payment appears in the list below within a few seconds.
         </p>
@@ -160,7 +157,7 @@ export function SendTestPayment() {
                 ? "Test payments are not available here."
                 : "Ready."}
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsiblePanel>
   );
 }
