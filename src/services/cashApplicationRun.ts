@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import type { RuntimeEnv } from "../../config/localRuntimeEnv.js";
 import type { CashReceiptSource } from "../adapters/cashReceipt.js";
 import type { CandidateInvoice, RemittanceAdviceInput } from "../core/cashApplication/match.js";
@@ -217,6 +219,38 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
     outcome.allocation.recordIds
   );
 
+  /**
+   * AC-02: a payment that balances the invoice creates no deduction, no
+   * Forensics run and no Maya item.
+   *
+   * The gate below only asks whether the reason code validated, and a reason
+   * validates just as well when the amount behind it is zero — which is how a
+   * fully-paid remittance raised a case for 0.00 in production. The check
+   * belongs above that gate rather than inside it, because the spec is
+   * explicit that full payment creates no deduction regardless of the reason
+   * the customer claimed.
+   *
+   * The run still succeeds. Nothing was withheld, so there is nothing to
+   * investigate and nothing to chase.
+   */
+  if (new Decimal(outcome.allocation.totalDeductionAmount).isZero()) {
+    await record(
+      "run_completed",
+      "allocate",
+      outcome.allocation.reconciliationStatus,
+      "Paid in full — nothing was deducted, so there is no case to raise",
+      outcome.allocation.recordIds
+    );
+    await repository.insertAllocation(outcome.allocation);
+    await repository.updateRunState({
+      runId,
+      state: "Ready",
+      currentPhase: "allocate",
+      terminalAt: now().toISOString()
+    });
+
+    return { runId, state: "Ready", caseId: undefined, liveCase: undefined };
+  }
   // A deduction only becomes a case when a validated reason supports it.
   // Everything else stays a reviewable allocation without a Forensics handoff.
   if (outcome.validatedReason.status !== "validated") {

@@ -104,7 +104,14 @@ describe("AC-02 full payment", () => {
       repository
     });
 
-    expect(outcome.liveCase?.shortPaymentAmount).toBe("0.00");
+    // Was: expect(liveCase?.shortPaymentAmount).toBe("0.00"), which asserted
+    // the opposite of this test's own name and of AC-02 — "no deduction,
+    // Forensics run or Maya deduction item is created". Production duly
+    // raised CASE-b5c704bd51d4aeea for 0.00 USD and handed it to Forensics.
+    // The run still completes; there is simply nothing to investigate.
+    expect(outcome.state).toBe("Ready");
+    expect(outcome.liveCase).toBeUndefined();
+    expect(outcome.caseId).toBeUndefined();
   });
 });
 
