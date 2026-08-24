@@ -247,14 +247,14 @@ function formatElapsed(fromIso: string, toIso: string): string | undefined {
  */
 const MAX_WAIT_HOURS = 24;
 
-function waitExhausted(run: WorkflowRun): boolean {
+function waitExhausted(run: WorkflowRun, now: number): boolean {
   if (run.state !== "AwaitingCashReceipt") {
     return false;
   }
 
   const started = Date.parse(run.createdAt);
 
-  return !Number.isNaN(started) && Date.now() - started > MAX_WAIT_HOURS * 3_600_000;
+  return !Number.isNaN(started) && now - started > MAX_WAIT_HOURS * 3_600_000;
 }
 
 function displayStatus(state: string, blocked: boolean): AgentStatus {
@@ -319,8 +319,11 @@ function downstreamState(
 export async function loadAgentOperationsSnapshot(input: {
   repository: WorkflowRepository;
   env: RuntimeEnv;
+  /** Injected so a snapshot is not a function of when the test happens to run. */
+  now?: () => Date;
 }): Promise<AgentOperationsSnapshot> {
   const { repository, env } = input;
+  const now = (input.now ?? (() => new Date()))().getTime();
 
   // Fail closed. Below the exposing stage, or with the kill switch engaged,
   // the rows are perfectly readable and must still not be shown.
@@ -345,7 +348,7 @@ export async function loadAgentOperationsSnapshot(input: {
       continue;
     }
 
-    const exhausted = waitExhausted(run);
+    const exhausted = waitExhausted(run, now);
     const status = exhausted ? "Blocked" : displayStatus(run.state, projected.blocked);
     const scenario = SCENARIO_BY_WORKFLOW[run.workflowName];
     // When work began, which is the first event, not when the row was created.

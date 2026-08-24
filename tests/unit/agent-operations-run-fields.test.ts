@@ -14,6 +14,9 @@ import type { WorkflowRepository } from "../../src/services/workflowRepository.t
  * backend on purpose: the cockpit performs no arithmetic.
  */
 
+/** The suites seed 22 Aug; the clock is pinned so results do not drift with the calendar. */
+const FIXED_NOW = () => new Date("2026-08-22T10:30:00.000Z");
+
 const exposedEnv = { RECOUP_CASH_ROLLOUT_STAGE: "shadow" };
 
 async function seed(
@@ -80,7 +83,7 @@ describe("agent operations run fields", () => {
       eventTimes: ["2026-08-22T10:00:17.000Z", "2026-08-22T10:02:30.000Z"]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
     const [row] = snapshot.runs;
 
     expect(row?.queuedAt).toBe("2026-08-22T10:00:00.000Z");
@@ -100,7 +103,7 @@ describe("agent operations run fields", () => {
       eventTimes: ["2026-08-22T10:00:00.000Z"]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     // 10:00:00 to 10:02:31 is two minutes thirty-one seconds.
     expect(snapshot.runs[0]?.elapsed).toBe("02:31");
@@ -116,7 +119,7 @@ describe("agent operations run fields", () => {
       eventTimes: ["2026-08-22T10:00:01.000Z"]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
     const [row] = snapshot.runs;
 
     expect(row?.status).toBe("Waiting");
@@ -136,7 +139,7 @@ describe("agent operations run fields", () => {
       eventTimes: ["2026-08-22T10:00:01.000Z"]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     expect(snapshot.runs[0]?.scenario).toBe("AR Cash App");
   });
@@ -152,7 +155,7 @@ describe("agent operations run fields", () => {
       eventTimes: ["2026-08-22T10:00:01.000Z"]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
     const cash = snapshot.roster.find((entry) => entry.agent === "Cash Application");
 
     expect(cash?.lastRunId).toBe("RUN-E");

@@ -16,6 +16,9 @@ import type { WorkflowEventType } from "../../src/types/workflow.ts";
  * perfectly well have read.
  */
 
+/** The suites seed 22 Aug; the clock is pinned so results do not drift with the calendar. */
+const FIXED_NOW = () => new Date("2026-08-22T10:30:00.000Z");
+
 const exposedEnv = { RECOUP_CASH_ROLLOUT_STAGE: "shadow" };
 
 async function seedRun(
@@ -118,7 +121,7 @@ describe("loadAgentOperationsSnapshot", () => {
       ]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     expect(snapshot.runs).toHaveLength(1);
     expect(snapshot.runs[0]?.runId).toBe("RUN-1");
@@ -152,7 +155,7 @@ describe("loadAgentOperationsSnapshot", () => {
       ]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     expect(snapshot.counts.waiting).toBe(1);
     expect(snapshot.counts.needsAttention).toBe(1);
@@ -182,7 +185,7 @@ describe("loadAgentOperationsSnapshot", () => {
       updatedAt: "2026-08-22T10:00:00.000Z"
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     // projectAgentOperations returns undefined without an event, so a run that
     // exists but has not started must still be accounted for somewhere.
@@ -201,7 +204,7 @@ describe("loadAgentOperationsSnapshot", () => {
       ]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     expect(snapshot.events).toHaveLength(2);
     // Order is the order they happened; the loader never sorts or reverses.
@@ -226,7 +229,7 @@ describe("loadAgentOperationsSnapshot", () => {
       ]
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: FIXED_NOW });
 
     // A screen showing "Waiting 1" beside a roster of four idle agents reads as
     // broken, and invites the reader to distrust both halves.

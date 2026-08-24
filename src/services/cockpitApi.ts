@@ -30,7 +30,8 @@ import {
 import { loadAgentOperationsSnapshot } from "./agentOperationsReadModel.js";
 import {
   isAllowedInboundSender,
-  parseInboundRequest
+  parseInboundRequest,
+  resolveInboundProvider
 } from "../adapters/inboundRemittance.js";
 import { acceptInboundRemittance } from "./remittanceIntake.js";
 import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
@@ -38,6 +39,11 @@ import { startCashApplicationRun } from "./cashApplicationRun.js";
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
 import { persistRemittanceEvidence } from "../adapters/remittanceEvidenceStore.js";
+import {
+  buildScenarioCsv,
+  findTestPaymentScenario,
+  TEST_PAYMENT_SCENARIOS
+} from "./testPaymentScenarios.js";
 import { resolveWorkflowRepository } from "./workflowRepositoryFactory.js";
 import type { WorkflowRepository } from "./workflowRepository.js";
 import { createRuntimeMemoryStore } from "../memory/runtime.js";
@@ -1051,6 +1057,113 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
    */
   const inboundSeenEventKeys = new Set<string>();
 
+  /**
+   * Intake and start, shared by the public inbound endpoint and the send
+   * control on the screen.
+   *
+   * One path on purpose. Duplicating it would mean two places where the scan
+   * order, the evidence writes and the receipt source could drift apart, and
+   * the security-critical half is exactly the half that must not.
+   */
+  async function acceptAndStartRemittance(input: {
+    csv: string;
+    messageId: string;
+    filename: string;
+    sender: string;
+    recipient: string;
+  }): Promise<{ status: number; body: Record<string, unknown> }> {
+    const attachment = {
+      filename: input.filename,
+      declaredMime: "text/csv",
+      bytes: input.csv
+    };
+
+    const message = {
+      provider: resolveInboundProvider(runtimeEnv) ?? "gmail",
+      providerEventId: input.messageId,
+      messageId: input.messageId,
+      signature: "verified",
+      recipient: input.recipient,
+      sender: input.sender,
+      subject: "Test payment",
+      attachmentRef: input.filename,
+      receivedAt: new Date().toISOString()
+    };
+
+    const intake = await acceptInboundRemittance(message, {
+      env: runtimeEnv,
+      scanner: createDemoAttachmentSecurityService({
+        attachments: new Map([[input.filename, attachment]])
+      }),
+      attachmentBody: (ref) => (ref === input.filename ? input.csv : undefined),
+      approvedRecipient: input.recipient,
+      verifySignature: () => true,
+      seenEventKeys: inboundSeenEventKeys,
+      provenanceMode: "live"
+    });
+
+    if (intake.status !== "accepted") {
+      const status = intake.reason === "replay_detected" ? 409 : 422;
+      return { status, body: { error: "Inbound rejected.", reason: intake.reason } };
+    }
+
+    const invoices = intake.advice.lines.map((line) => ({
+      invoiceRecordId: line.invoiceReference,
+      invoiceReference: line.invoiceReference,
+      balance: new Decimal(line.instructedAmount).plus(line.claimedDeductionAmount).toFixed(2),
+      currency: intake.advice.currency
+    }));
+
+    const supabaseUrl = runtimeEnv.SUPABASE_URL?.replace(/\/$/u, "");
+    const supabaseKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY;
+    const configured = supabaseUrl !== undefined && supabaseKey !== undefined;
+
+    if (configured) {
+      await persistRemittanceEvidence({
+        url: supabaseUrl,
+        serviceRoleKey: supabaseKey,
+        inboxId: intake.inboxId,
+        advice: intake.advice,
+        message,
+        attachmentContentHash: intake.attachmentContentHash,
+        ...(options.cashReceiptWriteFetcher === undefined
+          ? {}
+          : { fetcher: options.cashReceiptWriteFetcher })
+      });
+    }
+
+    const receiptSource = configured
+      ? createSupabaseCashReceiptSource({
+          url: supabaseUrl,
+          serviceRoleKey: supabaseKey,
+          freshnessMaxAgeSeconds: 86_400,
+          freshnessPolicyVersion: "rehearsal-freshness-v1",
+          ...(options.cashReceiptWriteFetcher === undefined
+            ? {}
+            : { fetcher: options.cashReceiptWriteFetcher })
+        })
+      : undefined;
+
+    const outcome = await startCashApplicationRun({
+      advice: intake.advice,
+      invoices,
+      env: runtimeEnv,
+      repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
+      ...(receiptSource === undefined ? {} : { source: receiptSource })
+    });
+
+    return {
+      status: 202,
+      body: {
+        accepted: true,
+        runId: outcome.runId,
+        state: outcome.state,
+        caseId: outcome.caseId ?? null
+      }
+    };
+  }
+
+
   app.post("/inbound/remittance", async (request, response) => {
     // Off by stage or by kill switch means the route does not exist at all.
     if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
@@ -1425,6 +1538,125 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
       response.json({ reset: true, deleted: (await upstream.json()) as unknown });
     } catch {
       response.status(502).json({ error: "Cash demo reset failed." });
+    }
+  });
+
+  /** The scenarios the send control offers. */
+  app.get("/rehearsal/test-payment-scenarios", (request, response) => {
+    if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
+      response.status(404).json({ error: "Test payments are not enabled." });
+      return;
+    }
+
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["cfo", "maya"],
+      proxyPurpose: "read"
+    });
+
+    if (!human.success) {
+      response.status(401).json({ error: human.error });
+      return;
+    }
+
+    response.json({
+      scenarios: TEST_PAYMENT_SCENARIOS.map((scenario) => ({
+        id: scenario.id,
+        name: scenario.name,
+        expectation: scenario.expectation
+      }))
+    });
+  });
+
+  /**
+   * Sends one scenario: the bank confirmation, then the payment note.
+   *
+   * Both halves are posted here so the shared secret stays on the server and
+   * never reaches the browser. Before this, a finance user could read the
+   * screen but never put anything on it, which meant asking someone else to
+   * run a command to see their own system work.
+   */
+  app.post("/rehearsal/send-test-payment", async (request, response) => {
+    if (!isCashCapabilityEnabled(runtimeEnv, "inbound_acceptance")) {
+      response.status(404).json({ error: "Test payments are not enabled." });
+      return;
+    }
+
+    const human = verifyHumanCockpitAuth(request, runtimeEnv, {
+      allowProxyDemoRoles: ["cfo", "maya"],
+      proxyPurpose: "admin-reset"
+    });
+
+    if (!human.success) {
+      response.status(401).json({ error: human.error });
+      return;
+    }
+
+    const requested = (request.body as { scenario?: unknown } | undefined)?.scenario;
+    const scenario =
+      typeof requested === "string" ? findTestPaymentScenario(requested) : undefined;
+
+    if (scenario === undefined) {
+      response.status(422).json({ error: "That scenario is not one we can send." });
+      return;
+    }
+
+    /**
+     * Unique per send. A reused reference is read as a duplicate delivery and
+     * refused, which would make the button work exactly once.
+     */
+    const stamp = `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`.toUpperCase();
+    const reference = `PAY-DEMO-${stamp}`;
+    const customer = "CUST-001";
+    const supabaseUrl = (runtimeEnv.SUPABASE_URL ?? "").replace(/\/$/u, "");
+    const serviceRoleKey = runtimeEnv.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    const fetcher = options.cashReceiptWriteFetcher ?? fetch;
+
+    try {
+      if (scenario.receipt !== undefined) {
+        const observedAt = new Date(
+          Date.now() - scenario.receipt.observedHoursAgo * 3_600_000
+        ).toISOString();
+        const receiptId = `REH-${reference}`;
+
+        await fetcher(`${supabaseUrl}/rest/v1/recoup_cash_receipts`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            apikey: serviceRoleKey,
+            authorization: `Bearer ${serviceRoleKey}`
+          },
+          body: JSON.stringify({
+            receipt_id: receiptId,
+            source_system: "rehearsal-proxy",
+            source_record_id: receiptId,
+            payment_reference: reference,
+            customer_reference: customer,
+            legal_entity_reference: "LE-001",
+            amount_received: scenario.receipt.amountReceived,
+            currency: scenario.receipt.currency,
+            settlement_status: scenario.receipt.settlementStatus,
+            value_date: observedAt.slice(0, 10),
+            observed_at: observedAt,
+            retrieved_at: new Date().toISOString(),
+            freshness_policy_version: "rehearsal-freshness-v1",
+            freshness_status: "fresh",
+            source_payload_hash: createHash("sha256").update(receiptId).digest("hex"),
+            record_ids: [receiptId]
+          })
+        });
+      }
+
+      const outcome = await acceptAndStartRemittance({
+        csv: buildScenarioCsv(scenario, reference, customer),
+        messageId: `MSG-DEMO-${stamp}`,
+        filename: `remittance-${reference}.csv`,
+        sender: (runtimeEnv.RECOUP_INBOUND_ALLOWED_SENDERS ?? "").split(",")[0]?.trim() ?? "",
+        recipient: runtimeEnv.RECOUP_INBOUND_APPROVED_RECIPIENT ?? ""
+      });
+
+      response.status(outcome.status).json(outcome.body);
+    } catch {
+      response.status(502).json({ error: "The test payment could not be sent." });
     }
   });
 

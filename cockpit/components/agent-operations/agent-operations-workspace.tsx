@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ActivityLedger } from "./activity-ledger.tsx";
 import { AgentRoster } from "./agent-roster.tsx";
 import { HandoffGraph } from "./handoff-graph.tsx";
+import { SendTestPayment } from "./send-test-payment.tsx";
 import { RunDetailPanel } from "./run-detail.tsx";
 import { RunTable } from "./run-table.tsx";
 import { StatusTiles } from "./status-tiles.tsx";
@@ -61,6 +62,7 @@ export function AgentOperationsWorkspace({ snapshot }: AgentOperationsWorkspaceP
         </div>
 
         <div className="space-y-4">
+          <SendTestPayment />
           <HandoffGraph handoffs={snapshot.handoffs} />
           <RunDetailPanel detail={detail} />
           <ActivityLedger events={snapshot.events} runId={selectedRunId} />
