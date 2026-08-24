@@ -112,7 +112,13 @@ const OUTCOME_LABEL: Record<string, string> = {
   contract_gap: "No approved rule",
   source_unavailable: "Bank source unavailable",
   wait_exhausted: "Waited too long for the money",
-  run_stranded: "Stopped before it finished"
+  run_stranded: "Stopped before it finished",
+  // Why a payment note was refused at the door.
+  attachment_unsupported: "File type not accepted",
+  attachment_unsafe: "Failed the security check",
+  attachment_quarantined: "Quarantined by the security check",
+  scan_unavailable: "Security check could not run",
+  mapping_failed: "Could not be read as a payment note"
 };
 
 export function readableOutcome(outcome: string): string {

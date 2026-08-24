@@ -102,11 +102,25 @@ describe("a refused payment note is visible (AC-05)", () => {
       "eicar signature in remittance-secret-customer.pdf"
     );
     const events = await repository.listEvents(outcome.runId);
-    const text = events.map((event) => event.safeSummary).join(" ");
 
-    // The detail is diagnostic and can quote the file. The screen must not.
-    expect(text).not.toContain("secret-customer");
-    expect(text).not.toContain("eicar");
+    // Every field the ledger renders, not just the summary. Production put
+    // the diagnostic detail in the event status, and the ledger renders the
+    // status as its Outcome column — so a filename would have gone straight
+    // onto the screen.
+    const rendered = events
+      .flatMap((event) => [event.safeSummary, event.status, ...event.recordIds])
+      .join(" ");
+
+    expect(rendered).not.toContain("secret-customer");
+    expect(rendered).not.toContain("eicar");
+    expect(rendered).not.toContain(".pdf");
+  });
+
+  it("puts a safe code in the outcome column, not free text", async () => {
+    const { repository, outcome } = await refuse("attachment_unsupported", "declared application/x-msdownload");
+    const events = await repository.listEvents(outcome.runId);
+
+    expect(events[0]?.status).toBe("attachment_unsupported");
   });
 });
 

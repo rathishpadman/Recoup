@@ -110,8 +110,13 @@ export interface RecordRefusedIntakeInput {
   /** The inbound message, so a retry of the same email reuses its run. */
   messageId: string;
   reason: string;
-  /** Diagnostic. Recorded as the event status, never as the summary. */
-  detail: string;
+  /**
+   * Diagnostic, for the caller’s own logs. Deliberately not persisted: the
+   * ledger renders the event status, and this string is allowed to quote the
+   * filename or the scanner verdict, so storing it puts unscanned content one
+   * render away from the screen.
+   */
+  detail?: string;
   provenanceMode: RemittanceAdviceInput["provenanceMode"];
   now?: () => Date;
 }
@@ -130,7 +135,7 @@ export interface RecordRefusedIntakeInput {
 export async function recordRefusedIntake(
   input: RecordRefusedIntakeInput
 ): Promise<CashApplicationRunOutcome> {
-  const { repository, messageId, reason, detail, provenanceMode } = input;
+  const { repository, messageId, reason, provenanceMode } = input;
   const now = input.now ?? (() => new Date());
   const timestamp = now().toISOString();
 
@@ -162,7 +167,8 @@ export async function recordRefusedIntake(
       correlationId,
       eventType: "phase_blocked",
       phase: "intake",
-      status: detail,
+      // A safe enum. Never the attachment, its name or its contents.
+      status: reason,
       safeSummary: REFUSAL_SUMMARY[reason] ?? "Stopped: the payment note could not be accepted",
       recordIds: [messageId],
       provenanceMode,
