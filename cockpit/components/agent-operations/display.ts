@@ -118,3 +118,21 @@ const OUTCOME_LABEL: Record<string, string> = {
 export function readableOutcome(outcome: string): string {
   return OUTCOME_LABEL[outcome] ?? outcome.replace(/_/gu, " ");
 }
+
+/**
+ * Validated reason codes with their meaning.
+ *
+ * The code stays on screen because it is the governed value a reviewer
+ * checks against the reason map. What was missing was what it means: on its
+ * own, "DEP" told a reader nothing.
+ *
+ * DEP is the only code the first release can validate, so this list is short
+ * by design rather than by omission.
+ */
+const VALIDATED_REASON_LABEL: Record<string, string> = {
+  DEP: "Deposit deduction (DEP)"
+};
+
+export function readableValidatedReason(code: string): string {
+  return VALIDATED_REASON_LABEL[code] ?? code;
+}

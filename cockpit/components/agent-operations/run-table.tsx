@@ -1,7 +1,7 @@
 "use client";
 
 import { FileTextIcon } from "lucide-react";
-import { readableTime } from "./display.ts";
+import { readableSpecialist, readableTime } from "./display.ts";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,7 +68,7 @@ export function RunTable({ runs, selectedRunId, onSelectRun }: RunTableProps) {
                   )}
                 >
                   <td className="py-3 pr-4 font-mono text-xs">{row.runId}</td>
-                  <td className="py-3 pr-4">{row.agent}</td>
+                  <td className="py-3 pr-4">{readableSpecialist(row.agent)}</td>
                   <td className="py-3 pr-4">{row.scenario ?? DASH}</td>
                   <td className="py-3 pr-4">{row.customer ?? DASH}</td>
                   <td className="py-3 pr-4">
