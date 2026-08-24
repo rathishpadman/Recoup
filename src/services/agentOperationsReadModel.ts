@@ -85,6 +85,8 @@ export interface AgentOperationsRunRow {
   completedAt?: string;
   elapsed?: string;
   caseId?: string;
+  /** Why a run needs a person, when it does. */
+  blockerCode?: string;
   evidence?: AgentOperationsRunEvidence;
   provenanceMode: WorkflowRun["provenanceMode"];
   blocked: boolean;
@@ -235,6 +237,26 @@ function formatElapsed(fromIso: string, toIso: string): string | undefined {
   return hours === 0 ? `${pad(minutes)}:${pad(seconds)}` : `${String(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
+/**
+ * How long a run may wait for the money before it stops being a wait.
+ *
+ * AC-06 wants the worker to exhaust the retry and dead-letter it. That needs
+ * D-11, so until then the age is read here instead: a run that has waited past
+ * this is shown as work for a person rather than left to accumulate quietly in
+ * the Waiting column, which is how ten of them went unnoticed.
+ */
+const MAX_WAIT_HOURS = 24;
+
+function waitExhausted(run: WorkflowRun): boolean {
+  if (run.state !== "AwaitingCashReceipt") {
+    return false;
+  }
+
+  const started = Date.parse(run.createdAt);
+
+  return !Number.isNaN(started) && Date.now() - started > MAX_WAIT_HOURS * 3_600_000;
+}
+
 function displayStatus(state: string, blocked: boolean): AgentStatus {
   if (blocked) {
     return "Blocked";
@@ -323,7 +345,8 @@ export async function loadAgentOperationsSnapshot(input: {
       continue;
     }
 
-    const status = displayStatus(run.state, projected.blocked);
+    const exhausted = waitExhausted(run);
+    const status = exhausted ? "Blocked" : displayStatus(run.state, projected.blocked);
     const scenario = SCENARIO_BY_WORKFLOW[run.workflowName];
     // When work began, which is the first event, not when the row was created.
     const startedAt = events.find((event) => event.runId === run.runId)?.occurredAt;
@@ -363,6 +386,7 @@ export async function loadAgentOperationsSnapshot(input: {
       ...(run.terminalAt === undefined ? {} : { completedAt: run.terminalAt }),
       ...(elapsed === undefined ? {} : { elapsed }),
       ...(projected.caseId === undefined ? {} : { caseId: projected.caseId }),
+      ...(exhausted ? { blockerCode: "wait_exhausted" } : {}),
       ...(evidence === undefined ? {} : { evidence }),
       provenanceMode: projected.provenanceMode,
       blocked: projected.blocked

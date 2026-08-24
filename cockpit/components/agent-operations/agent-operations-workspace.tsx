@@ -42,7 +42,8 @@ export function AgentOperationsWorkspace({ snapshot }: AgentOperationsWorkspaceP
           ...(selectedRun.startedAt === undefined ? {} : { startedAt: selectedRun.startedAt }),
           ...(selectedRun.elapsed === undefined ? {} : { elapsed: selectedRun.elapsed }),
           ...(selectedRun.caseId === undefined ? {} : { caseId: selectedRun.caseId }),
-          ...(selectedRun.evidence === undefined ? {} : { evidence: selectedRun.evidence })
+          ...(selectedRun.evidence === undefined ? {} : { evidence: selectedRun.evidence }),
+          ...(selectedRun.blockerCode === undefined ? {} : { blockerCode: selectedRun.blockerCode })
         };
 
   return (

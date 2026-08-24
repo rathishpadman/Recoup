@@ -62,6 +62,7 @@ export interface AgentOperationsRunRow {
   completedAt?: string;
   elapsed?: string;
   caseId?: string;
+  blockerCode?: string;
   evidence?: RunEvidence;
   provenanceMode: "live" | "replay" | "synthetic";
   blocked: boolean;
