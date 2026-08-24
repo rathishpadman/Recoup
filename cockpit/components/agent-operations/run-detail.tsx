@@ -4,7 +4,7 @@ import { FileTextIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { CollapsiblePanel } from "./collapsible-panel.tsx";
-import { readableSpecialist, readableTime } from "./display.ts";
+import { readableOutcome, readableSpecialist, readableTime } from "./display.ts";
 import { NO_RUN_SELECTED_TITLE, type RunDetail } from "./types.ts";
 
 /**
@@ -99,7 +99,7 @@ export function RunDetailPanel({ detail }: RunDetailPanelProps) {
             )}
             {detail.blockerCode === undefined ? null : (
               <Field label="Why it stopped">
-                <span data-testid="run-detail-blocker">{detail.blockerCode}</span>
+                <span data-testid="run-detail-blocker">{readableOutcome(detail.blockerCode)}</span>
               </Field>
             )}
           </dl>

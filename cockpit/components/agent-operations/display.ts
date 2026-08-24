@@ -111,7 +111,8 @@ const OUTCOME_LABEL: Record<string, string> = {
   reversed: "Payment reversed",
   contract_gap: "No approved rule",
   source_unavailable: "Bank source unavailable",
-  wait_exhausted: "Waited too long for the money"
+  wait_exhausted: "Waited too long for the money",
+  run_stranded: "Stopped before it finished"
 };
 
 export function readableOutcome(outcome: string): string {

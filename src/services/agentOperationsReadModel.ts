@@ -245,16 +245,47 @@ function formatElapsed(fromIso: string, toIso: string): string | undefined {
  * this is shown as work for a person rather than left to accumulate quietly in
  * the Waiting column, which is how ten of them went unnoticed.
  */
+/** A wait for money that could honestly still arrive. */
 const MAX_WAIT_HOURS = 24;
 
-function waitExhausted(run: WorkflowRun, now: number): boolean {
-  if (run.state !== "AwaitingCashReceipt") {
-    return false;
-  }
+/**
+ * A run that has not reached a wait or a verdict. Intake completes inside one
+ * request, so this window is short: past it the run has stopped, not slowed.
+ */
+const MAX_IN_FLIGHT_HOURS = 1;
 
+/**
+ * Why a run that is neither finished nor progressing should be looked at.
+ *
+ * Two distinct failures, kept distinct. A wait that will never resolve is not
+ * the same as a run that died on its feet, and calling both a wait sends
+ * someone to look for money that was never the problem.
+ *
+ * Neither can be detected by the run itself. The first needs the resume worker
+ * D-11 has not authorised; the second happens when the process is killed
+ * mid-request, where no error handler runs at all. Age is real data on the
+ * row, so both are answerable at read time.
+ */
+function staleBlocker(run: WorkflowRun, now: number): "wait_exhausted" | "run_stranded" | undefined {
   const started = Date.parse(run.createdAt);
 
-  return !Number.isNaN(started) && now - started > MAX_WAIT_HOURS * 3_600_000;
+  if (Number.isNaN(started)) {
+    return undefined;
+  }
+
+  const age = now - started;
+
+  if (run.state === "AwaitingCashReceipt") {
+    return age > MAX_WAIT_HOURS * 3_600_000 ? "wait_exhausted" : undefined;
+  }
+
+  // Only a run still in flight can strand. A finished or already-blocked run
+  // is either done or on someone's list, and neither needs a second label.
+  if (STATUS_BY_RUN_STATE[run.state] !== "Queued") {
+    return undefined;
+  }
+
+  return age > MAX_IN_FLIGHT_HOURS * 3_600_000 ? "run_stranded" : undefined;
 }
 
 function displayStatus(state: string, blocked: boolean): AgentStatus {
@@ -348,8 +379,8 @@ export async function loadAgentOperationsSnapshot(input: {
       continue;
     }
 
-    const exhausted = waitExhausted(run, now);
-    const status = exhausted ? "Blocked" : displayStatus(run.state, projected.blocked);
+    const stale = staleBlocker(run, now);
+    const status = stale === undefined ? displayStatus(run.state, projected.blocked) : "Blocked";
     const scenario = SCENARIO_BY_WORKFLOW[run.workflowName];
     // When work began, which is the first event, not when the row was created.
     const startedAt = events.find((event) => event.runId === run.runId)?.occurredAt;
@@ -389,7 +420,7 @@ export async function loadAgentOperationsSnapshot(input: {
       ...(run.terminalAt === undefined ? {} : { completedAt: run.terminalAt }),
       ...(elapsed === undefined ? {} : { elapsed }),
       ...(projected.caseId === undefined ? {} : { caseId: projected.caseId }),
-      ...(exhausted ? { blockerCode: "wait_exhausted" } : {}),
+      ...(stale === undefined ? {} : { blockerCode: stale }),
       ...(evidence === undefined ? {} : { evidence }),
       provenanceMode: projected.provenanceMode,
       blocked: projected.blocked

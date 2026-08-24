@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { readableOutcome } from "../../cockpit/components/agent-operations/display.ts";
 
 import { loadAgentOperationsSnapshot } from "../../src/services/agentOperationsReadModel.ts";
 import { createInMemoryWorkflowRepository } from "../../src/services/workflowRepository.ts";
@@ -128,5 +130,23 @@ describe("the activity trail reads plainly", () => {
       expect(event.phase.length).toBeGreaterThan(0);
       expect(event.recordIds.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("why a run stopped, in words", () => {
+  it("explains a stranded run instead of printing its code", () => {
+    // "run_stranded" on the screen is the machine talking to itself.
+    expect(readableOutcome("run_stranded")).not.toBe("run_stranded");
+    expect(readableOutcome("run_stranded").toLowerCase()).toMatch(/stopped|did not finish/u);
+  });
+
+  it("keeps the two staleness answers distinguishable", () => {
+    expect(readableOutcome("run_stranded")).not.toBe(readableOutcome("wait_exhausted"));
+  });
+
+  it("renders the blocker through the same words as the ledger", () => {
+    const detail = readFileSync("cockpit/components/agent-operations/run-detail.tsx", "utf8");
+
+    expect(detail).toContain("readableOutcome(detail.blockerCode)");
   });
 });

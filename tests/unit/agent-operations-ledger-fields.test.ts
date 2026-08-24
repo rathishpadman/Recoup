@@ -15,6 +15,15 @@ import type { WorkflowRepository } from "../../src/services/workflowRepository.t
 
 const exposedEnv = { RECOUP_CASH_ROLLOUT_STAGE: "shadow" };
 
+/**
+ * Read the fixture at its own moment, not at the wall clock.
+ *
+ * The seeded run is dated 2026-08-22 and left in flight. Against a real clock
+ * it ages past the stranded-run window and the roster stops reporting what it
+ * was doing, which has nothing to do with the fields under test here.
+ */
+const readAt = () => new Date("2026-08-22T10:05:00.000Z");
+
 async function seed(repository: WorkflowRepository): Promise<void> {
   await repository.createRun({
     runId: "RUN-1",
@@ -69,7 +78,7 @@ describe("agent operations ledger fields", () => {
     const repository = createInMemoryWorkflowRepository();
     await seed(repository);
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: readAt });
 
     expect(snapshot.events[0]?.specialist).toBe("cash_application");
   });
@@ -78,7 +87,7 @@ describe("agent operations ledger fields", () => {
     const repository = createInMemoryWorkflowRepository();
     await seed(repository);
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: readAt });
 
     expect(snapshot.events[0]?.outcome).toBe("started");
     expect(snapshot.events[1]?.outcome).toBe("balanced");
@@ -88,7 +97,7 @@ describe("agent operations ledger fields", () => {
     const repository = createInMemoryWorkflowRepository();
     await seed(repository);
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: readAt });
 
     // The second event carries no specialist, and inventing one would put a
     // name against work nothing recorded a name for.
@@ -99,7 +108,7 @@ describe("agent operations ledger fields", () => {
     const repository = createInMemoryWorkflowRepository();
     await seed(repository);
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: readAt });
     const cash = snapshot.roster.find((entry) => entry.agent === "Cash Application");
 
     // The run has not reached a terminal state, so the roster reports the most
@@ -117,7 +126,7 @@ describe("agent operations ledger fields", () => {
       terminalAt: "2026-08-22T10:00:03.000Z"
     });
 
-    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv });
+    const snapshot = await loadAgentOperationsSnapshot({ repository, env: exposedEnv, now: readAt });
     const cash = snapshot.roster.find((entry) => entry.agent === "Cash Application");
 
     expect(cash?.status).toBe("Completed");
