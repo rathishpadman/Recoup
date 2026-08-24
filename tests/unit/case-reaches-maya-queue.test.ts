@@ -1,174 +1,68 @@
 import { describe, expect, it } from "vitest";
 
-import { startCashApplicationRun } from "../../src/services/cashApplicationRun.ts";
-import { createInMemoryWorkflowRepository } from "../../src/services/workflowRepository.ts";
-import type { CashReceiptSource } from "../../src/adapters/cashReceipt.ts";
+import { readFileSync } from "node:fs";
 
 /**
- * The last box of the flow, which was never connected.
+ * Why the cash pipeline does not write into Maya's deduction work list.
  *
- * A completed short payment writes a LiveDeductionCase and emits maya_ready —
- * "Passed to Deduction Forensics to investigate". Nothing was passed anywhere.
- * The case lands in recoup_live_deduction_cases; Maya's work list is built from
- * recoup_deduction_claims. Production proved it: one case, twenty claims, zero
- * overlap. Her twenty items are seed data and always were.
+ * It tried. A completed short payment wrote a row into
+ * recoup_deduction_claims, and the row was accepted: the columns matched, the
+ * foreign key to recoup_evidence_documents was satisfied, the money kept its
+ * cents. Every check passed.
  *
- * So the handover event was true about intent and false about effect, which is
- * the worst combination: the screen said a person had been given the work.
+ * Then Maya's whole workspace returned 503.
  *
- * The claim is written from the case rather than recomputed. Every value it
- * needs is already on the case, and a second derivation is a second chance to
- * disagree about the money.
+ * recoup_deduction_claims is not a work list. It is one half of a validated
+ * pair, and the loader that builds her surface requires the other half:
+ *
+ *     const receipt = receiptsByClaimId.get(claim.claimId);
+ *     if (receipt === undefined || receipt.lineId !== claim.lineId) {
+ *       throw new Error(`Supabase reconciliation receipt missing for ...`);
+ *     }
+ *
+ * Every claim must have a matching recoup_reconciliation_receipts row carrying
+ * a ruleId and a derivedRuleInput that a rules engine produced. One unpaired
+ * claim throws, the throw is caught as a missing source, and the entire
+ * forensics surface fails closed — not just the new row, all twenty of the
+ * existing ones with it.
+ *
+ * The cash pipeline cannot supply that half. It produces an allocation and a
+ * validated reason code; it does not run the reconciliation rules. Writing a
+ * receipt to satisfy the check would mean inventing a rule input and a verdict
+ * for a deduction nothing has evaluated, which is the one thing this system is
+ * built not to do.
+ *
+ * So the handover stops at the case, and the gap is recorded here rather than
+ * papered over. Closing it properly needs the reconciliation rules to run over
+ * a live case — real work, and a decision about what it is allowed to conclude.
  */
 
-const env = {
-  RECOUP_CASH_ROLLOUT_STAGE: "shadow",
-  RECOUP_CASH_REHEARSAL_ENABLED: "true",
-  RECOUP_CASH_DEMO_POLICY_ENABLED: "true"
-};
+describe("the cash pipeline leaves Maya's claim table alone", () => {
+  const run = readFileSync("src/services/cashApplicationRun.ts", "utf8");
+  const store = readFileSync("src/adapters/remittanceEvidenceStore.ts", "utf8");
 
-function advice(claimedDeductionAmount: string, instructedAmount: string) {
-  return {
-    remittanceId: "REM-Q1",
-    inboundMessageId: "INBOX-Q1",
-    customerReference: "CUST-001",
-    legalEntityReference: "LE-001",
-    paymentReference: "PAY-Q1",
-    currency: "USD",
-    instructedPaymentAmount: "1250.00",
-    mapperVersion: "csv-v1",
-    lines: [
-      {
-        lineId: "LINE-1",
-        invoiceReference: "INV-1",
-        instructedAmount,
-        claimedDeductionAmount,
-        claimedReasonCode: "DMG",
-        claimedReasonTextSanitized: "two pallets arrived damaged",
-        sourceRecordIds: ["SRC-1"]
-      }
-    ],
-    sourceRecordIds: ["SRC-1"],
-    provenanceMode: "replay" as const
-  };
-}
-
-const invoices = [
-  { invoiceRecordId: "INV-1", invoiceReference: "INV-1", balance: "1250.00", currency: "USD" }
-];
-
-const settled: CashReceiptSource = {
-  findReceipt: () =>
-    Promise.resolve({
-      status: "settled",
-      receipt: {
-        receiptId: "REC-Q1",
-        sourceSystem: "rehearsal-proxy",
-        sourceRecordId: "REC-Q1",
-        paymentReference: "PAY-Q1",
-        customerReference: "CUST-001",
-        legalEntityReference: "LE-001",
-        amountReceived: "1250.00",
-        currency: "USD",
-        settlementStatus: "settled",
-        valueDate: "2026-08-20",
-        observedAt: "2026-08-23T09:00:00.000Z",
-        retrievedAt: "2026-08-23T09:00:00.000Z",
-        freshnessPolicyVersion: "rehearsal-freshness-v1",
-        freshnessStatus: "fresh",
-        recordIds: ["REC-Q1"]
-      }
-    }) as never
-};
-
-async function shortPayment() {
-  const repository = createInMemoryWorkflowRepository();
-  const outcome = await startCashApplicationRun({
-    advice: advice("250.00", "1000.00"),
-    invoices,
-    env,
-    repository,
-    source: settled
+  it("writes no deduction claim", () => {
+    // A claim without its reconciliation receipt takes the whole surface down.
+    expect(run).not.toContain("insertDeductionClaim");
   });
 
-  return { repository, outcome };
-}
-
-describe("a raised case reaches the queue a person actually works from", () => {
-  it("writes a claim, not only a case", async () => {
-    const { repository } = await shortPayment();
-
-    expect(await repository.listDeductionClaims()).toHaveLength(1);
+  it("writes no canonical evidence document", () => {
+    // Same dataset, same validation pass. The remittance evidence lives in the
+    // cash tables, which nothing else parses.
+    expect(store).not.toContain("recoup_evidence_documents");
   });
 
-  it("files it under the same identity as the case", async () => {
-    const { repository, outcome } = await shortPayment();
-    const [claim] = await repository.listDeductionClaims();
-
-    expect(claim?.claimId).toBe(outcome.caseId);
+  it("still records the case, which is as far as the handover honestly goes", () => {
+    expect(run).toContain("upsertCase");
   });
 
-  it("carries the money across without recomputing it", async () => {
-    const { repository, outcome } = await shortPayment();
-    const [claim] = await repository.listDeductionClaims();
-
-    expect(claim?.claimAmount).toBe(outcome.liveCase?.shortPaymentAmount);
-    // The cents are the whole point. 250, not 250.00, is the bug that already
-    // reached production once through a numeric column.
-    expect(claim?.claimAmount).toBe("250.00");
-  });
-
-  it("cites the customer, invoice and remittance a reviewer needs", async () => {
-    const { repository } = await shortPayment();
-    const [claim] = await repository.listDeductionClaims();
-
-    expect(claim?.customerId).toBe("CUST-001");
-    expect(claim?.invoiceRef).toBe("INV-1");
-    expect(claim?.remittanceEvidenceId).toBe("REM-Q1");
-    expect(claim?.recordIds.length).toBeGreaterThan(0);
-  });
-
-  it("uses the validated reason, not the one the customer claimed", async () => {
-    const { repository } = await shortPayment();
-    const [claim] = await repository.listDeductionClaims();
-
-    // DMG is what they said. DEP is what policy validated it to.
-    expect(claim?.reasonCode).toBe("DEP");
-  });
-
-  it("carries no scenario identity onto a live-case surface", async () => {
-    const { repository } = await shortPayment();
-    const [claim] = await repository.listDeductionClaims();
-
-    expect(claim?.goldScenarioId).toBeUndefined();
-  });
-});
-
-describe("nothing else writes a claim", () => {
-  it("does not queue work for a payment that deducted nothing", async () => {
-    const repository = createInMemoryWorkflowRepository();
-    await startCashApplicationRun({
-      advice: advice("0.00", "1250.00"),
-      invoices,
-      env,
-      repository,
-      source: settled
-    });
-
-    // AC-02 again: no deduction, no Forensics run, no Maya item.
-    expect(await repository.listDeductionClaims()).toHaveLength(0);
-  });
-
-  it("does not queue work for a payment still waiting on the money", async () => {
-    const repository = createInMemoryWorkflowRepository();
-    await startCashApplicationRun({
-      advice: advice("250.00", "1000.00"),
-      invoices,
-      env,
-      repository,
-      source: { findReceipt: () => Promise.resolve({ status: "not_found", reason: "no receipt" }) as never }
-    });
-
-    expect(await repository.listDeductionClaims()).toHaveLength(0);
+  it("still keeps the remittance evidence chain intact", () => {
+    for (const table of [
+      "recoup_cash_inbox",
+      "recoup_cash_remittances",
+      "recoup_cash_remittance_lines"
+    ]) {
+      expect(store).toContain(table);
+    }
   });
 });

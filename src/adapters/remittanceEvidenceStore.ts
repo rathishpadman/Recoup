@@ -110,43 +110,4 @@ export async function persistRemittanceEvidence(
     }))
   );
 
-  /**
-   * The advice as an evidence document.
-   *
-   * recoup_deduction_claims.remittance_evidence_id is a foreign key into this
-   * table, so the deduction handed to a person cannot exist without it. The
-   * remittance id is reused as the evidence id so the claim can cite the
-   * document without a second lookup.
-   *
-   * Written last, not first. It is only needed before the claim, which a
-   * later module writes, and putting it ahead of the chain above meant one
-   * rejected row stopped the remittance being recorded at all.
-   *
-   * provenance is one of four values the schema allows, and provider_api is
-   * the accurate one: the document reached us through the mail provider’s
-   * API. Passing the run’s provenance mode here read correctly and failed
-   * the check constraint.
-   *
-   * payload_json is the mapped advice, never the attachment. The file itself
-   * was scanned but never cleared for storage, and its hash is what
-   * identifies it here.
-   */
-  await write("recoup_evidence_documents", {
-    evidence_id: advice.remittanceId,
-    document_type: "remittance_advice",
-    source_system: message.provider,
-    customer_id: advice.customerReference,
-    source_record_id: advice.remittanceId,
-    payload_json: {
-      paymentReference: advice.paymentReference,
-      currency: advice.currency,
-      instructedPaymentAmount: advice.instructedPaymentAmount,
-      mapperVersion: advice.mapperVersion,
-      lineCount: advice.lines.length
-    },
-    content_hash: attachmentContentHash,
-    retrieved_at: message.receivedAt,
-    provenance: "provider_api",
-    created_at: message.receivedAt
-  });
 }

@@ -69,29 +69,6 @@ function capture(): { writes: Written[]; fetcher: typeof fetch } {
 
 const config = { url: "https://stub.invalid", serviceRoleKey: "stub-key" };
 
-/** Runs the writer once and exposes what it wrote, in order. */
-async function run(): Promise<{
-  tables: string[];
-  body: (table: string) => Record<string, unknown> | undefined;
-}> {
-  const { writes, fetcher } = capture();
-
-  await persistRemittanceEvidence({
-    ...config,
-    inboxId: "INBOX-1",
-    advice,
-    message,
-    // A real sha256: the column is constrained to ^[a-f0-9]{64}$ and intake
-    // always supplies one, so a short stub tested a shape production never sends.
-    attachmentContentHash: "fa05b47128b9dcb46903cecb7b80a0f8add2cad46fb03be9bd0dae5a7d12c60a",
-    fetcher
-  });
-
-  return {
-    tables: writes.map((write) => write.table),
-    body: (table) => writes.find((write) => write.table === table)?.body
-  };
-}
 
 describe("remittance evidence persistence", () => {
   it("writes inbox, remittance and lines in dependency order", async () => {
@@ -107,13 +84,11 @@ describe("remittance evidence persistence", () => {
     });
 
     // Each table references the one before it, so the order is the contract.
-    // The evidence document joined the sequence when deduction claims began
-    // citing it by foreign key; the ordering guarantee is unchanged.
+
     expect(writes.map((write) => write.table)).toEqual([
       "recoup_cash_inbox",
       "recoup_cash_remittances",
-      "recoup_cash_remittance_lines",
-      "recoup_evidence_documents"
+      "recoup_cash_remittance_lines"
     ]);
   });
 
@@ -199,74 +174,3 @@ describe("remittance evidence persistence", () => {
   });
 });
 
-describe("the evidence document behind a deduction claim", () => {
-  /**
-   * recoup_deduction_claims.remittance_evidence_id is a foreign key into
-   * recoup_evidence_documents. Writing a claim without the document first is
-   * an FK violation in Postgres and completely invisible to an in-memory
-   * repository — the same trap that broke the allocation and case writes.
-   */
-  it("writes the remittance advice as an evidence document", async () => {
-    const { tables } = await run();
-
-    expect(tables).toContain("recoup_evidence_documents");
-  });
-
-  it("files it under the remittance id the claim will cite", async () => {
-    const { body } = await run();
-    const doc = body("recoup_evidence_documents");
-
-    expect(doc?.evidence_id).toBe("REM-1");
-  });
-
-  it("writes it last, so a rejected row cannot strand the remittance", async () => {
-    const { tables } = await run();
-
-    /**
-     * It went first at one point, and a check-constraint failure there took
-     * the whole chain down with it: no remittance row, so the case that came
-     * later died on a foreign key. Nothing in this function references the
-     * document — only the claim does, and that is written elsewhere and
-     * afterwards.
-     */
-    expect(tables[tables.length - 1]).toBe("recoup_evidence_documents");
-  });
-
-  it("uses a provenance value the schema actually permits", async () => {
-    const { body } = await run();
-
-    // The column allows sap_odata, source_generated, uploaded_document and
-    // provider_api. The run’s own provenance mode ("live") is not among them,
-    // which only Postgres could tell us.
-    expect(["sap_odata", "source_generated", "uploaded_document", "provider_api"]).toContain(
-      body("recoup_evidence_documents")?.provenance
-    );
-  });
-
-  it("hashes to the shape the content_hash constraint requires", async () => {
-    const { body } = await run();
-
-    expect(String(body("recoup_evidence_documents")?.content_hash)).toMatch(/^[a-f0-9]{64}$/u);
-  });
-
-  it("declares a document type the schema knows", async () => {
-    const { body } = await run();
-
-    expect(body("recoup_evidence_documents")?.document_type).toBe("remittance_advice");
-  });
-
-  it("carries no raw attachment body, only its hash", async () => {
-    const { body } = await run();
-    const doc = body("recoup_evidence_documents");
-
-    expect(doc?.content_hash).toBeDefined();
-    expect(JSON.stringify(doc)).not.toContain("customer_reference,legal_entity");
-  });
-
-  it("says where it came from rather than claiming to be a finance system", () => {
-    // Provenance is how a reviewer knows this is not an AR extract.
-    return run().then(({ body }) => {
-      expect(body("recoup_evidence_documents")?.provenance).toBeDefined();
-    });
-  });
-});
