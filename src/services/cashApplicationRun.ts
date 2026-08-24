@@ -71,6 +71,94 @@ function holdSummary(status: string, reason: string): string {
   return `Stopped: ${reason.replace(/_/gu, " ")}`;
 }
 
+/**
+ * What a refusal says on the screen.
+ *
+ * Written for the person who has to do something about it, and derived only
+ * from the reason code. The diagnostic detail can quote the filename or the
+ * scanner verdict; this cannot, because the attachment was refused before
+ * anything read it and nothing from inside it has been cleared for display.
+ */
+const REFUSAL_SUMMARY: Record<string, string> = {
+  attachment_unsupported: "Stopped: the attached file is not in a format we accept",
+  attachment_unsafe: "Stopped: the attachment failed a security check",
+  attachment_quarantined: "Stopped: the attachment was quarantined by the security check",
+  attachment_missing: "Stopped: the email arrived with no attachment",
+  scan_unavailable: "Stopped: the security check could not run, so the file was not opened",
+  wrong_recipient: "Stopped: sent to a mailbox address we do not accept remittances on",
+  signature_invalid: "Stopped: the sender could not be verified",
+  mapping_failed: "Stopped: the file was accepted but could not be read as a payment note"
+};
+
+export interface RecordRefusedIntakeInput {
+  repository: WorkflowRepository;
+  /** The inbound message, so a retry of the same email reuses its run. */
+  messageId: string;
+  reason: string;
+  /** Diagnostic. Recorded as the event status, never as the summary. */
+  detail: string;
+  provenanceMode: RemittanceAdviceInput["provenanceMode"];
+  now?: () => Date;
+}
+
+/**
+ * AC-05: a refused payment note enters Review with a visible safe blocker.
+ *
+ * It used to enter nothing. Intake refused the file, the caller received a
+ * 422 and the operations screen showed no trace, so a customer’s note could
+ * be turned away with nobody aware it had arrived. Safe, and invisible;
+ * invisible is the half that fails the requirement.
+ *
+ * The run carries no allocation, case or handoff. Nothing was parsed, so
+ * there is nothing to say about the contents beyond the fact of the refusal.
+ */
+export async function recordRefusedIntake(
+  input: RecordRefusedIntakeInput
+): Promise<CashApplicationRunOutcome> {
+  const { repository, messageId, reason, detail, provenanceMode } = input;
+  const now = input.now ?? (() => new Date());
+  const timestamp = now().toISOString();
+
+  // Same identity rule as an accepted run, so re-delivering one bad email
+  // updates its run instead of stacking a second row for the same message.
+  const runId = `RUN-${deriveRunCommandKey(messageId).slice(0, 16)}`;
+  const correlationId = `COR-${messageId}`;
+
+  await repository.createRun({
+    runId,
+    workflowName: "cash_application_to_maya",
+    workflowVersion: "v1",
+    triggerType: TRIGGER_BY_PROVENANCE[provenanceMode],
+    triggerRecordId: messageId,
+    correlationId,
+    state: "Received",
+    currentPhase: "intake",
+    provenanceMode,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+
+  await repository.appendEvent({
+    runId,
+    event: {
+      specialist: "cash_application",
+      eventId: `EVT-${runId}-refused-intake`,
+      runId,
+      correlationId,
+      eventType: "phase_blocked",
+      phase: "intake",
+      status: detail,
+      safeSummary: REFUSAL_SUMMARY[reason] ?? "Stopped: the payment note could not be accepted",
+      recordIds: [messageId],
+      provenanceMode,
+      occurredAt: timestamp
+    }
+  });
+
+  await repository.updateRunState({ runId, state: "Review", currentPhase: "intake" });
+
+  return { runId, state: "Review", caseId: undefined, liveCase: undefined };
+}
 export async function startCashApplicationRun(
   input: StartCashApplicationRunInput
 ): Promise<CashApplicationRunOutcome> {

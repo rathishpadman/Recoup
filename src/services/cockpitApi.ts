@@ -35,7 +35,7 @@ import {
 } from "../adapters/inboundRemittance.js";
 import { acceptInboundRemittance } from "./remittanceIntake.js";
 import { createDemoAttachmentSecurityService } from "./attachmentSecurity.js";
-import { startCashApplicationRun } from "./cashApplicationRun.js";
+import { recordRefusedIntake, startCashApplicationRun } from "./cashApplicationRun.js";
 import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
 import { persistRemittanceEvidence } from "../adapters/remittanceEvidenceStore.js";
@@ -1103,8 +1103,25 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
     });
 
     if (intake.status !== "accepted") {
-      const status = intake.reason === "replay_detected" ? 409 : 422;
-      return { status, body: { error: "Inbound rejected.", reason: intake.reason } };
+      // A duplicate delivery is correctly ignored and must stay invisible:
+      // opening a run for it would put the same payment on screen twice.
+      // Every other refusal is work for a person (AC-05), and used to leave
+      // no trace anywhere.
+      if (intake.reason === "replay_detected") {
+        return { status: 409, body: { error: "Inbound rejected.", reason: intake.reason } };
+      }
+
+      if (intake.reason !== "intake_disabled") {
+        await recordRefusedIntake({
+          repository: options.workflowRepository ?? resolveWorkflowRepository(runtimeEnv).repository,
+          messageId: input.messageId,
+          reason: intake.reason,
+          detail: intake.detail,
+          provenanceMode: "live"
+        });
+      }
+
+      return { status: 422, body: { error: "Inbound rejected.", reason: intake.reason } };
     }
 
     const invoices = intake.advice.lines.map((line) => ({
