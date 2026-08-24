@@ -69,6 +69,28 @@ function capture(): { writes: Written[]; fetcher: typeof fetch } {
 
 const config = { url: "https://stub.invalid", serviceRoleKey: "stub-key" };
 
+/** Runs the writer once and exposes what it wrote, in order. */
+async function run(): Promise<{
+  tables: string[];
+  body: (table: string) => Record<string, unknown> | undefined;
+}> {
+  const { writes, fetcher } = capture();
+
+  await persistRemittanceEvidence({
+    ...config,
+    inboxId: "INBOX-1",
+    advice,
+    message,
+    attachmentContentHash: "abc123",
+    fetcher
+  });
+
+  return {
+    tables: writes.map((write) => write.table),
+    body: (table) => writes.find((write) => write.table === table)?.body
+  };
+}
+
 describe("remittance evidence persistence", () => {
   it("writes inbox, remittance and lines in dependency order", async () => {
     const { writes, fetcher } = capture();
@@ -83,8 +105,11 @@ describe("remittance evidence persistence", () => {
     });
 
     // Each table references the one before it, so the order is the contract.
+    // The evidence document joined the sequence when deduction claims began
+    // citing it by foreign key; the ordering guarantee is unchanged.
     expect(writes.map((write) => write.table)).toEqual([
       "recoup_cash_inbox",
+      "recoup_evidence_documents",
       "recoup_cash_remittances",
       "recoup_cash_remittance_lines"
     ]);
@@ -120,7 +145,9 @@ describe("remittance evidence persistence", () => {
       attachmentContentHash: "hash-abc"
     });
 
-    const remittance = writes[1]?.body ?? {};
+    // By table, not by position: an inserted write should not silently
+    // repoint this assertion at a different row.
+    const remittance = writes.find((write) => write.table === "recoup_cash_remittances")?.body ?? {};
     expect(remittance.remittance_id).toBe("REM-1");
     expect(remittance.inbox_id).toBe("INBOX-1");
     expect(remittance.mapper_version).toBe("csv-v1");
@@ -139,7 +166,8 @@ describe("remittance evidence persistence", () => {
       attachmentContentHash: "hash-abc"
     });
 
-    const lines = writes[2]?.body as unknown as Record<string, unknown>[];
+    const lines = writes.find((write) => write.table === "recoup_cash_remittance_lines")
+      ?.body as unknown as Record<string, unknown>[];
     expect(Array.isArray(lines)).toBe(true);
     expect(lines).toHaveLength(1);
     expect(lines[0]?.line_id).toBe("LINE-1");
@@ -166,5 +194,50 @@ describe("remittance evidence persistence", () => {
         attachmentContentHash: "hash-abc"
       })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("the evidence document behind a deduction claim", () => {
+  /**
+   * recoup_deduction_claims.remittance_evidence_id is a foreign key into
+   * recoup_evidence_documents. Writing a claim without the document first is
+   * an FK violation in Postgres and completely invisible to an in-memory
+   * repository — the same trap that broke the allocation and case writes.
+   */
+  it("writes the remittance advice as an evidence document", async () => {
+    const { tables } = await run();
+
+    expect(tables).toContain("recoup_evidence_documents");
+  });
+
+  it("files it under the remittance id the claim will cite", async () => {
+    const { body } = await run();
+    const doc = body("recoup_evidence_documents");
+
+    expect(doc?.evidence_id).toBe("REM-1");
+  });
+
+  it("writes it before anything can reference it", async () => {
+    const { tables } = await run();
+
+    // Ordering is the whole contract of this module.
+    expect(tables.indexOf("recoup_evidence_documents")).toBeLessThan(
+      tables.indexOf("recoup_cash_remittance_lines")
+    );
+  });
+
+  it("carries no raw attachment body, only its hash", async () => {
+    const { body } = await run();
+    const doc = body("recoup_evidence_documents");
+
+    expect(doc?.content_hash).toBeDefined();
+    expect(JSON.stringify(doc)).not.toContain("customer_reference,legal_entity");
+  });
+
+  it("says where it came from rather than claiming to be a finance system", () => {
+    // Provenance is how a reviewer knows this is not an AR extract.
+    return run().then(({ body }) => {
+      expect(body("recoup_evidence_documents")?.provenance).toBeDefined();
+    });
   });
 });

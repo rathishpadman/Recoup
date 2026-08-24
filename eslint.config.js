@@ -11,6 +11,8 @@ export default [
       "design-system/**",
       "mockups/**",
       "output/**",
+      // A plain Node build script, outside the typed project on purpose.
+      "scripts/*.cjs",
       "*.config.js",
       "*.config.cjs",
       "*.config.mjs",

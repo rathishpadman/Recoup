@@ -82,6 +82,36 @@ export async function persistRemittanceEvidence(
     status: "accepted"
   });
 
+  /**
+   * The advice as an evidence document.
+   *
+   * recoup_deduction_claims.remittance_evidence_id is a foreign key into this
+   * table, so the deduction handed to a person cannot exist without it. The
+   * remittance id is reused as the evidence id so the claim can cite the
+   * document without a second lookup.
+   *
+   * payload_json is the mapped advice, never the attachment. The file itself
+   * was scanned but not cleared for storage, and its hash is what identifies
+   * it here.
+   */
+  await write("recoup_evidence_documents", {
+    evidence_id: advice.remittanceId,
+    document_type: "remittance_advice",
+    source_system: message.provider,
+    customer_id: advice.customerReference,
+    source_record_id: advice.remittanceId,
+    payload_json: {
+      paymentReference: advice.paymentReference,
+      currency: advice.currency,
+      instructedPaymentAmount: advice.instructedPaymentAmount,
+      mapperVersion: advice.mapperVersion,
+      lineCount: advice.lines.length
+    },
+    content_hash: attachmentContentHash,
+    retrieved_at: message.receivedAt,
+    provenance: advice.provenanceMode,
+    created_at: message.receivedAt
+  });
   await write("recoup_cash_remittances", {
     remittance_id: advice.remittanceId,
     inbox_id: inboxId,

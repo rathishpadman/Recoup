@@ -417,6 +417,29 @@ async function completeCashApplicationRun(input: CompleteRunInput): Promise<Cash
   // Before the case, which references it by foreign key.
   await repository.insertAllocation(outcome.allocation);
   await repository.upsertCase(liveCase);
+
+  /**
+   * The handover itself, rather than the announcement of one.
+   *
+   * The case above reaches the operations screen. The deduction work list a
+   * person opens is built from claims, so until this write existed the
+   * maya_ready event below said work had been passed to someone when nothing
+   * had moved.
+   *
+   * Every value comes off the case rather than being recomputed. A second
+   * derivation is a second chance to disagree about the money.
+   */
+  await repository.insertDeductionClaim({
+    claimId: liveCase.caseId,
+    lineId: firstLine.remittanceLineId,
+    customerId: liveCase.customerId,
+    invoiceRef: firstLine.invoiceRecordId,
+    claimAmount: liveCase.shortPaymentAmount,
+    reasonCode: liveCase.validatedReason,
+    remittanceEvidenceId: liveCase.remittanceId,
+    recordIds: liveCase.recordIds,
+    createdAt: liveCase.createdAt
+  });
   await record(
     "case_created",
     "case",

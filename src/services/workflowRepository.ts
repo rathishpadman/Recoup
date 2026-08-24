@@ -25,6 +25,25 @@ export interface AppendEventInput {
   event: Omit<WorkflowEvent, "cursor" | "runSequence" | "schemaVersion">;
 }
 
+/**
+ * One deduction waiting for a person, in the shape the work list reads.
+ *
+ * Money stays a string end to end. The column behind it is numeric, and the
+ * last time a numeric column was read without casting, 250.00 arrived as 250.
+ */
+export interface DeductionClaim {
+  claimId: string;
+  lineId: string;
+  customerId: string;
+  invoiceRef: string;
+  claimAmount: string;
+  reasonCode: string;
+  remittanceEvidenceId: string;
+  recordIds: string[];
+  createdAt: string;
+  /** Never set from a live run: a scenario id on a live surface is banned. */
+  goldScenarioId?: string;
+}
 export interface WorkflowRepository {
   createRun(run: WorkflowRun): Promise<WorkflowRun>;
   getRun(runId: string): Promise<WorkflowRun | undefined>;
@@ -54,6 +73,13 @@ export interface WorkflowRepository {
   upsertCase(liveCase: LiveDeductionCase): Promise<LiveDeductionCase>;
   getCase(caseId: string): Promise<LiveDeductionCase | undefined>;
   listCases(): Promise<LiveDeductionCase[]>;
+  /**
+   * The handover a person actually sees. A case alone reaches only the
+   * operations screen; the deduction work list is built from claims, so a run
+   * that wrote no claim announced a handover that never happened.
+   */
+  insertDeductionClaim(claim: DeductionClaim): Promise<DeductionClaim>;
+  listDeductionClaims(): Promise<DeductionClaim[]>;
 }
 
 export function createInMemoryWorkflowRepository(options?: {
@@ -64,6 +90,7 @@ export function createInMemoryWorkflowRepository(options?: {
   const events: WorkflowEvent[] = [];
   const allocations = new Map<string, CashAllocationReceipt>();
   const cases = new Map<string, LiveDeductionCase>();
+  const claims = new Map<string, DeductionClaim>();
   let cursor = 0;
 
   function runSequenceFor(runId: string): number {
@@ -155,6 +182,15 @@ export function createInMemoryWorkflowRepository(options?: {
 
     listCases() {
       return Promise.resolve([...cases.values()]);
+    },
+
+    insertDeductionClaim(claim) {
+      claims.set(claim.claimId, claim);
+      return Promise.resolve(claim);
+    },
+
+    listDeductionClaims() {
+      return Promise.resolve([...claims.values()]);
     }
   };
 }

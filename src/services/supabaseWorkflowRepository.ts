@@ -8,7 +8,7 @@ import {
   type WorkflowEvent,
   type WorkflowRun
 } from "../types/workflow.js";
-import type { AppendEventInput, WorkflowRepository } from "./workflowRepository.js";
+import type { DeductionClaim, AppendEventInput, WorkflowRepository } from "./workflowRepository.js";
 
 /**
  * Supabase-backed workflow repository.
@@ -395,6 +395,51 @@ export function createSupabaseWorkflowRepository(
       })) as Record<string, unknown>[];
 
       return rows.map(mapCase);
+    },
+
+    async insertDeductionClaim(claim: DeductionClaim) {
+      /**
+       * merge-duplicates, not a plain insert: the case id is derived from the
+       * allocation, line and reason, so replaying one inbound message resolves
+       * to the same claim rather than queueing the same deduction twice.
+       */
+      await request("/recoup_deduction_claims", {
+        method: "POST",
+        headers: headers(serviceRoleKey, { Prefer: "resolution=merge-duplicates" }),
+        body: JSON.stringify({
+          claim_id: claim.claimId,
+          line_id: claim.lineId,
+          customer_id: claim.customerId,
+          invoice_ref: claim.invoiceRef,
+          claim_amount: claim.claimAmount,
+          reason_code: claim.reasonCode,
+          remittance_evidence_id: claim.remittanceEvidenceId,
+          record_ids: claim.recordIds,
+          created_at: claim.createdAt
+        })
+      });
+
+      return claim;
+    },
+
+    async listDeductionClaims() {
+      // claim_amount is numeric. Read without the cast and the cents are gone.
+      const rows = (await request("/recoup_deduction_claims?select=*,claim_amount::text", {
+        method: "GET",
+        headers: headers(serviceRoleKey)
+      })) as Record<string, unknown>[];
+
+      return rows.map((row) => ({
+        claimId: String(row.claim_id),
+        lineId: String(row.line_id),
+        customerId: String(row.customer_id),
+        invoiceRef: String(row.invoice_ref),
+        claimAmount: String(row.claim_amount),
+        reasonCode: String(row.reason_code),
+        remittanceEvidenceId: String(row.remittance_evidence_id),
+        recordIds: Array.isArray(row.record_ids) ? row.record_ids.map(String) : [],
+        createdAt: String(row.created_at)
+      }));
     }
   };
 }
