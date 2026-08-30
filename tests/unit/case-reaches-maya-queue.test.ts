@@ -66,3 +66,35 @@ describe("the cash pipeline leaves Maya's claim table alone", () => {
     }
   });
 });
+
+describe("why no amount of evidence closes this", () => {
+  const loader = readFileSync("src/adapters/supabaseSyntheticSource.ts", "utf8");
+
+  it("requires every line to be one of eight authored scenarios", () => {
+    /**
+     * The stop is architectural, not a data gap.
+     *
+     *   const scenarioId = lineId.match(/^(S[1-8])-/u)?.[1];
+     *   return z.enum(["S1"..."S8"]).parse(scenarioId);
+     *
+     * An unmatched line id parses undefined and throws, and the throw is
+     * caught as a missing source, so one foreign line fails the surface
+     * closed for every row.
+     *
+     * A case from an email has a line id like LINE-1. It cannot join this
+     * dataset. The deduction workspace is not a work list that accepts new
+     * items; it is a projection of a fixed eight-scenario fixture.
+     *
+     * Supplying rehearsal carrier evidence — the pattern the bank
+     * confirmation already uses — does not help. The rules would run
+     * honestly and the verdict would be real, and the line id would still be
+     * refused one layer further down.
+     *
+     * Connecting live cash cases to this surface means rebuilding it to
+     * accept arbitrary lines: scenarioIdFromLineId, the schema that requires
+     * a scenarioId, and the fail-closed loader around them.
+     */
+    expect(loader).toMatch(/scenarioIdFromLineId/u);
+    expect(loader).toMatch(/S\[1-8\]/u);
+  });
+});
