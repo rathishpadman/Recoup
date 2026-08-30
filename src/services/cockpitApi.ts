@@ -44,6 +44,10 @@ import { isCashCapabilityEnabled } from "../../config/cashRollout.js";
 import { createSupabaseCashReceiptSource } from "../adapters/supabaseCashReceipt.js";
 import { persistRemittanceEvidence } from "../adapters/remittanceEvidenceStore.js";
 import {
+  buildSettlementRow,
+  CASH_DEMO_SETTLEMENTS
+} from "./cashDemoSettlements.js";
+import {
   buildScenarioCsv,
   findTestPaymentScenario,
   TEST_PAYMENT_SCENARIOS
@@ -1568,7 +1572,42 @@ export function createCockpitApi(options: CockpitApiOptions = {}): Express {
         return;
       }
 
-      response.json({ reset: true, deleted: (await upstream.json()) as unknown });
+      const deleted = (await upstream.json()) as unknown;
+
+      /**
+       * Restore the bank feed the scenarios read from.
+       *
+       * Reset means "back to the starting conditions", and the starting
+       * conditions include confirmations for the payments the test files
+       * cite. Without them every emailed scenario holds at Waiting, because
+       * a remittance advice is the customer’s claim and not proof the money
+       * arrived.
+       *
+       * A proxy for the bank feed, labelled as one on every row. Seeding
+       * fails soft: the delete is the part that must be reported honestly,
+       * and a reset that cleared the board is still a reset even if the
+       * fixtures did not land.
+       */
+      const now = new Date();
+      let confirmations = 0;
+
+      for (const settlement of CASH_DEMO_SETTLEMENTS) {
+        const seeded = await fetcher(`${supabaseUrl}/rest/v1/recoup_cash_receipts`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            apikey: serviceRoleKey,
+            authorization: `Bearer ${serviceRoleKey}`
+          },
+          body: JSON.stringify(buildSettlementRow(settlement, now))
+        });
+
+        if (seeded.ok) {
+          confirmations += 1;
+        }
+      }
+
+      response.json({ reset: true, deleted, settlementConfirmations: confirmations });
     } catch {
       response.status(502).json({ error: "Cash demo reset failed." });
     }
