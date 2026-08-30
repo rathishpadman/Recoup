@@ -70,7 +70,27 @@ describe("the cash pipeline leaves Maya's claim table alone", () => {
 describe("why no amount of evidence closes this", () => {
   const loader = readFileSync("src/adapters/supabaseSyntheticSource.ts", "utf8");
 
-  it("requires every line to be one of eight authored scenarios", () => {
+  it("is forbidden by SA-CA-03, not merely unimplemented", () => {
+    /**
+     * The signed SDD states it directly:
+     *
+     *   SA-CA-03 | Live cases never alter S1-S8 storage, enums or gold totals
+     *
+     * S1-S8 is the gold dataset the parity tests measure against. A live case
+     * joining it would move gold totals, which is the one thing that dataset
+     * exists to hold still. tests/invariants/live-case-gold-isolation.ts
+     * enforces it and the schema comments repeat it.
+     *
+     * So the handover stopping at the case is the design, not a gap. The
+     * destination for a live cash case is the operations case view, which is
+     * where it already goes. Routing it into the deduction workspace would
+     * breach a ratified invariant, and precedence puts INVARIANTS.md above
+     * any judgement made here.
+     */
+    expect(loader).toMatch(/scenarioIdFromLineId/u);
+  });
+
+  it("still refuses a foreign line id at the loader", () => {
     /**
      * The stop is architectural, not a data gap.
      *
