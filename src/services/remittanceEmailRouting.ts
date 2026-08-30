@@ -83,29 +83,70 @@ function firstAttachment(event: ResendInboundEventLike): Record<string, unknown>
 /**
  * The attachment bytes, however Resend chose to send them.
  *
- * Inline `content` is the documented shape and the one the adapter test
- * assumed. Resend does not always use it, and an assumption checked only
- * against a stub is how most of the defects on this path got to production, so
- * the linked form is handled rather than trusted not to happen.
+ * Three shapes, because production uses the third and the tests only covered
+ * the first two:
+ *
+ *   content       inline base64, the documented shape
+ *   download_url  a direct link
+ *   id            an attachment id, and nothing else
+ *
+ * A real email.received carries only the id and a size. Resolving it costs an
+ * extra hop through /emails/inbound/{email}/attachments/{id}, which returns a
+ * short-lived download_url. Until that hop existed a genuine email reached the
+ * route and produced nothing at all, while every stubbed test passed.
  */
 async function readAttachmentBytes(
   attachment: Record<string, unknown>,
   env: RuntimeEnv,
-  fetcher: typeof fetch
+  fetcher: typeof fetch,
+  emailId: string
 ): Promise<string | undefined> {
   if (typeof attachment.content === "string" && attachment.content.length > 0) {
     return attachment.content;
   }
 
-  const url = attachment.download_url;
   const apiKey = env.RESEND_API_KEY?.trim();
 
-  if (typeof url !== "string" || apiKey === undefined || apiKey.length === 0) {
+  if (apiKey === undefined || apiKey.length === 0) {
     return undefined;
   }
 
+  const auth = { authorization: `Bearer ${apiKey}` };
+
   try {
-    const response = await fetcher(url, { headers: { authorization: `Bearer ${apiKey}` } });
+    let url = typeof attachment.download_url === "string" ? attachment.download_url : undefined;
+
+    if (url === undefined) {
+      // The id-only shape: ask Resend where the file lives before fetching it.
+      const attachmentId = attachment.id;
+
+      if (typeof attachmentId !== "string" || attachmentId.length === 0 || emailId.length === 0) {
+        return undefined;
+      }
+
+      const lookup = await fetcher(
+        `https://api.resend.com/emails/inbound/${encodeURIComponent(emailId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { headers: auth }
+      );
+
+      if (!lookup.ok) {
+        return undefined;
+      }
+
+      const described = (await lookup.json()) as { download_url?: unknown };
+      url = typeof described.download_url === "string" ? described.download_url : undefined;
+
+      if (url === undefined) {
+        return undefined;
+      }
+    }
+
+    /**
+     * The download url is pre-signed and short-lived. Sending the API key to a
+     * CDN host that did not ask for it leaks the credential, so it goes only on
+     * the api.resend.com lookup above.
+     */
+    const response = await fetcher(url);
 
     return response.ok
       ? Buffer.from(await response.arrayBuffer()).toString("base64")
@@ -144,7 +185,12 @@ export async function routeRemittanceEmail(input: {
     return { status: "no_attachment" };
   }
 
-  const contentBase64 = await readAttachmentBytes(attachment, env, fetcher);
+  const contentBase64 = await readAttachmentBytes(
+    attachment,
+    env,
+    fetcher,
+    readText(event.data?.email_id)
+  );
 
   if (contentBase64 === undefined) {
     return { status: "no_attachment" };

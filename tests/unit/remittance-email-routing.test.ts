@@ -139,6 +139,55 @@ describe("handing it to intake", () => {
     expect(result.status).toBe("routed");
   });
 
+  it("resolves the attachment when Resend sends only an id", async () => {
+    /**
+     * The shape production actually sends. A real email.received carries
+     * neither the bytes nor a link — only:
+     *
+     *   { filename, content_type, content_disposition, content_id, id, size }
+     *
+     * The bytes need two hops: GET /emails/inbound/{email}/attachments/{id}
+     * returns a short-lived download_url, and that url returns the file.
+     *
+     * Both earlier tests here passed against stubs that inlined content or
+     * supplied download_url directly. Neither shape is what Resend sends, so
+     * a real email reached the route and produced nothing — the same defect
+     * class as every other one found on this path.
+     */
+    const byId = event(["remittance@north-bay.dev"], [
+      { filename: "advice.csv", content_type: "text/csv", id: "att_1", size: 3 }
+    ]);
+
+    const seen: string[] = [];
+    const fetcher = ((url: string, init?: { body: string }) => {
+      seen.push(url);
+
+      if (url.includes("/attachments/att_1")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ download_url: "https://cdn.resend.invalid/f" }), { status: 200 })
+        );
+      }
+
+      if (url.includes("cdn.resend.invalid")) {
+        return Promise.resolve(new Response("p,q", { status: 200 }));
+      }
+
+      const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
+      const attachment = body.attachment as Record<string, unknown>;
+      expect(Buffer.from(String(attachment.contentBase64), "base64").toString("utf8")).toBe("p,q");
+      return Promise.resolve(new Response("{}", { status: 202 }));
+    }) as unknown as typeof fetch;
+
+    const result = await routeRemittanceEmail({
+      event: byId,
+      env: { ...env, RESEND_API_KEY: "key" },
+      fetcher
+    });
+
+    expect(result.status).toBe("routed");
+    // The lookup hop must actually happen, not be skipped by a lucky default.
+    expect(seen.some((u) => u.includes("/emails/inbound/"))).toBe(true);
+  });
   it("says so plainly when the mail carried no attachment", async () => {
     const result = await routeRemittanceEmail({
       event: event(["remittance@north-bay.dev"], []),
